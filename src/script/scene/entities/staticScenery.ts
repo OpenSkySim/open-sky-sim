@@ -11,6 +11,8 @@ export class StaticSceneryEntity implements Entity {
 
     private lodHelper: LODHelper;
 
+    readonly tags: string[] = [];
+
     constructor(private model: Model, lodBias: number = DEFAULT_LOD_BIAS) {
         this.lodHelper = new LODHelper(model, lodBias);
     }
