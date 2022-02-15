@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DEFAULT_LOD_BIAS, LODHelper } from '../../render/helpers';
+import { DEFAULT_LOD_BIAS, LODHelper, modelMaxSize } from '../../render/helpers';
 import { CanvasPainter } from "../../render/screen/canvasPainter";
 import { Entity, ENTITY_TAGS } from "../entity";
 import { Model } from '../models/models';
@@ -50,6 +50,10 @@ export class GroundTargetEntity implements Entity {
 
     get targetLocation(): string {
         return this.location;
+    }
+
+    get maxSize(): number {
+        return modelMaxSize(this.model, this.scale);
     }
 
     init(scene: Scene): void {
