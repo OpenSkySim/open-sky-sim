@@ -2,6 +2,10 @@
 export enum PaletteCategory {
     HUD_TEXT = 'HUD_TEXT',
 
+    COCKPIT_AI_SKY = 'COCKPIT_AI_SKY',
+    COCKPIT_AI_GROUND = 'COCKPIT_AI_GROUND',
+    COCKPIT_MFD_BACKGROUND = 'HUD_MFD_BACKGROUND',
+
     BACKGROUND = 'BACKGROUND',
 
     FOG_SKY = 'FOG_SKY',
@@ -64,7 +68,7 @@ export enum PaletteTime {
     NIGHT = 'night'
 };
 
-export type PaletteColors = Record<PaletteCategory, string>;
+export type PaletteColors = Record<PaletteCategory, string | [string, string]>;
 
 export type PaletteValues = {
     [PaletteCategory.FOG_SKY]: number;
@@ -110,6 +114,10 @@ export function FogValueCategory(cat: PaletteCategory): PaletteFogCategories {
 
 const defaultPaletteColors: PaletteColors = {
     [PaletteCategory.HUD_TEXT]: '', // Use default
+
+    [PaletteCategory.COCKPIT_AI_SKY]: '#00ffff',
+    [PaletteCategory.COCKPIT_AI_GROUND]: '#ff8800',
+    [PaletteCategory.COCKPIT_MFD_BACKGROUND]: '#000000',
 
     [PaletteCategory.BACKGROUND]: '#FFFFFF',
 
@@ -178,3 +186,13 @@ export const DefaultPalette: Palette = {
     values: defaultPaletteValues,
     time: PaletteTime.DAY
 };
+
+export function PaletteColor(p: Palette, c: PaletteCategory): string {
+    const v = p.colors[c];
+    return typeof v === 'string' ? v : v[0];
+}
+
+export function PaletteColorShade(p: Palette, c: PaletteCategory): string {
+    const v = p.colors[c];
+    return typeof v === 'string' ? v : v[1];
+}

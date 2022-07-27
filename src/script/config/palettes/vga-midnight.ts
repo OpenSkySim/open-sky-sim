@@ -3,6 +3,10 @@ import { Palette, PaletteCategory, PaletteColors, PaletteTime, PaletteValues } f
 const colors: PaletteColors = {
     [PaletteCategory.HUD_TEXT]: '#51F351',
 
+    [PaletteCategory.COCKPIT_AI_SKY]: '#2c558e',
+    [PaletteCategory.COCKPIT_AI_GROUND]: '#ffa200',
+    [PaletteCategory.COCKPIT_MFD_BACKGROUND]: '#142901',
+
     [PaletteCategory.BACKGROUND]: '#753C79',
 
     [PaletteCategory.FOG_SKY]: '#753C79',
@@ -65,7 +69,7 @@ const values: PaletteValues = {
     [PaletteCategory.FOG_SPECKLE]: 0.003
 };
 
-export const NightPalette: Palette = {
+export const VGAMidnightPalette: Palette = {
     colors: colors,
     values: values,
     time: PaletteTime.NIGHT
