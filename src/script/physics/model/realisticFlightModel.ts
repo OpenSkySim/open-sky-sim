@@ -1,28 +1,30 @@
 import * as THREE from 'three';
 import { MAX_ALTITUDE, PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE } from '../../defs';
 import { FORWARD, PI_OVER_180, RIGHT, UP, calculatePitchRoll, clamp, isZero, roundToZero } from '../../utils/math';
-import { computeAngleOfAttack, computeLoadFactorG } from '../aeroUtils';
+import { computeAngleOfAttack, computeAirDensity, computeDynamicPressure, computeDynamicPressureDragPenalty, computeLoadFactorG, computeThrustDensityFactor } from '../aeroUtils';
 import { FlightModel } from './flightModel';
 
 const THROTTLE_UP_RATE = 0.02;
 const THROTTLE_DOWN_RATE = 0.07;
 const YAW_RATE_LANDED = YAW_RATE * 2.0;
 
-const DRY_MASS = 20000; // kg
-const WING_AREA = 78; // m²
-const WING_SPAN = 13.56; // m, F-22 approximate
-const GROUND_AIR_DENSITY = 1.225; // kg/m³
+// F-16C Block 50/52 profile (USAF fact sheet, aero-web.org, ultimatespecs.com).
+const DRY_MASS = 13000; // kg, typical combat weight (~60% fuel, clean)
+const WING_AREA = 27.87; // m², 300 ft²
+const WING_SPAN = 9.45; // m
 const GRAVITY = 9.8; // m/s²
-const MAX_THRUST = 20; // m/s² at full throttle
-const CD0 = 0.022;
-const OSWALD_EFFICIENCY = 0.82;
-const CL_ALPHA = 5.2; // lift curve slope, 1/rad
+const MIL_THRUST = 5.85; // m/s², F100-PW-229 military power (76 kN / 13 t)
+const AB_THRUST = 9.95; // m/s², full afterburner (129 kN / 13 t)
+const AB_THROTTLE = 0.85; // throttle above this engages afterburner
+const CD0 = 0.020; // clean subsonic zero-lift drag
+const OSWALD_EFFICIENCY = 0.78; // cropped-delta wing
+const CL_ALPHA = 5.3; // NACA 64A204, 1/rad
 const STALL_AOA = 0.38; // rad (~22°)
-const MAX_CL = 1.45;
-const Q_REF = 9000; // Pa, ~120 m/s dynamic pressure reference for controls
+const MAX_CL = 1.48; // vortex lift / strakes
+const Q_REF = 37300; // Pa, ~480 kt cruise dynamic pressure
 const MIN_CONTROL_Q = 0.12;
 const MAX_CONTROL_Q = 2.2;
-const MIN_FLYING_SPEED = 45; // m/s
+const MIN_FLYING_SPEED = 68; // m/s, ~132 kt combat stall margin
 
 const CD_LANDING_GEAR_FACTOR = 0.75;
 const CD_FLAPS_FACTOR = 0.4;
@@ -32,7 +34,7 @@ const ROLL_FLAPS_FACTOR = 0.65;
 const GROUND_FRICTION_KINETIC = 0.15;
 const GROUND_FRICTION_STATIC = 0.2;
 
-const LANDED_MAX_SPEED = 100; // m/s
+const LANDED_MAX_SPEED = 85; // m/s, ~165 kt (landing speed ~150 kt)
 const LANDING_MAX_VSPEED = 5; // m/s
 const LANDING_MIN_PITCH = -5 * PI_OVER_180;
 const LANDING_MAX_ROLL = 5 * PI_OVER_180;
@@ -54,6 +56,14 @@ function computeCl(aoa: number, flapsExtended: boolean): number {
 function computeInducedDrag(cl: number): number {
     const aspectRatio = (WING_SPAN * WING_SPAN) / WING_AREA;
     return (cl * cl) / (Math.PI * aspectRatio * OSWALD_EFFICIENCY);
+}
+
+function computeThrustAccel(throttle: number): number {
+    if (throttle <= AB_THROTTLE) {
+        return MIL_THRUST * (throttle / AB_THROTTLE);
+    }
+    const abFraction = (throttle - AB_THROTTLE) / (1 - AB_THROTTLE);
+    return MIL_THRUST + (AB_THRUST - MIL_THRUST) * abFraction;
 }
 
 export class RealisticFlightModel extends FlightModel {
@@ -92,10 +102,10 @@ export class RealisticFlightModel extends FlightModel {
         this.right.copy(RIGHT).applyQuaternion(this.obj.quaternion);
 
         const altitude = this.obj.position.y;
-        const airDensity = GROUND_AIR_DENSITY * Math.exp(-altitude / 8000);
-        const thrustDensity = GROUND_AIR_DENSITY * Math.exp(-altitude * 0.25 / 8000);
+        const airDensity = computeAirDensity(altitude);
+        const thrustFactor = computeThrustDensityFactor(airDensity);
         const speed = this.velocity.length();
-        const dynamicPressure = 0.5 * airDensity * speed * speed;
+        const dynamicPressure = computeDynamicPressure(airDensity, speed);
         const controlScale = clamp(dynamicPressure / Q_REF, MIN_CONTROL_Q, MAX_CONTROL_Q);
 
         let aoa = 0;
@@ -105,7 +115,8 @@ export class RealisticFlightModel extends FlightModel {
         this.angleOfAttackRad = aoa;
 
         const cl = computeCl(aoa, this.flapsExtended);
-        const cd = CD0
+        const waveDrag = computeDynamicPressureDragPenalty(dynamicPressure, airDensity);
+        const cd = CD0 * (1 + waveDrag)
             + computeInducedDrag(cl)
             + (this.landingGearDeployed ? CD_LANDING_GEAR_FACTOR : 0)
             + (this.flapsExtended ? CD_FLAPS_FACTOR : 0);
@@ -131,7 +142,7 @@ export class RealisticFlightModel extends FlightModel {
         }
 
         roundToZero(this.thrust.copy(this.forward).multiplyScalar(
-            thrustDensity * MAX_THRUST * this.effectiveThrottle * DRY_MASS
+            thrustFactor * computeThrustAccel(this.effectiveThrottle) * DRY_MASS
         ));
 
         if (speed > 1e-3) {
