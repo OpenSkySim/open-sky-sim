@@ -2,29 +2,32 @@ import * as THREE from 'three';
 import { PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE } from '../../defs';
 import { FORWARD, PI_OVER_180, RIGHT, UP, calculatePitchRoll, clamp, isZero, roundToZero } from '../../utils/math';
 import { computeAngleOfAttack, computeAirDensity, computeDynamicPressure, computeDynamicPressureDragPenalty, computeLoadFactorG, computeThrustDensityFactor } from '../aeroUtils';
+import { F16_PROFILE } from '../f16Profile';
 import { FlightModel } from './flightModel';
 
 const THROTTLE_UP_RATE = 0.02;
 const THROTTLE_DOWN_RATE = 0.07;
 const YAW_RATE_LANDED = YAW_RATE * 2.0;
 
-// F-16C Block 50/52 profile (USAF fact sheet, aero-web.org, ultimatespecs.com).
-const DRY_MASS = 13000; // kg, typical combat weight (~60% fuel, clean)
-const WING_AREA = 27.87; // m², 300 ft²
-const WING_SPAN = 9.45; // m
-const GRAVITY = 9.8; // m/s²
-const MIL_THRUST = 5.85; // m/s², F100-PW-229 military power (76 kN / 13 t)
-const AB_THRUST = 9.95; // m/s², full afterburner (129 kN / 13 t)
+const DRY_MASS = F16_PROFILE.combatMassKg;
+const WING_AREA = F16_PROFILE.wingAreaM2;
+const WING_SPAN = F16_PROFILE.wingSpanM;
+const GRAVITY = 9.80665; // m/s², ISA
+const MIL_THRUST = 3.99; // m/s², F100-PW-229 military power (76 kN / MTOW)
+const AB_THRUST = F16_PROFILE.abThrustAccel;
 const AB_THROTTLE = 0.85; // throttle above this engages afterburner
-const CD0 = 0.020; // clean subsonic zero-lift drag
-const OSWALD_EFFICIENCY = 0.78; // cropped-delta wing
-const CL_ALPHA = 5.3; // NACA 64A204, 1/rad
-const STALL_AOA = 0.38; // rad (~22°)
+const CD0 = F16_PROFILE.cd0;
+const INDUCED_DRAG_K = F16_PROFILE.inducedDragK;
+const CL0 = F16_PROFILE.cl0;
+const CL_ALPHA = F16_PROFILE.clAlphaPerRad;
+const STALL_AOA = F16_PROFILE.stallAoaDeg * Math.PI / 180;
 const MAX_CL = 1.48; // vortex lift / strakes
-const Q_REF = 37300; // Pa, ~480 kt cruise dynamic pressure
+const Q_REF = F16_PROFILE.cruiseSpeedMps > 0
+    ? 0.5 * 1.225 * Math.exp(-F16_PROFILE.cruiseAltitudeM / 8000) * F16_PROFILE.cruiseSpeedMps * F16_PROFILE.cruiseSpeedMps
+    : 37300;
 const MIN_CONTROL_Q = 0.12;
 const MAX_CONTROL_Q = 2.2;
-const MIN_FLYING_SPEED = 68; // m/s, ~132 kt combat stall margin
+const MIN_FLYING_SPEED = F16_PROFILE.minFlyingSpeedMps;
 const SIDE_SLIP_DAMP_RATE = 4.5; // 1/s, lateral velocity damping (FBW-like beta cleanup)
 const CY_BETA = -0.6; // side force per rad sideslip, q * S * CY_BETA * beta
 const YAW_CONTROL_Q_SCALE = 0.45; // yaw authority fraction vs pitch/roll at high q
@@ -48,17 +51,16 @@ function computeCl(aoa: number, flapsExtended: boolean): number {
     const maxCl = MAX_CL * flapBoost;
 
     if (Math.abs(aoa) <= stallAoa) {
-        return clamp(CL_ALPHA * aoa * flapBoost, -maxCl * 0.35, maxCl);
+        return clamp(CL0 + CL_ALPHA * aoa * flapBoost, -maxCl * 0.35, maxCl);
     }
 
-    const peakCl = CL_ALPHA * stallAoa * Math.sign(aoa) * flapBoost;
+    const peakCl = (CL0 + CL_ALPHA * stallAoa * Math.sign(aoa)) * flapBoost;
     const postStall = Math.cos((Math.abs(aoa) - stallAoa) * 4.0);
     return peakCl * Math.max(0, postStall);
 }
 
 function computeInducedDrag(cl: number): number {
-    const aspectRatio = (WING_SPAN * WING_SPAN) / WING_AREA;
-    return (cl * cl) / (Math.PI * aspectRatio * OSWALD_EFFICIENCY);
+    return INDUCED_DRAG_K * cl * cl;
 }
 
 function computeThrustAccel(throttle: number): number {

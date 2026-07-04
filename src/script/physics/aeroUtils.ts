@@ -2,12 +2,42 @@ import * as THREE from 'three';
 
 const GRAVITY = 9.8;
 
-export const GROUND_AIR_DENSITY = 1.225; // kg/m³ at sea level
-const AIR_DENSITY_SCALE_HEIGHT = 8000; // m
-const VNE_MACH = 0.95; // transonic drag rise onset
+export const GROUND_AIR_DENSITY = 1.225; // kg/m³ at sea level, ISA
+const VNE_MACH = 0.95; // transonic drag rise onset (sim only; paper k₂ = 0)
+
+const ISA_SEA_LEVEL_PRESSURE = 101325; // Pa
+const ISA_SEA_LEVEL_TEMP = 288.15; // K
+const ISA_LAPSE_RATE = 0.0065; // K/m
+const ISA_TROPOPAUSE_ALT = 11000; // m
+const ISA_TROPOPAUSE_PRESSURE = 22632.1; // Pa
+const ISA_TROPOPAUSE_TEMP = 216.65; // K
+const GRAVITY_ISA = 9.80665; // m/s²
+const GAS_CONSTANT = 287.053; // J/(kg·K)
+
+/** ISA density (kg/m³) — Anderson-style performance analysis atmosphere. */
+export function computeIsaAirDensity(altitudeMeters: number): number {
+    const h = Math.max(0, altitudeMeters);
+    let temperature: number;
+    let pressure: number;
+
+    if (h <= ISA_TROPOPAUSE_ALT) {
+        temperature = ISA_SEA_LEVEL_TEMP - ISA_LAPSE_RATE * h;
+        pressure = ISA_SEA_LEVEL_PRESSURE * Math.pow(
+            temperature / ISA_SEA_LEVEL_TEMP,
+            GRAVITY_ISA / (GAS_CONSTANT * ISA_LAPSE_RATE),
+        );
+    } else {
+        temperature = ISA_TROPOPAUSE_TEMP;
+        pressure = ISA_TROPOPAUSE_PRESSURE * Math.exp(
+            -GRAVITY_ISA * (h - ISA_TROPOPAUSE_ALT) / (GAS_CONSTANT * ISA_TROPOPAUSE_TEMP),
+        );
+    }
+
+    return pressure / (GAS_CONSTANT * temperature);
+}
 
 export function computeAirDensity(altitudeMeters: number): number {
-    return GROUND_AIR_DENSITY * Math.exp(-altitudeMeters / AIR_DENSITY_SCALE_HEIGHT);
+    return computeIsaAirDensity(altitudeMeters);
 }
 
 export function computeDynamicPressure(airDensity: number, speed: number): number {
@@ -24,11 +54,7 @@ export function computeThrustDensityFactor(airDensity: number, altitudeMeters = 
     return lapse * altPenalty;
 }
 
-const ISA_SEA_LEVEL_TEMP = 288.15; // K
-const ISA_LAPSE_RATE = 0.0065; // K/m
-const ISA_TROPOPAUSE_TEMP = 216.65; // K
 const GAMMA = 1.4;
-const GAS_CONSTANT = 287.05; // J/(kg·K)
 
 export function computeSpeedOfSound(altitudeMeters: number): number {
     const temperature = Math.max(ISA_TROPOPAUSE_TEMP, ISA_SEA_LEVEL_TEMP - ISA_LAPSE_RATE * altitudeMeters);
