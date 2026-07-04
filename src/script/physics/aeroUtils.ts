@@ -4,7 +4,7 @@ const GRAVITY = 9.8;
 
 export const GROUND_AIR_DENSITY = 1.225; // kg/m³ at sea level
 const AIR_DENSITY_SCALE_HEIGHT = 8000; // m
-const VNE_MS = 330; // ~Mach 0.95 at sea level, F-16 transonic drag rise
+const VNE_MACH = 0.95; // transonic drag rise onset
 
 export function computeAirDensity(altitudeMeters: number): number {
     return GROUND_AIR_DENSITY * Math.exp(-altitudeMeters / AIR_DENSITY_SCALE_HEIGHT);
@@ -14,8 +14,14 @@ export function computeDynamicPressure(airDensity: number, speed: number): numbe
     return 0.5 * airDensity * speed * speed;
 }
 
-export function computeThrustDensityFactor(airDensity: number): number {
-    return airDensity / GROUND_AIR_DENSITY;
+export function computeThrustDensityFactor(airDensity: number, altitudeMeters = 0): number {
+    const sigma = airDensity / GROUND_AIR_DENSITY;
+    const lapse = Math.pow(sigma, 0.7);
+    const optimumAltitude = 11000; // m, ~FL360 thrust-limited optimum
+    const altPenalty = altitudeMeters <= optimumAltitude
+        ? 1
+        : Math.max(0.35, 1 - (altitudeMeters - optimumAltitude) / 9000);
+    return lapse * altPenalty;
 }
 
 const ISA_SEA_LEVEL_TEMP = 288.15; // K
@@ -37,13 +43,17 @@ export function computeMachNumber(speedMps: number, altitudeMeters: number): num
     return speedMps / speedOfSound;
 }
 
-export function computeDynamicPressureDragPenalty(dynamicPressure: number, airDensity: number): number {
-    const qMax = 0.5 * airDensity * VNE_MS * VNE_MS;
-    if (dynamicPressure <= qMax) {
+export function computeDynamicPressureDragPenalty(speedMps: number, altitudeMeters: number): number {
+    const speedOfSound = computeSpeedOfSound(altitudeMeters);
+    if (speedOfSound <= 0 || speedMps <= 0) {
         return 0;
     }
-    const excess = (dynamicPressure - qMax) / qMax;
-    return 0.35 * excess * excess;
+    const mach = speedMps / speedOfSound;
+    if (mach <= VNE_MACH) {
+        return 0;
+    }
+    const excess = (mach - VNE_MACH) / VNE_MACH;
+    return 0.55 * excess * excess;
 }
 
 export function computeMaxEquilibriumSpeed(

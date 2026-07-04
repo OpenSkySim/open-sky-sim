@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MAX_ALTITUDE, PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE } from '../../defs';
+import { PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE } from '../../defs';
 import { FORWARD, PI_OVER_180, RIGHT, UP, calculatePitchRoll, clamp, isZero, roundToZero } from '../../utils/math';
 import { computeAngleOfAttack, computeAirDensity, computeDynamicPressure, computeDynamicPressureDragPenalty, computeLoadFactorG, computeThrustDensityFactor } from '../aeroUtils';
 import { FlightModel } from './flightModel';
@@ -25,6 +25,9 @@ const Q_REF = 37300; // Pa, ~480 kt cruise dynamic pressure
 const MIN_CONTROL_Q = 0.12;
 const MAX_CONTROL_Q = 2.2;
 const MIN_FLYING_SPEED = 68; // m/s, ~132 kt combat stall margin
+const SIDE_SLIP_DAMP_RATE = 4.5; // 1/s, lateral velocity damping (FBW-like beta cleanup)
+const CY_BETA = -0.6; // side force per rad sideslip, q * S * CY_BETA * beta
+const YAW_CONTROL_Q_SCALE = 0.45; // yaw authority fraction vs pitch/roll at high q
 
 const CD_LANDING_GEAR_FACTOR = 0.75;
 const CD_FLAPS_FACTOR = 0.4;
@@ -80,6 +83,7 @@ export class RealisticFlightModel extends FlightModel {
     private weight = new THREE.Vector3();
     private friction = new THREE.Vector3();
     private forces = new THREE.Vector3();
+    private sideForce = new THREE.Vector3();
     private liftDirection = new THREE.Vector3();
     private _v = new THREE.Vector3();
 
@@ -103,7 +107,7 @@ export class RealisticFlightModel extends FlightModel {
 
         const altitude = this.obj.position.y;
         const airDensity = computeAirDensity(altitude);
-        const thrustFactor = computeThrustDensityFactor(airDensity);
+        const thrustFactor = computeThrustDensityFactor(airDensity, altitude);
         const speed = this.velocity.length();
         const dynamicPressure = computeDynamicPressure(airDensity, speed);
         const controlScale = clamp(dynamicPressure / Q_REF, MIN_CONTROL_Q, MAX_CONTROL_Q);
@@ -115,7 +119,7 @@ export class RealisticFlightModel extends FlightModel {
         this.angleOfAttackRad = aoa;
 
         const cl = computeCl(aoa, this.flapsExtended);
-        const waveDrag = computeDynamicPressureDragPenalty(dynamicPressure, airDensity);
+        const waveDrag = computeDynamicPressureDragPenalty(speed, altitude);
         const cd = CD0 * (1 + waveDrag)
             + computeInducedDrag(cl)
             + (this.landingGearDeployed ? CD_LANDING_GEAR_FACTOR : 0)
@@ -125,6 +129,7 @@ export class RealisticFlightModel extends FlightModel {
 
         const pitchAuthority = this.stall >= 0 ? 0.35 : 1.0;
         const rollFlapFactor = this.flapsExtended ? ROLL_FLAPS_FACTOR : 1.0;
+        const yawControlScale = MIN_CONTROL_Q + (controlScale - MIN_CONTROL_Q) * YAW_CONTROL_Q_SCALE;
 
         if (!isZero(this.roll) && !this.landed) {
             this.obj.rotateZ(this.roll * ROLL_RATE * controlScale * rollFlapFactor * delta);
@@ -138,7 +143,7 @@ export class RealisticFlightModel extends FlightModel {
         }
 
         if (!isZero(this.yaw) && !isZero(speed)) {
-            this.obj.rotateY(-this.yaw * (this.landed ? YAW_RATE_LANDED : YAW_RATE) * controlScale * delta);
+            this.obj.rotateY(-this.yaw * (this.landed ? YAW_RATE_LANDED : YAW_RATE) * yawControlScale * delta);
         }
 
         roundToZero(this.thrust.copy(this.forward).multiplyScalar(
@@ -170,7 +175,18 @@ export class RealisticFlightModel extends FlightModel {
 
         roundToZero(this.weight.set(0, -DRY_MASS * GRAVITY, 0));
 
-        this.forces.set(0, 0, 0).add(this.thrust).add(this.drag).add(this.lift).add(this.weight);
+        if (!this.landed && speed > 5) {
+            const lateralSpeed = this.velocity.dot(this.right);
+            const forwardSpeed = this.velocity.dot(this.forward);
+            const beta = Math.atan2(lateralSpeed, Math.max(Math.abs(forwardSpeed), 5));
+            const dampForce = -lateralSpeed * SIDE_SLIP_DAMP_RATE * DRY_MASS;
+            const betaForce = CY_BETA * beta * dynamicPressure * WING_AREA;
+            roundToZero(this.sideForce.copy(this.right).multiplyScalar(dampForce + betaForce));
+        } else {
+            this.sideForce.set(0, 0, 0);
+        }
+
+        this.forces.set(0, 0, 0).add(this.thrust).add(this.drag).add(this.lift).add(this.sideForce).add(this.weight);
 
         if (this.landed) {
             const weightMagnitude = DRY_MASS * GRAVITY;
@@ -215,13 +231,6 @@ export class RealisticFlightModel extends FlightModel {
         }
 
         this.handleGroundContact(speed);
-
-        if (altitude > MAX_ALTITUDE) {
-            this.obj.position.y = MAX_ALTITUDE;
-            if (this.velocity.y > 0) {
-                this.velocity.setY(0);
-            }
-        }
 
         this.wrapPosition();
     }
