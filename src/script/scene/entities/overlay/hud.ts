@@ -6,6 +6,7 @@ import { CanvasPainter } from "../../../render/screen/canvasPainter";
 import { Font, TextAlignment } from "../../../render/screen/text";
 import { HUDFocusMode, UnitSystems } from '../../../state/gameDefs';
 import { calculatePitchRoll, clamp, FORWARD, toDegrees, toRadians, UP, vectorHeading } from '../../../utils/math';
+import { computeMachNumber } from '../../../physics/aeroUtils';
 import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { GroundTargetEntity } from '../groundTarget';
@@ -67,6 +68,7 @@ export class HUDEntity implements Entity {
     private stallStatus: number = -1; // [-1,1]. Values >= 0 indicate stall
     private angleOfAttack: number = 0; // radians
     private loadFactorG: number = 1;
+    private machNumber: number = 0;
     private isLanded: boolean = true;
     private pitch: number = 0; // radians
     private roll: number = 0; // radians
@@ -112,6 +114,7 @@ export class HUDEntity implements Entity {
         this.stallStatus = this.actor.stallStatus;
         this.angleOfAttack = this.actor.angleOfAttack;
         this.loadFactorG = this.actor.loadFactorG;
+        this.machNumber = computeMachNumber(this.actor.rawSpeed, this.altitudeMeters);
         this.isLanded = this.actor.isLanded;
 
         this.pitchInput = this.actor.pitchInput;
@@ -175,9 +178,7 @@ export class HUDEntity implements Entity {
         const throttleY = headingY - font.charHeight - 3;
         this.renderThrottle(throttleX, throttleY, painter, hudColor, font);
 
-        const lineHeight = fontSmall.charHeight + fontSmall.charSpacing;
-        this.renderAoAIndicator(throttleX, throttleY + lineHeight, painter, hudColor, hudWarnColor, fontSmall);
-        this.renderLoadFactorIndicator(throttleX, throttleY + lineHeight * 2, painter, hudColor, hudWarnColor, fontSmall);
+        this.renderFlightDataIndicators(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor, fontSmall);
 
         const stickArm = Math.max(8, Math.round(11 * geomScale));
         const stickGap = Math.round(10 * geomScale);
@@ -215,16 +216,33 @@ export class HUDEntity implements Entity {
         painter.text(font, x, margin + lineHeight, `${altitudeFeet.toFixed(0)}FT`, hudColor, TextAlignment.RIGHT);
     }
 
-    private renderAoAIndicator(x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string, font: Font) {
+    private renderFlightDataIndicators(
+        layout: OverlayLayout,
+        airSpeedX: number,
+        airSpeedY: number,
+        painter: CanvasPainter,
+        hudColor: string,
+        hudWarnColor: string,
+        font: Font,
+    ) {
+        const lineHeight = font.charHeight + font.charSpacing;
+        const ladderBottom = airSpeedY + layout.layoutScale * AIRSPEED_HALF_HEIGHT * 2;
+        const x = airSpeedX + 9;
+        const y = ladderBottom + font.charSpacing + 2;
         const aoaDeg = toDegrees(this.angleOfAttack);
-        const color = aoaDeg >= AOA_STALL_DEG - 2 ? hudWarnColor : hudColor;
-        painter.text(font, x, y, aoaDeg.toFixed(0), color);
+
+        this.renderFlightDataIndicator(x, y, 'Mach:', this.machNumber.toFixed(1), painter, hudColor, font);
+        this.renderFlightDataIndicator(x, y + lineHeight, 'AoA:', aoaDeg.toFixed(0),
+            painter, aoaDeg >= AOA_STALL_DEG - 2 ? hudWarnColor : hudColor, font);
+        this.renderFlightDataIndicator(x, y + lineHeight * 2, 'G:', this.loadFactorG.toFixed(1),
+            painter, this.loadFactorG >= 4 || this.loadFactorG < 0 ? hudWarnColor : hudColor, font);
     }
 
-    private renderLoadFactorIndicator(x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string, font: Font) {
-        const g = this.loadFactorG;
-        const color = g >= 4 || g < 0 ? hudWarnColor : hudColor;
-        painter.text(font, x, y, g.toFixed(1), color);
+    private renderFlightDataIndicator(x: number, y: number, label: string, value: string, painter: CanvasPainter, color: string, font: Font) {
+        const charStep = font.charWidth + font.charSpacing;
+        const valueX = x + charStep * 6;
+        painter.text(font, x, y, label, color);
+        painter.text(font, valueX, y, value, color);
     }
 
     private renderAltitude(layout: OverlayLayout, tickStep: number, x: number, y: number, width: number, painter: CanvasPainter, hudColor: string, font: Font, fontSmall: Font) {

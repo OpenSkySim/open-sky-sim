@@ -18,6 +18,25 @@ export function computeThrustDensityFactor(airDensity: number): number {
     return airDensity / GROUND_AIR_DENSITY;
 }
 
+const ISA_SEA_LEVEL_TEMP = 288.15; // K
+const ISA_LAPSE_RATE = 0.0065; // K/m
+const ISA_TROPOPAUSE_TEMP = 216.65; // K
+const GAMMA = 1.4;
+const GAS_CONSTANT = 287.05; // J/(kg·K)
+
+export function computeSpeedOfSound(altitudeMeters: number): number {
+    const temperature = Math.max(ISA_TROPOPAUSE_TEMP, ISA_SEA_LEVEL_TEMP - ISA_LAPSE_RATE * altitudeMeters);
+    return Math.sqrt(GAMMA * GAS_CONSTANT * temperature);
+}
+
+export function computeMachNumber(speedMps: number, altitudeMeters: number): number {
+    const speedOfSound = computeSpeedOfSound(altitudeMeters);
+    if (speedOfSound <= 0) {
+        return 0;
+    }
+    return speedMps / speedOfSound;
+}
+
 export function computeDynamicPressureDragPenalty(dynamicPressure: number, airDensity: number): number {
     const qMax = 0.5 * airDensity * VNE_MS * VNE_MS;
     if (dynamicPressure <= qMax) {
