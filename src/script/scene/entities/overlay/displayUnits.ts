@@ -66,7 +66,7 @@ export class DisplayUnits {
 
     formatAltitudeReadout(altitude: number): string {
         if (this.system === UnitSystems.METRIC) {
-            return Math.round(altitude / 100).toFixed(0);
+            return (Math.floor(altitude / 10) * 10).toFixed(0);
         }
         const step = this.altitudeStep;
         return (step * Math.round(altitude / step)).toFixed(0);
@@ -74,7 +74,7 @@ export class DisplayUnits {
 
     formatAltitudeTape(n: number, lowp: boolean): string {
         if (this.system === UnitSystems.METRIC) {
-            return Math.round(n / 100).toFixed(0);
+            return (Math.floor(n / 10) * 10).toFixed(0);
         }
 
         if (n < this.altitudeLowThreshold) {
