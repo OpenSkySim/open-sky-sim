@@ -58,6 +58,7 @@ The generation of choice will simulate the experience of a game of that era:
 The flight model selects the realism of the simulation:
 * Debug: Very simple flight model intended for debug purposes only. The plane can be stopped midair.
 * Arcade: Vaguely based on realistic parameters but closer to late 80s arcade experiences.
+* Realistic: Force-based jet simulation with lift, drag, and speed-dependent control authority.
 
 #### Keyboard layout
 

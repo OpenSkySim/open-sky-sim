@@ -1,134 +1,268 @@
-/**
- * WIP
- */
-
 import * as THREE from 'three';
+import { MAX_ALTITUDE, PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE } from '../../defs';
+import { FORWARD, PI_OVER_180, RIGHT, UP, calculatePitchRoll, clamp, isZero, roundToZero } from '../../utils/math';
+import { computeAngleOfAttack, computeLoadFactorG } from '../aeroUtils';
 import { FlightModel } from './flightModel';
+
+const THROTTLE_UP_RATE = 0.02;
+const THROTTLE_DOWN_RATE = 0.07;
+const YAW_RATE_LANDED = YAW_RATE * 2.0;
+
+const DRY_MASS = 20000; // kg
+const WING_AREA = 78; // m²
+const WING_SPAN = 13.56; // m, F-22 approximate
+const GROUND_AIR_DENSITY = 1.225; // kg/m³
+const GRAVITY = 9.8; // m/s²
+const MAX_THRUST = 20; // m/s² at full throttle
+const CD0 = 0.022;
+const OSWALD_EFFICIENCY = 0.82;
+const CL_ALPHA = 5.2; // lift curve slope, 1/rad
+const STALL_AOA = 0.38; // rad (~22°)
+const MAX_CL = 1.45;
+const Q_REF = 9000; // Pa, ~120 m/s dynamic pressure reference for controls
+const MIN_CONTROL_Q = 0.12;
+const MAX_CONTROL_Q = 2.2;
+const MIN_FLYING_SPEED = 45; // m/s
+
+const CD_LANDING_GEAR_FACTOR = 0.75;
+const CD_FLAPS_FACTOR = 0.4;
+const CL_FLAPS_FACTOR = 1.25;
+const ROLL_FLAPS_FACTOR = 0.65;
+
+const GROUND_FRICTION_KINETIC = 0.15;
+const GROUND_FRICTION_STATIC = 0.2;
+
+const LANDED_MAX_SPEED = 100; // m/s
+const LANDING_MAX_VSPEED = 5; // m/s
+const LANDING_MIN_PITCH = -5 * PI_OVER_180;
+const LANDING_MAX_ROLL = 5 * PI_OVER_180;
+
+function computeCl(aoa: number, flapsExtended: boolean): number {
+    const flapBoost = flapsExtended ? CL_FLAPS_FACTOR : 1.0;
+    const stallAoa = flapsExtended ? STALL_AOA * 1.1 : STALL_AOA;
+    const maxCl = MAX_CL * flapBoost;
+
+    if (Math.abs(aoa) <= stallAoa) {
+        return clamp(CL_ALPHA * aoa * flapBoost, -maxCl * 0.35, maxCl);
+    }
+
+    const peakCl = CL_ALPHA * stallAoa * Math.sign(aoa) * flapBoost;
+    const postStall = Math.cos((Math.abs(aoa) - stallAoa) * 4.0);
+    return peakCl * Math.max(0, postStall);
+}
+
+function computeInducedDrag(cl: number): number {
+    const aspectRatio = (WING_SPAN * WING_SPAN) / WING_AREA;
+    return (cl * cl) / (Math.PI * aspectRatio * OSWALD_EFFICIENCY);
+}
 
 export class RealisticFlightModel extends FlightModel {
 
-    //private gravity: THREE.Vector3 = new THREE.Vector3(0, 9.8, 0); // m/s^2
-    //private dryMass: number = 20000; // kg
+    private stall = -1;
+
+    private forward = new THREE.Vector3();
+    private up = new THREE.Vector3();
+    private right = new THREE.Vector3();
+    private velocityUnit = new THREE.Vector3();
+    private thrust = new THREE.Vector3();
+    private drag = new THREE.Vector3();
+    private lift = new THREE.Vector3();
+    private weight = new THREE.Vector3();
+    private friction = new THREE.Vector3();
+    private forces = new THREE.Vector3();
+    private liftDirection = new THREE.Vector3();
+    private _v = new THREE.Vector3();
+
+    constructor() {
+        super();
+        this.obj.up.copy(UP);
+    }
 
     step(delta: number): void {
-        /*
-       
-       This needs part by part modeling and rigid body physics
-       
-       
-                       // Roll control
-                       if (!isZero(this.roll)) {
-                           this.obj.rotateZ(-this.roll * ROLL_RATE * delta);
-                       }
-               
-                       // Pitch control
-                       if (!isZero(this.pitch)) {
-                           this.obj.rotateX(this.pitch * PITCH_RATE * delta);
-                       }
-               
-                       // Yaw control
-                       if (!isZero(this.yaw)) {
-                           this.obj.rotateY(-this.yaw * YAW_RATE * delta);
-                       }
-                       
-                               // // Automatic yaw when rolling
-                               // const forward = this.obj.getWorldDirection(this._v);
-                               // if (-0.99 < forward.y && forward.y < 0.99) {
-                               //     const prjForward = forward.setY(0);
-                               //     const up = this._w.copy(UP).applyQuaternion(this.obj.quaternion);
-                               //     const prjUp = up.projectOnPlane(prjForward).setY(0);
-                               //     const sign = (prjForward.x * prjUp.z - prjForward.z * prjUp.x) > 0 ? 1 : -1;
-                               //     this.obj.rotateOnWorldAxis(UP, sign * prjUp.length() * prjUp.length() * prjForward.length() * 2.0 * YAW_RATE * delta);
-                               // }
-                       
-                               // // Movement
-                               // this.speed = this.throttle * MAX_SPEED;
-                               // this.obj.translateZ(-this.speed * delta);
-                   
-               
-               
-                       const gravity = 9.8; // m/s^2
-                       const maxThrust = 11.6; // m/s^2
-                       const dryMass: number = 20000; // kg
-                       const wingArea: number = 78; // m^2
-                       const airDensity: number = 1.0;
-                       const Cdf: number = 0.08; // Unitless
-               
-                       let lift: THREE.Vector3 = new THREE.Vector3(); // N
-                       let drag: THREE.Vector3 = new THREE.Vector3(); // N
-                       let thrust: THREE.Vector3 = new THREE.Vector3(); // N
-                       let weight: THREE.Vector3 = new THREE.Vector3(); // N
-               
-                       const computeLiftInducedDrag = (aoa: number) => 1 - Math.cos(2.0 * aoa);
-                       const computeLift = (aoa: number) => aoa < (Math.PI / 8.0) || aoa > (7 * Math.PI / 8.0) ? Math.sin(6.0 * aoa) : Math.sin(2.0 * aoa);
-               
-                       this.obj.updateMatrixWorld();
-                       console.log('las', this._v.copy(this.velocity).applyQuaternion(this.obj.getWorldQuaternion(this._Q).invert()));
-                       console.log('lasn', this._v.setX(0).normalize());
-                       console.log('fwd', FORWARD);
-                       const aoa = this._v.angleTo(FORWARD) * Math.sign(-this._v.y);
-                       // const aoa = this.obj.worldToLocal(this._v.copy(this.airSpeed)).setX(0).normalize().angleTo(FORWARD);
-                       console.log('aoa', aoa);
-                       //const aoa = Math.PI / 12.0;
-               
-                       //! WEIGHT
-                       roundToZero(weight.set(0, -gravity, 0).multiplyScalar(dryMass));
-                       console.log('W', this._v.copy(weight).divideScalar(dryMass));
-               
-                       //! THRUST
-                       roundToZero(thrust.copy(UP).applyQuaternion(this.obj.quaternion).negate().multiplyScalar(airDensity * maxThrust * this.throttle * dryMass));
-                       console.log('T', this._v.copy(thrust).divideScalar(dryMass));
-               
-                       //! DRAG
-                       const Cd = Cdf + computeLiftInducedDrag(aoa);
-                       roundToZero(drag.copy(this.velocity).negate().normalize().multiplyScalar(0.5 * Cd * airDensity * this.velocity.lengthSq() * wingArea));
-                       console.log('D', this._v.copy(drag).divideScalar(dryMass));
-               
-                       //! LIFT
-                       const Cl = computeLift(aoa);
-                       roundToZero(lift.copy(UP).applyQuaternion(this.obj.quaternion).multiplyScalar(0.5 * Cl * airDensity * this.velocity.lengthSq() * wingArea));
-                       console.log('L', this._v.copy(lift).divideScalar(dryMass));
-               
-                       //! Timestep
-                       const accel = this._v.set(0, 0, 0).add(thrust).add(drag).add(lift).add(weight).divideScalar(dryMass);
-                       this.velocity.addScaledVector(roundToZero(accel), delta);
-                       console.log('accel', accel);
-                       this.obj.position.addScaledVector(roundToZero(this.velocity), delta);
-                       console.log('as', this.velocity);
-               
-                       console.log('---');
-               
-                       /////////////////////////////////////////////////////////////////
-               
-                       // Avoid ground crashes
-                       if (this.obj.position.y < PLANE_DISTANCE_TO_GROUND) {
-                           this.obj.position.y = PLANE_DISTANCE_TO_GROUND;
-                           const d = this.obj.getWorldDirection(this._v);
-                           if (d.y > 0.0) {
-                               d.setY(0).add(this.obj.position);
-                               this.obj.lookAt(d);
-                           }
-                           //! 
-                           this.velocity.setY(0);
-                       }
-               
-                       // Avoid flying too high
-                       if (this.obj.position.y > MAX_ALTITUDE) {
-                           this.obj.position.y = MAX_ALTITUDE;
-                           //! 
-                           this.velocity.setY(0);
-                       }
-               
-                       // Avoid flying out of bounds, wraps around
-                       const terrainHalfSize = 2.5 * TERRAIN_SCALE * TERRAIN_MODEL_SIZE;
-                       if (this.obj.position.x > terrainHalfSize) this.obj.position.x = -terrainHalfSize;
-                       if (this.obj.position.x < -terrainHalfSize) this.obj.position.x = terrainHalfSize;
-                       if (this.obj.position.z > terrainHalfSize) this.obj.position.z = -terrainHalfSize;
-                       if (this.obj.position.z < -terrainHalfSize) this.obj.position.z = terrainHalfSize;
-               */
+        if (this.crashed) return;
+
+        if (this.effectiveThrottle > this.throttle) {
+            this.effectiveThrottle = Math.max(this.throttle, this.effectiveThrottle - THROTTLE_DOWN_RATE * delta);
+        } else if (this.effectiveThrottle < this.throttle) {
+            this.effectiveThrottle = Math.min(this.throttle, this.effectiveThrottle + THROTTLE_UP_RATE * delta);
+        }
+
+        this.forward.copy(FORWARD).applyQuaternion(this.obj.quaternion);
+        this.up.copy(UP).applyQuaternion(this.obj.quaternion);
+        this.right.copy(RIGHT).applyQuaternion(this.obj.quaternion);
+
+        const altitude = this.obj.position.y;
+        const airDensity = GROUND_AIR_DENSITY * Math.exp(-altitude / 8000);
+        const thrustDensity = GROUND_AIR_DENSITY * Math.exp(-altitude * 0.25 / 8000);
+        const speed = this.velocity.length();
+        const dynamicPressure = 0.5 * airDensity * speed * speed;
+        const controlScale = clamp(dynamicPressure / Q_REF, MIN_CONTROL_Q, MAX_CONTROL_Q);
+
+        let aoa = 0;
+        if (speed > 1.0) {
+            aoa = computeAngleOfAttack(this.forward, this.right, this.velocity, this._v);
+        }
+        this.angleOfAttackRad = aoa;
+
+        const cl = computeCl(aoa, this.flapsExtended);
+        const cd = CD0
+            + computeInducedDrag(cl)
+            + (this.landingGearDeployed ? CD_LANDING_GEAR_FACTOR : 0)
+            + (this.flapsExtended ? CD_FLAPS_FACTOR : 0);
+
+        this.updateStallState(speed, aoa, altitude);
+
+        const pitchAuthority = this.stall >= 0 ? 0.35 : 1.0;
+        const rollFlapFactor = this.flapsExtended ? ROLL_FLAPS_FACTOR : 1.0;
+
+        if (!isZero(this.roll) && !this.landed) {
+            this.obj.rotateZ(this.roll * ROLL_RATE * controlScale * rollFlapFactor * delta);
+        }
+
+        if (!isZero(this.pitch)
+            && !(this.landed && this.pitch < 0)
+            && (this.stall < 0 || (this.pitch < 0 && this.up.y > 0) || (this.pitch > 0 && this.up.y < 0))
+        ) {
+            this.obj.rotateX(-this.pitch * PITCH_RATE * controlScale * pitchAuthority * delta);
+        }
+
+        if (!isZero(this.yaw) && !isZero(speed)) {
+            this.obj.rotateY(-this.yaw * (this.landed ? YAW_RATE_LANDED : YAW_RATE) * controlScale * delta);
+        }
+
+        roundToZero(this.thrust.copy(this.forward).multiplyScalar(
+            thrustDensity * MAX_THRUST * this.effectiveThrottle * DRY_MASS
+        ));
+
+        if (speed > 1e-3) {
+            this.velocityUnit.copy(this.velocity).multiplyScalar(1 / speed);
+            roundToZero(this.drag.copy(this.velocityUnit).negate().multiplyScalar(dynamicPressure * WING_AREA * cd));
+
+            if (speed > 0.5) {
+                this.liftDirection.crossVectors(this.right, this.velocityUnit);
+                if (this.liftDirection.lengthSq() < 1e-6) {
+                    this.liftDirection.copy(this.up);
+                } else {
+                    this.liftDirection.normalize();
+                    if (this.liftDirection.dot(this.up) < 0) {
+                        this.liftDirection.negate();
+                    }
+                }
+                roundToZero(this.lift.copy(this.liftDirection).multiplyScalar(dynamicPressure * WING_AREA * cl));
+            } else {
+                this.lift.set(0, 0, 0);
+            }
+        } else {
+            this.drag.set(0, 0, 0);
+            this.lift.set(0, 0, 0);
+        }
+
+        roundToZero(this.weight.set(0, -DRY_MASS * GRAVITY, 0));
+
+        this.forces.set(0, 0, 0).add(this.thrust).add(this.drag).add(this.lift).add(this.weight);
+
+        if (this.landed) {
+            const weightMagnitude = DRY_MASS * GRAVITY;
+            const prjForces = this._v.copy(this.forces).setY(0);
+            const prjForcesMagnitude = prjForces.length();
+            const maxStaticFriction = GROUND_FRICTION_STATIC * weightMagnitude;
+            const kineticFriction = GROUND_FRICTION_KINETIC * weightMagnitude;
+
+            if (isZero(speed) && prjForcesMagnitude < maxStaticFriction) {
+                this.friction.copy(prjForces).negate();
+            } else if (speed > 0.5) {
+                this.friction.copy(this.velocityUnit).setY(0).negate().normalize().multiplyScalar(kineticFriction);
+            } else {
+                this.friction.set(0, 0, 0);
+            }
+            roundToZero(this.friction);
+        } else {
+            this.friction.set(0, 0, 0);
+        }
+
+        this.forces.add(this.friction);
+        if (this.landed && this.forces.y < 0) {
+            this.forces.setY(0);
+        }
+
+        const accel = roundToZero(this.forces.divideScalar(DRY_MASS));
+        this.up.copy(UP).applyQuaternion(this.obj.quaternion);
+        this.loadFactorG = computeLoadFactorG(accel, this.up);
+        this.velocity.addScaledVector(accel, delta);
+
+        if (this.landed && this.velocity.y < 0) {
+            this.velocity.setY(0);
+        }
+
+        this.obj.position.addScaledVector(
+            this.landed ? roundToZero(this.velocity, 0.01) : this.velocity,
+            delta
+        );
+
+        if (this.obj.position.y > PLANE_DISTANCE_TO_GROUND) {
+            this.landed = false;
+        }
+
+        this.handleGroundContact(speed);
+
+        if (altitude > MAX_ALTITUDE) {
+            this.obj.position.y = MAX_ALTITUDE;
+            if (this.velocity.y > 0) {
+                this.velocity.setY(0);
+            }
+        }
+
+        this.wrapPosition();
     }
 
     getStallStatus(): number {
-        return 0;
+        return this.stall;
+    }
+
+    private updateStallState(speed: number, aoa: number, altitude: number) {
+        if (this.landed || speed < 5) {
+            this.stall = -1;
+            return;
+        }
+
+        const aoaStall = clamp((Math.abs(aoa) - STALL_AOA * 0.75) / (STALL_AOA * 0.35), 0, 1);
+        const speedStall = clamp((MIN_FLYING_SPEED - speed) / MIN_FLYING_SPEED, 0, 1);
+        const stallLevel = Math.max(aoaStall, altitude > PLANE_DISTANCE_TO_GROUND + 2 ? speedStall : 0);
+        this.stall = stallLevel > 0 ? stallLevel : -1;
+    }
+
+    private handleGroundContact(speed: number) {
+        if (this.obj.position.y >= PLANE_DISTANCE_TO_GROUND) {
+            return;
+        }
+
+        this.obj.position.y = PLANE_DISTANCE_TO_GROUND;
+        const [pitchAngle, rollAngle] = calculatePitchRoll(this.obj);
+
+        if (this.landingGearDeployed === false
+            || speed > LANDED_MAX_SPEED
+            || this.velocity.y < -LANDING_MAX_VSPEED
+            || Math.abs(rollAngle) > LANDING_MAX_ROLL
+            || LANDING_MIN_PITCH > pitchAngle) {
+            this.crashed = true;
+            return;
+        }
+
+        const heading = this.obj.getWorldDirection(this._v);
+        if (heading.y < 0) {
+            heading.setY(0).add(this.obj.position);
+            this.obj.lookAt(heading);
+        }
+        this.velocity.setY(0);
+        this.stall = -1;
+        this.landed = true;
+    }
+
+    private wrapPosition() {
+        const terrainHalfSize = 2.5 * TERRAIN_SCALE * TERRAIN_MODEL_SIZE;
+        if (this.obj.position.x > terrainHalfSize) this.obj.position.x = -terrainHalfSize;
+        if (this.obj.position.x < -terrainHalfSize) this.obj.position.x = terrainHalfSize;
+        if (this.obj.position.z > terrainHalfSize) this.obj.position.z = -terrainHalfSize;
+        if (this.obj.position.z < -terrainHalfSize) this.obj.position.z = terrainHalfSize;
     }
 }

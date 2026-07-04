@@ -1,21 +1,20 @@
 import * as THREE from 'three';
+import { ConfigService } from '../../../config/configService';
 import { Palette, PaletteCategory, PaletteColor } from "../../../config/palettes/palette";
 import { COCKPIT_FOV } from '../../../defs';
 import { CanvasPainter } from "../../../render/screen/canvasPainter";
 import { Font, TextAlignment } from "../../../render/screen/text";
-import { HUDFocusMode } from '../../../state/gameDefs';
+import { HUDFocusMode, UnitSystems } from '../../../state/gameDefs';
 import { calculatePitchRoll, clamp, FORWARD, toDegrees, toRadians, UP, vectorHeading } from '../../../utils/math';
 import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { GroundTargetEntity } from '../groundTarget';
 import { PlayerEntity } from "../player";
-import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout, toFeet, toKnots } from './overlayUtils';
+import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout } from './overlayUtils';
+import { DisplayUnits } from './displayUnits';
 
 
 const ALTITUDE_HEIGHT = 32;
-// Do not change these...
-const ALTITUDE_STEP = 5;
-const ALTITUDE_LOWP_THRESHOLD = 1000;
 const ALTITUDE_HALF_HEIGHT = ALTITUDE_HEIGHT / 2;
 
 const HEADING_WIDTH = 26;
@@ -25,10 +24,9 @@ const HEADING_SPACING = 5;
 const HEADING_STEP = 5;
 
 const AIRSPEED_HEIGHT = 32;
-// Do not change these...
-const AIRSPEED_SCALE = 10;
-const AIRSPEED_STEP = 2.5;
 const AIRSPEED_HALF_HEIGHT = AIRSPEED_HEIGHT / 2;
+
+const AOA_STALL_DEG = 22;
 
 const LADDER_EXTRA_MARKERS = 2;
 const LADDER_HORIZON_HALF_GAP = 12;
@@ -48,16 +46,26 @@ const TARGET_WIDTH = TARGET_HALF_WIDTH * 2 + 1;
 
 export class HUDEntity implements Entity {
 
-    constructor(private actor: PlayerEntity) { }
+    private displayUnits: DisplayUnits;
+    private readonly onUnitSystemChange = (system: UnitSystems) => {
+        this.displayUnits.setSystem(system);
+    };
+
+    constructor(private actor: PlayerEntity, config: ConfigService) {
+        this.displayUnits = new DisplayUnits(config.unitSystem.getActive());
+        config.unitSystem.addChangeListener(this.onUnitSystemChange);
+    }
 
     private heading: number = 0; // degrees, 0 is North, increases CW
-    private altitude: number = 0; // feet
+    private altitude: number = 0; // display units (m or ft)
     private throttle: number = 0; // Normalised percentage [0, 1]
-    private speed: number = 0; // knots
-    private verticalSpeed: number = 0; // feets/min
+    private speed: number = 0; // display units (km/h or kt)
+    private verticalSpeed: number = 0; // m/s or ft/min
     private velocityDirection: THREE.Vector3 = new THREE.Vector3();
     private weaponsTarget: GroundTargetEntity | undefined;
     private stallStatus: number = -1; // [-1,1]. Values >= 0 indicate stall
+    private angleOfAttack: number = 0; // radians
+    private loadFactorG: number = 1;
     private isLanded: boolean = true;
     private pitch: number = 0; // radians
     private roll: number = 0; // radians
@@ -79,7 +87,7 @@ export class HUDEntity implements Entity {
     }
 
     update(delta: number): void {
-        this.altitude = toFeet(this.actor.position.y);
+        this.altitude = this.displayUnits.altitudeFromMeters(this.actor.position.y);
 
         this._v.copy(FORWARD)
             .applyQuaternion(this.actor.quaternion)
@@ -91,15 +99,17 @@ export class HUDEntity implements Entity {
 
         this.throttle = this.actor.throttleUnit;
 
-        this.speed = toKnots(this.actor.rawSpeed);
+        this.speed = this.displayUnits.speedFromMps(this.actor.rawSpeed);
 
-        this.verticalSpeed = toFeet(this.actor.velocityVector.y) * 60.0;
+        this.verticalSpeed = this.displayUnits.verticalSpeedFromMps(this.actor.velocityVector.y);
 
         this.velocityDirection.copy(this.actor.velocityVector).normalize();
 
         this.weaponsTarget = this.actor.weaponsTarget;
 
         this.stallStatus = this.actor.stallStatus;
+        this.angleOfAttack = this.actor.angleOfAttack;
+        this.loadFactorG = this.actor.loadFactorG;
         this.isLanded = this.actor.isLanded;
 
         this.pitchInput = this.actor.pitchInput;
@@ -163,6 +173,10 @@ export class HUDEntity implements Entity {
         const throttleY = headingY - font.charHeight - 3;
         this.renderThrottle(throttleX, throttleY, painter, hudColor, font);
 
+        const lineHeight = fontSmall.charHeight + fontSmall.charSpacing;
+        this.renderAoAIndicator(throttleX, throttleY + lineHeight, painter, hudColor, hudWarnColor, fontSmall);
+        this.renderLoadFactorIndicator(throttleX, throttleY + lineHeight * 2, painter, hudColor, hudWarnColor, fontSmall);
+
         const stickArm = Math.max(8, Math.round(11 * geomScale));
         const stickGap = Math.round(10 * geomScale);
         const stickLabelMargin = (fontSmall.charWidth + fontSmall.charSpacing) * 4 + 6;
@@ -181,18 +195,32 @@ export class HUDEntity implements Entity {
         }
     }
 
+    private renderAoAIndicator(x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string, font: Font) {
+        const aoaDeg = toDegrees(this.angleOfAttack);
+        const color = aoaDeg >= AOA_STALL_DEG - 2 ? hudWarnColor : hudColor;
+        painter.text(font, x, y, aoaDeg.toFixed(0), color);
+    }
+
+    private renderLoadFactorIndicator(x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string, font: Font) {
+        const g = this.loadFactorG;
+        const color = g >= 4 || g < 0 ? hudWarnColor : hudColor;
+        painter.text(font, x, y, g.toFixed(1), color);
+    }
+
     private renderAltitude(layout: OverlayLayout, tickStep: number, x: number, y: number, width: number, painter: CanvasPainter, hudColor: string, font: Font, fontSmall: Font) {
         const { detailScale, layoutScale } = layout;
-        const roundedAltitude = ALTITUDE_STEP * Math.floor(this.altitude / ALTITUDE_STEP);
-        const lowp = roundedAltitude >= ALTITUDE_LOWP_THRESHOLD;
+        const altitudeStep = this.displayUnits.altitudeStep;
+        const altitudeLowThreshold = this.displayUnits.altitudeLowThreshold;
+        const roundedAltitude = altitudeStep * Math.floor(this.altitude / altitudeStep);
+        const lowp = this.displayUnits.useBarometricAltitude && roundedAltitude >= altitudeLowThreshold;
         const markerScale = lowp ? 10 : 1;
-        const scaledAltitude = Math.floor(roundedAltitude / (ALTITUDE_STEP * markerScale)) * ALTITUDE_STEP * markerScale;
+        const scaledAltitude = Math.floor(roundedAltitude / (altitudeStep * markerScale)) * altitudeStep * markerScale;
         const offset = scaledAltitude % Math.floor(10 * markerScale) === 0 ? 0 : 1;
         const charHeightHalf = Math.trunc(font.charHeight / 2);
 
         const batch = painter.batch();
         for (let i = ALTITUDE_HALF_HEIGHT * detailScale; i >= -ALTITUDE_HALF_HEIGHT * detailScale; i--) {
-            const current = scaledAltitude + (i * 2 - offset) * ALTITUDE_STEP * markerScale;
+            const current = scaledAltitude + (i * 2 - offset) * altitudeStep * markerScale;
             if (current >= 0 || lowp) {
                 let barWidth = 0;
                 if (current % (100 * markerScale) === 0) {
@@ -209,12 +237,12 @@ export class HUDEntity implements Entity {
         const clip = painter.clip();
         clip.rectangle(x, y - ALTITUDE_HEIGHT * layoutScale, width - x, (ALTITUDE_HEIGHT * 2 + 3) * layoutScale).clip();
         for (let i = detailScale * (ALTITUDE_HALF_HEIGHT + 1) + 1; i >= -detailScale * (ALTITUDE_HALF_HEIGHT + 1) - 1; i--) {
-            const current = scaledAltitude + (i * 2 - offset) * ALTITUDE_STEP * markerScale;
+            const current = scaledAltitude + (i * 2 - offset) * altitudeStep * markerScale;
             if ((current >= 0 || lowp) && current % (100 * markerScale) === 0) {
                 painter.text(fontSmall,
                     x + 6 + (fontSmall.charWidth + fontSmall.charSpacing) * 3,
                     y - i * tickStep + offset - charHeightHalf,
-                    this.getAltitudeDisplay(current, lowp), hudColor, TextAlignment.RIGHT);
+                    this.displayUnits.formatAltitudeTape(current, lowp), hudColor, TextAlignment.RIGHT);
             }
         }
         clip.clear();
@@ -222,18 +250,8 @@ export class HUDEntity implements Entity {
         painter.text(font, x - 8, y - Math.floor(font.charHeight / 2), roundedAltitude.toFixed(0), hudColor, TextAlignment.RIGHT);
     }
 
-    private getAltitudeDisplay(n: number, lowp: boolean): string {
-        if (n < ALTITUDE_LOWP_THRESHOLD) {
-            const num = lowp ? 900 + n / 10 : n;
-            return num.toFixed(0);
-        } else {
-            const num = !lowp && n > ALTITUDE_LOWP_THRESHOLD ? (n - 900) * 10 : n;
-            return `${(num / 1000).toFixed(0)}K`;
-        }
-    }
-
     private renderAltitudeFocusMode(x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
-        const roundedAltitude = ALTITUDE_STEP * Math.floor(this.altitude / ALTITUDE_STEP);
+        const roundedAltitude = this.displayUnits.altitudeStep * Math.floor(this.altitude / this.displayUnits.altitudeStep);
         const textX = x + font.charWidth * 4;
         const textY = y - Math.floor(font.charHeight / 2);
         painter.text(font, textX, textY, roundedAltitude.toFixed(0), hudColor, TextAlignment.RIGHT);
@@ -247,7 +265,7 @@ export class HUDEntity implements Entity {
     private renderVerticalVelocityIndicator(layout: OverlayLayout, tickStep: number, x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string) {
         const { layoutScale } = layout;
         const maxPixels = ALTITUDE_HEIGHT * layoutScale;
-        const pixelLength = clamp(Math.floor(layoutScale * this.verticalSpeed / 500.0), -maxPixels, maxPixels);
+        const pixelLength = clamp(Math.floor(layoutScale * this.verticalSpeed / this.displayUnits.verticalSpeedBarDivisor), -maxPixels, maxPixels);
         painter.setColor(hudWarnColor);
         painter.vLine(x - 1, y, y - pixelLength);
         painter.setColor(hudColor);
@@ -298,7 +316,9 @@ export class HUDEntity implements Entity {
 
     private renderAirSpeed(layout: OverlayLayout, tickStep: number, x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font, fontSmall: Font) {
         const { detailScale, layoutScale } = layout;
-        const airspeed = AIRSPEED_SCALE * AIRSPEED_STEP * Math.floor(this.speed / AIRSPEED_STEP);
+        const airspeedStep = this.displayUnits.airspeedStep;
+        const airspeedScale = this.displayUnits.airspeedScale;
+        const airspeed = airspeedScale * airspeedStep * Math.floor(this.speed / airspeedStep);
         const tmp = 25 * Math.floor(this.speed * 10 / 25);
         const offset = tmp % 50 === 0 ? 0 : 1;
         const labelsRes = detailScale > 1 ? 1000 : 500;
@@ -307,7 +327,7 @@ export class HUDEntity implements Entity {
 
         const batch = painter.batch();
         for (let i = AIRSPEED_HALF_HEIGHT * detailScale; i >= -AIRSPEED_HALF_HEIGHT * detailScale; i--) {
-            const current = airspeed + (i * 2 - offset) * AIRSPEED_STEP * AIRSPEED_SCALE;
+            const current = airspeed + (i * 2 - offset) * airspeedStep * airspeedScale;
             if (current >= 0) {
                 let barWidth = 0;
                 if (current % 500 === 0) {
@@ -324,12 +344,12 @@ export class HUDEntity implements Entity {
         const clip = painter.clip();
         clip.rectangle(0, y - AIRSPEED_HEIGHT * layoutScale, x, layoutScale * AIRSPEED_HEIGHT * 2 + 3).clip();
         for (let i = detailScale * (AIRSPEED_HALF_HEIGHT + 1) + 1; i >= -detailScale * (AIRSPEED_HALF_HEIGHT + 1) - 1; i--) {
-            const current = airspeed + (i * 2 - offset) * AIRSPEED_STEP * AIRSPEED_SCALE;
+            const current = airspeed + (i * 2 - offset) * airspeedStep * airspeedScale;
             if (current >= 0 && current % labelsRes === 0) {
                 painter.text(fontSmall,
                     x - 6,
                     y - i * tickStep + offset - smallCharHeightHalf,
-                    (current / AIRSPEED_SCALE).toFixed(0), hudColor, TextAlignment.RIGHT);
+                    (current / airspeedScale).toFixed(0), hudColor, TextAlignment.RIGHT);
             }
         }
         clip.clear();

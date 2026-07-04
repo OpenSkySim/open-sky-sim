@@ -20,6 +20,9 @@ export abstract class FlightModel {
     protected throttle: number = 0; // [0, 1]
     protected effectiveThrottle: number = 0; // [0, 1]
 
+    protected angleOfAttackRad: number = 0;
+    protected loadFactorG: number = 1;
+
     private deltaRemainder: number = 0;
 
     abstract step(delta: number): void;
@@ -37,6 +40,8 @@ export abstract class FlightModel {
         this.yaw = 0;
         this.throttle = 0;
         this.effectiveThrottle = 0;
+        this.angleOfAttackRad = 0;
+        this.loadFactorG = 1;
     }
 
     update(delta: number): void {
@@ -117,4 +122,12 @@ export abstract class FlightModel {
 
     // [-1,1] - Values >= 0 mean stall
     abstract getStallStatus(): number;
+
+    getAngleOfAttack(): number {
+        return this.angleOfAttackRad;
+    }
+
+    getLoadFactorG(): number {
+        return this.loadFactorG;
+    }
 }

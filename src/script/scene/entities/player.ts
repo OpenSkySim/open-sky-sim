@@ -497,6 +497,14 @@ export class PlayerEntity implements Entity {
         return this.flightModel.getStallStatus();
     }
 
+    get angleOfAttack(): number {
+        return this.flightModel.getAngleOfAttack();
+    }
+
+    get loadFactorG(): number {
+        return this.flightModel.getLoadFactorG();
+    }
+
     get hudFocusMode(): HUDFocusMode {
         return this.hudFocus;
     }

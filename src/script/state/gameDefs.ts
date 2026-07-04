@@ -13,6 +13,11 @@ export enum FlightModels {
     REALISTIC = 'REALISTIC'
 }
 
+export enum UnitSystems {
+    METRIC = 'METRIC',
+    IMPERIAL = 'IMPERIAL',
+}
+
 export enum HUDFocusMode {
     DISABLED,
     PARTIAL,

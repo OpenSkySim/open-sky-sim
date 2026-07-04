@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ConfigService } from '../../../config/configService';
 import { Palette, PaletteCategory, PaletteColor } from "../../../config/palettes/palette";
 import { CanvasPainter } from "../../../render/screen/canvasPainter";
 import { Font, TextAlignment } from "../../../render/screen/text";
@@ -6,17 +7,27 @@ import { FORWARD, vectorHeading } from '../../../utils/math';
 import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { GroundTargetEntity } from '../groundTarget';
+import { UnitSystems } from '../../../state/gameDefs';
 import { PlayerEntity } from "../player";
-import { toFeet, toKnots, getOverlayLayout } from './overlayUtils';
+import { DisplayUnits } from './displayUnits';
+import { getOverlayLayout } from './overlayUtils';
 
 
 export class ExteriorDataEntity implements Entity {
 
-    constructor(private actor: PlayerEntity) { }
+    private displayUnits: DisplayUnits;
+    private readonly onUnitSystemChange = (system: UnitSystems) => {
+        this.displayUnits.setSystem(system);
+    };
+
+    constructor(private actor: PlayerEntity, config: ConfigService) {
+        this.displayUnits = new DisplayUnits(config.unitSystem.getActive());
+        config.unitSystem.addChangeListener(this.onUnitSystemChange);
+    }
 
     private heading: number = 0; // degrees, 0 is North, increases CW
-    private altitude: number = 0; // feet
-    private speed: number = 0; // knots
+    private altitude: number = 0; // display units
+    private speed: number = 0; // display units
     private weaponsTarget: GroundTargetEntity | undefined;
 
     private tmpVector = new THREE.Vector3();
@@ -30,7 +41,7 @@ export class ExteriorDataEntity implements Entity {
     }
 
     update(delta: number): void {
-        this.altitude = toFeet(this.actor.position.y);
+        this.altitude = this.displayUnits.altitudeFromMeters(this.actor.position.y);
 
         this.tmpVector.copy(FORWARD)
             .applyQuaternion(this.actor.quaternion)
@@ -38,7 +49,7 @@ export class ExteriorDataEntity implements Entity {
             .normalize();
         this.heading = vectorHeading(this.tmpVector);
 
-        this.speed = toKnots(this.actor.rawSpeed);
+        this.speed = this.displayUnits.speedFromMps(this.actor.rawSpeed);
 
         this.weaponsTarget = this.actor.weaponsTarget;
     }
@@ -74,7 +85,7 @@ export class ExteriorDataEntity implements Entity {
     }
 
     private renderAltitude(x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
-        painter.text(font, x, y, `Altitude ${this.altitude.toFixed(0)}`, hudColor, TextAlignment.LEFT);
+        painter.text(font, x, y, `ALT ${this.altitude.toFixed(0)} ${this.displayUnits.altitudeUnitLabel()}`, hudColor, TextAlignment.LEFT);
     }
 
     private renderHeading(x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
@@ -82,7 +93,7 @@ export class ExteriorDataEntity implements Entity {
     }
 
     private renderAirSpeed(x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
-        painter.text(font, x, y, `Airspeed ${Math.floor(this.speed).toFixed(0)}`, hudColor, TextAlignment.LEFT);
+        painter.text(font, x, y, `SPD ${Math.floor(this.speed).toFixed(0)} ${this.displayUnits.speedUnitLabel()}`, hudColor, TextAlignment.LEFT);
     }
 
     private renderTargetInfo(x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {

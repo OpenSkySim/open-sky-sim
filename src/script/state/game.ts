@@ -15,7 +15,6 @@ import { VGANoonPalette } from '../config/palettes/vga-noon';
 import { DisplayResolution, getDisplayResolutionSize } from '../config/profiles/profile';
 import { KernelTask } from '../core/kernel';
 import { COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
-import { ArcadeFlightModel } from '../physics/model/arcadeFlightModel';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
 import { GroundSmokeEntity } from '../scene/entities/groundSmoke';
@@ -154,7 +153,7 @@ export class Game {
                 rudderLeft: 'assets/f22_rudder_left.glb',
                 rudderRight: 'assets/f22_rudder_right.glb'
             },
-            new ArcadeFlightModel(),
+            configService.flightModels.getActive(),
             this.audio.getGlobal('assets/engine-loop-02.ogg', true),
             this.audio.getGlobal('assets/engine-loop-01.ogg', true),
             PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING);
@@ -760,7 +759,7 @@ export class Game {
         this.scene.add(this.groundFire);
         this.scene.add(this.player);
 
-        const hud = new HUDEntity(this.player);
+        const hud = new HUDEntity(this.player, this.configService);
         this.cockpitEntities.push(hud);
         this.scene.add(hud);
 
@@ -768,7 +767,7 @@ export class Game {
         this.cockpitEntities.push(cockpit);
         this.scene.add(cockpit);
 
-        const exteriorData = new ExteriorDataEntity(this.player);
+        const exteriorData = new ExteriorDataEntity(this.player, this.configService);
         exteriorData.enabled = false;
         this.exteriorEntities.push(exteriorData);
         this.scene.add(exteriorData);

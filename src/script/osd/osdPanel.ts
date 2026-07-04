@@ -1,7 +1,7 @@
 import { ConfigService } from "../config/configService";
 import { JoystickControlDevice } from "../input/devices/joystickControlDevice";
 import { KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts } from "../input/devices/keyboardControlDevice";
-import { FlightModels, TechProfiles } from "../state/gameDefs";
+import { FlightModels, TechProfiles, UnitSystems } from "../state/gameDefs";
 import { assertIsDefined } from "../utils/asserts";
 
 
@@ -9,6 +9,7 @@ export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDe
     setupButtons();
     setupGenerationOptions(config);
     setupFlightModel(config);
+    setupUnitSystem(config);
     setupKeyboardHelp(keyboardInput);
     setupJoystickHelp(joystickInput);
 }
@@ -97,6 +98,20 @@ function setupFlightModel(config: ConfigService) {
     });
     realisticFlightModel.addEventListener('change', () => {
         config.flightModels.setActive(FlightModels.REALISTIC);
+    });
+}
+
+function setupUnitSystem(config: ConfigService) {
+    const unitMetric = document.getElementById('units-metric');
+    assertIsDefined(unitMetric);
+    const unitImperial = document.getElementById('units-imperial');
+    assertIsDefined(unitImperial);
+
+    unitMetric.addEventListener('change', () => {
+        config.unitSystem.setActive(UnitSystems.METRIC);
+    });
+    unitImperial.addEventListener('change', () => {
+        config.unitSystem.setActive(UnitSystems.IMPERIAL);
     });
 }
 

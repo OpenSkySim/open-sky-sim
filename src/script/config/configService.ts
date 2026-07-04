@@ -1,18 +1,22 @@
 import { FlightModel } from "../physics/model/flightModel";
+import { UnitSystems } from "../state/gameDefs";
 import { assertExpr, assertIsDefined } from "../utils/asserts";
 import { TechProfile } from "./profiles/profile";
 
 export type ProfileChangeListener = (profile: TechProfile, newId: string, oldId: string) => void;
 export type FlightModelChangeListener = (flightModel: FlightModel, newId: string, oldId: string) => void;
+export type UnitSystemChangeListener = (unitSystem: UnitSystems) => void;
 
 export class ConfigService {
 
     readonly techProfiles: ConfigSet<TechProfile>;
     readonly flightModels: ConfigSet<FlightModel>;
+    readonly unitSystem: UnitSystemSetting;
 
     constructor(profiles: { [id: string]: TechProfile }, flightModels: { [id: string]: FlightModel }) {
         this.techProfiles = new ConfigSet(profiles);
         this.flightModels = new ConfigSet(flightModels);
+        this.unitSystem = new UnitSystemSetting();
     }
 }
 
@@ -56,6 +60,31 @@ class ConfigSet<T> {
     }
 
     removeChangeListener(listener: ConfigSetChangeListener<T>) {
+        this.listeners.delete(listener);
+    }
+}
+
+export class UnitSystemSetting {
+    private active: UnitSystems = UnitSystems.METRIC;
+    private listeners: Set<UnitSystemChangeListener> = new Set();
+
+    getActive(): UnitSystems {
+        return this.active;
+    }
+
+    setActive(system: UnitSystems) {
+        if (system === this.active) return;
+        this.active = system;
+        for (const listener of this.listeners.values()) {
+            listener(system);
+        }
+    }
+
+    addChangeListener(listener: UnitSystemChangeListener) {
+        this.listeners.add(listener);
+    }
+
+    removeChangeListener(listener: UnitSystemChangeListener) {
         this.listeners.delete(listener);
     }
 }
