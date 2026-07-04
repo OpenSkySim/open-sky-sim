@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE, YAW_RATE } from "../../defs";
 import { FORWARD, PI_OVER_180, RIGHT, UP, ZERO, calculatePitchRoll, clamp, easeOutCirc, isZero, roundToZero } from '../../utils/math';
-import { computeAngleOfAttack, computeLoadFactorG } from '../aeroUtils';
 import { FlightModel } from './flightModel';
 
 
@@ -32,8 +31,6 @@ const LANDING_MIN_PITCH = -5 * PI_OVER_180; // Radians
 const LANDING_MAX_ROLL = 5 * PI_OVER_180; // Radians
 
 export class ArcadeFlightModel extends FlightModel {
-
-    protected useArcadeAssists = true;
 
     private stall: number = 0;
 
@@ -83,8 +80,9 @@ export class ArcadeFlightModel extends FlightModel {
         const speed = this.velocity.length(); // m/s
 
         const rightPrjVelocity = this._v.copy(this.velocityUnit).projectOnPlane(this.right);
-        const aoa = computeAngleOfAttack(this.forward, this.right, this.velocity, rightPrjVelocity);
-        this.angleOfAttackRad = aoa;
+        const aoaAngle = rightPrjVelocity.angleTo(this.forward);
+        const aoaSign = rightPrjVelocity.cross(this.forward).dot(this.right) > 0 ? -1 : 1;
+        const aoa = aoaSign * aoaAngle;
 
         // Roll control
         if (!isZero(this.roll) && !this.landed) {
@@ -110,14 +108,14 @@ export class ArcadeFlightModel extends FlightModel {
         }
 
         // Automatic yaw when rolling
-        if (this.useArcadeAssists && -0.99 < this.forward.y && this.forward.y < 0.99) {
+        if (-0.99 < this.forward.y && this.forward.y < 0.99) {
             const prjUp = this._v.copy(this.up).projectOnPlane(this.prjForward).setY(0);
             const sign = (this.prjForward.x * prjUp.z - this.prjForward.z * prjUp.x) > 0 ? -1 : 1;
             this.obj.rotateOnWorldAxis(UP, sign * prjUp.length() * prjUp.length() * this.prjForward.length() * 2.0 * YAW_RATE * delta);
         }
 
         // Point down when stalling
-        if (this.useArcadeAssists && this.stall >= 0 && !this.landed) {
+        if (this.stall >= 0 && !this.landed) {
             const y = this.forward.y;
             if (y > -0.8) {
                 const groundRight = this._v.copy(this.forward).cross(this.prjForward).normalize();
@@ -168,7 +166,7 @@ export class ArcadeFlightModel extends FlightModel {
             .multiplyScalar(DRY_MASS * GRAVITY);
 
         //! Magic velocity rotation
-        if (this.useArcadeAssists && !isZero(speed)) {
+        if (!isZero(speed)) {
             if (this.landed) {
                 this.velocity.copy(this.forward).multiplyScalar(speed);
             } else {
@@ -208,25 +206,15 @@ export class ArcadeFlightModel extends FlightModel {
             this.friction.set(0, 0, 0);
         }
 
-        this.forces.add(this.friction);
-        if (this.landed && this.forces.y < 0) {
-            this.forces.setY(0);
-        }
-
         //! Timestep
-        const accel = roundToZero(this.forces.divideScalar(DRY_MASS));
-        this.up.copy(UP).applyQuaternion(this.obj.quaternion);
-        this.loadFactorG = computeLoadFactorG(accel, this.up);
+        const accel = roundToZero(this.forces.add(this.friction).divideScalar(DRY_MASS));
         this.velocity.addScaledVector(accel, delta);
         if (this.landed && this.velocity.y < 0) {
             this.velocity.setY(0);
         }
 
         //! Apply
-        this.obj.position.addScaledVector(
-            this.landed ? roundToZero(this.velocity, 0.01) : this.velocity,
-            delta
-        );
+        this.obj.position.addScaledVector(roundToZero(this.velocity, this.effectiveThrottle > 0 ? 0.01 : 0.1), delta);
         if (this.obj.position.y > PLANE_DISTANCE_TO_GROUND) {
             this.landed = false;
         }
