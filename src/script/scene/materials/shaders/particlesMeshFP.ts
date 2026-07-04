@@ -24,14 +24,16 @@ void main() {
 
   vec2 screen = gl_FragCoord.xy;
 
-  int modX = int(mod(screen.x,4.0));
-  int modY = int(mod(screen.y,4.0));
-  for (int x = 0; x < 4; x++) {
-    for (int y = 0; y < 4; y++) {
-      if (x == modX && y == modY) {
-        float alpha = vColor.a + bayesian[x][y];
-        if (alpha < 0.5) {
-          discard;
+  if (shadingType != 3) {
+    int modX = int(mod(screen.x,4.0));
+    int modY = int(mod(screen.y,4.0));
+    for (int x = 0; x < 4; x++) {
+      for (int y = 0; y < 4; y++) {
+        if (x == modX && y == modY) {
+          float alpha = vColor.a + bayesian[x][y];
+          if (alpha < 0.5) {
+            discard;
+          }
         }
       }
     }
@@ -50,7 +52,9 @@ void main() {
 
   float fogFactor = exp2(-fogDensity * distance);
   fogFactor = 1.0 - clamp(fogFactor, 0.0, 1.0);
-  fogFactor = floor(fogFactor * fogSteps + 0.5) / fogSteps;
+  if (shadingType != 3) {
+    fogFactor = floor(fogFactor * fogSteps + 0.5) / fogSteps;
+  }
 
   vec3 diffuse;
   if (shadingType == 0) {

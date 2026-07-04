@@ -11,7 +11,7 @@ export const ShadedVertProgram: string = `
   void main() {
     vec3 worldNormal;
 
-    if (shadingType == 2) {
+    if (shadingType == 2 || shadingType == 3) {
       worldNormal = normalize(normalModelMatrix * normal);
     } else {
       worldNormal = normal;
@@ -22,8 +22,10 @@ export const ShadedVertProgram: string = `
     shade = shadeUp * shadeRight;
 
     vec4 pos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;
-    pos.y = floor(pos.y / pos.w * halfHeight + 0.5) / halfHeight * pos.w;
+    if (shadingType != 3) {
+      pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;
+      pos.y = floor(pos.y / pos.w * halfHeight + 0.5) / halfHeight * pos.w;
+    }
     gl_Position = pos;
   }
 `;

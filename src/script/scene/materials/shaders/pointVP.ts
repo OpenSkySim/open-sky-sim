@@ -3,6 +3,7 @@ export const PointVertProgram: string = `
 
   uniform float halfWidth;
   uniform float halfHeight;
+  uniform int shadingType;
 
   varying vec3 vPosition;
 
@@ -12,8 +13,10 @@ export const PointVertProgram: string = `
     gl_PointSize = 1.0;
 
     vec4 pos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;
-    pos.y = floor(pos.y / pos.w * halfHeight + 1.0) / halfHeight * pos.w;
+    if (shadingType != 3) {
+      pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;
+      pos.y = floor(pos.y / pos.w * halfHeight + 1.0) / halfHeight * pos.w;
+    }
     gl_Position = pos;
   }
 `;

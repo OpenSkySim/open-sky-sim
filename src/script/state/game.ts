@@ -8,9 +8,11 @@ import { EGANoonPalette } from '../config/palettes/ega-noon';
 import { Palette, PaletteCategory, PaletteColor } from '../config/palettes/palette';
 import { SVGAMidnightPalette } from '../config/palettes/svga-midnight';
 import { SVGANoonPalette } from '../config/palettes/svga-noon';
+import { HDMidnightPalette } from '../config/palettes/hd-midnight';
+import { HDNoonPalette } from '../config/palettes/hd-noon';
 import { VGAMidnightPalette } from '../config/palettes/vga-midnight';
 import { VGANoonPalette } from '../config/palettes/vga-noon';
-import { DisplayResolution } from '../config/profiles/profile';
+import { DisplayResolution, getDisplayResolutionSize } from '../config/profiles/profile';
 import { KernelTask } from '../core/kernel';
 import { COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
 import { ArcadeFlightModel } from '../physics/model/arcadeFlightModel';
@@ -47,10 +49,14 @@ const MAIN_RENDER_TARGET_LO = 'MAIN_RENDER_TARGET_LO';
 const CANVAS_RENDER_TARGET_LO = 'CANVAS_RENDER_TARGET_LO';
 const MAIN_RENDER_TARGET_HI = 'MAIN_RENDER_TARGET_HI';
 const CANVAS_RENDER_TARGET_HI = 'CANVAS_RENDER_TARGET_HI';
+const MAIN_RENDER_TARGET_HD = 'MAIN_RENDER_TARGET_HD';
+const CANVAS_RENDER_TARGET_HD = 'CANVAS_RENDER_TARGET_HD';
 const WEAPONSTARGET_RENDER_TARGET_LO = 'WEAPONSTARGET_RENDER_TARGET_LO';
 const MAP_RENDER_TARGET_LO = 'MAP_RENDER_TARGET_LO';
 const WEAPONSTARGET_RENDER_TARGET_HI = 'WEAPONSTARGET_RENDER_TARGET_HI';
 const MAP_RENDER_TARGET_HI = 'MAP_RENDER_TARGET_HI';
+const WEAPONSTARGET_RENDER_TARGET_HD = 'WEAPONSTARGET_RENDER_TARGET_HD';
+const MAP_RENDER_TARGET_HD = 'MAP_RENDER_TARGET_HD';
 
 const PLAYER_STARTING_POSITION = new THREE.Vector3(1500, PLANE_DISTANCE_TO_GROUND, -1160);
 const PLAYER_STARTING_HEADING = 0;
@@ -111,6 +117,12 @@ export class Game {
     private cockpitRenderLayersHi: RenderLayer[];
     private cockpitTargetRenderLayersHi: RenderLayer[];
     private exteriorRenderLayersHi: RenderLayer[];
+    private cockpitRenderLayersHd: RenderLayer[];
+    private cockpitTargetRenderLayersHd: RenderLayer[];
+    private exteriorRenderLayersHd: RenderLayer[];
+
+    private hdResolutionWidth = 0;
+    private hdResolutionHeight = 0;
 
     private view: PlayerViewState = PlayerViewState.COCKPIT_FRONT;
 
@@ -164,10 +176,16 @@ export class Game {
         this.cameraUpdaters.set(PlayerViewState.TARGET_FROM, new TargetFromCameraUpdater(this.player, this.playerCamera.main));
         this.cameraUpdater = this.getCameraUpdater(this.view);
         this.configService.techProfiles.addChangeListener(profile => {
-            if (profile.resolution === DisplayResolution.LO_RES) {
-                this.renderer.setComposeSize(LO_H_RES, LO_V_RES);
+            if (profile.resolution === DisplayResolution.HD_RES) {
+                this.updateHdResolution();
+                this.renderer.setUpscaleFilter(true);
             } else {
-                this.renderer.setComposeSize(HI_H_RES, HI_V_RES);
+                this.setStandardCameraAspect();
+                const [width, height] = getDisplayResolutionSize(profile.resolution);
+                this.renderer.setComposeSize(width, height);
+                this.renderer.setUpscaleFilter(false);
+                this.hdResolutionWidth = 0;
+                this.hdResolutionHeight = 0;
             }
             this.palettes = [profile.noonPalette, profile.midnightPalette];
             this.materials.setFog(profile.fogQuality);
@@ -281,18 +299,62 @@ export class Game {
         this.cockpitRenderLayersHi = [...playerLayersHi, ...mapLayersHi, ...canvasLayersHi];
         this.cockpitTargetRenderLayersHi = [...playerLayersHi, ...mapLayersHi, ...targetLayersHi, ...canvasLayersHi];
         this.exteriorRenderLayersHi = [...playerLayersHi, ...canvasLayersHi];
+
+        const playerLayersHd: RenderLayer[] = [
+            {
+                target: MAIN_RENDER_TARGET_HD,
+                camera: this.playerCamera.bgSky,
+                lists: [SceneLayers.BackgroundSky]
+            },
+            {
+                target: MAIN_RENDER_TARGET_HD,
+                camera: this.playerCamera.bgGround,
+                lists: [SceneLayers.BackgroundGround]
+            },
+            {
+                target: MAIN_RENDER_TARGET_HD,
+                camera: this.playerCamera.main,
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes]
+            }
+        ];
+        const targetLayersHd: RenderLayer[] = [
+            {
+                target: WEAPONSTARGET_RENDER_TARGET_HD,
+                camera: this.targetCamera.bgSky,
+                lists: [SceneLayers.BackgroundSky]
+            },
+            {
+                target: WEAPONSTARGET_RENDER_TARGET_HD,
+                camera: this.targetCamera.bgGround,
+                lists: [SceneLayers.BackgroundGround]
+            },
+            {
+                target: WEAPONSTARGET_RENDER_TARGET_HD,
+                camera: this.targetCamera.main,
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes]
+            }
+        ];
+        const mapLayersHd: RenderLayer[] = [
+            {
+                target: MAP_RENDER_TARGET_HD,
+                camera: this.mapCamera,
+                lists: [SceneLayers.Terrain]
+            }
+        ];
+        const canvasLayersHd: RenderLayer[] = [
+            {
+                target: CANVAS_RENDER_TARGET_HD,
+                camera: this.playerCamera.main,
+                lists: [SceneLayers.Overlay]
+            }
+        ];
+        this.cockpitRenderLayersHd = [...playerLayersHd, ...mapLayersHd, ...canvasLayersHd];
+        this.cockpitTargetRenderLayersHd = [...playerLayersHd, ...mapLayersHd, ...targetLayersHd, ...canvasLayersHd];
+        this.exteriorRenderLayersHd = [...playerLayersHd, ...canvasLayersHd];
     }
 
     setup() {
-        const textColors = Array.from(new Set(
-            [CGANoonPalette, CGAMidnightPalette, EGANoonPalette, EGAMidnightPalette, VGANoonPalette, VGAMidnightPalette, SVGANoonPalette, SVGAMidnightPalette]
-                .flatMap(p => ([
-                    PaletteColor(p, PaletteCategory.HUD_TEXT),
-                    PaletteColor(p, PaletteCategory.HUD_TEXT_WARN),
-                    PaletteColor(p, PaletteCategory.HUD_TEXT_SECONDARY),
-                    PaletteColor(p, PaletteCategory.HUD_TEXT_EFFECT)
-                ]))
-        ));
+        const textColors = this.getTextColors();
 
         this.renderer.createRenderTarget(MAIN_RENDER_TARGET_LO, RenderTargetType.WEBGL, 0, 0, LO_H_RES, LO_V_RES);
         this.renderer.createRenderTarget(CANVAS_RENDER_TARGET_LO, RenderTargetType.CANVAS, 0, 0, LO_H_RES, LO_V_RES, { textColors });
@@ -308,6 +370,70 @@ export class Game {
         this.materials.setPalette(this.getPalette());
         this.setupControls();
         this.setupScene();
+        window.addEventListener('resize', () => this.onViewportResize());
+    }
+
+    private onViewportResize() {
+        if (this.configService.techProfiles.getActive().resolution === DisplayResolution.HD_RES) {
+            this.updateHdResolution();
+        }
+    }
+
+    private updateHdResolution() {
+        const [width, height] = this.renderer.getMaxViewportResolution();
+        if (width === this.hdResolutionWidth && height === this.hdResolutionHeight) {
+            return;
+        }
+
+        this.hdResolutionWidth = width;
+        this.hdResolutionHeight = height;
+
+        if (!this.renderer.hasRenderTarget(MAIN_RENDER_TARGET_HD)) {
+            const textColors = this.getTextColors();
+            this.renderer.createRenderTarget(MAIN_RENDER_TARGET_HD, RenderTargetType.WEBGL, 0, 0, width, height);
+            this.renderer.createRenderTarget(CANVAS_RENDER_TARGET_HD, RenderTargetType.CANVAS, 0, 0, width, height, { textColors });
+            const mfdSize = CockpitMFDSize(height);
+            this.renderer.createRenderTarget(MAP_RENDER_TARGET_HD, RenderTargetType.WEBGL, CockpitMFD1X(width, height, mfdSize), CockpitMFD1Y(width, height, mfdSize), mfdSize, mfdSize);
+            this.renderer.createRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, RenderTargetType.WEBGL, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize);
+        } else {
+            this.renderer.resizeRenderTarget(MAIN_RENDER_TARGET_HD, 0, 0, width, height);
+            this.renderer.resizeRenderTarget(CANVAS_RENDER_TARGET_HD, 0, 0, width, height);
+            const mfdSize = CockpitMFDSize(height);
+            this.renderer.resizeRenderTarget(MAP_RENDER_TARGET_HD, CockpitMFD1X(width, height, mfdSize), CockpitMFD1Y(width, height, mfdSize), mfdSize, mfdSize);
+            this.renderer.resizeRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize);
+        }
+
+        this.renderer.setComposeSize(width, height);
+        this.setHdCameraAspect(width, height);
+    }
+
+    private setHdCameraAspect(width: number, height: number) {
+        const aspect = width / height;
+        this.playerCamera.main.aspect = aspect;
+        this.playerCamera.main.updateProjectionMatrix();
+        this.playerCamera.update();
+    }
+
+    private setStandardCameraAspect() {
+        const aspect = H_RES / V_RES;
+        this.playerCamera.main.aspect = aspect;
+        this.playerCamera.main.updateProjectionMatrix();
+        this.targetCamera.main.aspect = 1;
+        this.targetCamera.main.updateProjectionMatrix();
+        this.playerCamera.update();
+        this.targetCamera.update();
+    }
+
+    private getTextColors(): string[] {
+        return Array.from(new Set(
+            [CGANoonPalette, CGAMidnightPalette, EGANoonPalette, EGAMidnightPalette, VGANoonPalette, VGAMidnightPalette, SVGANoonPalette, SVGAMidnightPalette, HDNoonPalette, HDMidnightPalette]
+                .flatMap(p => ([
+                    PaletteColor(p, PaletteCategory.HUD_TEXT),
+                    PaletteColor(p, PaletteCategory.HUD_TEXT_WARN),
+                    PaletteColor(p, PaletteCategory.HUD_TEXT_SECONDARY),
+                    PaletteColor(p, PaletteCategory.HUD_TEXT_EFFECT)
+                ]))
+        ));
     }
 
     update(delta: number) {
@@ -333,19 +459,49 @@ export class Game {
     }
 
     render() {
-        const isLowRes = this.configService.techProfiles.getActive().resolution === DisplayResolution.LO_RES;
+        const resolution = this.configService.techProfiles.getActive().resolution;
+        if (resolution === DisplayResolution.HD_RES) {
+            this.updateHdResolution();
+        }
 
-        let layers = isLowRes ? this.cockpitRenderLayersLo : this.cockpitRenderLayersHi;
-        if (this.view !== PlayerViewState.COCKPIT_FRONT) {
-            layers = isLowRes ? this.exteriorRenderLayersLo : this.exteriorRenderLayersHi;
-        } else if (this.player.weaponsTarget) {
-            layers = isLowRes ? this.cockpitTargetRenderLayersLo : this.cockpitTargetRenderLayersHi;
+        let layers: RenderLayer[];
+        if (resolution === DisplayResolution.LO_RES) {
+            layers = this.cockpitRenderLayersLo;
+            if (this.view !== PlayerViewState.COCKPIT_FRONT) {
+                layers = this.exteriorRenderLayersLo;
+            } else if (this.player.weaponsTarget) {
+                layers = this.cockpitTargetRenderLayersLo;
+            }
+        } else if (resolution === DisplayResolution.HI_RES) {
+            layers = this.cockpitRenderLayersHi;
+            if (this.view !== PlayerViewState.COCKPIT_FRONT) {
+                layers = this.exteriorRenderLayersHi;
+            } else if (this.player.weaponsTarget) {
+                layers = this.cockpitTargetRenderLayersHi;
+            }
+        } else {
+            layers = this.cockpitRenderLayersHd;
+            if (this.view !== PlayerViewState.COCKPIT_FRONT) {
+                layers = this.exteriorRenderLayersHd;
+            } else if (this.player.weaponsTarget) {
+                layers = this.cockpitTargetRenderLayersHd;
+            }
+        }
+
+        if (this.player.weaponsTarget) {
+            const weaponsTargetId = resolution === DisplayResolution.LO_RES ? WEAPONSTARGET_RENDER_TARGET_LO
+                : resolution === DisplayResolution.HI_RES ? WEAPONSTARGET_RENDER_TARGET_HI
+                    : WEAPONSTARGET_RENDER_TARGET_HD;
             const nightVisionPalette = this.player.nightVision ? this.configService.techProfiles.getActive().nightVisionPalette : undefined;
             for (let i = 0; i < layers.length; i++) {
                 const layer = layers[i];
-                if (layer.target === WEAPONSTARGET_RENDER_TARGET_HI || layer.target === WEAPONSTARGET_RENDER_TARGET_LO) {
+                if (layer.target === weaponsTargetId) {
                     layer.palette = nightVisionPalette;
                 }
+            }
+        } else {
+            for (let i = 0; i < layers.length; i++) {
+                layers[i].palette = undefined;
             }
         }
         this.renderer.render(this.scene, layers);

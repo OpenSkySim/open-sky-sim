@@ -50,7 +50,8 @@ The generation of choice will simulate the experience of a game of that era:
 * 286/CGA: mid-80s
 * 286/EGA: late 80s
 * 386/VGA: early 90s
-* 486/SVGA: mid-90s before texture mapping 
+* 486/SVGA: mid-90s before texture mapping
+* HD: full-color rendering at native viewport resolution with smooth shading and fog
 
 #### Flight model
 
@@ -60,7 +61,7 @@ The flight model selects the realism of the simulation:
 
 #### Keyboard layout
 
-Choose your keyboard layout, for users using AZERTY or Dvorak keyboards.
+Choose your keyboard layout, for users using QWERTZ, AZERTY, Dvorak, or arrow keys.
 
 ### Plane controls
 
@@ -74,6 +75,12 @@ QWERTY (default):
 * `Q`/`E`: Yaw
 * `Z`/`X`: Throttle
 
+QWERTZ:
+* `W`/`S`: Pitch
+* `A`/`D`: Roll
+* `Q`/`E`: Yaw
+* `Y`/`X`: Throttle
+
 AZERTY:
 * `Z`/`S`: Pitch
 * `Q`/`D`: Roll
@@ -85,6 +92,12 @@ Dvorak:
 * `A`/`E`: Roll
 * `'`/`.`: Yaw
 * `Q`/`J`: Throttle
+
+Arrows:
+* `↑`/`↓`: Pitch
+* `←`/`→`: Roll
+* `Q`/`E`: Yaw
+* `Y`/`X`: Throttle
 
 #### Joystick
 
@@ -99,7 +112,7 @@ The system supports a single device connected only. If the device has less than 
 * `G`: Landing gear
 * `F`: Flaps
 * `T`: Select target
-* `I`: Toggle night (386/VGA) or IR (486/SVGA) for the tracking camera
+* `I`: Toggle night (386/VGA) or IR (486/SVGA/HD) for the tracking camera
 * `H`: Cycle through HUD focus modes (disabled, partial, full)
 
 ### Views

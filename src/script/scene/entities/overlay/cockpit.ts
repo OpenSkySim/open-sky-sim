@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { Palette, PaletteCategory, PaletteColor } from "../../../config/palettes/palette";
-import { H_RES, LO_H_RES } from "../../../defs";
 import { CanvasPainter } from "../../../render/screen/canvasPainter";
 import { Font, TextAlignment } from "../../../render/screen/text";
 import { calculatePitchRoll, FORWARD, UP, vectorHeading } from '../../../utils/math';
@@ -9,7 +8,7 @@ import { Scene, SceneLayers } from "../../scene";
 import { updateTargetCamera } from '../../utils';
 import { GroundTargetEntity } from '../groundTarget';
 import { AircraftDeviceState, PlayerEntity } from "../player";
-import { formatHeading } from './overlayUtils';
+import { formatHeading, getOverlayLayout } from './overlayUtils';
 
 
 // Pixels
@@ -105,10 +104,10 @@ export class CockpitEntity implements Entity {
     render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
         if (!lists.has(SceneLayers.Overlay)) return;
 
-        //! This should always be an integer!
-        const scale = Math.max(1, Math.round(targetWidth / H_RES));
+        const layout = getOverlayLayout(targetWidth, targetHeight);
+        const { layoutScale } = layout;
 
-        const font = scale > 1 ? Font.HUD_LARGE : Font.HUD_SMALL;
+        const font = layoutScale > 1 ? Font.HUD_LARGE : Font.HUD_SMALL;
         const hudColor = PaletteColor(palette, PaletteCategory.HUD_TEXT);
 
         this.renderAttitudeIndicator(targetWidth, targetHeight, painter, palette);
@@ -132,7 +131,8 @@ export class CockpitEntity implements Entity {
 
         const halfWidth = targetWidth / 2;
 
-        const AI_SIZE = 29 * Math.floor(targetWidth / LO_H_RES);
+        const scale = getOverlayLayout(targetWidth, targetHeight).layoutScale;
+        const AI_SIZE = 29 * scale;
         const AI_SIZE_HALF = Math.floor(AI_SIZE / 2);
         const AI_X = halfWidth - AI_SIZE_HALF;
         const AI_Y = targetHeight - AI_SIZE + 1;

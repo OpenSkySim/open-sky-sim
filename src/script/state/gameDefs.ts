@@ -3,7 +3,8 @@ export enum TechProfiles {
     CGA = 'CGA',
     EGA = 'EGA',
     VGA = 'VGA',
-    SVGA = 'SVGA'
+    SVGA = 'SVGA',
+    HD = 'HD',
 }
 
 export enum FlightModels {

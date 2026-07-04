@@ -9,7 +9,8 @@ export enum TextAlignment {
 export enum TextEffect {
     NONE,
     SHADOW,
-    BACKGROUND
+    BACKGROUND,
+    BOLD
 }
 
 enum FontCategory {
@@ -150,6 +151,14 @@ export class TextRenderer {
                 this.ctx.drawImage(shadowCanvas,
                     srcX, srcY, charWidth, charHeight,
                     dstX + 1, y + 1, charWidth, charHeight);
+            }
+
+            if (effect === TextEffect.BOLD) {
+                for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+                    this.ctx.drawImage(srcCanvas,
+                        srcX, srcY, charWidth, charHeight,
+                        dstX + dx, y + dy, charWidth, charHeight);
+                }
             }
 
             this.ctx.drawImage(srcCanvas,

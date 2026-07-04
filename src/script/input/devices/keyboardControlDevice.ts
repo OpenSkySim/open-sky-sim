@@ -17,8 +17,10 @@ export enum KeyboardControlAction {
 
 export enum KeyboardControlLayoutId {
     QWERTY,
+    QWERTZ,
     AZERTY,
     DVORAK,
+    ARROWS,
 }
 
 export type KeyboardControlLayout = Record<KeyboardControlAction, string>;
@@ -31,6 +33,17 @@ const QwertyKeyboardControlLayout: KeyboardControlLayout = {
     [KeyboardControlAction.YAW_POS]: 'e',
     [KeyboardControlAction.YAW_NEG]: 'q',
     [KeyboardControlAction.THROTTLE_POS]: 'z',
+    [KeyboardControlAction.THROTTLE_NEG]: 'x',
+}
+
+const QwertzKeyboardControlLayout: KeyboardControlLayout = {
+    [KeyboardControlAction.PITCH_POS]: 's',
+    [KeyboardControlAction.PITCH_NEG]: 'w',
+    [KeyboardControlAction.ROLL_POS]: 'd',
+    [KeyboardControlAction.ROLL_NEG]: 'a',
+    [KeyboardControlAction.YAW_POS]: 'e',
+    [KeyboardControlAction.YAW_NEG]: 'q',
+    [KeyboardControlAction.THROTTLE_POS]: 'y',
     [KeyboardControlAction.THROTTLE_NEG]: 'x',
 }
 
@@ -56,10 +69,23 @@ const DvorakKeyboardControlLayout: KeyboardControlLayout = {
     [KeyboardControlAction.THROTTLE_NEG]: 'j',
 }
 
+const ArrowsKeyboardControlLayout: KeyboardControlLayout = {
+    [KeyboardControlAction.PITCH_POS]: 'arrowdown',
+    [KeyboardControlAction.PITCH_NEG]: 'arrowup',
+    [KeyboardControlAction.ROLL_POS]: 'arrowright',
+    [KeyboardControlAction.ROLL_NEG]: 'arrowleft',
+    [KeyboardControlAction.YAW_POS]: 'e',
+    [KeyboardControlAction.YAW_NEG]: 'q',
+    [KeyboardControlAction.THROTTLE_POS]: 'y',
+    [KeyboardControlAction.THROTTLE_NEG]: 'x',
+}
+
 export const KeyboardControlLayouts = new Map<KeyboardControlLayoutId, KeyboardControlLayout>([
     [KeyboardControlLayoutId.QWERTY, QwertyKeyboardControlLayout],
+    [KeyboardControlLayoutId.QWERTZ, QwertzKeyboardControlLayout],
     [KeyboardControlLayoutId.AZERTY, AzertyKeyboardControlLayout],
     [KeyboardControlLayoutId.DVORAK, DvorakKeyboardControlLayout],
+    [KeyboardControlLayoutId.ARROWS, ArrowsKeyboardControlLayout],
 ]);
 
 enum Stick {
@@ -158,6 +184,9 @@ export class KeyboardControlDevice implements KernelTask {
     private setupInput() {
         document.addEventListener('keydown', (event: KeyboardEvent) => {
             const key = event.key.toLowerCase();
+            if (this.isLayoutKey(key) && key.startsWith('arrow')) {
+                event.preventDefault();
+            }
             switch (key) {
                 case this.layout[KeyboardControlAction.PITCH_POS]: {
                     this.pitchState = Stick.POSITIVE;
@@ -254,5 +283,9 @@ export class KeyboardControlDevice implements KernelTask {
             this.yawState = Stick.IDLE;
             this.throttleState = Stick.IDLE;
         });
+    }
+
+    private isLayoutKey(key: string) {
+        return Object.values(this.layout).includes(key);
     }
 }

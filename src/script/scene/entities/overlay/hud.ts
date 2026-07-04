@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Palette, PaletteCategory, PaletteColor } from "../../../config/palettes/palette";
-import { COCKPIT_FOV, H_RES } from '../../../defs';
+import { COCKPIT_FOV } from '../../../defs';
 import { CanvasPainter } from "../../../render/screen/canvasPainter";
 import { Font, TextAlignment } from "../../../render/screen/text";
 import { HUDFocusMode } from '../../../state/gameDefs';
@@ -9,7 +9,7 @@ import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { GroundTargetEntity } from '../groundTarget';
 import { PlayerEntity } from "../player";
-import { formatHeading, toFeet, toKnots } from './overlayUtils';
+import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout, toFeet, toKnots } from './overlayUtils';
 
 
 const ALTITUDE_HEIGHT = 32;
@@ -109,11 +109,12 @@ export class HUDEntity implements Entity {
     render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
         if (!lists.has(SceneLayers.Overlay)) return;
 
-        //! This should always be an integer!
-        const scale = Math.max(1, Math.round(targetWidth / H_RES));
+        const layout = getOverlayLayout(targetWidth, targetHeight);
+        const { detailScale, layoutScale } = layout;
+        const tickStep = getOverlayTickStep(layout);
 
-        const font = scale > 1 ? Font.HUD_LARGE : Font.HUD_SMALL;
-        const fontSmall = scale > 1 ? Font.HUD_MEDIUM : Font.HUD_SMALL;
+        const font = layoutScale > 1 ? Font.HUD_LARGE : Font.HUD_SMALL;
+        const fontSmall = layoutScale > 1 ? Font.HUD_MEDIUM : Font.HUD_SMALL;
         const hudColor = PaletteColor(palette, PaletteCategory.HUD_TEXT);
         const hudSecondaryColor = PaletteColor(palette, PaletteCategory.HUD_TEXT_SECONDARY);
         const hudWarnColor = PaletteColor(palette, PaletteCategory.HUD_TEXT_WARN);
@@ -121,29 +122,32 @@ export class HUDEntity implements Entity {
 
         const halfWidth = targetWidth / 2;
         const halfHeight = targetHeight / 2;
+        const ladderSpread = layoutScale > 1 ? Math.max(1.5, layoutScale / detailScale) : 1;
 
-        this.renderPitchLadder(scale, targetHeight, halfWidth, halfHeight, painter, hudColor, hudSecondaryColor, fontSmall);
+        const geomScale = layoutScale / detailScale;
 
-        const altitudeX = halfWidth + Math.ceil((LADDER_HALF_WIDTH + 6) * (scale > 1 ? 1.5 : 1));
+        this.renderPitchLadder(layout, halfWidth, halfHeight, painter, hudColor, hudSecondaryColor, fontSmall);
+
+        const altitudeX = halfWidth + Math.ceil((LADDER_HALF_WIDTH + 6) * ladderSpread);
         const altitudeY = halfHeight;
         if (this.actor.hudFocusMode === HUDFocusMode.DISABLED) {
-            this.renderAltitude(scale, altitudeX, altitudeY, targetWidth, painter, hudColor, font, fontSmall);
+            this.renderAltitude(layout, tickStep, altitudeX, altitudeY, targetWidth, painter, hudColor, font, fontSmall);
         } else {
             this.renderAltitudeFocusMode(altitudeX, altitudeY, painter, hudColor, font);
         }
 
         const headingX = halfWidth;
-        const headingY = halfHeight - scale * (LADDER_HALF_HEIGHT + 2);
+        const headingY = halfHeight - layoutScale * (LADDER_HALF_HEIGHT + 2);
         if (this.actor.hudFocusMode !== HUDFocusMode.FULL) {
-            this.renderHeading(scale, headingX, headingY, painter, hudColor, font);
+            this.renderHeading(layout, headingX, headingY, painter, hudColor, font);
         } else {
             this.renderHeadingFocusMode(headingX, headingY, painter, hudColor, font);
         }
 
-        const airSpeedX = halfWidth - Math.floor((LADDER_HALF_WIDTH + 6) * (scale > 1 ? 1.5 : 1));
+        const airSpeedX = halfWidth - Math.floor((LADDER_HALF_WIDTH + 6) * ladderSpread);
         const airSpeedY = halfHeight;
         if (this.actor.hudFocusMode === HUDFocusMode.DISABLED) {
-            this.renderAirSpeed(scale, airSpeedX, airSpeedY, painter, hudColor, font, fontSmall);
+            this.renderAirSpeed(layout, tickStep, airSpeedX, airSpeedY, painter, hudColor, font, fontSmall);
         } else {
             this.renderAirSpeedFocusMode(airSpeedX, airSpeedY, painter, hudColor, font);
         }
@@ -152,18 +156,19 @@ export class HUDEntity implements Entity {
         const throttleY = headingY - font.charHeight - 3;
         this.renderThrottle(throttleX, throttleY, painter, hudColor, font);
 
-        this.renderTarget(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera);
-        this.renderBoresight(halfWidth, halfHeight, painter);
-        this.renderFlightPathMarker(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera);
-        this.renderStallWarning(scale, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor, font);
+        this.renderTarget(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale);
+        this.renderBoresight(halfWidth, halfHeight, painter, geomScale);
+        this.renderFlightPathMarker(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale);
+        this.renderStallWarning(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor, font);
 
         if (this.actor.hudFocusMode === HUDFocusMode.DISABLED) {
-            this.renderStallStatus(scale, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor);
-            this.renderVerticalVelocityIndicator(scale, altitudeX, altitudeY, painter, hudColor, hudWarnColor);
+            this.renderStallStatus(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor);
+            this.renderVerticalVelocityIndicator(layout, tickStep, altitudeX, altitudeY, painter, hudColor, hudWarnColor);
         }
     }
 
-    private renderAltitude(scale: number, x: number, y: number, width: number, painter: CanvasPainter, hudColor: string, font: Font, fontSmall: Font) {
+    private renderAltitude(layout: OverlayLayout, tickStep: number, x: number, y: number, width: number, painter: CanvasPainter, hudColor: string, font: Font, fontSmall: Font) {
+        const { detailScale, layoutScale } = layout;
         const roundedAltitude = ALTITUDE_STEP * Math.floor(this.altitude / ALTITUDE_STEP);
         const lowp = roundedAltitude >= ALTITUDE_LOWP_THRESHOLD;
         const markerScale = lowp ? 10 : 1;
@@ -172,29 +177,29 @@ export class HUDEntity implements Entity {
         const charHeightHalf = Math.trunc(font.charHeight / 2);
 
         const batch = painter.batch();
-        for (let i = ALTITUDE_HALF_HEIGHT * scale; i >= -ALTITUDE_HALF_HEIGHT * scale; i--) {
+        for (let i = ALTITUDE_HALF_HEIGHT * detailScale; i >= -ALTITUDE_HALF_HEIGHT * detailScale; i--) {
             const current = scaledAltitude + (i * 2 - offset) * ALTITUDE_STEP * markerScale;
             if (current >= 0 || lowp) {
-                let width = 0;
+                let barWidth = 0;
                 if (current % (100 * markerScale) === 0) {
-                    width = 2;
+                    barWidth = 2;
                 } else if (current % (50 * markerScale) === 0) {
-                    width = 1;
+                    barWidth = 1;
                 }
-                batch.hLine(x, x + width, y - i * 2 + offset);
+                batch.hLine(x, x + barWidth, y - i * tickStep + offset);
             }
         }
         batch.hLine(x - 5, x - 2, y);
         batch.commit();
 
         const clip = painter.clip();
-        clip.rectangle(x, y - ALTITUDE_HEIGHT * scale, width - x, (ALTITUDE_HEIGHT * 2 + 3) * scale).clip();
-        for (let i = scale * (ALTITUDE_HALF_HEIGHT + 1) + 1; i >= -scale * (ALTITUDE_HALF_HEIGHT + 1) - 1; i--) {
+        clip.rectangle(x, y - ALTITUDE_HEIGHT * layoutScale, width - x, (ALTITUDE_HEIGHT * 2 + 3) * layoutScale).clip();
+        for (let i = detailScale * (ALTITUDE_HALF_HEIGHT + 1) + 1; i >= -detailScale * (ALTITUDE_HALF_HEIGHT + 1) - 1; i--) {
             const current = scaledAltitude + (i * 2 - offset) * ALTITUDE_STEP * markerScale;
             if ((current >= 0 || lowp) && current % (100 * markerScale) === 0) {
                 painter.text(fontSmall,
                     x + 6 + (fontSmall.charWidth + fontSmall.charSpacing) * 3,
-                    y - i * 2 + offset - charHeightHalf,
+                    y - i * tickStep + offset - charHeightHalf,
                     this.getAltitudeDisplay(current, lowp), hudColor, TextAlignment.RIGHT);
             }
         }
@@ -225,35 +230,39 @@ export class HUDEntity implements Entity {
             2 + font.charSpacing * 4 + font.charHeight);
     }
 
-    private renderVerticalVelocityIndicator(scale: number, x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string) {
-        const pixelLength = clamp(Math.floor(scale * this.verticalSpeed / 500.0), -ALTITUDE_HEIGHT * scale, ALTITUDE_HEIGHT * scale); // Eaxh pixel is 500 feet/min
+    private renderVerticalVelocityIndicator(layout: OverlayLayout, tickStep: number, x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string) {
+        const { layoutScale } = layout;
+        const maxPixels = ALTITUDE_HEIGHT * layoutScale;
+        const pixelLength = clamp(Math.floor(layoutScale * this.verticalSpeed / 500.0), -maxPixels, maxPixels);
         painter.setColor(hudWarnColor);
         painter.vLine(x - 1, y, y - pixelLength);
         painter.setColor(hudColor);
     }
 
-    private renderHeading(scale: number, x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
+    private renderHeading(layout: OverlayLayout, x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
+        const { detailScale, layoutScale } = layout;
+        const headingSpacing = HEADING_SPACING * layoutScale / detailScale;
         const offset = this.heading % HEADING_SPACING;
         const batch = painter.batch();
         for (let i = -HEADING_HALF_WIDTH; i <= HEADING_HALF_WIDTH; i++) {
-            const height = (this.heading + i * HEADING_STEP - offset) % 10 === 0 ? 2 : 0;
-            batch.vLine(x + i * HEADING_SPACING - offset, y - height, y);
+            const height = (this.heading + i * HEADING_STEP - offset) % 10 === 0 ? 2 * layoutScale / detailScale : 0;
+            batch.vLine(x + i * headingSpacing - offset, y - height, y);
         }
-        batch.vLine(x, y + 2, y + 4);
+        batch.vLine(x, y + 2 * layoutScale / detailScale, y + 4 * layoutScale / detailScale);
         batch.commit();
 
         const clip = painter.clip()
-            .rectangle(x - HEADING_HALF_WIDTH * HEADING_SPACING - font.charWidth - 1,
-                y - font.charHeight - 4,
-                HEADING_WIDTH * HEADING_SPACING + 2 * font.charWidth,
-                font.charHeight + 3)
+            .rectangle(x - HEADING_HALF_WIDTH * headingSpacing - font.charWidth - 1,
+                y - font.charHeight - 4 * layoutScale / detailScale,
+                HEADING_WIDTH * headingSpacing + 2 * font.charWidth,
+                font.charHeight + 3 * layoutScale / detailScale)
             .clip();
-        for (let i = -HEADING_HALF_WIDTH - 1 - scale; i <= HEADING_HALF_WIDTH + 1 + scale; i++) {
+        for (let i = -HEADING_HALF_WIDTH - 1 - detailScale; i <= HEADING_HALF_WIDTH + 1 + detailScale; i++) {
             const value = this.heading + i * HEADING_STEP - offset;
             if (value % 45 === 0) {
                 painter.text(font,
-                    x + i * HEADING_SPACING - offset,
-                    y - font.charHeight - 3,
+                    x + i * headingSpacing - offset,
+                    y - font.charHeight - 3 * layoutScale / detailScale,
                     formatHeading(value), hudColor, TextAlignment.CENTER);
             }
         }
@@ -273,38 +282,39 @@ export class HUDEntity implements Entity {
             2 + font.charSpacing * 4 + font.charHeight);
     }
 
-    private renderAirSpeed(scale: number, x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font, fontSmall: Font) {
+    private renderAirSpeed(layout: OverlayLayout, tickStep: number, x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font, fontSmall: Font) {
+        const { detailScale, layoutScale } = layout;
         const airspeed = AIRSPEED_SCALE * AIRSPEED_STEP * Math.floor(this.speed / AIRSPEED_STEP);
         const tmp = 25 * Math.floor(this.speed * 10 / 25);
         const offset = tmp % 50 === 0 ? 0 : 1;
-        const labelsRes = scale > 1 ? 1000 : 500;
+        const labelsRes = detailScale > 1 ? 1000 : 500;
         const charHeightHalf = Math.trunc(font.charHeight / 2);
         const smallCharHeightHalf = Math.trunc(fontSmall.charHeight / 2);
 
         const batch = painter.batch();
-        for (let i = AIRSPEED_HALF_HEIGHT * scale; i >= -AIRSPEED_HALF_HEIGHT * scale; i--) {
+        for (let i = AIRSPEED_HALF_HEIGHT * detailScale; i >= -AIRSPEED_HALF_HEIGHT * detailScale; i--) {
             const current = airspeed + (i * 2 - offset) * AIRSPEED_STEP * AIRSPEED_SCALE;
             if (current >= 0) {
-                let width = 0;
+                let barWidth = 0;
                 if (current % 500 === 0) {
-                    width = 2;
+                    barWidth = 2;
                 } else if (current % 250 === 0) {
-                    width = 1;
+                    barWidth = 1;
                 }
-                batch.hLine(x - width, x, y - i * 2 + offset);
+                batch.hLine(x - barWidth, x, y - i * tickStep + offset);
             }
         }
         batch.hLine(x + 2, x + 5, y);
         batch.commit();
 
         const clip = painter.clip();
-        clip.rectangle(0, y - AIRSPEED_HEIGHT * scale, x, scale * AIRSPEED_HEIGHT * 2 + 3).clip();
-        for (let i = scale * (AIRSPEED_HALF_HEIGHT + 1) + 1; i >= -scale * (AIRSPEED_HALF_HEIGHT + 1) - 1; i--) {
+        clip.rectangle(0, y - AIRSPEED_HEIGHT * layoutScale, x, layoutScale * AIRSPEED_HEIGHT * 2 + 3).clip();
+        for (let i = detailScale * (AIRSPEED_HALF_HEIGHT + 1) + 1; i >= -detailScale * (AIRSPEED_HALF_HEIGHT + 1) - 1; i--) {
             const current = airspeed + (i * 2 - offset) * AIRSPEED_STEP * AIRSPEED_SCALE;
             if (current >= 0 && current % labelsRes === 0) {
                 painter.text(fontSmall,
                     x - 6,
-                    y - i * 2 + offset - smallCharHeightHalf,
+                    y - i * tickStep + offset - smallCharHeightHalf,
                     (current / AIRSPEED_SCALE).toFixed(0), hudColor, TextAlignment.RIGHT);
             }
         }
@@ -339,24 +349,28 @@ export class HUDEntity implements Entity {
         painter.text(font, x, y, `THR ${(100 * this.throttle).toFixed(0)}`, hudColor);
     }
 
-    private renderPitchLadder(scale: number, height: number, x: number, y: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, font: Font) {
+    private renderPitchLadder(layout: OverlayLayout, x: number, y: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, font: Font) {
+        const { detailScale, layoutScale } = layout;
         const fov = toRadians(COCKPIT_FOV);
-        const current = Math.round(toDegrees(-this.pitch) / 10 * scale);
-        const minMarker = Math.max(current - LADDER_EXTRA_MARKERS * scale, -9 * scale);
-        const maxMarker = Math.min(current + LADDER_EXTRA_MARKERS * scale, 9 * scale);
+        const logicalHeight = getOverlayLogicalHeight(layout);
+        const current = Math.round(toDegrees(-this.pitch) / 10 * detailScale);
+        const minMarker = Math.max(current - LADDER_EXTRA_MARKERS * detailScale, -9 * detailScale);
+        const maxMarker = Math.min(current + LADDER_EXTRA_MARKERS * detailScale, 9 * detailScale);
 
         painter.setColor(hudSecondaryColor);
 
-        const adjustedScale = (scale > 1 ? 1.5 : 1);
+        const ladderSpread = layoutScale > 1 ? Math.max(1.5, layoutScale / detailScale) : 1;
         const clip = painter.clip()
-            .rectangle(x - Math.floor(LADDER_HALF_WIDTH * adjustedScale),
-                y - LADDER_HALF_HEIGHT * scale,
-                Math.floor(LADDER_WIDTH * adjustedScale),
-                (LADDER_HEIGHT + font.charHeight) * scale)
+            .rectangle(x - Math.floor(LADDER_HALF_WIDTH * ladderSpread),
+                y - LADDER_HALF_HEIGHT * layoutScale,
+                Math.floor(LADDER_WIDTH * ladderSpread),
+                (LADDER_HEIGHT + font.charHeight) * layoutScale)
             .clip();
 
+        const geomScale = layoutScale / detailScale;
+
         for (let i = minMarker; i <= maxMarker; i++) {
-            const offset = ((this.pitch + toRadians(i * 10 / scale)) / fov) * height;
+            const offset = ((this.pitch + toRadians(i * 10 / detailScale)) / fov) * logicalHeight;
             const center = this._w.set(x, 0, y);
 
             const normal = this._v.copy(FORWARD)
@@ -364,19 +378,20 @@ export class HUDEntity implements Entity {
                 .applyAxisAngle(UP, this.roll);
             center.addScaledVector(normal, -offset);
 
-            normal.multiplyScalar(LADDER_SIZE_HALF);
+            const ladderHalf = LADDER_SIZE_HALF * geomScale;
+            normal.multiplyScalar(ladderHalf);
 
             const C0_X = Math.floor(center.x + normal.z);
             const C0_Y = Math.round(center.z + -normal.x);
             const C1_X = Math.floor(center.x + -normal.z);
             const C1_Y = Math.round(center.z + normal.x);
 
-            normal.divideScalar(LADDER_SIZE_HALF);
+            normal.divideScalar(ladderHalf);
 
             const batch = painter.batch();
 
             if (i >= 0) { // Gap in the middle
-                const horizonVerticalOffset = LADDER_SIZE_HALF + LADDER_HORIZON_HALF_GAP;
+                const horizonVerticalOffset = ladderHalf + LADDER_HORIZON_HALF_GAP * geomScale;
                 batch.line(
                     C0_X, C0_Y,
                     C1_X + Math.floor(normal.z * horizonVerticalOffset),
@@ -392,23 +407,25 @@ export class HUDEntity implements Entity {
             }
             if (i !== 0) {
                 const sign = Math.sign(i);
-                const nX = sign * Math.round(normal.x * 5);
-                const nY = sign * Math.round(normal.z * 5);
+                const chevron = 5 * geomScale;
+                const nX = sign * Math.round(normal.x * chevron);
+                const nY = sign * Math.round(normal.z * chevron);
                 batch.line(C0_X, C0_Y, C0_X + nX, C0_Y + nY);
                 batch.line(C1_X, C1_Y, C1_X + nX, C1_Y + nY);
             }
             batch.commit();
 
-            if (i === 0 && scale > 1) continue;
+            if (i === 0 && detailScale > 1) continue;
 
-            const str = (i === 0) ? '00' : `${(i * -10 / scale)}`;
+            const str = (i === 0) ? '00' : `${Math.round(i * -10 / detailScale)}`;
             const charHeightHalf = Math.trunc(font.charHeight / 2);
             const tX = Math.round(normal.x * charHeightHalf);
             const tY = Math.round(normal.z * charHeightHalf);
-            const T0_X = Math.floor(normal.z * 2 * (font.charWidth + font.charSpacing));
-            const T0_Y = Math.round(-normal.x * 2 * (font.charWidth + font.charSpacing));
-            const T1_X = Math.floor(-normal.z * 2 * (font.charWidth + font.charSpacing));
-            const T1_Y = Math.round(normal.x * 2 * (font.charWidth + font.charSpacing));
+            const labelOffset = 2 * (font.charWidth + font.charSpacing) * geomScale;
+            const T0_X = Math.floor(normal.z * labelOffset);
+            const T0_Y = Math.round(-normal.x * labelOffset);
+            const T1_X = Math.floor(-normal.z * labelOffset);
+            const T1_Y = Math.round(normal.x * labelOffset);
             painter.text(font, C0_X + tX + T0_X, C0_Y + tY + T0_Y, str, hudSecondaryColor, TextAlignment.CENTER);
             painter.text(font, C1_X + tX + T1_X, C1_Y + tY + T1_Y, str, hudSecondaryColor, TextAlignment.CENTER);
         }
@@ -417,8 +434,11 @@ export class HUDEntity implements Entity {
         painter.setColor(hudColor);
     }
 
-    private renderTarget(width: number, height: number, halfWidth: number, halfHeight: number, painter: CanvasPainter, camera: THREE.Camera) {
+    private renderTarget(width: number, height: number, halfWidth: number, halfHeight: number, painter: CanvasPainter, camera: THREE.Camera, geomScale: number) {
         if (this.weaponsTarget === undefined) return;
+
+        const targetHalfWidth = Math.round(TARGET_HALF_WIDTH * geomScale);
+        const targetWidth = targetHalfWidth * 2 + 1;
 
         camera.getWorldDirection(this._v);
         this._plane.setFromNormalAndCoplanarPoint(this._v, camera.position);
@@ -429,21 +449,23 @@ export class HUDEntity implements Entity {
             const y = Math.round(-(this._v.y * halfHeight) + halfHeight);
             if (0 <= x && x < width &&
                 0 <= y && y < height) {
-                painter.rectangle(x - TARGET_HALF_WIDTH, y - TARGET_HALF_WIDTH, TARGET_WIDTH, TARGET_WIDTH);
+                painter.rectangle(x - targetHalfWidth, y - targetHalfWidth, targetWidth, targetWidth);
             }
         }
     }
 
-    private renderBoresight(halfWidth: number, halfHeight: number, painter: CanvasPainter) {
+    private renderBoresight(halfWidth: number, halfHeight: number, painter: CanvasPainter, geomScale: number) {
+        const u = geomScale;
         painter.batch()
-            .hLine(halfWidth - 5 - 5, halfWidth - 5, halfHeight)
-            .hLine(halfWidth + 5, halfWidth + 5 + 5, halfHeight)
-            .vLine(halfWidth, halfHeight - 3 - 3, halfHeight - 3)
-            .vLine(halfWidth, halfHeight + 3, halfHeight + 3 + 3)
+            .hLine(halfWidth - 5 * u - 5 * u, halfWidth - 5 * u, halfHeight)
+            .hLine(halfWidth + 5 * u, halfWidth + 5 * u + 5 * u, halfHeight)
+            .vLine(halfWidth, halfHeight - 3 * u - 3 * u, halfHeight - 3 * u)
+            .vLine(halfWidth, halfHeight + 3 * u, halfHeight + 3 * u + 3 * u)
             .commit();
     }
 
-    private renderFlightPathMarker(width: number, height: number, halfWidth: number, halfHeight: number, painter: CanvasPainter, camera: THREE.Camera) {
+    private renderFlightPathMarker(width: number, height: number, halfWidth: number, halfHeight: number, painter: CanvasPainter, camera: THREE.Camera, geomScale: number) {
+        const u = geomScale;
         this._v.copy(camera.position)
             .add(this.velocityDirection)
             .project(camera);
@@ -452,28 +474,26 @@ export class HUDEntity implements Entity {
         if (0 <= x && x < width &&
             0 <= y && y < height) {
             painter.batch()
-                // Circle
-                .hLine(x - 1, x + 1, y - 2)
-                .hLine(x - 1, x + 1, y + 2)
-                .vLine(x - 2, y - 1, y + 1)
-                .vLine(x + 2, y - 1, y + 1)
-                // Spikes
-                .hLine(x - 5, x - 3, y)
-                .hLine(x + 3, x + 5, y)
-                .vLine(x, y - 4, y - 3)
+                .hLine(x - u, x + u, y - 2 * u)
+                .hLine(x - u, x + u, y + 2 * u)
+                .vLine(x - 2 * u, y - u, y + u)
+                .vLine(x + 2 * u, y - u, y + u)
+                .hLine(x - 5 * u, x - 3 * u, y)
+                .hLine(x + 3 * u, x + 5 * u, y)
+                .vLine(x, y - 4 * u, y - 3 * u)
                 .commit();
         }
     }
 
-    private renderStallStatus(scale: number, x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string) {
-        const HALF_HEIGHT_PIXELS = scale * AIRSPEED_HALF_HEIGHT * 2;
+    private renderStallStatus(layout: OverlayLayout, x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string) {
+        const HALF_HEIGHT_PIXELS = layout.layoutScale * AIRSPEED_HALF_HEIGHT * 2;
         painter.setColor(hudWarnColor);
         painter.vLine(x + 1, y + HALF_HEIGHT_PIXELS + 1, y + HALF_HEIGHT_PIXELS + 1 - Math.floor((this.stallStatus + 1.0) * (HALF_HEIGHT_PIXELS + 1)));
         painter.setColor(hudColor);
     }
 
-    private renderStallWarning(scale: number, x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string, font: Font) {
-        const HALF_HEIGHT_PIXELS = scale * AIRSPEED_HALF_HEIGHT * 2;
+    private renderStallWarning(layout: OverlayLayout, x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string, font: Font) {
+        const HALF_HEIGHT_PIXELS = layout.layoutScale * AIRSPEED_HALF_HEIGHT * 2;
         painter.setColor(hudWarnColor);
         const blink = Math.round(this.elapsed * 15) % 2 === 0;
         if (this.stallStatus >= 0 && !this.isLanded && blink) {

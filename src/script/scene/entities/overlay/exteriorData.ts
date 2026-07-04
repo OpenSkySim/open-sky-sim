@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { Palette, PaletteCategory, PaletteColor } from "../../../config/palettes/palette";
-import { H_RES } from '../../../defs';
 import { CanvasPainter } from "../../../render/screen/canvasPainter";
 import { Font, TextAlignment } from "../../../render/screen/text";
 import { FORWARD, vectorHeading } from '../../../utils/math';
@@ -8,7 +7,7 @@ import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { GroundTargetEntity } from '../groundTarget';
 import { PlayerEntity } from "../player";
-import { toFeet, toKnots } from './overlayUtils';
+import { toFeet, toKnots, getOverlayLayout } from './overlayUtils';
 
 
 export class ExteriorDataEntity implements Entity {
@@ -51,9 +50,9 @@ export class ExteriorDataEntity implements Entity {
     render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
         if (!lists.has(SceneLayers.Overlay)) return;
 
-        const scale = Math.max(1, Math.round(targetWidth / H_RES));
+        const layoutScale = getOverlayLayout(targetWidth, targetHeight).layoutScale;
 
-        const font = scale > 1 ? Font.HUD_LARGE : Font.HUD_SMALL;
+        const font = layoutScale > 1 ? Font.HUD_LARGE : Font.HUD_SMALL;
         const hudColor = PaletteColor(palette, PaletteCategory.HUD_TEXT);
 
         painter.setColor(hudColor);

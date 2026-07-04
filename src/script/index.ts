@@ -6,6 +6,7 @@ import { VGANoonPalette } from './config/palettes/vga-noon';
 import { CGAProfile } from './config/profiles/cga';
 import { EGAProfile } from './config/profiles/ega';
 import { DisplayShading, FogQuality } from './config/profiles/profile';
+import { HDProfile } from './config/profiles/hd';
 import { SVGAProfile } from './config/profiles/svga';
 import { VGAProfile } from './config/profiles/vga';
 import { Kernel } from './core/kernel';
@@ -30,7 +31,7 @@ import { FlightModels, TechProfiles } from './state/gameDefs';
 
 function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice] {
     const config = new ConfigService(
-        { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile },
+        { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
         { [FlightModels.DEBUG]: new DebugFlightModel(), [FlightModels.ARCADE]: new ArcadeFlightModel(), [FlightModels.REALISTIC]: new RealisticFlightModel(), }
     );
     config.techProfiles.setActive(TechProfiles.VGA);

@@ -61,6 +61,8 @@ function setupGenerationOptions(config: ConfigService) {
     assertIsDefined(genVGA);
     const genSVGA = document.getElementById('gen-svga');
     assertIsDefined(genSVGA);
+    const genHD = document.getElementById('gen-hd');
+    assertIsDefined(genHD);
 
     genCGA.addEventListener('change', () => {
         config.techProfiles.setActive(TechProfiles.CGA);
@@ -73,6 +75,9 @@ function setupGenerationOptions(config: ConfigService) {
     });
     genSVGA.addEventListener('change', () => {
         config.techProfiles.setActive(TechProfiles.SVGA);
+    });
+    genHD.addEventListener('change', () => {
+        config.techProfiles.setActive(TechProfiles.HD);
     });
 }
 
@@ -98,14 +103,22 @@ function setupFlightModel(config: ConfigService) {
 function setupKeyboardHelp(keyboardInput: KeyboardControlDevice) {
     const qwertyLayout = document.getElementById('layout-qwerty');
     assertIsDefined(qwertyLayout);
+    const qwertzLayout = document.getElementById('layout-qwertz');
+    assertIsDefined(qwertzLayout);
     const azertyLayout = document.getElementById('layout-azerty');
     assertIsDefined(azertyLayout);
     const dvorakLayout = document.getElementById('layout-dvorak');
     assertIsDefined(dvorakLayout);
+    const arrowsLayout = document.getElementById('layout-arrows');
+    assertIsDefined(arrowsLayout);
 
     qwertyLayout.addEventListener('change', () => {
         keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.QWERTY);
         updateControlsHelp(KeyboardControlLayoutId.QWERTY);
+    });
+    qwertzLayout.addEventListener('change', () => {
+        keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.QWERTZ);
+        updateControlsHelp(KeyboardControlLayoutId.QWERTZ);
     });
     azertyLayout.addEventListener('change', () => {
         keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.AZERTY);
@@ -114,6 +127,10 @@ function setupKeyboardHelp(keyboardInput: KeyboardControlDevice) {
     dvorakLayout.addEventListener('change', () => {
         keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.DVORAK);
         updateControlsHelp(KeyboardControlLayoutId.DVORAK);
+    });
+    arrowsLayout.addEventListener('change', () => {
+        keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.ARROWS);
+        updateControlsHelp(KeyboardControlLayoutId.ARROWS);
     });
 }
 
@@ -148,14 +165,24 @@ function updateControlsHelp(layoutId: KeyboardControlLayoutId) {
     const layout = KeyboardControlLayouts.get(layoutId);
     assertIsDefined(layout);
 
-    pitchPos.innerText = layout[KeyboardControlAction.PITCH_POS].toUpperCase();
-    pitchNeg.innerText = layout[KeyboardControlAction.PITCH_NEG].toUpperCase();
-    rollPos.innerText = layout[KeyboardControlAction.ROLL_POS].toUpperCase();
-    rollNeg.innerText = layout[KeyboardControlAction.ROLL_NEG].toUpperCase();
-    yawPos.innerText = layout[KeyboardControlAction.YAW_POS].toUpperCase();
-    yawNeg.innerText = layout[KeyboardControlAction.YAW_NEG].toUpperCase();
-    throttlePos.innerText = layout[KeyboardControlAction.THROTTLE_POS].toUpperCase();
-    throttleNeg.innerText = layout[KeyboardControlAction.THROTTLE_NEG].toUpperCase();
+    pitchPos.innerText = formatControlKey(layout[KeyboardControlAction.PITCH_POS]);
+    pitchNeg.innerText = formatControlKey(layout[KeyboardControlAction.PITCH_NEG]);
+    rollPos.innerText = formatControlKey(layout[KeyboardControlAction.ROLL_POS]);
+    rollNeg.innerText = formatControlKey(layout[KeyboardControlAction.ROLL_NEG]);
+    yawPos.innerText = formatControlKey(layout[KeyboardControlAction.YAW_POS]);
+    yawNeg.innerText = formatControlKey(layout[KeyboardControlAction.YAW_NEG]);
+    throttlePos.innerText = formatControlKey(layout[KeyboardControlAction.THROTTLE_POS]);
+    throttleNeg.innerText = formatControlKey(layout[KeyboardControlAction.THROTTLE_NEG]);
+}
+
+function formatControlKey(key: string) {
+    switch (key) {
+        case 'arrowup': return '↑';
+        case 'arrowdown': return '↓';
+        case 'arrowleft': return '←';
+        case 'arrowright': return '→';
+        default: return key.toUpperCase();
+    }
 }
 
 function updateJoystickHelp(id: string, axisCount: number) {

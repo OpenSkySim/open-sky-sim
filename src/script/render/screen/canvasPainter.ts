@@ -178,6 +178,10 @@ export class CanvasPainter {
         this.textEffectColor = effectColor;
     }
 
+    setLineWidth(width: number) {
+        this.ctx.lineWidth = width;
+    }
+
     // Actions
 
     clear(): void;

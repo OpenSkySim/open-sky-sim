@@ -5,6 +5,7 @@ uniform mat4 viewMatrix;
 uniform mat4 projectionMatrix;
 uniform float halfWidth;
 uniform float halfHeight;
+uniform int shadingType;
 
 attribute vec3 position;
 attribute vec3 offset;
@@ -25,8 +26,10 @@ void main() {
   vec3 localPosition = scale * vec3(rot * position.xy, position.z);
 
   vec4 pos = projectionMatrix * (viewMatrix * vec4(offset, 1.0) + vec4(localPosition, 1.0));
-  pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;
-  pos.y = floor(pos.y / pos.w * halfHeight + 0.5) / halfHeight * pos.w;
+  if (shadingType != 3) {
+    pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;
+    pos.y = floor(pos.y / pos.w * halfHeight + 0.5) / halfHeight * pos.w;
+  }
   gl_Position = pos;
 }
 `;

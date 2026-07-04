@@ -19,7 +19,9 @@ export const ConstantFragProgram: string = `
 
     float fogFactor = exp2(-fogDensity * distance);
     fogFactor = 1.0 - clamp(fogFactor, 0.0, 1.0);
-    fogFactor = floor(fogFactor * fogSteps + 0.5) / fogSteps;
+    if (shadingType != 3) {
+      fogFactor = floor(fogFactor * fogSteps + 0.5) / fogSteps;
+    }
 
     vec3 diffuse;
     if (shadingType == 0) {
