@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { AudioSystem } from './audio/audioSystem';
 import { ConfigService } from './config/configService';
 import { PaletteCategory } from './config/palettes/palette';
-import { VGANoonPalette } from './config/palettes/vga-noon';
+import { HDNoonPalette } from './config/palettes/hd-noon';
 import { CGAProfile } from './config/profiles/cga';
 import { EGAProfile } from './config/profiles/ega';
 import { DisplayShading, FogQuality } from './config/profiles/profile';
@@ -12,7 +12,7 @@ import { VGAProfile } from './config/profiles/vga';
 import { Kernel } from './core/kernel';
 import { FPS_CAP, GROUND_SMOKE_PARTICLE_COUNT, H_RES, V_RES } from './defs';
 import { JoystickControlDevice } from './input/devices/joystickControlDevice';
-import { KeyboardControlDevice } from './input/devices/keyboardControlDevice';
+import { KeyboardControlDevice, KeyboardControlLayoutId } from './input/devices/keyboardControlDevice';
 import { setupOSD } from './osd/osdPanel';
 import { ArcadeFlightModel } from './physics/model/arcadeFlightModel';
 import { DebugFlightModel } from './physics/model/debugFlightModel';
@@ -34,9 +34,8 @@ function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControl
         { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
         { [FlightModels.DEBUG]: new DebugFlightModel(), [FlightModels.ARCADE]: new ArcadeFlightModel(), [FlightModels.REALISTIC]: new RealisticFlightModel(), }
     );
-    config.techProfiles.setActive(TechProfiles.VGA);
-    const materials = new SceneMaterialManager(VGANoonPalette, FogQuality.LOW, DisplayShading.STATIC);
-    const renderer = new Renderer(materials, H_RES, V_RES, VGANoonPalette);
+    const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
+    const renderer = new Renderer(materials, H_RES, V_RES, HDNoonPalette);
     const models = new ModelManager(materials, [
         new BackgroundModelLibBuilder(BackgroundModelLibBuilder.Type.GROUND),
         new BackgroundModelLibBuilder(BackgroundModelLibBuilder.Type.SKY),
@@ -52,9 +51,11 @@ function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControl
     ]);
     const audio = new AudioSystem();
     const game = new Game(config, models, materials, renderer, audio);
+    config.techProfiles.setActive(TechProfiles.HD);
     game.setup();
 
     const keyboardInput = new KeyboardControlDevice(game.getPlayer());
+    keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.ARROWS);
     const joystickInput = new JoystickControlDevice(game.getPlayer());
 
     const kernel = new Kernel(FPS_CAP);

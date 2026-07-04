@@ -61,6 +61,9 @@ export class HUDEntity implements Entity {
     private isLanded: boolean = true;
     private pitch: number = 0; // radians
     private roll: number = 0; // radians
+    private pitchInput: number = 0; // [-1, 1]
+    private rollInput: number = 0; // [-1, 1]
+    private yawInput: number = 0; // [-1, 1]
     private elapsed: number = 0; // Seconds
 
     private _v = new THREE.Vector3();
@@ -98,6 +101,10 @@ export class HUDEntity implements Entity {
 
         this.stallStatus = this.actor.stallStatus;
         this.isLanded = this.actor.isLanded;
+
+        this.pitchInput = this.actor.pitchInput;
+        this.rollInput = this.actor.rollInput;
+        this.yawInput = this.actor.yawInput;
 
         this.elapsed += delta;
     }
@@ -155,6 +162,13 @@ export class HUDEntity implements Entity {
         const throttleX = airSpeedX - (font.charWidth + font.charSpacing) * 4 - 1;
         const throttleY = headingY - font.charHeight - 3;
         this.renderThrottle(throttleX, throttleY, painter, hudColor, font);
+
+        const stickArm = Math.max(8, Math.round(11 * geomScale));
+        const stickGap = Math.round(10 * geomScale);
+        const stickLabelMargin = (fontSmall.charWidth + fontSmall.charSpacing) * 4 + 6;
+        const stickCenterX = altitudeX + stickLabelMargin + stickGap + stickArm;
+        const stickCenterY = halfHeight;
+        this.renderStickIndicator(stickCenterX, stickCenterY, stickArm, geomScale, painter, hudColor, hudSecondaryColor);
 
         this.renderTarget(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale);
         this.renderBoresight(halfWidth, halfHeight, painter, geomScale);
@@ -347,6 +361,43 @@ export class HUDEntity implements Entity {
 
     private renderThrottle(x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
         painter.text(font, x, y, `THR ${(100 * this.throttle).toFixed(0)}`, hudColor);
+    }
+
+    private renderStickIndicator(centerX: number, centerY: number, arm: number, geomScale: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string) {
+        const travel = arm - Math.max(2, Math.round(2 * geomScale));
+        const pitch = this.pitchInput;
+        const roll = this.rollInput;
+        const yaw = this.yawInput;
+        const throttle = this.actor.throttleUnit;
+        const crossArm = Math.max(2, Math.round(2 * geomScale));
+        const gap = Math.max(2, Math.round(2 * geomScale));
+
+        painter.setColor(hudSecondaryColor);
+        painter.batch()
+            .hLine(centerX - arm, centerX + arm, centerY)
+            .vLine(centerX, centerY - arm, centerY + arm)
+            .commit();
+
+        const stickX = Math.round(centerX + roll * travel);
+        const stickY = Math.round(centerY + pitch * travel);
+        painter.setColor(hudColor);
+        painter.batch()
+            .hLine(stickX - crossArm, stickX + crossArm, stickY)
+            .vLine(stickX, stickY - crossArm, stickY + crossArm)
+            .commit();
+
+        const rudderY = centerY + arm + gap;
+        painter.setColor(hudSecondaryColor);
+        painter.hLine(centerX - arm, centerX + arm, rudderY);
+        painter.setColor(hudColor);
+        painter.vLine(Math.round(centerX + yaw * (arm - 1)), rudderY - 1, rudderY + 1);
+
+        const throttleX = centerX - arm - gap;
+        painter.setColor(hudSecondaryColor);
+        painter.vLine(throttleX, centerY - arm, centerY + arm);
+        painter.setColor(hudColor);
+        const throttleY = Math.round(centerY + arm - 1 - throttle * (arm * 2 - 1));
+        painter.hLine(throttleX - 1, throttleX + 1, throttleY);
     }
 
     private renderPitchLadder(layout: OverlayLayout, x: number, y: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, font: Font) {

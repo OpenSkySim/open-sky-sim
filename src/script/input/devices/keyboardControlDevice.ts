@@ -74,10 +74,10 @@ const ArrowsKeyboardControlLayout: KeyboardControlLayout = {
     [KeyboardControlAction.PITCH_NEG]: 'arrowup',
     [KeyboardControlAction.ROLL_POS]: 'arrowright',
     [KeyboardControlAction.ROLL_NEG]: 'arrowleft',
-    [KeyboardControlAction.YAW_POS]: 'e',
-    [KeyboardControlAction.YAW_NEG]: 'q',
-    [KeyboardControlAction.THROTTLE_POS]: 'y',
-    [KeyboardControlAction.THROTTLE_NEG]: 'x',
+    [KeyboardControlAction.YAW_POS]: 'x',
+    [KeyboardControlAction.YAW_NEG]: 'y',
+    [KeyboardControlAction.THROTTLE_POS]: 'numpadadd',
+    [KeyboardControlAction.THROTTLE_NEG]: 'numpadsubtract',
 }
 
 export const KeyboardControlLayouts = new Map<KeyboardControlLayoutId, KeyboardControlLayout>([
@@ -102,7 +102,7 @@ export class KeyboardControlDevice implements KernelTask {
     private yawState: Stick = Stick.IDLE;
     private throttleState: Stick = Stick.IDLE;
 
-    private layout: KeyboardControlLayout = QwertyKeyboardControlLayout;
+    private layout: KeyboardControlLayout = ArrowsKeyboardControlLayout;
 
     constructor(private player: PlayerEntity) {
         this.setupInput();
@@ -183,8 +183,8 @@ export class KeyboardControlDevice implements KernelTask {
 
     private setupInput() {
         document.addEventListener('keydown', (event: KeyboardEvent) => {
-            const key = event.key.toLowerCase();
-            if (this.isLayoutKey(key) && key.startsWith('arrow')) {
+            const key = normalizeControlKey(event);
+            if (this.isLayoutKey(key) && (key.startsWith('arrow') || key.startsWith('numpad'))) {
                 event.preventDefault();
             }
             switch (key) {
@@ -224,7 +224,7 @@ export class KeyboardControlDevice implements KernelTask {
         });
 
         document.addEventListener('keyup', (event: KeyboardEvent) => {
-            const key = event.key.toLowerCase();
+            const key = normalizeControlKey(event);
             switch (key) {
                 case this.layout[KeyboardControlAction.PITCH_POS]: {
                     if (this.pitchState === Stick.POSITIVE) {
@@ -287,5 +287,13 @@ export class KeyboardControlDevice implements KernelTask {
 
     private isLayoutKey(key: string) {
         return Object.values(this.layout).includes(key);
+    }
+}
+
+function normalizeControlKey(event: KeyboardEvent): string {
+    switch (event.code) {
+        case 'NumpadAdd': return 'numpadadd';
+        case 'NumpadSubtract': return 'numpadsubtract';
+        default: return event.key.toLowerCase();
     }
 }

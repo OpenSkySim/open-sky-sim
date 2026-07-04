@@ -132,6 +132,9 @@ function setupKeyboardHelp(keyboardInput: KeyboardControlDevice) {
         keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.ARROWS);
         updateControlsHelp(KeyboardControlLayoutId.ARROWS);
     });
+
+    keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.ARROWS);
+    updateControlsHelp(KeyboardControlLayoutId.ARROWS);
 }
 
 function setupJoystickHelp(joystickInput: JoystickControlDevice) {
@@ -181,6 +184,8 @@ function formatControlKey(key: string) {
         case 'arrowdown': return '↓';
         case 'arrowleft': return '←';
         case 'arrowright': return '→';
+        case 'numpadadd': return 'Num+';
+        case 'numpadsubtract': return 'Num-';
         default: return key.toUpperCase();
     }
 }

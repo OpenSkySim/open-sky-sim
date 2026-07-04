@@ -469,6 +469,18 @@ export class PlayerEntity implements Entity {
         return this.throttle;
     }
 
+    get pitchInput(): number {
+        return this.pitch;
+    }
+
+    get rollInput(): number {
+        return this.roll;
+    }
+
+    get yawInput(): number {
+        return this.yaw;
+    }
+
     get rawSpeed(): number {
         return this.velocity.length();
     }

@@ -96,8 +96,8 @@ Dvorak:
 Arrows:
 * `↑`/`↓`: Pitch
 * `←`/`→`: Roll
-* `Q`/`E`: Yaw
-* `Y`/`X`: Throttle
+* `Y`/`X`: Yaw
+* `Num-`/`Num+`: Throttle
 
 #### Joystick
 
