@@ -48,6 +48,10 @@ export class DisplayUnits {
         return this.system === UnitSystems.IMPERIAL;
     }
 
+    get altitudeTapeLabelInterval(): number {
+        return this.system === UnitSystems.METRIC ? 100 : 100;
+    }
+
     get airspeedStep(): number {
         return 2.5;
     }
@@ -60,12 +64,17 @@ export class DisplayUnits {
         return this.system === UnitSystems.METRIC ? 15 : 500;
     }
 
+    formatAltitudeReadout(altitude: number): string {
+        if (this.system === UnitSystems.METRIC) {
+            return Math.round(altitude / 100).toFixed(0);
+        }
+        const step = this.altitudeStep;
+        return (step * Math.round(altitude / step)).toFixed(0);
+    }
+
     formatAltitudeTape(n: number, lowp: boolean): string {
         if (this.system === UnitSystems.METRIC) {
-            if (n >= this.altitudeLowThreshold) {
-                return `${(n / 1000).toFixed(0)}K`;
-            }
-            return n.toFixed(0);
+            return Math.round(n / 100).toFixed(0);
         }
 
         if (n < this.altitudeLowThreshold) {
@@ -75,6 +84,29 @@ export class DisplayUnits {
 
         const num = !lowp && n > this.altitudeLowThreshold ? (n - 900) * 10 : n;
         return `${(num / 1000).toFixed(0)}K`;
+    }
+
+    getAltitudeTickWidth(current: number, markerScale: number): number {
+        if (this.system === UnitSystems.METRIC) {
+            if (current % 100 === 0) {
+                return 2;
+            }
+            if (current % 50 === 0) {
+                return 1;
+            }
+            if (current % 10 === 0) {
+                return 1;
+            }
+            return 0;
+        }
+
+        if (current % (100 * markerScale) === 0) {
+            return 2;
+        }
+        if (current % (50 * markerScale) === 0) {
+            return 1;
+        }
+        return 0;
     }
 
     altitudeUnitLabel(): string {

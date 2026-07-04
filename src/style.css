@@ -137,17 +137,6 @@ a:hover {
     font-size: smaller;
 }
 
-#credits {
-    user-select: auto;
-    z-index: 1;
-    position: absolute;
-    top: 0;
-    right: 0;
-    padding: 1rem;
-    color: white;
-    background-color: rgba(0, 0, 0, 0.5);
-}
-
 .hidden {
     display: none;
 }

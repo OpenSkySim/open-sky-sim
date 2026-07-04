@@ -10,7 +10,7 @@ import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { GroundTargetEntity } from '../groundTarget';
 import { PlayerEntity } from "../player";
-import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout } from './overlayUtils';
+import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout, toFeet } from './overlayUtils';
 import { DisplayUnits } from './displayUnits';
 
 
@@ -58,6 +58,7 @@ export class HUDEntity implements Entity {
 
     private heading: number = 0; // degrees, 0 is North, increases CW
     private altitude: number = 0; // display units (m or ft)
+    private altitudeMeters: number = 0; // raw sim altitude for debug
     private throttle: number = 0; // Normalised percentage [0, 1]
     private speed: number = 0; // display units (km/h or kt)
     private verticalSpeed: number = 0; // m/s or ft/min
@@ -87,7 +88,8 @@ export class HUDEntity implements Entity {
     }
 
     update(delta: number): void {
-        this.altitude = this.displayUnits.altitudeFromMeters(this.actor.position.y);
+        this.altitude = Math.round(this.displayUnits.altitudeFromMeters(this.actor.position.y) * 10) / 10;
+        this.altitudeMeters = this.actor.position.y;
 
         this._v.copy(FORWARD)
             .applyQuaternion(this.actor.quaternion)
@@ -193,6 +195,24 @@ export class HUDEntity implements Entity {
             this.renderStallStatus(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor);
             this.renderVerticalVelocityIndicator(layout, tickStep, altitudeX, altitudeY, painter, hudColor, hudWarnColor);
         }
+
+        this.renderAltitudeDebug(targetWidth, layoutScale, painter, hudSecondaryColor, fontSmall);
+    }
+
+    private renderAltitudeDebug(
+        targetWidth: number,
+        layoutScale: number,
+        painter: CanvasPainter,
+        hudColor: string,
+        font: Font,
+    ) {
+        const margin = Math.max(4, Math.round(4 * layoutScale));
+        const lineHeight = font.charHeight + font.charSpacing;
+        const x = targetWidth - margin;
+        const altitudeFeet = toFeet(this.altitudeMeters);
+
+        painter.text(font, x, margin, `${this.altitudeMeters.toFixed(1)}M`, hudColor, TextAlignment.RIGHT);
+        painter.text(font, x, margin + lineHeight, `${altitudeFeet.toFixed(0)}FT`, hudColor, TextAlignment.RIGHT);
     }
 
     private renderAoAIndicator(x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string, font: Font) {
@@ -211,24 +231,24 @@ export class HUDEntity implements Entity {
         const { detailScale, layoutScale } = layout;
         const altitudeStep = this.displayUnits.altitudeStep;
         const altitudeLowThreshold = this.displayUnits.altitudeLowThreshold;
-        const roundedAltitude = altitudeStep * Math.floor(this.altitude / altitudeStep);
-        const lowp = this.displayUnits.useBarometricAltitude && roundedAltitude >= altitudeLowThreshold;
+        const lowp = this.displayUnits.useBarometricAltitude && this.altitude >= altitudeLowThreshold;
         const markerScale = lowp ? 10 : 1;
-        const scaledAltitude = Math.floor(roundedAltitude / (altitudeStep * markerScale)) * altitudeStep * markerScale;
-        const offset = scaledAltitude % Math.floor(10 * markerScale) === 0 ? 0 : 1;
+        const tapeUnit = altitudeStep * markerScale;
+        const tapeOrigin = tapeUnit * Math.floor(this.altitude / tapeUnit);
+        const scrollOffset = tapeUnit > 0
+            ? ((this.altitude - tapeOrigin) / tapeUnit) * tickStep
+            : 0;
+        const labelInterval = this.displayUnits.altitudeTapeLabelInterval * markerScale;
         const charHeightHalf = Math.trunc(font.charHeight / 2);
 
         const batch = painter.batch();
         for (let i = ALTITUDE_HALF_HEIGHT * detailScale; i >= -ALTITUDE_HALF_HEIGHT * detailScale; i--) {
-            const current = scaledAltitude + (i * 2 - offset) * altitudeStep * markerScale;
+            const current = tapeOrigin + i * altitudeStep;
             if (current >= 0 || lowp) {
-                let barWidth = 0;
-                if (current % (100 * markerScale) === 0) {
-                    barWidth = 2;
-                } else if (current % (50 * markerScale) === 0) {
-                    barWidth = 1;
+                const barWidth = this.displayUnits.getAltitudeTickWidth(current, markerScale);
+                if (barWidth > 0) {
+                    batch.hLine(x, x + barWidth, y - i * tickStep + scrollOffset);
                 }
-                batch.hLine(x, x + barWidth, y - i * tickStep + offset);
             }
         }
         batch.hLine(x - 5, x - 2, y);
@@ -237,24 +257,24 @@ export class HUDEntity implements Entity {
         const clip = painter.clip();
         clip.rectangle(x, y - ALTITUDE_HEIGHT * layoutScale, width - x, (ALTITUDE_HEIGHT * 2 + 3) * layoutScale).clip();
         for (let i = detailScale * (ALTITUDE_HALF_HEIGHT + 1) + 1; i >= -detailScale * (ALTITUDE_HALF_HEIGHT + 1) - 1; i--) {
-            const current = scaledAltitude + (i * 2 - offset) * altitudeStep * markerScale;
-            if ((current >= 0 || lowp) && current % (100 * markerScale) === 0) {
+            const current = tapeOrigin + i * altitudeStep;
+            if ((current >= 0 || lowp) && current % labelInterval === 0) {
                 painter.text(fontSmall,
                     x + 6 + (fontSmall.charWidth + fontSmall.charSpacing) * 3,
-                    y - i * tickStep + offset - charHeightHalf,
+                    y - i * tickStep + scrollOffset - charHeightHalf,
                     this.displayUnits.formatAltitudeTape(current, lowp), hudColor, TextAlignment.RIGHT);
             }
         }
         clip.clear();
 
-        painter.text(font, x - 8, y - Math.floor(font.charHeight / 2), roundedAltitude.toFixed(0), hudColor, TextAlignment.RIGHT);
+        painter.text(font, x - 8, y - Math.floor(font.charHeight / 2),
+            this.displayUnits.formatAltitudeReadout(this.altitude), hudColor, TextAlignment.RIGHT);
     }
 
     private renderAltitudeFocusMode(x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
-        const roundedAltitude = this.displayUnits.altitudeStep * Math.floor(this.altitude / this.displayUnits.altitudeStep);
         const textX = x + font.charWidth * 4;
         const textY = y - Math.floor(font.charHeight / 2);
-        painter.text(font, textX, textY, roundedAltitude.toFixed(0), hudColor, TextAlignment.RIGHT);
+        painter.text(font, textX, textY, this.displayUnits.formatAltitudeReadout(this.altitude), hudColor, TextAlignment.RIGHT);
         painter.rectangle(
             textX - ((font.charWidth + font.charSpacing) * 5 + font.charSpacing + 1),
             textY - font.charSpacing * 2 - 1,
