@@ -1,5 +1,5 @@
 import { KernelTask } from "../../core/kernel";
-import { THROTTLE_RATE } from "../../defs";
+import { STICK_RATE, THROTTLE_RATE } from "../../defs";
 import { PlayerEntity } from "../../scene/entities/player";
 import { clamp } from "../../utils/math";
 
@@ -103,46 +103,72 @@ export class KeyboardControlDevice implements KernelTask {
     private throttleState: Stick = Stick.IDLE;
 
     private layout: KeyboardControlLayout = ArrowsKeyboardControlLayout;
+    private layoutId: KeyboardControlLayoutId = KeyboardControlLayoutId.ARROWS;
 
     constructor(private player: PlayerEntity) {
         this.setupInput();
     }
 
+    private usesCumulativeStick(): boolean {
+        return this.layoutId === KeyboardControlLayoutId.ARROWS;
+    }
+
     update(delta: number) {
         if (this.pitchState !== Stick.IDLE) {
-            switch (this.pitchState) {
-                case Stick.POSITIVE_ENDED:
-                case Stick.NEGATIVE_ENDED: {
+            if (this.usesCumulativeStick()) {
+                if (this.pitchState === Stick.POSITIVE_ENDED || this.pitchState === Stick.NEGATIVE_ENDED) {
                     this.pitchState = Stick.IDLE;
-                    this.player.setPitch(0.0);
-                    break;
+                } else {
+                    const pitch = clamp(this.player.pitchInput + delta * STICK_RATE *
+                        (this.pitchState === Stick.POSITIVE ? 1 : -1), -1, 1);
+                    this.player.setPitch(pitch);
                 }
-                case Stick.NEGATIVE: {
-                    this.player.setPitch(-0.75);
-                    break;
-                }
-                case Stick.POSITIVE: {
-                    this.player.setPitch(0.75);
-                    break;
+            } else {
+                switch (this.pitchState) {
+                    case Stick.POSITIVE_ENDED:
+                    case Stick.NEGATIVE_ENDED: {
+                        this.pitchState = Stick.IDLE;
+                        this.player.setPitch(0.0);
+                        break;
+                    }
+                    case Stick.NEGATIVE: {
+                        this.player.setPitch(-0.75);
+                        break;
+                    }
+                    case Stick.POSITIVE: {
+                        this.player.setPitch(0.75);
+                        break;
+                    }
                 }
             }
         }
 
         if (this.rollState !== Stick.IDLE) {
-            switch (this.rollState) {
-                case Stick.POSITIVE_ENDED:
-                case Stick.NEGATIVE_ENDED: {
+            if (this.usesCumulativeStick()) {
+                if (this.rollState === Stick.POSITIVE_ENDED || this.rollState === Stick.NEGATIVE_ENDED) {
                     this.rollState = Stick.IDLE;
                     this.player.setRoll(0.0);
-                    break;
+                } else {
+                    const roll = clamp(this.player.rollInput + delta * STICK_RATE *
+                        (this.rollState === Stick.POSITIVE ? 1 : -1), -1, 1);
+                    this.player.setRoll(roll);
                 }
-                case Stick.NEGATIVE: {
-                    this.player.setRoll(-0.75);
-                    break;
-                }
-                case Stick.POSITIVE: {
-                    this.player.setRoll(0.75);
-                    break;
+            } else {
+                switch (this.rollState) {
+                    case Stick.POSITIVE_ENDED:
+                    case Stick.NEGATIVE_ENDED: {
+                        this.rollState = Stick.IDLE;
+                        this.player.setRoll(0.0);
+                        break;
+                    }
+                    case Stick.NEGATIVE: {
+                        this.player.setRoll(-0.75);
+                        break;
+                    }
+                    case Stick.POSITIVE: {
+                        this.player.setRoll(0.75);
+                        break;
+                    }
                 }
             }
         }
@@ -178,6 +204,11 @@ export class KeyboardControlDevice implements KernelTask {
     }
 
     setKeyboardLayout(layoutId: KeyboardControlLayoutId) {
+        if (this.usesCumulativeStick() && layoutId !== KeyboardControlLayoutId.ARROWS) {
+            this.player.setPitch(0);
+            this.player.setRoll(0);
+        }
+        this.layoutId = layoutId;
         this.layout = KeyboardControlLayouts.get(layoutId) || QwertyKeyboardControlLayout;
     }
 
