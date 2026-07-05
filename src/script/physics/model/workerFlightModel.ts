@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { FlightModel } from './flightModel';
 import { formatF16ThrottleHud, stepF16ThrottleDetent, isF16AbDetentBand, adjustF16ThrottleInput, getF16ThrottleZone, f16ThrottleAudioLevel, getF16EngineNozzleColor } from '../f16Engine';
 
-export type FlightModelType = 'realistic' | 'arcade' | 'debug';
+export type FlightModelType = 'realistic' | 'fm2' | 'arcade' | 'debug';
 
 export class WorkerFlightModel extends FlightModel {
     private worker: Worker;
@@ -17,7 +17,12 @@ export class WorkerFlightModel extends FlightModel {
         this.worker.onmessage = (event) => {
             if (event.data.type === 'state') {
                 this.applyState(event.data.state);
+            } else if (event.data.type === 'error') {
+                console.error(`[flightWorker:${this.modelType}]`, event.data.message, event.data.stack);
             }
+        };
+        this.worker.onerror = (event) => {
+            console.error(`[flightWorker:${this.modelType}] worker error`, event.message, event.filename, event.lineno);
         };
     }
 
@@ -131,43 +136,48 @@ export class WorkerFlightModel extends FlightModel {
         return super.velocityVector;
     }
 
-    // F-16 specific overrides to match RealisticFlightModel behavior
+    /** Both the Realistic and FM2 models simulate the F-16's throttle quadrant. */
+    private isF16(): boolean {
+        return this.modelType === 'realistic' || this.modelType === 'fm2';
+    }
+
+    // F-16 specific overrides to match the F-16 flight models' behavior
     getThrottleHudText(): string {
-        if (this.modelType !== 'realistic') return super.getThrottleHudText();
+        if (!this.isF16()) return super.getThrottleHudText();
         return formatF16ThrottleHud(this.throttle);
     }
 
     useF16ThrottleDetents(): boolean {
-        return this.modelType === 'realistic';
+        return this.isF16();
     }
 
     stepThrottleDetent(current: number, direction: 1 | -1): number {
-        if (this.modelType !== 'realistic') return super.stepThrottleDetent(current, direction);
+        if (!this.isF16()) return super.stepThrottleDetent(current, direction);
         return stepF16ThrottleDetent(current, direction);
     }
 
     isInThrottleAbDetentBand(lever: number): boolean {
-        if (this.modelType !== 'realistic') return super.isInThrottleAbDetentBand(lever);
+        if (!this.isF16()) return super.isInThrottleAbDetentBand(lever);
         return isF16AbDetentBand(lever);
     }
 
     adjustThrottleInput(current: number, step: number): number {
-        if (this.modelType !== 'realistic') return super.adjustThrottleInput(current, step);
+        if (!this.isF16()) return super.adjustThrottleInput(current, step);
         return adjustF16ThrottleInput(current, step);
     }
 
     getThrottleZone(): string {
-        if (this.modelType !== 'realistic') return 'mil';
+        if (!this.isF16()) return 'mil';
         return getF16ThrottleZone(this.effectiveThrottle);
     }
 
     getThrottleAudioLevel(): number {
-        if (this.modelType !== 'realistic') return super.getThrottleAudioLevel();
+        if (!this.isF16()) return super.getThrottleAudioLevel();
         return f16ThrottleAudioLevel(this.effectiveThrottle);
     }
 
     getEngineNozzleColor(): string {
-        if (this.modelType !== 'realistic') return super.getEngineNozzleColor();
+        if (!this.isF16()) return super.getEngineNozzleColor();
         return getF16EngineNozzleColor(this.effectiveThrottle);
     }
 }

@@ -10,7 +10,8 @@ export enum TechProfiles {
 export enum FlightModels {
     DEBUG = 'DEBUG',
     ARCADE = 'ARCADE',
-    REALISTIC = 'REALISTIC'
+    REALISTIC = 'REALISTIC',
+    FM2 = 'FM2'
 }
 
 export enum UnitSystems {

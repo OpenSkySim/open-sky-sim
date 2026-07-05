@@ -30,9 +30,9 @@ import { FlightModels, TechProfiles } from './state/gameDefs';
 function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice] {
     const config = new ConfigService(
         { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
-        { [FlightModels.REALISTIC]: new WorkerFlightModel('realistic'), [FlightModels.ARCADE]: new WorkerFlightModel('arcade'), [FlightModels.DEBUG]: new WorkerFlightModel('debug'), }
+        { [FlightModels.FM2]: new WorkerFlightModel('fm2'), [FlightModels.REALISTIC]: new WorkerFlightModel('realistic'), [FlightModels.ARCADE]: new WorkerFlightModel('arcade'), [FlightModels.DEBUG]: new WorkerFlightModel('debug'), }
     );
-    config.flightModels.setActive(FlightModels.REALISTIC);
+    config.flightModels.setActive(FlightModels.FM2);
     const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
     const renderer = new Renderer(materials, H_RES, V_RES, HDNoonPalette);
     const models = new ModelManager(materials, [

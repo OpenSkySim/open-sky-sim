@@ -89,6 +89,8 @@ function setupFlightModel(config: ConfigService) {
     assertIsDefined(arcadeFlightModel);
     const realisticFlightModel = document.getElementById('flightmodel-realistic');
     assertIsDefined(realisticFlightModel);
+    const fm2FlightModel = document.getElementById('flightmodel-fm2');
+    assertIsDefined(fm2FlightModel);
 
     debugFlightModel.addEventListener('change', () => {
         config.flightModels.setActive(FlightModels.DEBUG);
@@ -98,6 +100,9 @@ function setupFlightModel(config: ConfigService) {
     });
     realisticFlightModel.addEventListener('change', () => {
         config.flightModels.setActive(FlightModels.REALISTIC);
+    });
+    fm2FlightModel.addEventListener('change', () => {
+        config.flightModels.setActive(FlightModels.FM2);
     });
 }
 

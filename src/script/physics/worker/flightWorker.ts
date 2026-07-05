@@ -2,17 +2,27 @@ import * as THREE from 'three';
 import { RealisticFlightModel } from '../model/realisticFlightModel';
 import { ArcadeFlightModel } from '../model/arcadeFlightModel';
 import { DebugFlightModel } from '../model/debugFlightModel';
+import { Fm2FlightModel } from '../model/fm2FlightModel';
 import { FlightModel } from '../model/flightModel';
 
 let flightModel: FlightModel;
 
 self.onmessage = (event: MessageEvent) => {
-    const data = event.data;
+    try {
+        handleMessage(event.data);
+    } catch (err) {
+        const e = err as Error;
+        self.postMessage({ type: 'error', message: `${e?.name}: ${e?.message}`, stack: e?.stack });
+    }
+};
 
+function handleMessage(data: any) {
     switch (data.type) {
         case 'init':
             if (data.modelType === 'realistic') {
                 flightModel = new RealisticFlightModel();
+            } else if (data.modelType === 'fm2') {
+                flightModel = new Fm2FlightModel();
             } else if (data.modelType === 'arcade') {
                 flightModel = new ArcadeFlightModel();
             } else if (data.modelType === 'debug') {
