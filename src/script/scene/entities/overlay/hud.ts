@@ -72,6 +72,7 @@ export class HUDEntity implements Entity {
     private loadFactorG: number = 1;
     private machNumber: number = 0;
     private isLanded: boolean = true;
+    private isAutopilotEnabled: boolean = false;
     private pitch: number = 0; // radians
     private roll: number = 0; // radians
     private pitchInput: number = 0; // [-1, 1]
@@ -99,6 +100,7 @@ export class HUDEntity implements Entity {
         this.angleOfAttack = this.actor.angleOfAttack;
         this.loadFactorG = this.actor.loadFactorG;
         this.isLanded = this.actor.isLanded;
+        this.isAutopilotEnabled = this.actor.isAutopilotEnabled;
 
         this.pitchInput = this.actor.pitchInput;
         this.rollInput = this.actor.rollInput;
@@ -202,6 +204,10 @@ export class HUDEntity implements Entity {
         const throttleX = airSpeedX - (font.charWidth + font.charSpacing) * 4 - 1;
         const throttleY = headingY - font.charHeight - 3;
         this.renderThrottle(throttleX, throttleY, painter, hudColor, font);
+
+        if (this.isAutopilotEnabled) {
+            painter.text(font, throttleX, throttleY - font.charHeight - 2, 'AP', hudColor);
+        }
 
         this.renderFlightDataIndicators(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor, fontSmall);
 

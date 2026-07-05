@@ -187,6 +187,31 @@ export class RealisticFlightModel extends FlightModel {
             this.obj.rotateX(Math.sign(aoa) * aoaRecovery * delta);
         }
 
+        // Stall nose-down effect
+        if (this.stall > 0 && !this.landed && this.pitch <= 0) {
+            const stallNoseDown = this.stall * 0.6; // rad/s
+            const forward = this.forward;
+            const right = this.right;
+            const groundNormal = new THREE.Vector3(0, -1, 0);
+            const pitchDir = new THREE.Vector3().crossVectors(forward, groundNormal);
+            const dot = pitchDir.dot(right);
+            this.obj.rotateX(Math.sign(dot) * stallNoseDown * delta);
+        }
+
+        // Landed nose-down effect
+        if (this.landed && this.pitch <= 0) {
+            const forward = this.forward;
+            const prjForward = new THREE.Vector3().copy(forward).setY(0).normalize();
+            const pitchAngle = forward.angleTo(prjForward) * Math.sign(forward.y);
+
+            if (pitchAngle > 0.001) {
+                const speedFactor = clamp(1 - speed / ROTATION_SPEED, 0, 1);
+                const fallRate = speedFactor * 0.4; // rad/s
+                const rotation = Math.min(pitchAngle, fallRate * delta);
+                this.obj.rotateX(rotation);
+            }
+        }
+
         const maxRollRate = maxRollRateRad(F16_ROLL_CONFIG);
         const rollYawCoupling = !this.landed && !isZero(speed)
             ? computeF16RollYawCoupling(this.bodyRollRateRad, aoa, maxRollRate)
@@ -332,7 +357,8 @@ export class RealisticFlightModel extends FlightModel {
 
         const aoaStall = clamp((Math.abs(aoa) - STALL_AOA * 0.75) / (STALL_AOA * 0.35), 0, 1);
         const speedStall = clamp((MIN_FLYING_SPEED - speed) / MIN_FLYING_SPEED, 0, 1);
-        const stallLevel = Math.max(aoaStall, altitude > PLANE_DISTANCE_TO_GROUND + 2 ? speedStall : 0);
+        // Only consider speed-based stall if we are high enough to avoid interfering with takeoff/landing
+        const stallLevel = Math.max(aoaStall, altitude > PLANE_DISTANCE_TO_GROUND + 5 ? speedStall : 0);
         this.stall = stallLevel > 0 ? stallLevel : -1;
     }
 
@@ -342,7 +368,16 @@ export class RealisticFlightModel extends FlightModel {
         }
 
         this.obj.position.y = PLANE_DISTANCE_TO_GROUND;
-        const [pitchAngle, rollAngle] = calculatePitchRoll(this.obj);
+
+        const forward = this.forward.copy(FORWARD).applyQuaternion(this.obj.quaternion);
+        const up = this.up.copy(UP).applyQuaternion(this.obj.quaternion);
+        const right = this.right.copy(RIGHT).applyQuaternion(this.obj.quaternion);
+
+        const prjForward = new THREE.Vector3().copy(forward).setY(0).normalize();
+        const pitchAngle = forward.angleTo(prjForward) * Math.sign(forward.y);
+
+        const prjRight = new THREE.Vector3().copy(right).setY(0).normalize();
+        const rollAngle = right.angleTo(prjRight) * Math.sign(right.y);
 
         if (this.landingGearDeployed === false
             || speed > LANDED_MAX_SPEED
@@ -353,10 +388,9 @@ export class RealisticFlightModel extends FlightModel {
             return;
         }
 
-        const heading = this.obj.getWorldDirection(this._v);
-        if (heading.y < 0) {
-            heading.setY(0).add(this.obj.position);
-            this.obj.lookAt(heading);
+        if (forward.y < 0) {
+            const heading = new THREE.Vector3().copy(forward).setY(0).normalize();
+            this.obj.quaternion.setFromUnitVectors(FORWARD, heading);
         }
         this.velocity.setY(0);
         this.stall = -1;

@@ -14,7 +14,7 @@ import { VGAMidnightPalette } from '../config/palettes/vga-midnight';
 import { VGANoonPalette } from '../config/palettes/vga-noon';
 import { DisplayResolution, getDisplayResolutionSize } from '../config/profiles/profile';
 import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
-import { COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
+import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
 import { GroundSmokeEntity } from '../scene/entities/groundSmoke';
@@ -57,14 +57,8 @@ const MAP_RENDER_TARGET_HI = 'MAP_RENDER_TARGET_HI';
 const WEAPONSTARGET_RENDER_TARGET_HD = 'WEAPONSTARGET_RENDER_TARGET_HD';
 const MAP_RENDER_TARGET_HD = 'MAP_RENDER_TARGET_HD';
 
-const AIRBASE_RUNWAY = new THREE.Vector3(1500, 0, -800);
-/** Runway mesh local extent along Z is ±1500 m. */
-const RUNWAY_HALF_LENGTH_M = 1500;
+const AIRBASE_RUNWAY = new THREE.Vector3(AIRBASE_RUNWAY_RAW.x, AIRBASE_RUNWAY_RAW.y, AIRBASE_RUNWAY_RAW.z);
 const RUNWAY_SPAWN_INSET_M = 120;
-const APPROACH_FINAL_DISTANCE_M = 5000;
-const APPROACH_ALTITUDE_M = 500;
-const APPROACH_SPEED_KMH = 300;
-const APPROACH_SPEED_MPS = APPROACH_SPEED_KMH / 3.6;
 const PLAYER_STARTING_HEADING = 0;
 const PLAYER_STARTING_POSITION = new THREE.Vector3(
     AIRBASE_RUNWAY.x,

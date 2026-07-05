@@ -173,7 +173,7 @@ export abstract class FlightModel {
         return this.velocity;
     }
 
-    gerEffectiveThrottle(): number {
+    getEffectiveThrottle(): number {
         return this.effectiveThrottle;
     }
 

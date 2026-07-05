@@ -227,7 +227,14 @@ export class ArcadeFlightModel extends FlightModel {
         if (this.obj.position.y < PLANE_DISTANCE_TO_GROUND) {
             this.obj.position.y = PLANE_DISTANCE_TO_GROUND;
 
-            const [pitchAngle, rollAngle] = calculatePitchRoll(this.obj);
+            const forward = this._v.copy(FORWARD).applyQuaternion(this.obj.quaternion);
+            const right = this.right.copy(RIGHT).applyQuaternion(this.obj.quaternion);
+
+            const prjForward = new THREE.Vector3().copy(forward).setY(0).normalize();
+            const pitchAngle = forward.angleTo(prjForward) * Math.sign(forward.y);
+
+            const prjRight = new THREE.Vector3().copy(right).setY(0).normalize();
+            const rollAngle = right.angleTo(prjRight) * Math.sign(right.y);
 
             if (this.landingGearDeployed === false ||
                 speed > LANDED_MAX_SPEED ||
@@ -236,10 +243,9 @@ export class ArcadeFlightModel extends FlightModel {
                 LANDING_MIN_PITCH > pitchAngle) {
                 this.crashed = true;
             } else {
-                const d = this.obj.getWorldDirection(this._v);
-                if (d.y < 0.0) {
-                    d.setY(0).add(this.obj.position);
-                    this.obj.lookAt(d);
+                if (forward.y < 0.0) {
+                    const heading = new THREE.Vector3().copy(forward).setY(0).normalize();
+                    this.obj.quaternion.setFromUnitVectors(FORWARD, heading);
                 }
                 this.velocity.setY(0);
                 this.stall = -1;

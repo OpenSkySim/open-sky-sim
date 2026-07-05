@@ -29,3 +29,10 @@ export const COCKPIT_FOV = 50;
 export const COCKPIT_FAR = 40000;
 
 export const GROUND_SMOKE_PARTICLE_COUNT = 100;
+
+export const AIRBASE_RUNWAY = { x: 1500, y: 0, z: -800 };
+export const RUNWAY_HALF_LENGTH_M = 1500;
+export const APPROACH_ALTITUDE_M = 500;
+export const APPROACH_SPEED_KMH = 300;
+export const APPROACH_SPEED_MPS = APPROACH_SPEED_KMH / 3.6;
+export const APPROACH_FINAL_DISTANCE_M = 5000;

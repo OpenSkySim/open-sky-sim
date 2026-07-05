@@ -96,7 +96,7 @@ function sendState() {
         angleOfAttackRad: flightModel.getAngleOfAttack(),
         loadFactorG: flightModel.getLoadFactorG(),
         engineThrustN: flightModel.getEngineThrustKn() * 1000,
-        effectiveThrottle: flightModel.gerEffectiveThrottle(),
+        effectiveThrottle: flightModel.getEffectiveThrottle(),
         // @ts-ignore
         deltaRemainder: flightModel.deltaRemainder,
         stall: flightModel.getStallStatus()

@@ -28,7 +28,7 @@ export class JoystickControlDevice implements KernelTask {
     }
 
     update(delta: number) {
-        if (!this.player.controlsEnabled) {
+        if (!this.player.controlsEnabled || this.player.isAutopilotEnabled) {
             return;
         }
         if (!this.connected) return;

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ShaderMaterial } from 'three';
 import { AudioClip } from '../../audio/audioSystem';
 import { Palette, PaletteCategory } from "../../config/palettes/palette";
-import { PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
+import { AIRBASE_RUNWAY, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
 import { getF16AfterburnerConeDither, getF16EngineNozzleColor } from '../../physics/f16Engine';
 import { LODHelper, getLodLevel } from '../../render/helpers';
@@ -128,6 +128,7 @@ export class PlayerEntity implements Entity {
 
     private _nightVision: boolean = false;
     private hudFocus: HUDFocusMode = HUDFocusMode.DISABLED;
+    private autopilotEnabled: boolean = false;
 
     private _v = new THREE.Vector3();
     private _q = new THREE.Quaternion();
@@ -160,8 +161,8 @@ export class PlayerEntity implements Entity {
         });
 
         this.flightModel = flightModel;
-        this.flightModel.position.copy(position);
-        this.flightModel.quaternion.setFromAxisAngle(UP, heading);
+        this.flightModel.position = position;
+        this.flightModel.quaternion = this._q.setFromAxisAngle(UP, heading);
         this.obj.position.copy(position);
         this.obj.quaternion.setFromAxisAngle(UP, heading);
         this.updateDisplayTransform();
@@ -225,6 +226,7 @@ export class PlayerEntity implements Entity {
         if (this.simulationPaused) {
             return;
         }
+        this.updateAutopilot(delta);
         this.flightModel.setPitch(this.pitch);
         this.flightModel.setRoll(this.roll);
         this.flightModel.setYaw(this.yaw);
@@ -257,7 +259,7 @@ export class PlayerEntity implements Entity {
             isOutBounds = true;
         }
         if (isOutBounds) {
-            this.flightModel.position.copy(this.obj.position);
+            this.flightModel.position = this.obj.position;
         }
 
         this.updateAudio();
@@ -285,15 +287,15 @@ export class PlayerEntity implements Entity {
 
     reset(position: THREE.Vector3, heading: number, spawn?: PlayerSpawnState) {
         this.flightModel.reset();
-        this.flightModel.position.copy(position);
-        this.flightModel.quaternion.setFromAxisAngle(UP, heading);
+        this.flightModel.position = position;
+        this.flightModel.quaternion = this._q.setFromAxisAngle(UP, heading);
         this.obj.position.copy(position);
         this.obj.quaternion.setFromAxisAngle(UP, heading);
 
         const airborne = spawn?.airborne ?? false;
         if (spawn?.velocity) {
             this.velocity.copy(spawn.velocity);
-            this.flightModel.velocityVector.copy(spawn.velocity);
+            this.flightModel.velocityVector = spawn.velocity;
         } else {
             this.velocity.set(0, 0, 0);
         }
@@ -433,6 +435,84 @@ export class PlayerEntity implements Entity {
         );
     }
 
+    private toggleAutopilot() {
+        this.autopilotEnabled = !this.autopilotEnabled;
+    }
+
+    private updateAutopilot(delta: number) {
+        if (!this.autopilotEnabled) {
+            return;
+        }
+
+        const pos = this.flightModel.position;
+        const vel = this.flightModel.velocityVector;
+        const runwayPos = new THREE.Vector3(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.y, AIRBASE_RUNWAY.z);
+
+        // 1. Alignment (X and Yaw)
+        const xDist = pos.x - runwayPos.x;
+        // Simple P-controller for roll to correct X-offset
+        let targetRoll = -xDist * 0.005;
+        targetRoll = THREE.MathUtils.clamp(targetRoll, -Math.PI / 6, Math.PI / 6);
+        this.roll = targetRoll;
+
+        // 2. Glideslope (Y)
+        // We are approaching from -Z towards +Z. Runway center is at runwayPos.z.
+        // Runway start is at runwayPos.z - RUNWAY_HALF_LENGTH_M.
+        const touchdownZ = runwayPos.z - RUNWAY_HALF_LENGTH_M + 300;
+        const distToTouchdown = touchdownZ - pos.z;
+
+        if (this.isLanded) {
+            // We are on the ground, just brake and keep straight
+            this.throttle = 0;
+            this.wheelBrakes = true;
+            this.pitch = 0;
+            this.roll = 0;
+            this.yaw = 0;
+            return;
+        }
+
+        if (distToTouchdown < -500) {
+            // We missed the runway or finished landing
+            this.autopilotEnabled = false;
+            return;
+        }
+
+        // Target altitude based on 3 degree glideslope (tan(3deg) approx 0.05)
+        const targetAlt = Math.max(PLANE_DISTANCE_TO_GROUND + 1.0, distToTouchdown * 0.052);
+        const altErr = pos.y - targetAlt;
+
+        // 3. Pitch control
+        // Simple PD-like controller for pitch
+        let targetPitch = -altErr * 0.05 - vel.y * 0.1;
+        
+        // Flare logic
+        if (pos.y < 15 && distToTouchdown < 400) {
+            targetPitch = 0.15; // Nose up for flare
+        }
+        
+        this.pitch = THREE.MathUtils.clamp(targetPitch, -0.3, 0.4);
+
+        // 4. Throttle control
+        const targetSpeed = 85; // m/s (approx 300 km/h)
+        const speedErr = vel.length() - targetSpeed;
+        this.throttle = THREE.MathUtils.clamp(this.throttle - speedErr * 0.05 * delta, 0, 1);
+
+        // 5. Gear and Flaps
+        if (pos.y < 400) {
+            if (this.landingGearState === AircraftDeviceState.RETRACTED) {
+                this.toggleLandingGear();
+            }
+            if (this.flapsState === AircraftDeviceState.RETRACTED) {
+                this.toggleFlaps();
+            }
+        }
+        
+        // 6. Yaw control (keep heading 0)
+        const worldDir = this.getDisplayWorldDirection(this._v);
+        const heading = Math.atan2(worldDir.x, worldDir.z);
+        this.yaw = THREE.MathUtils.clamp(-heading * 2.0, -0.5, 0.5);
+    }
+
     private updateAudio() {
         const engineAudio = this._exteriorView ? this.outEngineAudio : this.inEngineAudio;
 
@@ -471,9 +551,9 @@ export class PlayerEntity implements Entity {
         flightModel.setCrashed(this.flightModel.isCrashed());
         flightModel.setLanded(this.flightModel.isLanded());
         this.flightModel = flightModel;
-        this.flightModel.position.copy(this.obj.position);
-        this.flightModel.quaternion.copy(this.obj.quaternion);
-        this.flightModel.velocityVector.copy(this.velocity);
+        this.flightModel.position = this.obj.position;
+        this.flightModel.quaternion = this.obj.quaternion;
+        this.flightModel.velocityVector = this.velocity;
         this.updateDisplayTransform();
         this.updateAfterburnerPaneColors();
     }
@@ -510,6 +590,10 @@ export class PlayerEntity implements Entity {
 
     get isCrashed(): boolean {
         return this.flightModel.isCrashed();
+    }
+
+    get isAutopilotEnabled(): boolean {
+        return this.autopilotEnabled;
     }
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
@@ -757,6 +841,10 @@ export class PlayerEntity implements Entity {
                     }
                     case 'g': {
                         this.toggleLandingGear();
+                        break;
+                    }
+                    case 'a': {
+                        this.toggleAutopilot();
                         break;
                     }
                 }
