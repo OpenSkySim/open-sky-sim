@@ -18,8 +18,8 @@ const RIGHT_WINGTIP = new THREE.Vector3(-WINGTIP_OUTWARD, WINGTIP_HEIGHT, WINGTI
 
 const TRAIL_WHITE = '#ffffff';
 
-const POSITION_COUNT = 61;
-const SEGMENT_COUNT = 60;
+const POSITION_COUNT = 101;
+const SEGMENT_COUNT = 100;
 const DITHER_MIN = 0.05;
 const DITHER_MAX = 0.9;
 const SEGMENT_WIDTH = 0.0784;
@@ -38,18 +38,6 @@ function sampleSpacingM(speedMps: number): number {
         MAX_SAMPLE_SPACING_M,
         Math.max(MIN_SAMPLE_SPACING_M, speedMps * SAMPLE_SPACING_SPEED_FACTOR),
     );
-}
-
-/** Quad in local XY: width on X, length on Y. */
-function writeSegmentGeometry(geometry: THREE.BufferGeometry, halfLength: number, halfWidth: number): void {
-    const hw = halfWidth;
-    const hl = halfLength;
-    const verts = [
-        -hw, -hl, 0, hw, -hl, 0, hw, hl, 0,
-        -hw, -hl, 0, hw, hl, 0, -hw, hl, 0,
-    ];
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
-    geometry.computeVertexNormals();
 }
 
 class WingTrailSide {
@@ -72,9 +60,14 @@ class WingTrailSide {
     private readonly _right = new THREE.Vector3();
     private readonly _up = new THREE.Vector3();
 
+    private static sharedGeometry: THREE.PlaneGeometry | undefined;
+
     constructor(materials: ShaderMaterial[]) {
+        if (!WingTrailSide.sharedGeometry) {
+            WingTrailSide.sharedGeometry = new THREE.PlaneGeometry(1, 1);
+        }
         this.meshes = materials.map((material) => {
-            const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+            const mesh = new THREE.Mesh(WingTrailSide.sharedGeometry!, material);
             mesh.onBeforeRender = updateUniforms;
             mesh.frustumCulled = false;
             mesh.visible = false;
@@ -108,26 +101,36 @@ class WingTrailSide {
         return this.history[index];
     }
 
-    layoutSegments(camera: THREE.Camera): void {
-        const segmentLimit = Math.min(SEGMENT_COUNT, this.count - 1);
+    layoutSegments(camera: THREE.Camera, currentTip: THREE.Vector3): void {
+        if (this.count === 0) {
+            this.root.visible = false;
+            return;
+        }
+
+        const segmentLimit = Math.min(SEGMENT_COUNT, this.count);
         this.root.visible = segmentLimit > 0;
         camera.getWorldPosition(this._cameraPos);
 
         for (let i = 0; i < SEGMENT_COUNT; i++) {
             const mesh = this.meshes[i];
-            if (i >= segmentLimit) {
+            const age = SEGMENT_COUNT - 1 - i;
+
+            if (age >= segmentLimit) {
                 mesh.visible = false;
                 continue;
             }
 
-            const ageOlder = segmentLimit - i;
-            const ageNewer = segmentLimit - i - 1;
-            this._from.copy(this.historyAt(ageOlder));
-            this._to.copy(this.historyAt(ageNewer));
+            if (age === 0) {
+                this._from.copy(this.historyAt(0));
+                this._to.copy(currentTip);
+            } else {
+                this._from.copy(this.historyAt(age));
+                this._to.copy(this.historyAt(age - 1));
+            }
 
             this._dir.subVectors(this._to, this._from);
             const length = this._dir.length();
-            if (length < 0.02) {
+            if (length < 0.01) {
                 mesh.visible = false;
                 continue;
             }
@@ -152,7 +155,7 @@ class WingTrailSide {
             _basis.makeBasis(this._right, this._dir, this._up);
             mesh.position.copy(this._mid);
             mesh.quaternion.setFromRotationMatrix(_basis);
-            writeSegmentGeometry(mesh.geometry, length * 0.5, SEGMENT_WIDTH);
+            mesh.scale.set(SEGMENT_WIDTH * 2, length, 1);
             mesh.visible = true;
         }
     }
@@ -235,8 +238,8 @@ export class WingtipTrails {
         if (!lists.has(fxId)) {
             return;
         }
-        this.left.layoutSegments(camera);
-        this.right.layoutSegments(camera);
+        this.left.layoutSegments(camera, this._leftTip);
+        this.right.layoutSegments(camera, this._rightTip);
         this.left.addToRenderList(fxId, lists);
         this.right.addToRenderList(fxId, lists);
     }
