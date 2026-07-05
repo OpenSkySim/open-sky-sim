@@ -186,14 +186,27 @@ export const FM2_FCS = {
     /** Positive/negative structural g command limits. */
     maxCommandG: F16_PROFILE.maxLoadFactorG, // 9.5
     minCommandG: -3.0,
-    /** Command AoA limiter (deg). */
-    aoaLimitDeg: 25,
-    aoaSoftDeg: 20,
+    /** Command AoA limiter (deg). Widened fade band so authority tapers gently. */
+    aoaLimitDeg: 26,
+    aoaSoftDeg: 18,
 
-    /** Pitch loop: stabilator command per unit g error, integral trim, and pitch-rate damping. */
+    /**
+     * Pitch loop: stabilator command per unit g error, integral trim, pitch-rate
+     * damping, and stick shaping.
+     *
+     * `pitchStickExpo` blends a cubic into the stick→g map so small deflections are
+     * gentle (a light pull no longer demands a near-max-g the jet can't hold at
+     * approach speed) while full stick still reaches the structural limit.
+     * `integralLeakTauS` bleeds the trim integrator down while the AoA limiter is
+     * active, preventing wind-up against the limit (the cause of the pitch hunting).
+     */
     pitchGGain: 0.14,
-    pitchIGain: 0.9,
-    pitchRateDampGain: 0.9,
+    pitchIGain: 0.6,
+    pitchRateDampGain: 1.1,
+    pitchAoaRateDampGain: 4.5,
+    aoaRateFilterTauS: 0.05,
+    pitchStickExpo: 0.8,
+    integralLeakTauS: 0.35,
     maxStabilatorRad: 25 * DEG,
 
     /** Roll loop: rate command and proportional gain to aileron/taileron. */

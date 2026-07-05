@@ -57,6 +57,9 @@ export class F16Fcs {
     private rudder = 0;
     private yawRateLowPass = 0;
     private pitchIntegral = 0;
+    private prevAoa = 0;
+    private aoaRateFilt = 0;
+    private prevAoaValid = false;
 
     reset(): void {
         this.elevator = 0;
@@ -64,6 +67,9 @@ export class F16Fcs {
         this.rudder = 0;
         this.yawRateLowPass = 0;
         this.pitchIntegral = 0;
+        this.prevAoa = 0;
+        this.aoaRateFilt = 0;
+        this.prevAoaValid = false;
     }
 
     getState(): FcsOutput {
@@ -92,13 +98,32 @@ export class F16Fcs {
     private pitchLaw(input: FcsInput, dt: number): number {
         const { maxCommandG, minCommandG, pitchGGain, pitchIGain, pitchRateDampGain } = FM2_FCS;
 
+        // Stick shaping: expo so a light pull is gentle while full stick still
+        // reaches the structural limit (a small deflection no longer demands a
+        // high g the jet cannot hold at approach speed).
+        const e = FM2_FCS.pitchStickExpo;
+        const shapedStick = (1 - e) * input.pitchStick + e * input.pitchStick ** 3;
+
         // Stick → commanded load factor (about 1 g at neutral stick).
         let commandedG: number;
-        if (input.pitchStick >= 0) {
-            commandedG = 1 + input.pitchStick * (maxCommandG - 1);
+        if (shapedStick >= 0) {
+            commandedG = 1 + shapedStick * (maxCommandG - 1);
         } else {
-            commandedG = 1 + input.pitchStick * (1 - minCommandG);
+            commandedG = 1 + shapedStick * (1 - minCommandG);
         }
+
+        // Angle-of-attack rate (α̇), low-pass filtered. This is the short-period
+        // damper: when the aircraft is energy-limited it cannot hold the commanded
+        // g, so the load-factor loop alone hunts around the AoA limit. Damping α̇
+        // directly kills that oscillation regardless of available thrust.
+        let aoaRate = 0;
+        if (this.prevAoaValid && dt > 0) {
+            aoaRate = (input.aoaRad - this.prevAoa) / dt;
+        }
+        this.prevAoa = input.aoaRad;
+        this.prevAoaValid = true;
+        const fAoa = dt <= 0 ? 1 : 1 - Math.exp(-dt / Math.max(FM2_FCS.aoaRateFilterTauS, 1e-3));
+        this.aoaRateFilt += (aoaRate - this.aoaRateFilt) * fAoa;
 
         // AoA limiter: fade the nose-up authority as AoA approaches the limit.
         const aoaDeg = input.aoaRad / DEG;
@@ -111,13 +136,24 @@ export class F16Fcs {
         }
 
         const gError = commandedG - input.loadFactorG;
-        // pitchRate about +X is nose-down-positive, so +pitchRate damps a nose-up command.
-        const proportional = pitchGGain * gError + pitchRateDampGain * input.pitchRate;
+        // pitchRate about +X is nose-down-positive, so +pitchRate damps a nose-up
+        // command; -α̇ term adds dedicated short-period damping.
+        const proportional = pitchGGain * gError
+            + pitchRateDampGain * input.pitchRate
+            - FM2_FCS.pitchAoaRateDampGain * this.aoaRateFilt;
 
-        // Integral trim with clamping + anti-windup.
+        // Integral trim with anti-windup. Freeze the accumulator whenever the AoA
+        // limiter is active (in either error direction) and bleed it down, so it
+        // cannot wind up below the limiter band and get chopped above it — the
+        // pumping action that drives the low-speed pitch limit cycle.
+        const limiterActive = aoaLimiter < 0.999;
         const raw = proportional + pitchIGain * (this.pitchIntegral + gError * dt);
-        if (raw > -1 && raw < 1) {
+        const outputSaturated = raw <= -1 || raw >= 1;
+        if (!outputSaturated && !limiterActive) {
             this.pitchIntegral = clamp(this.pitchIntegral + gError * dt, -3, 3);
+        } else if (limiterActive) {
+            const leak = dt <= 0 ? 1 : 1 - Math.exp(-dt / Math.max(FM2_FCS.integralLeakTauS, 1e-3));
+            this.pitchIntegral -= this.pitchIntegral * leak;
         }
         const elevator = proportional + pitchIGain * this.pitchIntegral;
         return clamp(elevator, -1, 1);
