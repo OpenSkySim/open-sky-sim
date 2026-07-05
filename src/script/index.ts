@@ -14,9 +14,7 @@ import { FPS_CAP, GROUND_SMOKE_PARTICLE_COUNT, H_RES, V_RES } from './defs';
 import { JoystickControlDevice } from './input/devices/joystickControlDevice';
 import { KeyboardControlDevice, KeyboardControlLayoutId } from './input/devices/keyboardControlDevice';
 import { setupOSD } from './osd/osdPanel';
-import { ArcadeFlightModel } from './physics/model/arcadeFlightModel';
-import { DebugFlightModel } from './physics/model/debugFlightModel';
-import { RealisticFlightModel } from './physics/model/realisticFlightModel';
+import { WorkerFlightModel } from './physics/model/workerFlightModel';
 import { Renderer } from './render/renderer';
 import { SceneMaterialManager } from './scene/materials/materials';
 import { BackgroundModelLibBuilder } from './scene/models/lib/backgroundModelBuilder';
@@ -32,7 +30,7 @@ import { FlightModels, TechProfiles } from './state/gameDefs';
 function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice] {
     const config = new ConfigService(
         { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
-        { [FlightModels.REALISTIC]: new RealisticFlightModel(), [FlightModels.ARCADE]: new ArcadeFlightModel(), [FlightModels.DEBUG]: new DebugFlightModel(), }
+        { [FlightModels.REALISTIC]: new WorkerFlightModel('realistic'), [FlightModels.ARCADE]: new WorkerFlightModel('arcade'), [FlightModels.DEBUG]: new WorkerFlightModel('debug'), }
     );
     config.flightModels.setActive(FlightModels.REALISTIC);
     const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
