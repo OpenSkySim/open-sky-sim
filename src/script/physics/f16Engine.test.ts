@@ -17,7 +17,8 @@ import { F16_PROFILE } from './f16Profile';
 
 describe('F-16 F100-PW-229 throttle quadrant', () => {
     it('lever 0 is flight idle (MIL 20%)', () => {
-        assert.ok(Math.abs(computeF16SlThrustKn(0) - F16_ENGINE.idleThrustKn) < 0.01);
+        assert.equal(F16_ENGINE.idleThrustKn, 0.5);
+        assert.ok(Math.abs(computeF16SlThrustKn(0) - 0.5) < 0.01);
         assert.equal(formatF16ThrottleHud(0), 'MIL 20');
     });
 

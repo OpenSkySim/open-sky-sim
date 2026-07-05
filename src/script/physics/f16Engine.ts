@@ -7,6 +7,7 @@ import { F16_PROFILE } from './f16Profile';
 
 /** F100-PW-229 sea-level static thrust (kN), USAF / Jane's. */
 export const F16_ENGINE = {
+    /** Flight idle (MIL 20% on quadrant) — 0.5 kN sea-level static. */
     idleThrustKn: 0.5,
     milThrustKn: 76.3,
     /** First afterburner detent (min AB / zone 5). */
