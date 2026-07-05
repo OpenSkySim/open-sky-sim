@@ -537,7 +537,6 @@ export class PlayerEntity implements Entity {
                 SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, lod);
 
             this.afterburnerCones.addToRenderList(SceneLayers.EntityVolumes, lists);
-            this.wingtipTrails.addToRenderList(SceneLayers.EntityVolumes, lists, camera);
 
             if (lod === 0) {
                 if (this.landingGearState !== AircraftDeviceState.RETRACTED) {
@@ -558,6 +557,8 @@ export class PlayerEntity implements Entity {
                         SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
                 }
             }
+
+            this.wingtipTrails.addToRenderList(SceneLayers.EntityFX, lists, camera);
         }
     }
 

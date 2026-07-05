@@ -10,7 +10,9 @@ export enum SceneLayers {
     BackgroundGround = 'BackgroundGround',
     Terrain = 'Terrain',
     EntityFlats = 'EntityFlats',
-    EntityVolumes = 'EntityVolumes'
+    EntityVolumes = 'EntityVolumes',
+    /** Aircraft VFX (wingtip trails) drawn after terrain and solid meshes. */
+    EntityFX = 'EntityFX'
 }
 
 export class Scene {

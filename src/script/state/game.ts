@@ -238,7 +238,7 @@ export class Game {
             {
                 target: MAIN_RENDER_TARGET_LO,
                 camera: this.playerCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
             }
         ];
         const playerLayersHi: RenderLayer[] = [
@@ -255,7 +255,7 @@ export class Game {
             {
                 target: MAIN_RENDER_TARGET_HI,
                 camera: this.playerCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
             }
         ];
         const targetLayersLo: RenderLayer[] = [
@@ -272,7 +272,7 @@ export class Game {
             {
                 target: WEAPONSTARGET_RENDER_TARGET_LO,
                 camera: this.targetCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
             }
         ];
         const targetLayersHi: RenderLayer[] = [
@@ -289,7 +289,7 @@ export class Game {
             {
                 target: WEAPONSTARGET_RENDER_TARGET_HI,
                 camera: this.targetCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
             }
         ];
         const mapLayersLo: RenderLayer[] = [
@@ -341,7 +341,7 @@ export class Game {
             {
                 target: MAIN_RENDER_TARGET_HD,
                 camera: this.playerCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
             }
         ];
         const targetLayersHd: RenderLayer[] = [
@@ -358,7 +358,7 @@ export class Game {
             {
                 target: WEAPONSTARGET_RENDER_TARGET_HD,
                 camera: this.targetCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
             }
         ];
         const mapLayersHd: RenderLayer[] = [

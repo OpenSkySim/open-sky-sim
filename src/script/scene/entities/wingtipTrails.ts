@@ -6,23 +6,24 @@ import { PaletteCategory } from '../../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType, SceneMaterialUniforms } from '../materials/materials';
 import { updateUniforms } from '../utils';
 
-const WINGTIP_OUTWARD = F16_PROFILE.wingSpanM * 0.5 + 2.15;
+const WINGTIP_OUTWARD = F16_PROFILE.wingSpanM * 0.5 + 2.05;
 
 /** Body space: +Z forward, −Z aft. */
-const WINGTIP_AFT = -3.6;
+const WINGTIP_AFT = -2.7;
+const WINGTIP_HEIGHT = -0.28;
 
 /** Wingtip vortex origins — beyond the physical wingtip, aft of the leading edge. */
-const LEFT_WINGTIP = new THREE.Vector3(WINGTIP_OUTWARD, 0.02, WINGTIP_AFT);
-const RIGHT_WINGTIP = new THREE.Vector3(-WINGTIP_OUTWARD, 0.02, WINGTIP_AFT);
+const LEFT_WINGTIP = new THREE.Vector3(WINGTIP_OUTWARD, WINGTIP_HEIGHT, WINGTIP_AFT);
+const RIGHT_WINGTIP = new THREE.Vector3(-WINGTIP_OUTWARD, WINGTIP_HEIGHT, WINGTIP_AFT);
 
 const TRAIL_WHITE = '#ffffff';
 
-const POSITION_COUNT = 21;
-const SEGMENT_COUNT = 20;
+const POSITION_COUNT = 61;
+const SEGMENT_COUNT = 60;
 const DITHER_MIN = 0.05;
 const DITHER_MAX = 0.9;
 const SEGMENT_WIDTH = 0.0784;
-const MIN_TRAIL_SPEED_MPS = 35;
+const MIN_TRAIL_SPEED_MPS = 0;
 const SAMPLE_SPACING_SPEED_FACTOR = 0.028;
 const MIN_SAMPLE_SPACING_M = 0.45;
 const MAX_SAMPLE_SPACING_M = 3.5;
@@ -218,25 +219,25 @@ export class WingtipTrails {
         airborne: boolean,
     ): void {
         const speed = displayVelocity.length();
-        if (!airborne || speed < MIN_TRAIL_SPEED_MPS) {
-            this.left.reset();
-            this.right.reset();
-            return;
-        }
-
+        
         this.applyWhiteColors();
 
-        const spacing = sampleSpacingM(speed);
-        this._leftTip.copy(LEFT_WINGTIP).applyQuaternion(displayQuaternion).add(displayPosition);
-        this._rightTip.copy(RIGHT_WINGTIP).applyQuaternion(displayQuaternion).add(displayPosition);
-        this.left.tryPush(this._leftTip, spacing);
-        this.right.tryPush(this._rightTip, spacing);
+        if (airborne && speed >= MIN_TRAIL_SPEED_MPS) {
+            const spacing = sampleSpacingM(speed);
+            this._leftTip.copy(LEFT_WINGTIP).applyQuaternion(displayQuaternion).add(displayPosition);
+            this._rightTip.copy(RIGHT_WINGTIP).applyQuaternion(displayQuaternion).add(displayPosition);
+            this.left.tryPush(this._leftTip, spacing);
+            this.right.tryPush(this._rightTip, spacing);
+        }
     }
 
-    addToRenderList(volumesId: string, lists: Map<string, THREE.Scene>, camera: THREE.Camera): void {
+    addToRenderList(fxId: string, lists: Map<string, THREE.Scene>, camera: THREE.Camera): void {
+        if (!lists.has(fxId)) {
+            return;
+        }
         this.left.layoutSegments(camera);
         this.right.layoutSegments(camera);
-        this.left.addToRenderList(volumesId, lists);
-        this.right.addToRenderList(volumesId, lists);
+        this.left.addToRenderList(fxId, lists);
+        this.right.addToRenderList(fxId, lists);
     }
 }
