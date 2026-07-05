@@ -45,7 +45,7 @@ export function toKnots(metersPerSecond: number): number {
 }
 
 /** Horizontal gap between the map MFD edge and the GEAR/FLAPS/BRAKE labels. */
-const AIRCRAFT_DEVICE_STATUS_OUTWARD_GAP = 10;
+const AIRCRAFT_DEVICE_STATUS_OUTWARD_GAP = 50;
 
 export function getAircraftDeviceStatusPosition(targetHeight: number, mfdSize: number, font: Font) {
     return {

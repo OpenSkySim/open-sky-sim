@@ -309,7 +309,10 @@ export class SceneMaterialManager implements KernelTask {
 
         for (let i = 0; i < this.materials.length; i++) {
             const m = this.materials[i];
-            const d = m.userData as SceneMaterialData;
+            const d = m.userData as SceneMaterialData & { wingtipTrailDriven?: boolean };
+            if (d.wingtipTrailDriven) {
+                continue;
+            }
             const u = m.uniforms as SceneMaterialUniforms;
             const c = d.category;
             u.color.value.copy(this.colorCache.getColor(PaletteColor(palette, c)));

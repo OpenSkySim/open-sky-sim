@@ -5,6 +5,8 @@
     "scripts": {
         "build": "webpack --mode=development",
         "build:prod": "webpack --mode=production",
+        "watch": "webpack --mode=development --watch",
+        "preserve": "npm run build",
         "serve": "ws -d dist",
         "test": "node --import tsx --test src/script/physics/**/*.test.ts"
     },

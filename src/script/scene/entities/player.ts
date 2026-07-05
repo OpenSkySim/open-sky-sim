@@ -14,6 +14,7 @@ import { SceneMaterialData, SceneMaterialManager, SceneMaterialUniforms } from '
 import { ModelManager } from '../models/models';
 import { Scene, SceneLayers } from "../scene";
 import { AfterburnerCones } from './afterburnerCones';
+import { WingtipTrails } from './wingtipTrails';
 import { GroundTargetEntity } from './groundTarget';
 
 
@@ -104,6 +105,7 @@ export class PlayerEntity implements Entity {
 
     private afterburnerInteriorMaterials: ShaderMaterial[] = [];
     private afterburnerCones: AfterburnerCones;
+    private wingtipTrails: WingtipTrails;
     private afterburnerInteriorColor = new THREE.Color();
     private afterburnerPanesBound = false;
 
@@ -139,6 +141,7 @@ export class PlayerEntity implements Entity {
     // Heading increases CCW, radians
     constructor(models: ModelManager, modelParts: PlayerModelParts, flightModel: FlightModel, materials: SceneMaterialManager, inEngineAudio: AudioClip, outEngineAudio: AudioClip, position: THREE.Vector3, heading: number) {
         this.afterburnerCones = new AfterburnerCones(materials);
+        this.wingtipTrails = new WingtipTrails(materials);
         this.modelBody = new LODHelper(models.getModel(modelParts.body, () => {
             this.bindAfterburnerPaneMaterials();
         }));
@@ -260,6 +263,13 @@ export class PlayerEntity implements Entity {
         this.updateAudio();
         this.bindAfterburnerPaneMaterials();
         this.updateAfterburnerPaneColors();
+        this.updateDisplayTransform();
+        this.wingtipTrails.update(
+            this.displayPosition,
+            this.displayQuaternion,
+            this.displayVelocity,
+            !this.isLanded && !this.isCrashed,
+        );
 
         if (!this.isCrashed) {
             this.updateLandingGear(delta);
@@ -310,6 +320,8 @@ export class PlayerEntity implements Entity {
         this.flapsProgressUnit = 1.0;
 
         this.engineStarted = false;
+
+        this.wingtipTrails.reset();
 
         this.target = undefined;
         this.targetIndex = undefined;
@@ -525,6 +537,7 @@ export class PlayerEntity implements Entity {
                 SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, lod);
 
             this.afterburnerCones.addToRenderList(SceneLayers.EntityVolumes, lists);
+            this.wingtipTrails.addToRenderList(SceneLayers.EntityVolumes, lists, camera);
 
             if (lod === 0) {
                 if (this.landingGearState !== AircraftDeviceState.RETRACTED) {
