@@ -216,9 +216,10 @@ export const FM2_FCS = {
      * Pitch loop: stabilator command per unit g error, integral trim, pitch-rate
      * damping, and stick shaping.
      *
-     * `pitchStickExpo` blends a cubic into the stick→g map so small deflections are
-     * gentle (a light pull no longer demands a near-max-g the jet can't hold at
-     * approach speed) while full stick still reaches the structural limit.
+     * `pitchStickExpo` blends a cubic into the stick→g map (0 = linear, 1 = pure
+     * cubic) so small deflections are very gentle — a logarithmic-style feel where a
+     * light pull near centre barely moves the g command — while full stick still
+     * reaches the structural limit.
      * `integralLeakTauS` bleeds the trim integrator down while the AoA limiter is
      * active, preventing wind-up against the limit (the cause of the pitch hunting).
      */
@@ -227,7 +228,7 @@ export const FM2_FCS = {
     pitchRateDampGain: 1.1,
     pitchAoaRateDampGain: 4.5,
     aoaRateFilterTauS: 0.05,
-    pitchStickExpo: 0.8,
+    pitchStickExpo: 0.92,
     integralLeakTauS: 0.35,
     maxStabilatorRad: 25 * DEG,
 

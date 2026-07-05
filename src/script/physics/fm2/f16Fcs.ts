@@ -98,9 +98,11 @@ export class F16Fcs {
     private pitchLaw(input: FcsInput, dt: number): number {
         const { maxCommandG, minCommandG, pitchGGain, pitchIGain, pitchRateDampGain } = FM2_FCS;
 
-        // Stick shaping: expo so a light pull is gentle while full stick still
-        // reaches the structural limit (a small deflection no longer demands a
-        // high g the jet cannot hold at approach speed).
+        // Stick shaping: a cubic "expo" (logarithmic-style) curve. Near neutral the
+        // response is dominated by the small (1-e) linear term so a light pull barely
+        // changes the g command; authority ramps up steeply toward the ends, and full
+        // stick (±1) still maps to ±1 so the structural limit remains reachable. This
+        // keeps fine pitch corrections around centre from having an outsized impact.
         const e = FM2_FCS.pitchStickExpo;
         const shapedStick = (1 - e) * input.pitchStick + e * input.pitchStick ** 3;
 
