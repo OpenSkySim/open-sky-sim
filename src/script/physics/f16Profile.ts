@@ -33,6 +33,16 @@ export const F16_PROFILE = {
     cat3MaxRollRateDegS: 180,
     /** FBW positive structural g limit (Cat I). */
     maxLoadFactorG: 9.5,
+    /** Takeoff rotation speed (~70 kt). */
+    rotationSpeedMps: 65,
+    /** Max touchdown groundspeed with gear down. */
+    landingMaxSpeedMps: 90,
+    /** Max sink rate at touchdown (m/s). */
+    landingMaxVerticalSpeedMps: 8,
+    /** Max bank at touchdown (deg). */
+    landingMaxRollDeg: 12,
+    /** Minimum pitch at touchdown (deg, nose-down limit). */
+    landingMinPitchDeg: -12,
 } as const;
 
 export type F16ReferenceMetric =

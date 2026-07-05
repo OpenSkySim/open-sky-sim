@@ -7,7 +7,7 @@ import { F16_PROFILE } from './f16Profile';
 
 /** F100-PW-229 sea-level static thrust (kN), USAF / Jane's. */
 export const F16_ENGINE = {
-    idleThrustKn: 22.2,
+    idleThrustKn: 0.5,
     milThrustKn: 76.3,
     /** First afterburner detent (min AB / zone 5). */
     abMinThrustKn: 104.0,
@@ -36,6 +36,50 @@ export function getF16EngineNozzleColor(lever: number): string {
         return F16_ENGINE_NOZZLE_COLORS.abMax;
     }
     return F16_ENGINE_NOZZLE_COLORS.mil;
+}
+
+export interface F16AfterburnerConeDither {
+    primary: string;
+    secondary: string;
+}
+
+/** Orange/yellow checkerboard dither for AB cone meshes; null when MIL (cones hidden). */
+export function getF16AfterburnerConeDither(lever: number): F16AfterburnerConeDither | null {
+    const zone = getF16ThrottleZone(lever);
+    if (zone === 'ab-min') {
+        return {
+            primary: F16_ENGINE_NOZZLE_COLORS.abMin,
+            secondary: F16_ENGINE_NOZZLE_COLORS.abMax,
+        };
+    }
+    if (zone === 'ab-max') {
+        return {
+            primary: F16_ENGINE_NOZZLE_COLORS.abMax,
+            secondary: F16_ENGINE_NOZZLE_COLORS.abMin,
+        };
+    }
+    return null;
+}
+
+export function isF16AfterburnerActive(lever: number): boolean {
+    return getF16ThrottleZone(lever) !== 'mil';
+}
+
+export const F16_AFTERBURNER_CONE_LENGTH_M = {
+    mil: 0,
+    abMin: 4,
+    abMax: 7,
+} as const;
+
+export function getF16AfterburnerConeLengthM(lever: number): number {
+    const zone = getF16ThrottleZone(lever);
+    if (zone === 'ab-min') {
+        return F16_AFTERBURNER_CONE_LENGTH_M.abMin;
+    }
+    if (zone === 'ab-max') {
+        return F16_AFTERBURNER_CONE_LENGTH_M.abMax;
+    }
+    return F16_AFTERBURNER_CONE_LENGTH_M.mil;
 }
 
 /** Lever [0, 1] as 0–100 throttle quadrant position. */

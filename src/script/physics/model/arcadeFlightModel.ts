@@ -10,6 +10,8 @@ const INDUCED_DRAG_FACTOR = 10.0; // Unitless
 const ROLL_DRAG_FACTOR = 0.05; // Unitless
 const GROUND_FRICTION_KINETIC = 0.15; // Unitless
 const GROUND_FRICTION_STATIC = 0.2; // Unitless
+const GROUND_BRAKE_KINETIC = 1.8;
+const GROUND_BRAKE_STATIC = 1.17;
 const THROTTLE_UP_RATE = 0.02; // Units/second
 const THROTTLE_DOWN_RATE = 0.07; // Units/second
 const YAW_RATE_LANDED = YAW_RATE * 2.0; // Radians/second
@@ -190,12 +192,13 @@ export class ArcadeFlightModel extends FlightModel {
         this.forces.set(0, 0, 0).add(this.thrust).add(this.drag).add(this.weight);
 
         //! FRICTION
-        if (this.landed) {
+        const onGround = this.obj.position.y <= PLANE_DISTANCE_TO_GROUND + 0.05;
+        if (this.landed || (this.wheelBrakesApplied && onGround)) {
             const weightMagnitude = DRY_MASS * GRAVITY;
             const prjForces = this._v.copy(this.forces).setY(0);
             const prjForcesMagnitude = prjForces.length();
-            const maxStaticFriction = GROUND_FRICTION_STATIC * weightMagnitude;
-            const kineticFriction = GROUND_FRICTION_KINETIC * weightMagnitude;
+            const maxStaticFriction = (this.wheelBrakesApplied ? GROUND_BRAKE_STATIC : GROUND_FRICTION_STATIC) * weightMagnitude;
+            const kineticFriction = (this.wheelBrakesApplied ? GROUND_BRAKE_KINETIC : GROUND_FRICTION_KINETIC) * weightMagnitude;
 
             if ((isZero(speed) && prjForcesMagnitude < maxStaticFriction)) {
                 this.friction.copy(prjForces).negate();

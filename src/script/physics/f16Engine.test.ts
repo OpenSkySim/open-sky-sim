@@ -5,6 +5,8 @@ import {
     computeF16EngineThrustKn,
     computeF16SlThrustKn,
     formatF16ThrottleHud,
+    getF16AfterburnerConeDither,
+    getF16AfterburnerConeLengthM,
     getF16EngineNozzleColor,
     getF16ThrottleZone,
     stepF16ThrottleDetent,
@@ -70,6 +72,24 @@ describe('F-16 F100-PW-229 throttle quadrant', () => {
         assert.equal(getF16EngineNozzleColor(0.98), F16_ENGINE_NOZZLE_COLORS.mil);
         assert.equal(getF16EngineNozzleColor(0.99), F16_ENGINE_NOZZLE_COLORS.abMin);
         assert.equal(getF16EngineNozzleColor(1.0), F16_ENGINE_NOZZLE_COLORS.abMax);
+    });
+
+    it('returns dither pair for AB cones and null at MIL', () => {
+        assert.equal(getF16AfterburnerConeDither(0.98), null);
+        assert.deepEqual(getF16AfterburnerConeDither(0.99), {
+            primary: F16_ENGINE_NOZZLE_COLORS.abMin,
+            secondary: F16_ENGINE_NOZZLE_COLORS.abMax,
+        });
+        assert.deepEqual(getF16AfterburnerConeDither(1.0), {
+            primary: F16_ENGINE_NOZZLE_COLORS.abMax,
+            secondary: F16_ENGINE_NOZZLE_COLORS.abMin,
+        });
+    });
+
+    it('returns AB cone plume length in meters', () => {
+        assert.equal(getF16AfterburnerConeLengthM(0.98), 0);
+        assert.equal(getF16AfterburnerConeLengthM(0.99), 4);
+        assert.equal(getF16AfterburnerConeLengthM(1.0), 7);
     });
 
     it('continuous ramp stops at MIL 100 without entering AB', () => {

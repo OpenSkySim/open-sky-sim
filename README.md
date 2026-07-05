@@ -71,13 +71,13 @@ Choose your keyboard layout, for users using QWERTZ, AZERTY, Dvorak, or arrow ke
 Use the OSD settings to select the keyboard layout.
 
 QWERTY (default):
-* `W`/`S`: Pitch
+* `W`/`S`: Pitch (`W` is wheel brakes while on the ground)
 * `A`/`D`: Roll
 * `Q`/`E`: Yaw
 * `Z`/`X`: Throttle
 
 QWERTZ:
-* `W`/`S`: Pitch
+* `W`/`S`: Pitch (`W` is wheel brakes while on the ground)
 * `A`/`D`: Roll
 * `Q`/`E`: Yaw
 * `Y`/`X`: Throttle
@@ -86,7 +86,7 @@ AZERTY:
 * `Z`/`S`: Pitch
 * `Q`/`D`: Roll
 * `A`/`E`: Yaw
-* `W`/`X`: Throttle
+* `W`/`X`: Throttle (`W` is wheel brakes while on the ground)
 
 Dvorak:
 * `,`/`O`: Pitch
@@ -110,6 +110,7 @@ The system supports a single device connected only. If the device has less than 
 * `Axis 2`: Throttle
 
 ### Systems
+* `W`: Wheel brakes (hold, on the ground)
 * `G`: Landing gear
 * `F`: Flaps
 * `T`: Select target

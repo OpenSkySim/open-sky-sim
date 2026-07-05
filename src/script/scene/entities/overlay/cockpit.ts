@@ -8,7 +8,7 @@ import { Scene, SceneLayers } from "../../scene";
 import { updateTargetCamera } from '../../utils';
 import { GroundTargetEntity } from '../groundTarget';
 import { AircraftDeviceState, PlayerEntity } from "../player";
-import { formatHeading, getOverlayLayout } from './overlayUtils';
+import { formatHeading, getAircraftDeviceStatusPosition, getOverlayLayout, renderAircraftDeviceStatus } from './overlayUtils';
 
 
 // Pixels
@@ -130,9 +130,8 @@ export class CockpitEntity implements Entity {
             CockpitMFD2Y(targetWidth, targetHeight, MFDSize),
             MFDSize, painter, hudColor, palette, font);
 
-        const gearX = MFDSize + font.charSpacing + 2;
-        const gearY = targetHeight - font.charHeight - font.charSpacing;
-        this.renderDeviceStatus(gearX, gearY, painter, hudColor, font);
+        const { x: gearX, y: gearY } = getAircraftDeviceStatusPosition(targetHeight, MFDSize, font);
+        renderAircraftDeviceStatus(this.actor, gearX, gearY, painter, hudColor, font);
     }
 
     private renderAttitudeIndicator(targetWidth: number, targetHeight: number, painter: CanvasPainter, palette: Palette) {
@@ -328,15 +327,6 @@ export class CockpitEntity implements Entity {
                 `${this.weaponsTargetZoomFactor.toFixed(0)}x`, hudColor, TextAlignment.RIGHT);
             painter.text(font, x + font.charSpacing, y + size - font.charHeight - font.charSpacing,
                 `Range ${this.weaponsTargetRange.toFixed(1)} KM`, hudColor);
-        }
-    }
-
-    private renderDeviceStatus(x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
-        if (this.landingGear === AircraftDeviceState.EXTENDED || this.landingGear === AircraftDeviceState.EXTENDING) {
-            painter.text(font, x, y, 'GEAR', hudColor);
-        }
-        if (this.flaps === AircraftDeviceState.EXTENDED || this.flaps === AircraftDeviceState.EXTENDING) {
-            painter.text(font, x, y - font.charHeight - font.charSpacing, 'FLAPS', hudColor);
         }
     }
 }

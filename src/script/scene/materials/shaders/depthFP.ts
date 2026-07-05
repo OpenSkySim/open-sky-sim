@@ -10,10 +10,35 @@ export const DepthFragProgram: string = `
   uniform int fogType;
   uniform float fogDensity;
   uniform vec3 fogColor;
+  uniform float alphaDither;
 
   varying vec3 vPosition;
 
   void main() {
+    vec2 screen = gl_FragCoord.xy;
+
+    if (alphaDither > 0.001) {
+      mat4 bayesian = mat4(
+        0.0, 12.0,  3.0, 15.0,
+        8.0,  4.0, 11.0,  7.0,
+        2.0, 14.0,  1.0, 13.0,
+       10.0,  6.0,  9.0,  5.0
+      ) * (1.0 / 16.0) - 0.5;
+
+      int modX = int(mod(screen.x, 4.0));
+      int modY = int(mod(screen.y, 4.0));
+      for (int x = 0; x < 4; x++) {
+        for (int y = 0; y < 4; y++) {
+          if (x == modX && y == modY) {
+            float alpha = alphaDither + bayesian[x][y];
+            if (alpha < 0.5) {
+              discard;
+            }
+          }
+        }
+      }
+    }
+
     float distance = 0.0;
     float fogSteps = 12.0;
 
@@ -33,7 +58,6 @@ export const DepthFragProgram: string = `
 
     vec3 diffuse;
     if (shadingType == 0) {
-      vec2 screen = gl_FragCoord.xy;
       bool dithering = mod(floor(screen.x + screen.y), 2.0) > 0.5;
       diffuse = dithering ? color : colorSecondary;
     } else {

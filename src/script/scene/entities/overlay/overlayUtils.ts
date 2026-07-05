@@ -1,5 +1,7 @@
-
 import { H_RES, V_RES } from '../../../defs';
+import { CanvasPainter } from '../../../render/screen/canvasPainter';
+import { Font } from '../../../render/screen/text';
+import { AircraftDeviceState, PlayerEntity } from '../player';
 
 export interface OverlayLayout {
     /** Controls tick/marker density (1 = VGA, 2 = SVGA/HD). */
@@ -40,4 +42,41 @@ export function toFeet(meters: number): number {
 
 export function toKnots(metersPerSecond: number): number {
     return metersPerSecond * 1.94384;
+}
+
+/** Horizontal gap between the map MFD edge and the GEAR/FLAPS/BRAKE labels. */
+const AIRCRAFT_DEVICE_STATUS_OUTWARD_GAP = 10;
+
+export function getAircraftDeviceStatusPosition(targetHeight: number, mfdSize: number, font: Font) {
+    return {
+        x: mfdSize + font.charSpacing + 2 + AIRCRAFT_DEVICE_STATUS_OUTWARD_GAP,
+        y: targetHeight - font.charHeight - font.charSpacing,
+    };
+}
+
+/** Bottom-left GEAR / FLAPS / BRAKE stack beside the map MFD. */
+export function renderAircraftDeviceStatus(
+    actor: PlayerEntity,
+    x: number,
+    bottomY: number,
+    painter: CanvasPainter,
+    hudColor: string,
+    font: Font,
+) {
+    const lineStep = font.charHeight + font.charSpacing;
+    const labels: string[] = [];
+
+    if (actor.landingGear === AircraftDeviceState.EXTENDED || actor.landingGear === AircraftDeviceState.EXTENDING) {
+        labels.push('GEAR');
+    }
+    if (actor.flaps === AircraftDeviceState.EXTENDED || actor.flaps === AircraftDeviceState.EXTENDING) {
+        labels.push('FLAPS');
+    }
+    if (actor.wheelBrakesApplied) {
+        labels.push('BRAKE');
+    }
+
+    for (let i = 0; i < labels.length; i++) {
+        painter.text(font, x, bottomY - i * lineStep, labels[i], hudColor);
+    }
 }

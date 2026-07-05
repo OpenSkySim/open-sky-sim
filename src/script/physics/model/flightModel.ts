@@ -13,6 +13,7 @@ export abstract class FlightModel {
     protected landed: boolean = true;
     protected landingGearDeployed: boolean = true;
     protected flapsExtended: boolean = true;
+    protected wheelBrakesApplied: boolean = false;
 
     protected pitch: number = 0; // [-1, 1]
     protected roll: number = 0; // [-1, 1]
@@ -39,6 +40,7 @@ export abstract class FlightModel {
         this.landed = true;
         this.landingGearDeployed = true;
         this.flapsExtended = true;
+        this.wheelBrakesApplied = false;
         this.pitch = 0;
         this.roll = 0;
         this.yaw = 0;
@@ -48,6 +50,11 @@ export abstract class FlightModel {
         this.loadFactorG = 1;
         this.engineThrustN = 0;
         this.deltaRemainder = 0;
+        this.syncPreviousState();
+    }
+
+    /** Align render interpolation after teleport or airborne spawn. */
+    snapPhysicsState(): void {
         this.syncPreviousState();
     }
 
@@ -105,12 +112,25 @@ export abstract class FlightModel {
         this.throttle = throttle;
     }
 
+    /** Match spooled engine state to commanded throttle (e.g. airborne spawn). */
+    syncEffectiveThrottle() {
+        this.effectiveThrottle = this.throttle;
+    }
+
     setLandingGearDeployed(deployed: boolean) {
         this.landingGearDeployed = deployed;
     }
 
     setFlapsExtended(extended: boolean) {
         this.flapsExtended = extended;
+    }
+
+    setWheelBrakes(applied: boolean) {
+        this.wheelBrakesApplied = applied;
+    }
+
+    isWheelBrakesApplied(): boolean {
+        return this.wheelBrakesApplied;
     }
 
     setLanded(isLanded: boolean) {

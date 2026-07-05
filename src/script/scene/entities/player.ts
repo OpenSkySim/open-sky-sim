@@ -2,17 +2,18 @@ import * as THREE from 'three';
 import { ShaderMaterial } from 'three';
 import { AudioClip } from '../../audio/audioSystem';
 import { Palette, PaletteCategory } from "../../config/palettes/palette";
-import { TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
+import { PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
-import { getF16EngineNozzleColor } from '../../physics/f16Engine';
+import { getF16AfterburnerConeDither, getF16EngineNozzleColor } from '../../physics/f16Engine';
 import { LODHelper, getLodLevel } from '../../render/helpers';
 import { CanvasPainter } from "../../render/screen/canvasPainter";
 import { HUDFocusMode } from '../../state/gameDefs';
 import { easeOutQuad, easeOutQuint, FORWARD, RIGHT, UP } from '../../utils/math';
 import { Entity, ENTITY_TAGS } from "../entity";
-import { SceneMaterialData, SceneMaterialUniforms } from '../materials/materials';
+import { SceneMaterialData, SceneMaterialManager, SceneMaterialUniforms } from '../materials/materials';
 import { ModelManager } from '../models/models';
 import { Scene, SceneLayers } from "../scene";
+import { AfterburnerCones } from './afterburnerCones';
 import { GroundTargetEntity } from './groundTarget';
 
 
@@ -63,6 +64,12 @@ export enum AircraftDeviceState {
     EXTENDED
 }
 
+export interface PlayerSpawnState {
+    velocity?: THREE.Vector3;
+    throttle?: number;
+    airborne?: boolean;
+}
+
 export class PlayerEntity implements Entity {
 
     private scene: Scene | undefined;
@@ -95,8 +102,9 @@ export class PlayerEntity implements Entity {
     private flapsProgress = FLAPS_ANIM_DURATION;
     private flapsProgressUnit = 1.0;
 
-    private afterburnerPaneMaterials: ShaderMaterial[] = [];
-    private afterburnerPaneColor = new THREE.Color();
+    private afterburnerInteriorMaterials: ShaderMaterial[] = [];
+    private afterburnerCones: AfterburnerCones;
+    private afterburnerInteriorColor = new THREE.Color();
     private afterburnerPanesBound = false;
 
     private obj = new THREE.Object3D();
@@ -109,6 +117,7 @@ export class PlayerEntity implements Entity {
     private roll: number = 0; // [-1, 1]
     private yaw: number = 0; // [-1, 1]
     private throttle: number = 0; // [0, 1]
+    private wheelBrakes: boolean = false;
 
     private velocity: THREE.Vector3 = new THREE.Vector3(); // m/s
 
@@ -124,10 +133,12 @@ export class PlayerEntity implements Entity {
     readonly tags: string[] = [];
 
     enabled: boolean = true;
+    private simulationPaused = false;
     private _exteriorView: boolean = false;
 
     // Heading increases CCW, radians
-    constructor(models: ModelManager, modelParts: PlayerModelParts, flightModel: FlightModel, inEngineAudio: AudioClip, outEngineAudio: AudioClip, position: THREE.Vector3, heading: number) {
+    constructor(models: ModelManager, modelParts: PlayerModelParts, flightModel: FlightModel, materials: SceneMaterialManager, inEngineAudio: AudioClip, outEngineAudio: AudioClip, position: THREE.Vector3, heading: number) {
+        this.afterburnerCones = new AfterburnerCones(materials);
         this.modelBody = new LODHelper(models.getModel(modelParts.body, () => {
             this.bindAfterburnerPaneMaterials();
         }));
@@ -208,12 +219,16 @@ export class PlayerEntity implements Entity {
     }
 
     update(delta: number): void {
+        if (this.simulationPaused) {
+            return;
+        }
         this.flightModel.setPitch(this.pitch);
         this.flightModel.setRoll(this.roll);
         this.flightModel.setYaw(this.yaw);
         this.flightModel.setThrottle(this.throttle);
         this.flightModel.setLandingGearDeployed(this.landingGearState === AircraftDeviceState.EXTENDED);
         this.flightModel.setFlapsExtended(this.flapsState === AircraftDeviceState.EXTENDED);
+        this.flightModel.setWheelBrakes(this.wheelBrakes);
         this.flightModel.update(delta);
         this.obj.position.copy(this.flightModel.position);
         this.obj.quaternion.copy(this.flightModel.quaternion);
@@ -258,19 +273,33 @@ export class PlayerEntity implements Entity {
         this.flightModel.getRenderVelocity(this.displayVelocity);
     }
 
-    reset(position: THREE.Vector3, heading: number) {
+    reset(position: THREE.Vector3, heading: number, spawn?: PlayerSpawnState) {
         this.flightModel.reset();
         this.flightModel.position.copy(position);
         this.flightModel.quaternion.setFromAxisAngle(UP, heading);
         this.obj.position.copy(position);
         this.obj.quaternion.setFromAxisAngle(UP, heading);
-        this.velocity.set(0, 0, 0);
-        this.updateDisplayTransform();
+
+        const airborne = spawn?.airborne ?? false;
+        if (spawn?.velocity) {
+            this.velocity.copy(spawn.velocity);
+            this.flightModel.velocityVector.copy(spawn.velocity);
+        } else {
+            this.velocity.set(0, 0, 0);
+        }
+        this.flightModel.setLanded(!airborne);
 
         this.pitch = 0;
         this.roll = 0;
         this.yaw = 0;
-        this.throttle = 0;
+        this.throttle = spawn?.throttle ?? 0;
+        this.wheelBrakes = false;
+        this.flightModel.setThrottle(this.throttle);
+        if (airborne) {
+            this.flightModel.syncEffectiveThrottle();
+            this.flightModel.snapPhysicsState();
+        }
+        this.updateDisplayTransform();
 
         this.landingGearState = AircraftDeviceState.EXTENDED;
         this.modelLandingGear?.setPlaybackPosition(1);
@@ -331,12 +360,17 @@ export class PlayerEntity implements Entity {
             return;
         }
         this.collectAfterburnerPaneMaterials(this.modelBody);
-        if (this.afterburnerPaneMaterials.length > 0) {
+        if (this.afterburnerInteriorMaterials.length > 0) {
             this.afterburnerPanesBound = true;
         }
     }
 
-    /** FX_FIRE interior panes (6_FireCone / 5_EngineInterior) — not the metal nozzle shell. */
+    /** Hide authored FireCone FX meshes; procedural plumes are used instead. */
+    private isAfterburnerConeMesh(obj: THREE.Object3D): boolean {
+        return obj.name.includes('FireCone') || obj.userData.time === 'night';
+    }
+
+    /** FX_FIRE nozzle interior panes (solid color by throttle). */
     private collectAfterburnerPaneMaterials(model: LODHelper) {
         for (const level of model.model.lod) {
             for (const obj of [...level.flats, ...level.volumes]) {
@@ -349,30 +383,42 @@ export class PlayerEntity implements Entity {
                 if (data.category !== PaletteCategory.FX_FIRE) {
                     continue;
                 }
+                if (this.isAfterburnerConeMesh(drawable)) {
+                    drawable.visible = false;
+                    continue;
+                }
                 const uniqueMaterial = material.clone();
                 const uniforms = uniqueMaterial.uniforms as SceneMaterialUniforms;
                 uniforms.color = { value: uniforms.color.value.clone() };
                 uniforms.colorSecondary = { value: uniforms.colorSecondary.value.clone() };
                 (uniqueMaterial.userData as SceneMaterialData & { afterburnerThrottleDriven?: boolean }).afterburnerThrottleDriven = true;
                 drawable.material = uniqueMaterial;
-                this.afterburnerPaneMaterials.push(uniqueMaterial);
+                this.afterburnerInteriorMaterials.push(uniqueMaterial);
             }
         }
     }
 
     private updateAfterburnerPaneColors() {
-        if (this.afterburnerPaneMaterials.length === 0) {
-            return;
+        const f16Detents = this.flightModel.useF16ThrottleDetents();
+        const lever = this.throttle;
+
+        for (let i = 0; i < this.afterburnerInteriorMaterials.length; i++) {
+            const uniforms = this.afterburnerInteriorMaterials[i].uniforms as SceneMaterialUniforms;
+            const color = f16Detents
+                ? getF16EngineNozzleColor(lever)
+                : this.flightModel.getEngineNozzleColor();
+            this.afterburnerInteriorColor.set(color);
+            uniforms.color.value.copy(this.afterburnerInteriorColor);
+            uniforms.colorSecondary.value.copy(this.afterburnerInteriorColor);
         }
-        const color = this.flightModel.useF16ThrottleDetents()
-            ? getF16EngineNozzleColor(this.throttle)
-            : this.flightModel.getEngineNozzleColor();
-        this.afterburnerPaneColor.set(color);
-        for (let i = 0; i < this.afterburnerPaneMaterials.length; i++) {
-            const uniforms = this.afterburnerPaneMaterials[i].uniforms as SceneMaterialUniforms;
-            uniforms.color.value.copy(this.afterburnerPaneColor);
-            uniforms.colorSecondary.value.copy(this.afterburnerPaneColor);
-        }
+
+        const coneDither = f16Detents ? getF16AfterburnerConeDither(lever) : null;
+        this.afterburnerCones.update(
+            lever,
+            coneDither,
+            this.displayPosition,
+            this.displayQuaternion,
+        );
     }
 
     private updateAudio() {
@@ -446,6 +492,10 @@ export class PlayerEntity implements Entity {
         return this.flightModel.isLanded();
     }
 
+    get isOnGround(): boolean {
+        return this.flightModel.position.y <= PLANE_DISTANCE_TO_GROUND + 0.05;
+    }
+
     get isCrashed(): boolean {
         return this.flightModel.isCrashed();
     }
@@ -465,6 +515,7 @@ export class PlayerEntity implements Entity {
         }
 
         if (this._exteriorView) {
+            this.updateDisplayTransform();
             this.updateAfterburnerPaneColors();
             const lod = getLodLevel(this.displayPosition, this.obj.scale, targetWidth, camera, this.modelBody.model.maxSize);
 
@@ -472,6 +523,8 @@ export class PlayerEntity implements Entity {
                 this.displayPosition, this.displayQuaternion, this.obj.scale,
                 targetWidth, camera, palette,
                 SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, lod);
+
+            this.afterburnerCones.addToRenderList(SceneLayers.EntityVolumes, lists);
 
             if (lod === 0) {
                 if (this.landingGearState !== AircraftDeviceState.RETRACTED) {
@@ -503,12 +556,24 @@ export class PlayerEntity implements Entity {
         this.pitch = pitch;
     }
 
+    setSimulationPaused(paused: boolean): void {
+        this.simulationPaused = paused;
+    }
+
+    get controlsEnabled(): boolean {
+        return !this.simulationPaused;
+    }
+
     setRoll(roll: number) {
         this.roll = roll;
     }
 
     setYaw(yaw: number) {
         this.yaw = yaw;
+    }
+
+    setWheelBrakes(applied: boolean) {
+        this.wheelBrakes = applied;
     }
 
     setThrottle(throttle: number) {
@@ -651,9 +716,13 @@ export class PlayerEntity implements Entity {
         return this.flapsState;
     }
 
+    get wheelBrakesApplied(): boolean {
+        return this.wheelBrakes;
+    }
+
     private setupInput() {
         document.addEventListener('keypress', (event: KeyboardEvent) => {
-            if (!this.isCrashed) {
+            if (!this.isCrashed && this.controlsEnabled) {
                 switch (event.key) {
                     case 't': {
                         this.pickTarget();

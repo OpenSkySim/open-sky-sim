@@ -10,7 +10,7 @@ import {
     maxRollRateRad,
     stepF16BodyRollRate,
 } from '../f16RollControl';
-import { clampLoadFactorAcceleration, computeF16PitchGLimit } from '../f16FcsLimits';
+import { clampLoadFactorAcceleration, computeF16PitchGLimit, computeF16PitchAoaAuthority, computeF16AoaRecoveryRate } from '../f16FcsLimits';
 import { F16_PROFILE } from '../f16Profile';
 import { FlightModel } from './flightModel';
 
@@ -45,11 +45,14 @@ const F16_ROLL_CONFIG = {
 
 const GROUND_FRICTION_KINETIC = 0.15;
 const GROUND_FRICTION_STATIC = 0.2;
+const GROUND_BRAKE_KINETIC = 1.8;
+const GROUND_BRAKE_STATIC = 1.17;
 
-const LANDED_MAX_SPEED = 85;
-const LANDING_MAX_VSPEED = 5;
-const LANDING_MIN_PITCH = -5 * PI_OVER_180;
-const LANDING_MAX_ROLL = 5 * PI_OVER_180;
+const LANDED_MAX_SPEED = F16_PROFILE.landingMaxSpeedMps;
+const LANDING_MAX_VSPEED = F16_PROFILE.landingMaxVerticalSpeedMps;
+const LANDING_MIN_PITCH = F16_PROFILE.landingMinPitchDeg * PI_OVER_180;
+const LANDING_MAX_ROLL = F16_PROFILE.landingMaxRollDeg * PI_OVER_180;
+const ROTATION_SPEED = F16_PROFILE.rotationSpeedMps;
 
 function computeCl(aoa: number, flapsExtended: boolean): number {
     const flapBoost = flapsExtended ? CL_FLAPS_FACTOR : 1.0;
@@ -67,6 +70,15 @@ function computeCl(aoa: number, flapsExtended: boolean): number {
 
 function computeInducedDrag(cl: number): number {
     return INDUCED_DRAG_K * cl * cl;
+}
+
+/** Pitch rate scales with airspeed so low-speed rotation cannot snap to deep-stall AOA. */
+function computePitchSpeedAuthority(speed: number, landed: boolean): number {
+    let authority = clamp(speed / MIN_FLYING_SPEED, 0, 1);
+    if (landed && speed < ROTATION_SPEED) {
+        authority *= clamp(speed / ROTATION_SPEED, 0, 1);
+    }
+    return authority;
 }
 
 export class RealisticFlightModel extends FlightModel {
@@ -134,7 +146,10 @@ export class RealisticFlightModel extends FlightModel {
         this.updateStallState(speed, aoa, altitude);
 
         const pitchAuthority = this.stall >= 0 ? 0.35 : 1.0;
+        const pitchSpeedAuthority = computePitchSpeedAuthority(speed, this.landed);
         const pitchGLimit = computeF16PitchGLimit(this.loadFactorG, this.pitch, F16_PROFILE.maxLoadFactorG);
+        const pitchAoaLimit = computeF16PitchAoaAuthority(aoa, this.pitch, STALL_AOA);
+        const aoaRecovery = computeF16AoaRecoveryRate(aoa, STALL_AOA, speed);
         const yawControlScale = MIN_CONTROL_Q + (controlScale - MIN_CONTROL_Q) * YAW_CONTROL_Q_SCALE;
         const mach = computeMachNumber(speed, altitude);
 
@@ -166,7 +181,10 @@ export class RealisticFlightModel extends FlightModel {
             && !(this.landed && this.pitch < 0)
             && (this.stall < 0 || (this.pitch < 0 && this.up.y > 0) || (this.pitch > 0 && this.up.y < 0))
         ) {
-            this.obj.rotateX(-this.pitch * PITCH_RATE * controlScale * pitchAuthority * pitchGLimit * delta);
+            this.obj.rotateX(-this.pitch * PITCH_RATE * controlScale * pitchAuthority * pitchSpeedAuthority * pitchGLimit * pitchAoaLimit * delta);
+        }
+        if (aoaRecovery !== 0) {
+            this.obj.rotateX(Math.sign(aoa) * aoaRecovery * delta);
         }
 
         const maxRollRate = maxRollRateRad(F16_ROLL_CONFIG);
@@ -221,12 +239,13 @@ export class RealisticFlightModel extends FlightModel {
 
         this.forces.set(0, 0, 0).add(this.thrust).add(this.drag).add(this.lift).add(this.sideForce).add(this.weight);
 
-        if (this.landed) {
+        const onGround = this.obj.position.y <= PLANE_DISTANCE_TO_GROUND + 0.05;
+        if (this.landed || (this.wheelBrakesApplied && onGround)) {
             const weightMagnitude = DRY_MASS * 9.80665;
             const prjForces = this._v.copy(this.forces).setY(0);
             const prjForcesMagnitude = prjForces.length();
-            const maxStaticFriction = GROUND_FRICTION_STATIC * weightMagnitude;
-            const kineticFriction = GROUND_FRICTION_KINETIC * weightMagnitude;
+            const maxStaticFriction = (this.wheelBrakesApplied ? GROUND_BRAKE_STATIC : GROUND_FRICTION_STATIC) * weightMagnitude;
+            const kineticFriction = (this.wheelBrakesApplied ? GROUND_BRAKE_KINETIC : GROUND_FRICTION_KINETIC) * weightMagnitude;
 
             if (isZero(speed) && prjForcesMagnitude < maxStaticFriction) {
                 this.friction.copy(prjForces).negate();

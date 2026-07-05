@@ -22,7 +22,7 @@ import { GroundTargetEntity } from '../scene/entities/groundTarget';
 import { CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize } from '../scene/entities/overlay/cockpit';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
 import { HUDEntity } from '../scene/entities/overlay/hud';
-import { PlayerEntity } from '../scene/entities/player';
+import { PlayerEntity, PlayerSpawnState } from '../scene/entities/player';
 import { SceneryField, SceneryFieldSettings } from '../scene/entities/sceneryField';
 import { SimpleEntity } from '../scene/entities/simpleEntity';
 import { SpecklesEntity } from '../scene/entities/speckles';
@@ -32,7 +32,7 @@ import { SceneMaterialManager } from "../scene/materials/materials";
 import { ModelManager } from "../scene/models/models";
 import { Scene, SceneLayers } from '../scene/scene';
 import { assertIsDefined } from '../utils/asserts';
-import { RIGHT, UP } from '../utils/math';
+import { FORWARD, RIGHT, UP } from '../utils/math';
 import { CameraUpdater } from './cameraUpdaters/cameraUpdater';
 import { CockpitFrontCameraUpdater } from './cameraUpdaters/cockpitFrontCameraUpdater';
 import { CrashedCameraUpdater } from './cameraUpdaters/crashedCameraUpdater';
@@ -41,7 +41,7 @@ import { ExteriorSideCameraUpdater, ExteriorViewSide } from './cameraUpdaters/ex
 import { TargetFromCameraUpdater } from './cameraUpdaters/targetFromCameraUpdater';
 import { TargetToCameraUpdater } from './cameraUpdaters/targetToCameraUpdater';
 import { restoreMainCameraParameters } from './stateUtils';
-import { MessagesEntity } from '../scene/entities/overlay/messages';
+import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 
 
 const MAIN_RENDER_TARGET_LO = 'MAIN_RENDER_TARGET_LO';
@@ -57,8 +57,36 @@ const MAP_RENDER_TARGET_HI = 'MAP_RENDER_TARGET_HI';
 const WEAPONSTARGET_RENDER_TARGET_HD = 'WEAPONSTARGET_RENDER_TARGET_HD';
 const MAP_RENDER_TARGET_HD = 'MAP_RENDER_TARGET_HD';
 
-const PLAYER_STARTING_POSITION = new THREE.Vector3(1500, PLANE_DISTANCE_TO_GROUND, -1160);
+const AIRBASE_RUNWAY = new THREE.Vector3(1500, 0, -800);
+/** Runway mesh local extent along Z is ±1500 m. */
+const RUNWAY_HALF_LENGTH_M = 1500;
+const RUNWAY_SPAWN_INSET_M = 120;
+const APPROACH_FINAL_DISTANCE_M = 5000;
+const APPROACH_ALTITUDE_M = 500;
+const APPROACH_SPEED_KMH = 300;
+const APPROACH_SPEED_MPS = APPROACH_SPEED_KMH / 3.6;
 const PLAYER_STARTING_HEADING = 0;
+const PLAYER_STARTING_POSITION = new THREE.Vector3(
+    AIRBASE_RUNWAY.x,
+    APPROACH_ALTITUDE_M,
+    AIRBASE_RUNWAY.z - APPROACH_FINAL_DISTANCE_M,
+);
+const PLAYER_APPROACH_SPAWN: PlayerSpawnState = {
+    velocity: FORWARD.clone().applyAxisAngle(UP, PLAYER_STARTING_HEADING).multiplyScalar(APPROACH_SPEED_MPS),
+    throttle: 0.38,
+    airborne: true,
+};
+
+const PLAYER_LAND_POSITION = new THREE.Vector3(
+    AIRBASE_RUNWAY.x,
+    PLANE_DISTANCE_TO_GROUND,
+    AIRBASE_RUNWAY.z - RUNWAY_HALF_LENGTH_M + RUNWAY_SPAWN_INSET_M,
+);
+const PLAYER_LAND_HEADING = PLAYER_STARTING_HEADING;
+const PLAYER_LAND_SPAWN: PlayerSpawnState = {
+    throttle: 0,
+    airborne: false,
+};
 
 enum PlayerViewState {
     CRASHED,
@@ -72,8 +100,8 @@ enum PlayerViewState {
 }
 
 enum GameState {
+    SPAWN_MENU,
     PLAYER,
-    CRASHED
 }
 
 export class GameUpdateTask implements KernelUpdateTask {
@@ -96,7 +124,7 @@ export class GameRenderTask implements KernelRenderTask {
 
 export class Game {
 
-    private state: GameState = GameState.PLAYER;
+    private state: GameState = GameState.SPAWN_MENU;
 
     private scene: Scene = new Scene();
 
@@ -130,7 +158,7 @@ export class Game {
 
     private groundSmoke: GroundSmokeEntity;
     private groundFire: StaticSceneryEntity;
-    private messages: MessagesEntity;
+    private spawnMenu: SpawnMenuEntity;
 
     constructor(private configService: ConfigService, private models: ModelManager, private materials: SceneMaterialManager, private renderer: Renderer,
         private audio: AudioSystem) {
@@ -154,6 +182,7 @@ export class Game {
                 rudderRight: 'assets/f22_rudder_right.glb'
             },
             configService.flightModels.getActive(),
+            this.materials,
             this.audio.getGlobal('assets/engine-loop-02.ogg', true),
             this.audio.getGlobal('assets/engine-loop-01.ogg', true),
             PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING);
@@ -162,8 +191,7 @@ export class Game {
         this.groundSmoke.enabled = false;
         this.groundFire = new StaticSceneryEntity(models.getModel('lib:smallFire'));
         this.groundFire.enabled = false;
-        this.messages = new MessagesEntity();
-        this.messages.enabled = false;
+        this.spawnMenu = new SpawnMenuEntity();
 
         this.cameraUpdaters.set(PlayerViewState.CRASHED, new CrashedCameraUpdater(this.player, this.playerCamera.main));
         this.cameraUpdaters.set(PlayerViewState.COCKPIT_FRONT, new CockpitFrontCameraUpdater(this.player, this.playerCamera.main));
@@ -369,6 +397,7 @@ export class Game {
         this.materials.setPalette(this.getPalette());
         this.setupControls();
         this.setupScene();
+        this.enterSpawnMenu(false);
         window.addEventListener('resize', () => this.onViewportResize());
     }
 
@@ -442,11 +471,10 @@ export class Game {
             }
             this.scene.update(delta);
 
-            const switchToCrashed = this.state === GameState.PLAYER && this.player.isCrashed;
-            if (switchToCrashed) {
+            if (this.player.isCrashed) {
                 this.transitionFromPlayerToCrashed();
             }
-        } else if (this.state === GameState.CRASHED) {
+        } else if (this.state === GameState.SPAWN_MENU) {
             this.scene.update(delta);
         }
     }
@@ -454,7 +482,7 @@ export class Game {
     render() {
         this.player.updateDisplayTransform();
 
-        if (this.state === GameState.PLAYER || this.state === GameState.CRASHED) {
+        if (this.state === GameState.PLAYER || this.state === GameState.SPAWN_MENU) {
             this.cameraUpdater.update(0);
             this.playerCamera.update();
             this.targetCamera.update();
@@ -536,10 +564,14 @@ export class Game {
                         break;
                     }
                 }
-            } else if (this.state === GameState.CRASHED) {
+            } else if (this.state === GameState.SPAWN_MENU) {
                 switch (event.key) {
-                    case 'Enter': {
-                        this.transitionFromCrashedToPlayer();
+                    case '1': {
+                        this.beginFlight('approach');
+                        break;
+                    }
+                    case '2': {
+                        this.beginFlight('runway');
                         break;
                     }
                 }
@@ -614,8 +646,6 @@ export class Game {
     }
 
     transitionFromPlayerToCrashed() {
-        this.state = GameState.CRASHED;
-
         this.groundSmoke.enabled = true;
         this.groundSmoke.position.copy(this.player.position);
         this.groundSmoke.reset();
@@ -624,30 +654,47 @@ export class Game {
         this.groundFire.position.copy(this.player.position);
         this.groundFire.position.setY(0);
 
-        this.messages.enabled = true;
-        this.messages.message = 'The plane crashed. Press ENTER to restart.';
+        this.enterSpawnMenu(true);
+    }
 
-        // View options
-        restoreMainCameraParameters(this.playerCamera.main);
-        this.view = PlayerViewState.CRASHED;
-        this.player.exteriorView = true;
-        this.cameraUpdater = this.getCameraUpdater(this.view);
-        for (let i = 0; i < this.cockpitEntities.length; i++) {
-            this.cockpitEntities[i].enabled = false;
-        }
-        for (let i = 0; i < this.exteriorEntities.length; i++) {
-            this.exteriorEntities[i].enabled = false;
+    private enterSpawnMenu(afterCrash: boolean) {
+        this.state = GameState.SPAWN_MENU;
+        this.player.setSimulationPaused(true);
+        this.spawnMenu.afterCrash = afterCrash;
+        this.spawnMenu.enabled = true;
+
+        if (afterCrash) {
+            restoreMainCameraParameters(this.playerCamera.main);
+            this.view = PlayerViewState.CRASHED;
+            this.player.exteriorView = true;
+            this.cameraUpdater = this.getCameraUpdater(this.view);
+            for (let i = 0; i < this.cockpitEntities.length; i++) {
+                this.cockpitEntities[i].enabled = false;
+            }
+            for (let i = 0; i < this.exteriorEntities.length; i++) {
+                this.exteriorEntities[i].enabled = false;
+            }
+        } else {
+            this.player.reset(PLAYER_LAND_POSITION, PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
+            this.groundSmoke.enabled = false;
+            this.groundFire.enabled = false;
+            this.setCockpitFrontView();
         }
     }
 
-    transitionFromCrashedToPlayer() {
+    private beginFlight(spawn: 'approach' | 'runway') {
         this.state = GameState.PLAYER;
-
-        this.player.reset(PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING);
-        this.setCockpitFrontView();
+        this.player.setSimulationPaused(false);
+        this.spawnMenu.enabled = false;
         this.groundSmoke.enabled = false;
         this.groundFire.enabled = false;
-        this.messages.enabled = false;
+
+        if (spawn === 'approach') {
+            this.player.reset(PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
+        } else {
+            this.player.reset(PLAYER_LAND_POSITION, PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
+        }
+        this.setCockpitFrontView();
     }
 
     private setupScene() {
@@ -755,7 +802,6 @@ export class Game {
         warehouse.quaternion.setFromAxisAngle(UP, Math.PI / 2);
         this.scene.add(warehouse);
 
-        this.scene.add(this.messages);
         this.scene.add(this.groundSmoke);
         this.scene.add(this.groundFire);
         this.scene.add(this.player);
@@ -772,6 +818,8 @@ export class Game {
         exteriorData.enabled = false;
         this.exteriorEntities.push(exteriorData);
         this.scene.add(exteriorData);
+
+        this.scene.add(this.spawnMenu);
     }
 
     private addRefinery(scene: Scene, models: ModelManager) {
@@ -815,7 +863,7 @@ export class Game {
         scene.add(hangarGround2);
 
         const runway = new GroundTargetEntity(models.getModel('assets/runway01.gltf'), 0, 'Airbase', 'Stosneehar');
-        runway.position.set(1500, 0, -800);
+        runway.position.copy(AIRBASE_RUNWAY);
         scene.add(runway);
 
         const hangar1 = new StaticSceneryEntity(models.getModel('assets/hangar01.gltf'));

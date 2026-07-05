@@ -101,6 +101,8 @@ export class KeyboardControlDevice implements KernelTask {
     private rollState: Stick = Stick.IDLE;
     private yawState: Stick = Stick.IDLE;
     private throttleState: Stick = Stick.IDLE;
+    private wheelBrakeHeld = false;
+    private wKeyDown = false;
 
     private layout: KeyboardControlLayout = ArrowsKeyboardControlLayout;
     private layoutId: KeyboardControlLayoutId = KeyboardControlLayoutId.ARROWS;
@@ -114,6 +116,20 @@ export class KeyboardControlDevice implements KernelTask {
     }
 
     update(delta: number) {
+        if (!this.player.controlsEnabled) {
+            return;
+        }
+        if (this.wKeyDown && this.canApplyWheelBrakes()) {
+            if (!this.wheelBrakeHeld) {
+                this.engageWheelBrakes();
+            }
+        } else if (this.wheelBrakeHeld && !(this.wKeyDown && this.canApplyWheelBrakes())) {
+            this.releaseWheelBrakes();
+            if (this.wKeyDown) {
+                this.restoreLayoutActionForKey('w');
+            }
+        }
+
         if (this.pitchState !== Stick.IDLE) {
             if (this.usesCumulativeStick()) {
                 if (this.pitchState === Stick.POSITIVE_ENDED || this.pitchState === Stick.NEGATIVE_ENDED) {
@@ -221,6 +237,12 @@ export class KeyboardControlDevice implements KernelTask {
             if (this.isLayoutKey(key) && (key.startsWith('arrow') || key.startsWith('numpad'))) {
                 event.preventDefault();
             }
+            if (this.handleWheelBrakeKeyDown(key)) {
+                return;
+            }
+            if (key === 'w') {
+                this.wKeyDown = true;
+            }
             switch (key) {
                 case this.layout[KeyboardControlAction.PITCH_POS]: {
                     this.pitchState = Stick.POSITIVE;
@@ -271,6 +293,12 @@ export class KeyboardControlDevice implements KernelTask {
 
         document.addEventListener('keyup', (event: KeyboardEvent) => {
             const key = normalizeControlKey(event);
+            if (this.handleWheelBrakeKeyUp(key)) {
+                return;
+            }
+            if (key === 'w') {
+                this.wKeyDown = false;
+            }
             switch (key) {
                 case this.layout[KeyboardControlAction.PITCH_POS]: {
                     if (this.pitchState === Stick.POSITIVE) {
@@ -328,7 +356,62 @@ export class KeyboardControlDevice implements KernelTask {
             this.rollState = Stick.IDLE;
             this.yawState = Stick.IDLE;
             this.throttleState = Stick.IDLE;
+            this.wKeyDown = false;
+            this.releaseWheelBrakes();
         });
+    }
+
+    private canApplyWheelBrakes(): boolean {
+        return this.player.isLanded || this.player.isOnGround;
+    }
+
+    private handleWheelBrakeKeyDown(key: string): boolean {
+        if (key !== 'w' || !this.canApplyWheelBrakes()) {
+            return false;
+        }
+        this.wKeyDown = true;
+        this.engageWheelBrakes();
+        return true;
+    }
+
+    private handleWheelBrakeKeyUp(key: string): boolean {
+        if (key !== 'w') {
+            return false;
+        }
+        this.wKeyDown = false;
+        if (this.wheelBrakeHeld) {
+            this.releaseWheelBrakes();
+            return true;
+        }
+        return false;
+    }
+
+    private engageWheelBrakes() {
+        this.wheelBrakeHeld = true;
+        this.player.setWheelBrakes(true);
+        if (this.pitchState === Stick.NEGATIVE) {
+            this.pitchState = Stick.IDLE;
+            this.player.setPitch(0);
+        }
+        if (this.throttleState === Stick.POSITIVE) {
+            this.throttleState = Stick.IDLE;
+        }
+    }
+
+    private releaseWheelBrakes() {
+        this.wheelBrakeHeld = false;
+        this.player.setWheelBrakes(false);
+    }
+
+    private restoreLayoutActionForKey(key: string) {
+        if (key === this.layout[KeyboardControlAction.PITCH_NEG]) {
+            this.pitchState = Stick.NEGATIVE;
+            if (!this.usesCumulativeStick()) {
+                this.player.setPitch(-0.75);
+            }
+        } else if (key === this.layout[KeyboardControlAction.THROTTLE_POS]) {
+            this.throttleState = Stick.POSITIVE;
+        }
     }
 
     private isLayoutKey(key: string) {

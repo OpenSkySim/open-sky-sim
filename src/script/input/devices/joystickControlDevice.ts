@@ -28,6 +28,9 @@ export class JoystickControlDevice implements KernelTask {
     }
 
     update(delta: number) {
+        if (!this.player.controlsEnabled) {
+            return;
+        }
         if (!this.connected) return;
 
         const gamepad = navigator.getGamepads()[this.index];

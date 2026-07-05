@@ -43,6 +43,8 @@ export type SceneMaterialMeshProperties = {
         {
             shaded: false;
             highp?: boolean;
+            /** Screen-space ordered dither opacity (0 = opaque, 0.5 ≈ half transparent). */
+            alphaDither?: number;
         }
     );
 
@@ -72,6 +74,7 @@ export interface SceneFlatMaterialUniforms {
     fogDensity: { value: number; };
     fogColor: { value: THREE.Color; };
     fogType: { value: number; };
+    alphaDither: { value: number; };
     [uniform: string]: THREE.IUniform<any>;
 }
 
@@ -252,7 +255,12 @@ export class SceneMaterialManager implements KernelTask {
                 colorSecondary: { value: new THREE.Color(PaletteColorShade(this.palette, properties.category)) },
                 fogType: { value: this.fog },
                 fogDensity: { value: this.palette.values[FogValueCategory(properties.category)] },
-                fogColor: { value: new THREE.Color(PaletteColor(this.palette, FogColorCategory(properties.category))) }
+                fogColor: { value: new THREE.Color(PaletteColor(this.palette, FogColorCategory(properties.category))) },
+                alphaDither: {
+                    value: properties.type === SceneMaterialPrimitiveType.MESH && !properties.shaded
+                        ? (properties.alphaDither ?? 0)
+                        : 0,
+                },
             },
             ...(properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded) ? {
                 distance: { value: 0 },
