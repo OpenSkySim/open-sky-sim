@@ -14,6 +14,7 @@ import { VGAMidnightPalette } from '../config/palettes/vga-midnight';
 import { VGANoonPalette } from '../config/palettes/vga-noon';
 import { DisplayResolution, getDisplayResolutionSize } from '../config/profiles/profile';
 import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
+import { FlightRecorder } from '../physics/flightRecorder';
 import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
@@ -32,7 +33,7 @@ import { SceneMaterialManager } from "../scene/materials/materials";
 import { ModelManager } from "../scene/models/models";
 import { Scene, SceneLayers } from '../scene/scene';
 import { assertIsDefined } from '../utils/asserts';
-import { FORWARD, RIGHT, UP } from '../utils/math';
+import { clamp, FORWARD, RIGHT, UP } from '../utils/math';
 import { CameraUpdater } from './cameraUpdaters/cameraUpdater';
 import { CockpitFrontCameraUpdater } from './cameraUpdaters/cockpitFrontCameraUpdater';
 import { CrashedCameraUpdater } from './cameraUpdaters/crashedCameraUpdater';
@@ -98,6 +99,38 @@ enum GameState {
     PLAYER,
 }
 
+// Numpad orbit: while held, the numpad grid moves the camera around the aircraft.
+// 4/6 orbit left/right (yaw), 8/2 raise/lower the camera (elevation), the corners
+// combine both, and 5 recenters. Each entry is a direction that gets integrated
+// over time at ORBIT_RATE.
+const NUMPAD_ORBIT_DIR: Record<string, { yaw: number, pitch: number }> = {
+    Numpad4: { yaw: -1, pitch: 0 },
+    Numpad6: { yaw: 1, pitch: 0 },
+    Numpad8: { yaw: 0, pitch: -1 },
+    Numpad2: { yaw: 0, pitch: 1 },
+    Numpad7: { yaw: -1, pitch: -1 },
+    Numpad9: { yaw: 1, pitch: -1 },
+    Numpad1: { yaw: -1, pitch: 1 },
+    Numpad3: { yaw: 1, pitch: 1 },
+};
+
+// Numpad zoom: while held, / zooms out and * zooms in by scaling the orbit radius.
+const NUMPAD_ZOOM_DIR: Record<string, number> = {
+    NumpadDivide: 1,
+    NumpadMultiply: -1,
+};
+
+// Orbit speed in radians per second while a numpad key is held.
+const ORBIT_RATE = Math.PI;
+
+// Keep the elevation short of straight up/down so the orbit never gimbal-flips.
+const ORBIT_PITCH_LIMIT = Math.PI / 2 - 0.05;
+
+// Zoom speed (fraction of radius per second) and radius multiplier bounds.
+const ZOOM_RATE = 1.5;
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 5.0;
+
 export class GameUpdateTask implements KernelUpdateTask {
 
     constructor(private game: Game) { }
@@ -147,12 +180,25 @@ export class Game {
 
     private view: PlayerViewState = PlayerViewState.COCKPIT_FRONT;
 
+    // Numpad orbit: how far the camera is currently orbited around the aircraft,
+    // relative to the active view's default position (yaw about world UP, pitch
+    // about the horizontal axis). Both zero leaves the active camera untouched.
+    private viewYaw: number = 0;
+    private viewPitch: number = 0;
+    private viewZoom: number = 1;
+    private heldOrbitKeys = new Set<string>();
+    private _orbitPivot = new THREE.Vector3();
+    private _orbitOffset = new THREE.Vector3();
+    private _orbitAxis = new THREE.Vector3();
+
     private cockpitEntities: Entity[] = [];
     private exteriorEntities: Entity[] = [];
 
     private groundSmoke: GroundSmokeEntity;
     private groundFire: StaticSceneryEntity;
     private spawnMenu: SpawnMenuEntity;
+
+    private flightRecorder = new FlightRecorder();
 
     constructor(private configService: ConfigService, private models: ModelManager, private materials: SceneMaterialManager, private renderer: Renderer,
         private audio: AudioSystem) {
@@ -463,7 +509,12 @@ export class Game {
             if ((this.view === PlayerViewState.TARGET_TO || this.view === PlayerViewState.TARGET_FROM) && !this.player.weaponsTarget) {
                 this.setCockpitFrontView();
             }
+            this.updateOrbitFromKeys(delta);
             this.scene.update(delta);
+
+            if (this.flightRecorder.isRecording()) {
+                this.flightRecorder.record(this.player.captureFlightSample(), delta);
+            }
 
             if (this.player.isCrashed) {
                 this.transitionFromPlayerToCrashed();
@@ -478,6 +529,9 @@ export class Game {
 
         if (this.state === GameState.PLAYER || this.state === GameState.SPAWN_MENU) {
             this.cameraUpdater.update(0);
+            if (this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1) {
+                this.orbitCameraAroundAircraft();
+            }
             this.playerCamera.update();
             this.targetCamera.update();
         }
@@ -533,24 +587,115 @@ export class Game {
         return this.player;
     }
 
+    private resetOrbit() {
+        this.viewYaw = 0;
+        this.viewPitch = 0;
+        this.viewZoom = 1;
+    }
+
+    // Accumulates the orbit yaw/pitch/zoom from any held numpad keys.
+    private updateOrbitFromKeys(delta: number) {
+        if (this.heldOrbitKeys.size === 0) {
+            return;
+        }
+        let yawDir = 0;
+        let pitchDir = 0;
+        let zoomDir = 0;
+        for (const code of this.heldOrbitKeys) {
+            const dir = NUMPAD_ORBIT_DIR[code];
+            if (dir) {
+                yawDir += dir.yaw;
+                pitchDir += dir.pitch;
+            }
+            const zoom = NUMPAD_ZOOM_DIR[code];
+            if (zoom !== undefined) {
+                zoomDir += zoom;
+            }
+        }
+        this.viewYaw += yawDir * ORBIT_RATE * delta;
+        this.viewPitch = clamp(this.viewPitch + pitchDir * ORBIT_RATE * delta,
+            -ORBIT_PITCH_LIMIT, ORBIT_PITCH_LIMIT);
+        if (zoomDir !== 0) {
+            this.viewZoom = clamp(this.viewZoom * (1 + zoomDir * ZOOM_RATE * delta),
+                ZOOM_MIN, ZOOM_MAX);
+        }
+    }
+
+    // Orbits the active player camera around the aircraft by `viewYaw` (about the
+    // world UP axis) and `viewPitch` (elevation), keeping the aircraft centred.
+    private orbitCameraAroundAircraft() {
+        this._orbitPivot.copy(this.player.getDisplayPosition());
+        this._orbitOffset
+            .copy(this.playerCamera.main.position)
+            .sub(this._orbitPivot)
+            .applyAxisAngle(UP, this.viewYaw);
+        // Elevation: rotate about the horizontal axis perpendicular to the offset.
+        this._orbitAxis
+            .copy(UP)
+            .cross(this._orbitOffset);
+        if (this._orbitAxis.lengthSq() > 1e-6) {
+            this._orbitAxis.normalize();
+            this._orbitOffset.applyAxisAngle(this._orbitAxis, this.viewPitch);
+        }
+        this._orbitOffset.multiplyScalar(this.viewZoom);
+        this.playerCamera.main.position
+            .copy(this._orbitPivot)
+            .add(this._orbitOffset);
+        this.playerCamera.main.up.copy(UP);
+        this.playerCamera.main.lookAt(this._orbitPivot);
+    }
+
     private setupControls() {
+        document.addEventListener('keydown', (event: KeyboardEvent) => {
+            if (this.state !== GameState.PLAYER) {
+                return;
+            }
+            switch (event.key) {
+                case 'F1': {
+                    event.preventDefault();
+                    this.resetOrbit();
+                    if (this.view !== PlayerViewState.COCKPIT_FRONT) {
+                        this.setCockpitFrontView();
+                    }
+                    break;
+                }
+                case 'F2': {
+                    event.preventDefault();
+                    this.resetOrbit();
+                    this.setExteriorBehindFrontView();
+                    break;
+                }
+                case 'F3': {
+                    event.preventDefault();
+                    this.resetOrbit();
+                    this.setExteriorSideView();
+                    break;
+                }
+            }
+
+            if (event.code === 'KeyR') {
+                event.preventDefault();
+                this.flightRecorder.toggle(this.configService.flightModels.getActiveKey());
+            } else if (event.code === 'Numpad5') {
+                event.preventDefault();
+                this.resetOrbit();
+            } else if (event.code in NUMPAD_ORBIT_DIR || event.code in NUMPAD_ZOOM_DIR) {
+                event.preventDefault();
+                this.heldOrbitKeys.add(event.code);
+            }
+        });
+
+        document.addEventListener('keyup', (event: KeyboardEvent) => {
+            this.heldOrbitKeys.delete(event.code);
+        });
+
+        window.addEventListener('blur', () => {
+            this.heldOrbitKeys.clear();
+        });
+
         document.addEventListener('keypress', (event: KeyboardEvent) => {
             if (this.state === GameState.PLAYER) {
                 switch (event.key) {
-                    case '1': {
-                        if (this.view !== PlayerViewState.COCKPIT_FRONT) {
-                            this.setCockpitFrontView();
-                        }
-                        break;
-                    }
-                    case '2': {
-                        this.setExteriorBehindFrontView();
-                        break;
-                    }
-                    case '3': {
-                        this.setExteriorSideView();
-                        break;
-                    }
                     case '4': {
                         if (this.player.weaponsTarget) {
                             this.setTargetView();
@@ -653,6 +798,7 @@ export class Game {
 
     private enterSpawnMenu(afterCrash: boolean) {
         this.state = GameState.SPAWN_MENU;
+        this.flightRecorder.stop();
         this.player.setSimulationPaused(true);
         this.spawnMenu.afterCrash = afterCrash;
         this.spawnMenu.enabled = true;

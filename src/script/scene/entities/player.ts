@@ -4,6 +4,7 @@ import { AudioClip } from '../../audio/audioSystem';
 import { Palette, PaletteCategory } from "../../config/palettes/palette";
 import { AIRBASE_RUNWAY, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
+import { FlightSample } from '../../physics/flightRecorder';
 import { getF16AfterburnerConeDither, getF16EngineNozzleColor } from '../../physics/f16Engine';
 import { LODHelper, getLodLevel } from '../../render/helpers';
 import { CanvasPainter } from "../../render/screen/canvasPainter";
@@ -796,6 +797,29 @@ export class PlayerEntity implements Entity {
 
     get engineThrustKn(): number {
         return this.flightModel.getEngineThrustKn();
+    }
+
+    /** Snapshot of pilot commands and rigid-body state for the flight recorder. */
+    captureFlightSample(): FlightSample {
+        return {
+            pitchCmd: this.pitch,
+            rollCmd: this.roll,
+            yawCmd: this.yaw,
+            thrLever: this.throttle,
+            gear: this.landingGearState === AircraftDeviceState.EXTENDED,
+            flaps: this.flapsState === AircraftDeviceState.EXTENDED,
+            brake: this.wheelBrakes,
+            effThr: this.flightModel.getEffectiveThrottle(),
+            thrustKn: this.flightModel.getEngineThrustKn(),
+            position: this.flightModel.position,
+            velocity: this.flightModel.velocityVector,
+            quaternion: this.flightModel.quaternion,
+            aoaRad: this.flightModel.getAngleOfAttack(),
+            loadG: this.flightModel.getLoadFactorG(),
+            stall: this.flightModel.getStallStatus(),
+            landed: this.flightModel.isLanded(),
+            crashed: this.flightModel.isCrashed(),
+        };
     }
 
     get throttleHudText(): string {

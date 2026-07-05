@@ -55,6 +55,10 @@ class ConfigSet<T> {
         return item;
     }
 
+    getActiveKey(): string {
+        return this.active;
+    }
+
     addChangeListener(listener: ConfigSetChangeListener<T>) {
         this.listeners.add(listener);
     }
