@@ -1,8 +1,15 @@
 import * as THREE from 'three';
-import { PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE } from '../../defs';
+import { PITCH_RATE, PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE } from '../../defs';
 import { FORWARD, PI_OVER_180, RIGHT, UP, calculatePitchRoll, clamp, isZero, roundToZero } from '../../utils/math';
-import { computeAngleOfAttack, computeAirDensity, computeDynamicPressure, computeDynamicPressureDragPenalty, computeIsaAirDensity, computeLoadFactorG } from '../aeroUtils';
+import { computeAngleOfAttack, computeAirDensity, computeDynamicPressure, computeDynamicPressureDragPenalty, computeIsaAirDensity, computeLoadFactorG, computeMachNumber } from '../aeroUtils';
 import { computeF16EngineThrustN, formatF16ThrottleHud, f16ThrottleAudioLevel, getF16ThrottleZone, adjustF16ThrottleInput, stepF16ThrottleDetent, isF16AbDetentBand } from '../f16Engine';
+import {
+    computeF16CommandedRollRate,
+    computeF16RollYawCoupling,
+    F16_ROLL_CAT1,
+    maxRollRateRad,
+    stepF16BodyRollRate,
+} from '../f16RollControl';
 import { F16_PROFILE } from '../f16Profile';
 import { FlightModel } from './flightModel';
 
@@ -29,7 +36,11 @@ const YAW_CONTROL_Q_SCALE = 0.45;
 const CD_LANDING_GEAR = 0.035;
 const CD_FLAPS = 0.08;
 const CL_FLAPS_FACTOR = 1.25;
-const ROLL_FLAPS_FACTOR = 0.65;
+
+const F16_ROLL_CONFIG = {
+    maxRollRateDegS: F16_PROFILE.maxRollRateDegS,
+    actuatorTauS: F16_ROLL_CAT1.actuatorTauS,
+};
 
 const GROUND_FRICTION_KINETIC = 0.15;
 const GROUND_FRICTION_STATIC = 0.2;
@@ -60,6 +71,7 @@ function computeInducedDrag(cl: number): number {
 export class RealisticFlightModel extends FlightModel {
 
     private stall = -1;
+    private bodyRollRateRad = 0;
 
     private forward = new THREE.Vector3();
     private up = new THREE.Vector3();
@@ -78,6 +90,12 @@ export class RealisticFlightModel extends FlightModel {
     constructor() {
         super();
         this.obj.up.copy(UP);
+    }
+
+    reset() {
+        super.reset();
+        this.stall = -1;
+        this.bodyRollRateRad = 0;
     }
 
     step(delta: number): void {
@@ -115,11 +133,31 @@ export class RealisticFlightModel extends FlightModel {
         this.updateStallState(speed, aoa, altitude);
 
         const pitchAuthority = this.stall >= 0 ? 0.35 : 1.0;
-        const rollFlapFactor = this.flapsExtended ? ROLL_FLAPS_FACTOR : 1.0;
         const yawControlScale = MIN_CONTROL_Q + (controlScale - MIN_CONTROL_Q) * YAW_CONTROL_Q_SCALE;
+        const mach = computeMachNumber(speed, altitude);
 
-        if (!isZero(this.roll) && !this.landed) {
-            this.obj.rotateZ(this.roll * ROLL_RATE * controlScale * rollFlapFactor * delta);
+        const commandedRollRate = computeF16CommandedRollRate({
+            stick: this.roll,
+            dynamicPressure,
+            qRef: Q_REF,
+            mach,
+            altitudeM: altitude,
+            aoaRad: aoa,
+            flapsExtended: this.flapsExtended,
+            landed: this.landed,
+            config: F16_ROLL_CONFIG,
+        });
+        this.bodyRollRateRad = stepF16BodyRollRate(
+            this.bodyRollRateRad,
+            commandedRollRate,
+            delta,
+            F16_ROLL_CONFIG,
+        );
+
+        if (!this.landed && Math.abs(this.bodyRollRateRad) > 1e-6) {
+            this.obj.rotateZ(this.bodyRollRateRad * delta);
+        } else if (this.landed) {
+            this.bodyRollRateRad = 0;
         }
 
         if (!isZero(this.pitch)
@@ -129,8 +167,14 @@ export class RealisticFlightModel extends FlightModel {
             this.obj.rotateX(-this.pitch * PITCH_RATE * controlScale * pitchAuthority * delta);
         }
 
-        if (!isZero(this.yaw) && !isZero(speed)) {
-            this.obj.rotateY(-this.yaw * (this.landed ? YAW_RATE_LANDED : YAW_RATE) * yawControlScale * delta);
+        const maxRollRate = maxRollRateRad(F16_ROLL_CONFIG);
+        const rollYawCoupling = !this.landed && !isZero(speed)
+            ? computeF16RollYawCoupling(this.bodyRollRateRad, aoa, maxRollRate)
+            : 0;
+
+        if (!isZero(speed) && (!isZero(this.yaw) || Math.abs(rollYawCoupling) > 1e-6)) {
+            const effectiveYaw = clamp(this.yaw + rollYawCoupling, -1, 1);
+            this.obj.rotateY(-effectiveYaw * (this.landed ? YAW_RATE_LANDED : YAW_RATE) * yawControlScale * delta);
         }
 
         const thrustN = computeF16EngineThrustN(this.effectiveThrottle, altitude);

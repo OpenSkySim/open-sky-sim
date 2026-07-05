@@ -27,6 +27,10 @@ export const F16_PROFILE = {
     serviceCeilingM: F16_PAPER_ANALYTICAL.serviceCeilingFt * 0.3048,
     cruiseAltitudeM: F16_PAPER_ANALYTICAL.cruiseAltitudeFt * 0.3048,
     cruiseSpeedMps: F16_PAPER_ANALYTICAL.cruiseVelocityFps * 0.3048,
+    /** Cat I clean-ship FBW roll-rate cap (deg/s). */
+    maxRollRateDegS: 300,
+    /** Cat III heavy stores roll-rate cap (deg/s). */
+    cat3MaxRollRateDegS: 180,
 } as const;
 
 export type F16ReferenceMetric =

@@ -15,7 +15,7 @@ export const TERRAIN_SCALE = 200.0;
 export const TERRAIN_MODEL_SIZE = 100.0;
 
 export const PITCH_RATE = Math.PI / 5; // Radians/s
-export const ROLL_RATE = Math.PI / 3; // Radians/s
+export const ROLL_RATE = Math.PI / 2; // Radians/s (was π/3, +50%)
 export const YAW_RATE = Math.PI / 12; // Radians/s
 export const MAX_SPEED = 250.0; // World units/s
 export const THROTTLE_RATE = 33; // Percentage of maximum/s [0,100]
