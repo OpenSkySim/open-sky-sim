@@ -82,6 +82,7 @@ export class Fm2FlightModel extends FlightModel {
     });
     private readonly fcs = new F16Fcs();
 
+    private readonly fuselage = new AeroSurface(FM2_SURFACES.fuselage);
     private readonly wingLeft = new AeroSurface(FM2_SURFACES.wingLeft);
     private readonly wingRight = new AeroSurface(FM2_SURFACES.wingRight);
     private readonly htailLeft = new AeroSurface(FM2_SURFACES.htailLeft);
@@ -172,6 +173,8 @@ export class Fm2FlightModel extends FlightModel {
         const stallShift = this.flapsExtended ? FM2_FLAPS.stallReductionRad : 0;
         const wingExtraCd = this.flapsExtended ? FM2_FLAPS.extraCd : 0;
 
+        // Blended lifting body at the CG (no flaps, no control incidence).
+        this.accumulateSurface(this.fuselage, 0, 0, 0, 0, airDensity);
         this.accumulateSurface(this.wingLeft, controls.wingLeftAoa, camber, stallShift, wingExtraCd, airDensity);
         this.accumulateSurface(this.wingRight, controls.wingRightAoa, camber, stallShift, wingExtraCd, airDensity);
         this.accumulateSurface(this.htailLeft, controls.htailLeftAoa, 0, 0, 0, airDensity);

@@ -84,6 +84,28 @@ export interface SurfaceGeometry {
  * and yaw stability and the aerodynamic pitch/yaw rate damping.
  */
 export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
+    /**
+     * Blended fuselage / strake lifting body. The F-16 is a lifting-body design:
+     * the wide forebody and leading-edge strakes carry a large share of the total
+     * lift. This surface is sized so the fuselage produces ~30% of the aircraft's
+     * lift — its lift-curve contribution (CLα·S = 2.4 × 16.0 ≈ 38.4) is 3/7 of the
+     * combined wing contribution (2 × 5.2 × 8.6 ≈ 89.4), so
+     * 38.4 / (38.4 + 89.4) ≈ 0.30 of the wing+body lift throughout the linear
+     * range. It acts at the CG (no trim moment); parasite form drag stays in
+     * FM2_BODY_CD0, so cd0 here is 0 to avoid double-counting.
+     */
+    fuselage: {
+        name: 'fuselage',
+        position: [0.0, 0.0, 0.0],
+        up: [0, 1, 0],
+        forward: [0, 0, 1],
+        areaM2: 16.0,
+        liftSlopePerRad: 2.4,
+        stallAoaRad: 40 * DEG, // a low-aspect body stalls late and gently
+        cd0: 0.0,
+        inducedK: 0.25,
+        controlEffectiveness: 0,
+    },
     wingLeft: {
         name: 'wingLeft',
         position: [-2.1, 0.0, -0.15],
