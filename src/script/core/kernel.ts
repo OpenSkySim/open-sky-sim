@@ -1,9 +1,16 @@
 import { assertExpr } from "../utils/asserts";
 
-export interface KernelTask {
+export interface KernelUpdateTask {
     // delta - Time elapsed for the previous frame, measured in seconds.
     update(delta: number): void;
 }
+
+export interface KernelRenderTask {
+    render(): void;
+}
+
+/** @deprecated Use KernelUpdateTask or KernelRenderTask. */
+export type KernelTask = KernelUpdateTask;
 
 // 60fps, measured in ms
 const DEFAULT_FRAME_DURATION: number = 1000.0 / 60.0;
@@ -11,7 +18,8 @@ const DEFAULT_FRAME_DURATION: number = 1000.0 / 60.0;
 export class Kernel {
     private runTasksFn = () => { this.runTasks() };
 
-    private tasks: KernelTask[] = [];
+    private updateTasks: KernelUpdateTask[] = [];
+    private renderTasks: KernelRenderTask[] = [];
 
     private prevTime: number = performance.now();
 
@@ -22,8 +30,17 @@ export class Kernel {
         this.setTargetFPS(targetFPS);
     }
 
-    addTask(task: KernelTask) {
-        this.tasks.push(task);
+    addUpdateTask(task: KernelUpdateTask) {
+        this.updateTasks.push(task);
+    }
+
+    addRenderTask(task: KernelRenderTask) {
+        this.renderTasks.push(task);
+    }
+
+    /** @deprecated Use addUpdateTask. */
+    addTask(task: KernelUpdateTask) {
+        this.addUpdateTask(task);
     }
 
     setTargetFPS(targetFPS?: number) {
@@ -37,13 +54,14 @@ export class Kernel {
     }
 
     start() {
-        assertExpr(this.tasks.length > 0, 'No KernelTasks registered!');
+        assertExpr(this.updateTasks.length > 0, 'No KernelUpdateTasks registered!');
+        assertExpr(this.renderTasks.length > 0, 'No KernelRenderTasks registered!');
         window.requestAnimationFrame(this.runTasksFn);
         this.prevTime = performance.now() - DEFAULT_FRAME_DURATION;
     }
 
     private runTasks() {
-        let deltaMs = this.updateDeltas();
+        const deltaMs = this.updateDeltas();
         window.requestAnimationFrame(this.runTasksFn);
 
         if (this.targetFPS) {
@@ -54,17 +72,27 @@ export class Kernel {
                     this.targetFPSprogress -= this.targetFPSLength;
                 } while (this.targetFPSprogress >= this.targetFPSLength);
 
-                deltaMs = this.targetFPSLength;
-            } else {
-                // Not yet, let's wait a bit...
-                return;
+                const delta = this.targetFPSLength / 1000.0;
+                this.runUpdates(delta);
             }
+            this.runRenders();
+            return;
         }
 
         const delta = deltaMs / 1000.0;
+        this.runUpdates(delta);
+        this.runRenders();
+    }
 
-        for (let i = 0; i < this.tasks.length; i++) {
-            this.tasks[i].update(delta);
+    private runUpdates(delta: number) {
+        for (let i = 0; i < this.updateTasks.length; i++) {
+            this.updateTasks[i].update(delta);
+        }
+    }
+
+    private runRenders() {
+        for (let i = 0; i < this.renderTasks.length; i++) {
+            this.renderTasks[i].render();
         }
     }
 

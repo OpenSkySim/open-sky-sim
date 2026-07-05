@@ -41,17 +41,23 @@ export class ExteriorDataEntity implements Entity {
     }
 
     update(delta: number): void {
-        this.altitude = this.displayUnits.altitudeFromMeters(this.actor.position.y);
+        this.weaponsTarget = this.actor.weaponsTarget;
+    }
+
+    private refreshVisualState(): void {
+        const displayPos = this.actor.getDisplayPosition();
+        const displayQuat = this.actor.getDisplayQuaternion();
+        const displayVel = this.actor.getDisplayVelocity();
+
+        this.altitude = this.displayUnits.altitudeFromMeters(displayPos.y);
 
         this.tmpVector.copy(FORWARD)
-            .applyQuaternion(this.actor.quaternion)
+            .applyQuaternion(displayQuat)
             .setY(0)
             .normalize();
         this.heading = vectorHeading(this.tmpVector);
 
-        this.speed = this.displayUnits.speedFromMps(this.actor.rawSpeed);
-
-        this.weaponsTarget = this.actor.weaponsTarget;
+        this.speed = this.displayUnits.speedFromMps(displayVel.length());
     }
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
@@ -60,6 +66,8 @@ export class ExteriorDataEntity implements Entity {
 
     render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
         if (!lists.has(SceneLayers.Overlay)) return;
+
+        this.refreshVisualState();
 
         const layoutScale = getOverlayLayout(targetWidth, targetHeight).layoutScale;
 

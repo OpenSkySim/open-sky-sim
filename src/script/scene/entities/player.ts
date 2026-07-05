@@ -94,6 +94,10 @@ export class PlayerEntity implements Entity {
 
     private obj = new THREE.Object3D();
 
+    private displayPosition = new THREE.Vector3();
+    private displayQuaternion = new THREE.Quaternion();
+    private displayVelocity = new THREE.Vector3();
+
     private pitch: number = 0; // [-1, 1]
     private roll: number = 0; // [-1, 1]
     private yaw: number = 0; // [-1, 1]
@@ -135,6 +139,9 @@ export class PlayerEntity implements Entity {
         this.flightModel = flightModel;
         this.flightModel.position.copy(position);
         this.flightModel.quaternion.setFromAxisAngle(UP, heading);
+        this.obj.position.copy(position);
+        this.obj.quaternion.setFromAxisAngle(UP, heading);
+        this.updateDisplayTransform();
         this.inEngineAudio = inEngineAudio;
         this.outEngineAudio = outEngineAudio;
 
@@ -232,10 +239,20 @@ export class PlayerEntity implements Entity {
         }
     }
 
+    updateDisplayTransform(): void {
+        this.flightModel.getRenderPosition(this.displayPosition);
+        this.flightModel.getRenderQuaternion(this.displayQuaternion);
+        this.flightModel.getRenderVelocity(this.displayVelocity);
+    }
+
     reset(position: THREE.Vector3, heading: number) {
         this.flightModel.reset();
-        this.flightModel.position.copy(position)
+        this.flightModel.position.copy(position);
         this.flightModel.quaternion.setFromAxisAngle(UP, heading);
+        this.obj.position.copy(position);
+        this.obj.quaternion.setFromAxisAngle(UP, heading);
+        this.velocity.set(0, 0, 0);
+        this.updateDisplayTransform();
 
         this.pitch = 0;
         this.roll = 0;
@@ -307,7 +324,7 @@ export class PlayerEntity implements Entity {
             return;
         }
 
-        let throttle = this.flightModel.gerEffectiveThrottle();
+        let throttle = this.flightModel.getThrottleAudioLevel();
 
         if (throttle > 0 && this.enginePlaying === false) {
             engineAudio.play();
@@ -337,6 +354,7 @@ export class PlayerEntity implements Entity {
         this.flightModel.position.copy(this.obj.position);
         this.flightModel.quaternion.copy(this.obj.quaternion);
         this.flightModel.velocityVector.copy(this.velocity);
+        this.updateDisplayTransform();
     }
 
     set exteriorView(isExteriorView: boolean) {
@@ -372,10 +390,10 @@ export class PlayerEntity implements Entity {
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
 
         if (!this.isCrashed) {
-            this.shadowPosition.copy(this.position).setY(0);
-            this.shadowQuaternion.setFromUnitVectors(FORWARD, this.obj.getWorldDirection(this._v).setY(0).normalize());
-            const shadowLength = Math.max(0.2, this._v.copy(FORWARD).applyQuaternion(this.quaternion).setY(0).length());
-            const shadowWidth = Math.max(0.2, this._v.copy(RIGHT).applyQuaternion(this.quaternion).setY(0).length());
+            this.shadowPosition.copy(this.displayPosition).setY(0);
+            this.shadowQuaternion.setFromUnitVectors(FORWARD, this.getDisplayWorldDirection(this._v).setY(0).normalize());
+            const shadowLength = Math.max(0.2, this._v.copy(FORWARD).applyQuaternion(this.displayQuaternion).setY(0).length());
+            const shadowWidth = Math.max(0.2, this._v.copy(RIGHT).applyQuaternion(this.displayQuaternion).setY(0).length());
             this.shadowScale.set(shadowWidth, 1, shadowLength);
             this.modelShadow.addToRenderList(
                 this.shadowPosition, this.shadowQuaternion, this.shadowScale,
@@ -384,17 +402,17 @@ export class PlayerEntity implements Entity {
         }
 
         if (this._exteriorView) {
-            const lod = getLodLevel(this.position, this.obj.scale, targetWidth, camera, this.modelBody.model.maxSize);
+            const lod = getLodLevel(this.displayPosition, this.obj.scale, targetWidth, camera, this.modelBody.model.maxSize);
 
             this.modelBody.addToRenderList(
-                this.position, this.quaternion, this.obj.scale,
+                this.displayPosition, this.displayQuaternion, this.obj.scale,
                 targetWidth, camera, palette,
                 SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, lod);
 
             if (lod === 0) {
                 if (this.landingGearState !== AircraftDeviceState.RETRACTED) {
                     this.modelLandingGear?.addToRenderList(
-                        this.position, this.quaternion, this.obj.scale,
+                        this.displayPosition, this.displayQuaternion, this.obj.scale,
                         targetWidth, camera, palette,
                         SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
                 }
@@ -402,8 +420,8 @@ export class PlayerEntity implements Entity {
                 for (let i = 0; i < this.controlSurfaceDescriptors.length; i++) {
                     const d = this.controlSurfaceDescriptors[i];
 
-                    this._q.setFromAxisAngle(this._v.copy(d.axis).applyQuaternion(this.quaternion), this.isCrashed ? 0 : d.value() * d.range).multiply(this.quaternion);
-                    this._v.copy(d.positiom).applyQuaternion(this.quaternion).add(this.position);
+                    this._q.setFromAxisAngle(this._v.copy(d.axis).applyQuaternion(this.displayQuaternion), this.isCrashed ? 0 : d.value() * d.range).multiply(this.displayQuaternion);
+                    this._v.copy(d.positiom).applyQuaternion(this.displayQuaternion).add(this.displayPosition);
                     d.model.addToRenderList(
                         this._v, this._q, this.obj.scale,
                         targetWidth, camera, palette,
@@ -433,6 +451,26 @@ export class PlayerEntity implements Entity {
         this.throttle = throttle;
     }
 
+    adjustThrottle(step: number) {
+        this.throttle = this.flightModel.adjustThrottleInput(this.throttle, step);
+    }
+
+    stepThrottle(direction: 1 | -1) {
+        if (this.flightModel.useF16ThrottleDetents()) {
+            this.throttle = this.flightModel.stepThrottleDetent(this.throttle, direction);
+        } else {
+            this.adjustThrottle(direction * 0.01 * 33);
+        }
+    }
+
+    useF16ThrottleDetents(): boolean {
+        return this.flightModel.useF16ThrottleDetents();
+    }
+
+    isInThrottleAbDetentBand(): boolean {
+        return this.flightModel.isInThrottleAbDetentBand(this.throttle);
+    }
+
     set position(p: THREE.Vector3) {
         this.obj.position.copy(p);
     }
@@ -447,6 +485,30 @@ export class PlayerEntity implements Entity {
 
     get quaternion() {
         return this.obj.quaternion;
+    }
+
+    getDisplayPosition(): THREE.Vector3 {
+        return this.displayPosition;
+    }
+
+    getDisplayQuaternion(): THREE.Quaternion {
+        return this.displayQuaternion;
+    }
+
+    getDisplayVelocity(): THREE.Vector3 {
+        return this.displayVelocity;
+    }
+
+    getDisplayWorldDirection(v: THREE.Vector3): THREE.Vector3 {
+        return v.copy(FORWARD).applyQuaternion(this.displayQuaternion);
+    }
+
+    getDisplayWorldUp(v: THREE.Vector3): THREE.Vector3 {
+        return v.copy(UP).applyQuaternion(this.displayQuaternion);
+    }
+
+    getDisplayWorldRight(v: THREE.Vector3): THREE.Vector3 {
+        return v.copy(RIGHT).applyQuaternion(this.displayQuaternion);
     }
 
     getWorldDirection(v: THREE.Vector3): THREE.Vector3 {
@@ -503,6 +565,14 @@ export class PlayerEntity implements Entity {
 
     get loadFactorG(): number {
         return this.flightModel.getLoadFactorG();
+    }
+
+    get engineThrustKn(): number {
+        return this.flightModel.getEngineThrustKn();
+    }
+
+    get throttleHudText(): string {
+        return this.flightModel.getThrottleHudText();
     }
 
     get hudFocusMode(): HUDFocusMode {

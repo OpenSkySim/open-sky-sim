@@ -13,7 +13,7 @@ import { HDNoonPalette } from '../config/palettes/hd-noon';
 import { VGAMidnightPalette } from '../config/palettes/vga-midnight';
 import { VGANoonPalette } from '../config/palettes/vga-noon';
 import { DisplayResolution, getDisplayResolutionSize } from '../config/profiles/profile';
-import { KernelTask } from '../core/kernel';
+import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
@@ -76,7 +76,7 @@ enum GameState {
     CRASHED
 }
 
-export class GameUpdateTask implements KernelTask {
+export class GameUpdateTask implements KernelUpdateTask {
 
     constructor(private game: Game) { }
 
@@ -85,11 +85,11 @@ export class GameUpdateTask implements KernelTask {
     }
 }
 
-export class GameRenderTask implements KernelTask {
+export class GameRenderTask implements KernelRenderTask {
 
     constructor(private game: Game) { }
 
-    update(delta: number) {
+    render() {
         this.game.render();
     }
 }
@@ -446,18 +446,19 @@ export class Game {
             if (switchToCrashed) {
                 this.transitionFromPlayerToCrashed();
             }
-
-            this.cameraUpdater.update(delta);
-            this.playerCamera.update();
-            this.targetCamera.update();
         } else if (this.state === GameState.CRASHED) {
             this.scene.update(delta);
-            this.cameraUpdater.update(delta);
-            this.playerCamera.update();
         }
     }
 
     render() {
+        this.player.updateDisplayTransform();
+
+        if (this.state === GameState.PLAYER || this.state === GameState.CRASHED) {
+            this.cameraUpdater.update(0);
+            this.playerCamera.update();
+            this.targetCamera.update();
+        }
         const resolution = this.configService.techProfiles.getActive().resolution;
         if (resolution === DisplayResolution.HD_RES) {
             this.updateHdResolution();

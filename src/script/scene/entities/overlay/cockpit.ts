@@ -66,23 +66,32 @@ export class CockpitEntity implements Entity {
     }
 
     update(delta: number): void {
+        this.weaponsTarget = this.actor.weaponsTarget;
+        this.flaps = this.actor.flaps;
+        this.landingGear = this.actor.landingGear;
+    }
+
+    private refreshVisualState(): void {
+        const displayPos = this.actor.getDisplayPosition();
+        const displayQuat = this.actor.getDisplayQuaternion();
 
         const prjForward = this.actor
-            .getWorldDirection(this._v)
+            .getDisplayWorldDirection(this._v)
             .setY(0)
             .normalize();
         this.mapPlaneMarkerHeading = vectorHeading(prjForward);
 
-        [this.aiPitch, this.aiRoll] = calculatePitchRoll(this.actor);
+        [this.aiPitch, this.aiRoll] = calculatePitchRoll({
+            quaternion: displayQuat,
+            getWorldDirection: (v) => this.actor.getDisplayWorldDirection(v),
+        });
 
-        this.mapCamera.position.copy(this.actor.position).setY(500);
-
-        this.weaponsTarget = this.actor.weaponsTarget;
+        this.mapCamera.position.copy(displayPos).setY(500);
 
         if (this.weaponsTarget !== undefined) {
             this._v
                 .copy(this.weaponsTarget.position)
-                .sub(this.actor.position);
+                .sub(displayPos);
             this.weaponsTargetRange = this._v.length() / 1000.0;
 
             this._v
@@ -92,9 +101,6 @@ export class CockpitEntity implements Entity {
 
             this.weaponsTargetZoomFactor = updateTargetCamera(this.actor, this.camera, this.targetCamera);
         }
-
-        this.flaps = this.actor.flaps;
-        this.landingGear = this.actor.landingGear;
     }
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
@@ -103,6 +109,8 @@ export class CockpitEntity implements Entity {
 
     render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
         if (!lists.has(SceneLayers.Overlay)) return;
+
+        this.refreshVisualState();
 
         const layout = getOverlayLayout(targetWidth, targetHeight);
         const { layoutScale } = layout;

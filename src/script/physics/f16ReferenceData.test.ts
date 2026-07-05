@@ -13,6 +13,7 @@ import {
     computeF16LevelFlightMaxSpeed,
     findF16PeakLevelFlightSpeed,
 } from './levelFlightEquilibrium';
+import { computeF16EngineThrustKn } from './f16Engine';
 
 function evaluateFlightModel(caseRow: F16ReferenceCase): number {
     switch (caseRow.metric) {
@@ -33,7 +34,7 @@ function evaluateFlightModel(caseRow: F16ReferenceCase): number {
         case 'cruiseSpeedMps':
             return F16_PROFILE.cruiseSpeedMps;
         case 'abThrustKn':
-            return computeF16AfterburnerThrust(caseRow.altitudeMeters) / 1000;
+            return computeF16EngineThrustKn(1.0, caseRow.altitudeMeters);
         case 'maxMach': {
             const speedMps = computeF16LevelFlightMaxSpeed(caseRow.altitudeMeters);
             return computeMachNumber(speedMps, caseRow.altitudeMeters);

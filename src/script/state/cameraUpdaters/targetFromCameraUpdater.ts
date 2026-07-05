@@ -17,16 +17,17 @@ export class TargetFromCameraUpdater extends CameraUpdater {
         const target = this.actor.weaponsTarget;
         if (!target) return;
 
+        const actorPosition = this.actor.getDisplayPosition();
         this.camera.position
             .copy(target.position)
             .add(target.center);
         this._v
-            .subVectors(this.camera.position, this.actor.position)
+            .subVectors(this.camera.position, actorPosition)
             .normalize();
         this.camera.position
             .copy(target.position)
             .addScaledVector(this._v, Math.min(target.maxSize, MAX_MARGIN))
             .setY(Math.max(this.camera.position.y, MIN_HEIGHT));
-        this.camera.lookAt(this.actor.position);
+        this.camera.lookAt(actorPosition);
     }
 }

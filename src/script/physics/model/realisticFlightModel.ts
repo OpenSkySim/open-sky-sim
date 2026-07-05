@@ -1,47 +1,41 @@
 import * as THREE from 'three';
 import { PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE } from '../../defs';
 import { FORWARD, PI_OVER_180, RIGHT, UP, calculatePitchRoll, clamp, isZero, roundToZero } from '../../utils/math';
-import { computeAngleOfAttack, computeAirDensity, computeDynamicPressure, computeDynamicPressureDragPenalty, computeLoadFactorG, computeThrustDensityFactor } from '../aeroUtils';
+import { computeAngleOfAttack, computeAirDensity, computeDynamicPressure, computeDynamicPressureDragPenalty, computeIsaAirDensity, computeLoadFactorG } from '../aeroUtils';
+import { computeF16EngineThrustN, formatF16ThrottleHud, f16ThrottleAudioLevel, getF16ThrottleZone, adjustF16ThrottleInput, stepF16ThrottleDetent, isF16AbDetentBand } from '../f16Engine';
 import { F16_PROFILE } from '../f16Profile';
 import { FlightModel } from './flightModel';
 
-const THROTTLE_UP_RATE = 0.02;
+const THROTTLE_UP_RATE = 0.10;
 const THROTTLE_DOWN_RATE = 0.07;
 const YAW_RATE_LANDED = YAW_RATE * 2.0;
 
-const DRY_MASS = F16_PROFILE.combatMassKg;
+const DRY_MASS = F16_PROFILE.simMassKg;
 const WING_AREA = F16_PROFILE.wingAreaM2;
-const WING_SPAN = F16_PROFILE.wingSpanM;
-const GRAVITY = 9.80665; // m/s², ISA
-const MIL_THRUST = 3.99; // m/s², F100-PW-229 military power (76 kN / MTOW)
-const AB_THRUST = F16_PROFILE.abThrustAccel;
-const AB_THROTTLE = 0.85; // throttle above this engages afterburner
 const CD0 = F16_PROFILE.cd0;
 const INDUCED_DRAG_K = F16_PROFILE.inducedDragK;
 const CL0 = F16_PROFILE.cl0;
 const CL_ALPHA = F16_PROFILE.clAlphaPerRad;
 const STALL_AOA = F16_PROFILE.stallAoaDeg * Math.PI / 180;
-const MAX_CL = 1.48; // vortex lift / strakes
-const Q_REF = F16_PROFILE.cruiseSpeedMps > 0
-    ? 0.5 * 1.225 * Math.exp(-F16_PROFILE.cruiseAltitudeM / 8000) * F16_PROFILE.cruiseSpeedMps * F16_PROFILE.cruiseSpeedMps
-    : 37300;
+const MAX_CL = 1.48;
+const Q_REF = 0.5 * computeIsaAirDensity(F16_PROFILE.cruiseAltitudeM) * F16_PROFILE.cruiseSpeedMps * F16_PROFILE.cruiseSpeedMps;
 const MIN_CONTROL_Q = 0.12;
 const MAX_CONTROL_Q = 2.2;
 const MIN_FLYING_SPEED = F16_PROFILE.minFlyingSpeedMps;
-const SIDE_SLIP_DAMP_RATE = 4.5; // 1/s, lateral velocity damping (FBW-like beta cleanup)
-const CY_BETA = -0.6; // side force per rad sideslip, q * S * CY_BETA * beta
-const YAW_CONTROL_Q_SCALE = 0.45; // yaw authority fraction vs pitch/roll at high q
+const SIDE_SLIP_DAMP_RATE = 4.5;
+const CY_BETA = -0.6;
+const YAW_CONTROL_Q_SCALE = 0.45;
 
-const CD_LANDING_GEAR_FACTOR = 0.75;
-const CD_FLAPS_FACTOR = 0.4;
+const CD_LANDING_GEAR = 0.035;
+const CD_FLAPS = 0.08;
 const CL_FLAPS_FACTOR = 1.25;
 const ROLL_FLAPS_FACTOR = 0.65;
 
 const GROUND_FRICTION_KINETIC = 0.15;
 const GROUND_FRICTION_STATIC = 0.2;
 
-const LANDED_MAX_SPEED = 85; // m/s, ~165 kt (landing speed ~150 kt)
-const LANDING_MAX_VSPEED = 5; // m/s
+const LANDED_MAX_SPEED = 85;
+const LANDING_MAX_VSPEED = 5;
 const LANDING_MIN_PITCH = -5 * PI_OVER_180;
 const LANDING_MAX_ROLL = 5 * PI_OVER_180;
 
@@ -61,14 +55,6 @@ function computeCl(aoa: number, flapsExtended: boolean): number {
 
 function computeInducedDrag(cl: number): number {
     return INDUCED_DRAG_K * cl * cl;
-}
-
-function computeThrustAccel(throttle: number): number {
-    if (throttle <= AB_THROTTLE) {
-        return MIL_THRUST * (throttle / AB_THROTTLE);
-    }
-    const abFraction = (throttle - AB_THROTTLE) / (1 - AB_THROTTLE);
-    return MIL_THRUST + (AB_THRUST - MIL_THRUST) * abFraction;
 }
 
 export class RealisticFlightModel extends FlightModel {
@@ -109,7 +95,6 @@ export class RealisticFlightModel extends FlightModel {
 
         const altitude = this.obj.position.y;
         const airDensity = computeAirDensity(altitude);
-        const thrustFactor = computeThrustDensityFactor(airDensity, altitude);
         const speed = this.velocity.length();
         const dynamicPressure = computeDynamicPressure(airDensity, speed);
         const controlScale = clamp(dynamicPressure / Q_REF, MIN_CONTROL_Q, MAX_CONTROL_Q);
@@ -124,8 +109,8 @@ export class RealisticFlightModel extends FlightModel {
         const waveDrag = computeDynamicPressureDragPenalty(speed, altitude);
         const cd = CD0 * (1 + waveDrag)
             + computeInducedDrag(cl)
-            + (this.landingGearDeployed ? CD_LANDING_GEAR_FACTOR : 0)
-            + (this.flapsExtended ? CD_FLAPS_FACTOR : 0);
+            + (this.landingGearDeployed ? CD_LANDING_GEAR : 0)
+            + (this.flapsExtended ? CD_FLAPS : 0);
 
         this.updateStallState(speed, aoa, altitude);
 
@@ -148,9 +133,9 @@ export class RealisticFlightModel extends FlightModel {
             this.obj.rotateY(-this.yaw * (this.landed ? YAW_RATE_LANDED : YAW_RATE) * yawControlScale * delta);
         }
 
-        roundToZero(this.thrust.copy(this.forward).multiplyScalar(
-            thrustFactor * computeThrustAccel(this.effectiveThrottle) * DRY_MASS
-        ));
+        const thrustN = computeF16EngineThrustN(this.effectiveThrottle, altitude);
+        roundToZero(this.thrust.copy(this.forward).multiplyScalar(thrustN));
+        this.engineThrustN = thrustN;
 
         if (speed > 1e-3) {
             this.velocityUnit.copy(this.velocity).multiplyScalar(1 / speed);
@@ -175,7 +160,7 @@ export class RealisticFlightModel extends FlightModel {
             this.lift.set(0, 0, 0);
         }
 
-        roundToZero(this.weight.set(0, -DRY_MASS * GRAVITY, 0));
+        roundToZero(this.weight.set(0, -DRY_MASS * 9.80665, 0));
 
         if (!this.landed && speed > 5) {
             const lateralSpeed = this.velocity.dot(this.right);
@@ -191,7 +176,7 @@ export class RealisticFlightModel extends FlightModel {
         this.forces.set(0, 0, 0).add(this.thrust).add(this.drag).add(this.lift).add(this.sideForce).add(this.weight);
 
         if (this.landed) {
-            const weightMagnitude = DRY_MASS * GRAVITY;
+            const weightMagnitude = DRY_MASS * 9.80665;
             const prjForces = this._v.copy(this.forces).setY(0);
             const prjForcesMagnitude = prjForces.length();
             const maxStaticFriction = GROUND_FRICTION_STATIC * weightMagnitude;
@@ -239,6 +224,34 @@ export class RealisticFlightModel extends FlightModel {
 
     getStallStatus(): number {
         return this.stall;
+    }
+
+    getThrottleHudText(): string {
+        return formatF16ThrottleHud(this.throttle);
+    }
+
+    useF16ThrottleDetents(): boolean {
+        return true;
+    }
+
+    stepThrottleDetent(current: number, direction: 1 | -1): number {
+        return stepF16ThrottleDetent(current, direction);
+    }
+
+    isInThrottleAbDetentBand(lever: number): boolean {
+        return isF16AbDetentBand(lever);
+    }
+
+    adjustThrottleInput(current: number, step: number): number {
+        return adjustF16ThrottleInput(current, step);
+    }
+
+    getThrottleZone(): string {
+        return getF16ThrottleZone(this.effectiveThrottle);
+    }
+
+    getThrottleAudioLevel(): number {
+        return f16ThrottleAudioLevel(this.effectiveThrottle);
     }
 
     private updateStallState(speed: number, aoa: number, altitude: number) {

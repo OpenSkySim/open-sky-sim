@@ -193,13 +193,16 @@ export class KeyboardControlDevice implements KernelTask {
         }
 
         if (this.throttleState !== Stick.IDLE) {
-            const throttle = clamp(this.player.throttleUnit + delta * 0.01 *
-                (this.throttleState === Stick.POSITIVE || this.throttleState === Stick.POSITIVE_ENDED ? THROTTLE_RATE : - THROTTLE_RATE),
-                0, 1);
+            const isPositive = this.throttleState === Stick.POSITIVE || this.throttleState === Stick.POSITIVE_ENDED;
+            const step = delta * 0.01 * (isPositive ? THROTTLE_RATE : -THROTTLE_RATE);
+            const skipContinuousInAbBand = this.player.useF16ThrottleDetents() &&
+                this.player.isInThrottleAbDetentBand() && isPositive;
             if (this.throttleState === Stick.POSITIVE_ENDED || this.throttleState === Stick.NEGATIVE_ENDED) {
                 this.throttleState = Stick.IDLE;
             }
-            this.player.setThrottle(throttle);
+            if (!skipContinuousInAbBand) {
+                this.player.adjustThrottle(step);
+            }
         }
     }
 
@@ -244,11 +247,23 @@ export class KeyboardControlDevice implements KernelTask {
                     break;
                 }
                 case this.layout[KeyboardControlAction.THROTTLE_POS]: {
-                    this.throttleState = Stick.POSITIVE;
+                    if (this.player.useF16ThrottleDetents() && this.player.isInThrottleAbDetentBand()) {
+                        if (!event.repeat) {
+                            this.player.stepThrottle(1);
+                        }
+                    } else {
+                        this.throttleState = Stick.POSITIVE;
+                    }
                     break;
                 }
                 case this.layout[KeyboardControlAction.THROTTLE_NEG]: {
-                    this.throttleState = Stick.NEGATIVE;
+                    if (this.player.useF16ThrottleDetents() && this.player.throttleUnit >= 0.99) {
+                        if (!event.repeat) {
+                            this.player.stepThrottle(-1);
+                        }
+                    } else {
+                        this.throttleState = Stick.NEGATIVE;
+                    }
                     break;
                 }
             }

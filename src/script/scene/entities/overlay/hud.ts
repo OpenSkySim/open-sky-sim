@@ -60,6 +60,8 @@ export class HUDEntity implements Entity {
     private heading: number = 0; // degrees, 0 is North, increases CW
     private altitude: number = 0; // display units (m or ft)
     private altitudeMeters: number = 0; // raw sim altitude for debug
+    private engineThrustKn: number = 0;
+    private renderFps: number = 0;
     private throttle: number = 0; // Normalised percentage [0, 1]
     private speed: number = 0; // display units (km/h or kt)
     private verticalSpeed: number = 0; // m/s or ft/min
@@ -76,6 +78,7 @@ export class HUDEntity implements Entity {
     private rollInput: number = 0; // [-1, 1]
     private yawInput: number = 0; // [-1, 1]
     private elapsed: number = 0; // Seconds
+    private lastRenderTime: number = 0;
 
     private _v = new THREE.Vector3();
     private _w = new THREE.Vector3();
@@ -90,31 +93,11 @@ export class HUDEntity implements Entity {
     }
 
     update(delta: number): void {
-        this.altitude = Math.round(this.displayUnits.altitudeFromMeters(this.actor.position.y) * 10) / 10;
-        this.altitudeMeters = this.actor.position.y;
-
-        this._v.copy(FORWARD)
-            .applyQuaternion(this.actor.quaternion)
-            .setY(0)
-            .normalize();
-        this.heading = vectorHeading(this._v);
-
-        [this.pitch, this.roll] = calculatePitchRoll(this.actor);
-
-        this.throttle = this.actor.throttleUnit;
-
-        this.speed = this.displayUnits.speedFromMps(this.actor.rawSpeed);
-
-        this.verticalSpeed = this.displayUnits.verticalSpeedFromMps(this.actor.velocityVector.y);
-
-        this.velocityDirection.copy(this.actor.velocityVector).normalize();
-
         this.weaponsTarget = this.actor.weaponsTarget;
 
         this.stallStatus = this.actor.stallStatus;
         this.angleOfAttack = this.actor.angleOfAttack;
         this.loadFactorG = this.actor.loadFactorG;
-        this.machNumber = computeMachNumber(this.actor.rawSpeed, this.altitudeMeters);
         this.isLanded = this.actor.isLanded;
 
         this.pitchInput = this.actor.pitchInput;
@@ -124,12 +107,54 @@ export class HUDEntity implements Entity {
         this.elapsed += delta;
     }
 
+    private refreshVisualState(): void {
+        const now = performance.now();
+        if (this.lastRenderTime > 0) {
+            const instantFps = 1000 / (now - this.lastRenderTime);
+            this.renderFps = this.renderFps > 0
+                ? this.renderFps * 0.9 + instantFps * 0.1
+                : instantFps;
+        }
+        this.lastRenderTime = now;
+
+        const displayPos = this.actor.getDisplayPosition();
+        const displayQuat = this.actor.getDisplayQuaternion();
+        const displayVel = this.actor.getDisplayVelocity();
+
+        this.altitude = Math.round(this.displayUnits.altitudeFromMeters(displayPos.y) * 10) / 10;
+        this.altitudeMeters = displayPos.y;
+        this.engineThrustKn = this.actor.engineThrustKn;
+
+        this._v.copy(FORWARD)
+            .applyQuaternion(displayQuat)
+            .setY(0)
+            .normalize();
+        this.heading = vectorHeading(this._v);
+
+        [this.pitch, this.roll] = calculatePitchRoll({
+            quaternion: displayQuat,
+            getWorldDirection: (v) => this.actor.getDisplayWorldDirection(v),
+        });
+
+        this.speed = this.displayUnits.speedFromMps(displayVel.length());
+        this.verticalSpeed = this.displayUnits.verticalSpeedFromMps(displayVel.y);
+
+        if (displayVel.lengthSq() > 1e-6) {
+            this.velocityDirection.copy(displayVel).normalize();
+        }
+
+        this.machNumber = computeMachNumber(displayVel.length(), displayPos.y);
+    }
+
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
         // Nothing
     }
 
     render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
         if (!lists.has(SceneLayers.Overlay)) return;
+
+        this.refreshVisualState();
+        this.throttle = this.actor.throttleUnit;
 
         const layout = getOverlayLayout(targetWidth, targetHeight);
         const { detailScale, layoutScale } = layout;
@@ -214,6 +239,8 @@ export class HUDEntity implements Entity {
 
         painter.text(font, x, margin, `${this.altitudeMeters.toFixed(1)}M`, hudColor, TextAlignment.RIGHT);
         painter.text(font, x, margin + lineHeight, `${altitudeFeet.toFixed(0)}FT`, hudColor, TextAlignment.RIGHT);
+        painter.text(font, x, margin + lineHeight * 2, `${this.engineThrustKn.toFixed(1)}KN`, hudColor, TextAlignment.RIGHT);
+        painter.text(font, x, margin + lineHeight * 3, `${this.renderFps.toFixed(0)}FPS`, hudColor, TextAlignment.RIGHT);
     }
 
     private renderFlightDataIndicators(
@@ -303,7 +330,7 @@ export class HUDEntity implements Entity {
     private renderVerticalVelocityIndicator(layout: OverlayLayout, tickStep: number, x: number, y: number, painter: CanvasPainter, hudColor: string, hudWarnColor: string) {
         const { layoutScale } = layout;
         const maxPixels = ALTITUDE_HEIGHT * layoutScale;
-        const pixelLength = clamp(Math.floor(layoutScale * this.verticalSpeed / this.displayUnits.verticalSpeedBarDivisor), -maxPixels, maxPixels);
+        const pixelLength = clamp(layoutScale * this.verticalSpeed / this.displayUnits.verticalSpeedBarDivisor, -maxPixels, maxPixels);
         painter.setColor(hudWarnColor);
         painter.vLine(x - 1, y, y - pixelLength);
         painter.setColor(hudColor);
@@ -418,7 +445,7 @@ export class HUDEntity implements Entity {
     }
 
     private renderThrottle(x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
-        painter.text(font, x, y, `THR ${(100 * this.throttle).toFixed(0)}`, hudColor);
+        painter.text(font, x, y, this.actor.throttleHudText, hudColor);
     }
 
     private renderStickIndicator(centerX: number, centerY: number, arm: number, geomScale: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string) {
@@ -436,8 +463,8 @@ export class HUDEntity implements Entity {
             .vLine(centerX, centerY - arm, centerY + arm)
             .commit();
 
-        const stickX = Math.round(centerX + roll * travel);
-        const stickY = Math.round(centerY + pitch * travel);
+        const stickX = centerX + roll * travel;
+        const stickY = centerY + pitch * travel;
         painter.setColor(hudColor);
         painter.batch()
             .hLine(stickX - crossArm, stickX + crossArm, stickY)
@@ -448,13 +475,13 @@ export class HUDEntity implements Entity {
         painter.setColor(hudSecondaryColor);
         painter.hLine(centerX - arm, centerX + arm, rudderY);
         painter.setColor(hudColor);
-        painter.vLine(Math.round(centerX + yaw * (arm - 1)), rudderY - 1, rudderY + 1);
+        painter.vLine(centerX + yaw * (arm - 1), rudderY - 1, rudderY + 1);
 
         const throttleX = centerX - arm - gap;
         painter.setColor(hudSecondaryColor);
         painter.vLine(throttleX, centerY - arm, centerY + arm);
         painter.setColor(hudColor);
-        const throttleY = Math.round(centerY + arm - 1 - throttle * (arm * 2 - 1));
+        const throttleY = centerY + arm - 1 - throttle * (arm * 2 - 1);
         painter.hLine(throttleX - 1, throttleX + 1, throttleY);
     }
 
@@ -462,9 +489,9 @@ export class HUDEntity implements Entity {
         const { detailScale, layoutScale } = layout;
         const fov = toRadians(COCKPIT_FOV);
         const logicalHeight = getOverlayLogicalHeight(layout);
-        const current = Math.round(toDegrees(-this.pitch) / 10 * detailScale);
-        const minMarker = Math.max(current - LADDER_EXTRA_MARKERS * detailScale, -9 * detailScale);
-        const maxMarker = Math.min(current + LADDER_EXTRA_MARKERS * detailScale, 9 * detailScale);
+        const current = toDegrees(-this.pitch) / 10 * detailScale;
+        const minMarker = Math.max(Math.ceil(current) - LADDER_EXTRA_MARKERS * detailScale, -9 * detailScale);
+        const maxMarker = Math.min(Math.floor(current) + LADDER_EXTRA_MARKERS * detailScale, 9 * detailScale);
 
         painter.setColor(hudSecondaryColor);
 
@@ -490,10 +517,10 @@ export class HUDEntity implements Entity {
             const ladderHalf = LADDER_SIZE_HALF * geomScale;
             normal.multiplyScalar(ladderHalf);
 
-            const C0_X = Math.floor(center.x + normal.z);
-            const C0_Y = Math.round(center.z + -normal.x);
-            const C1_X = Math.floor(center.x + -normal.z);
-            const C1_Y = Math.round(center.z + normal.x);
+            const C0_X = center.x + normal.z;
+            const C0_Y = center.z + -normal.x;
+            const C1_X = center.x + -normal.z;
+            const C1_Y = center.z + normal.x;
 
             normal.divideScalar(ladderHalf);
 
@@ -503,12 +530,12 @@ export class HUDEntity implements Entity {
                 const horizonVerticalOffset = ladderHalf + LADDER_HORIZON_HALF_GAP * geomScale;
                 batch.line(
                     C0_X, C0_Y,
-                    C1_X + Math.floor(normal.z * horizonVerticalOffset),
-                    C1_Y + Math.round(-normal.x * horizonVerticalOffset)
+                    C1_X + normal.z * horizonVerticalOffset,
+                    C1_Y + -normal.x * horizonVerticalOffset
                 );
                 batch.line(
-                    C0_X + Math.floor(-normal.z * horizonVerticalOffset),
-                    C0_Y + Math.round(normal.x * horizonVerticalOffset),
+                    C0_X + -normal.z * horizonVerticalOffset,
+                    C0_Y + normal.x * horizonVerticalOffset,
                     C1_X, C1_Y
                 );
             } else { // Single line
@@ -517,8 +544,8 @@ export class HUDEntity implements Entity {
             if (i !== 0) {
                 const sign = Math.sign(i);
                 const chevron = 5 * geomScale;
-                const nX = sign * Math.round(normal.x * chevron);
-                const nY = sign * Math.round(normal.z * chevron);
+                const nX = sign * normal.x * chevron;
+                const nY = sign * normal.z * chevron;
                 batch.line(C0_X, C0_Y, C0_X + nX, C0_Y + nY);
                 batch.line(C1_X, C1_Y, C1_X + nX, C1_Y + nY);
             }
@@ -578,8 +605,8 @@ export class HUDEntity implements Entity {
         this._v.copy(camera.position)
             .add(this.velocityDirection)
             .project(camera);
-        const x = Math.round((this._v.x * halfWidth) + halfWidth);
-        const y = Math.round(-(this._v.y * halfHeight) + halfHeight);
+        const x = (this._v.x * halfWidth) + halfWidth;
+        const y = -(this._v.y * halfHeight) + halfHeight;
         if (0 <= x && x < width &&
             0 <= y && y < height) {
             painter.batch()

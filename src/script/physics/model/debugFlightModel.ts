@@ -19,6 +19,7 @@ export class DebugFlightModel extends FlightModel {
         if (this.crashed) return;
 
         this.effectiveThrottle = this.throttle;
+        this.engineThrustN = 0;
 
         // Roll control
         if (!isZero(this.roll)) {

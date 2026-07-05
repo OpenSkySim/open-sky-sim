@@ -31,12 +31,12 @@ export class CrashedCameraUpdater extends CameraUpdater {
             .setY(0)
             .normalize();
         this.camera.position
-            .copy(this.actor.position)
+            .copy(this.actor.getDisplayPosition())
         this.camera.position
             .addScaledVector(UP, 25)
             .addScaledVector(this._v, 50.0 * -1);
         this._p
-            .copy(this.actor.position)
+            .copy(this.actor.getDisplayPosition())
             .addScaledVector(this._v, 50);
         this.camera.lookAt(this._p);
     }

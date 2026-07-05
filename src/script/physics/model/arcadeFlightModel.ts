@@ -129,6 +129,7 @@ export class ArcadeFlightModel extends FlightModel {
             MAX_THRUST *
             this.effectiveThrottle *
             DRY_MASS));
+        this.engineThrustN = this.thrust.length();
 
         //! DRAG
         const arcadeInducedDrag = this.forward.dot(this.velocityUnit);

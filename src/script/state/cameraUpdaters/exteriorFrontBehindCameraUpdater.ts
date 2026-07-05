@@ -21,14 +21,14 @@ export class ExteriorFrontBehindCameraUpdater extends CameraUpdater {
     update(delta: number): void {
         this._v
             .copy(FORWARD)
-            .applyQuaternion(this.actor.quaternion)
+            .applyQuaternion(this.actor.getDisplayQuaternion())
             .setY(0)
             .normalize();
         this._p
-            .copy(this.actor.position)
+            .copy(this.actor.getDisplayPosition())
             .addScaledVector(this._v, this.heading === ExteriorViewHeading.FRONT ? 1 : -1);
         this.camera.position
-            .copy(this.actor.position)
+            .copy(this.actor.getDisplayPosition())
         this.camera.lookAt(this._p);
         this.camera.position
             .addScaledVector(UP, 5)

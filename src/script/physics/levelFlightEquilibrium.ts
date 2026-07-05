@@ -1,19 +1,21 @@
 import {
     computeAirDensity,
     computeDynamicPressureDragPenalty,
-    computeThrustDensityFactor,
 } from './aeroUtils';
 import { computeLevelFlightDragN } from './f16AnalyticalModel';
+import { computeF16EngineThrustN } from './f16Engine';
 import { F16_PROFILE } from './f16Profile';
 
 export const F16_DRY_MASS = F16_PROFILE.combatMassKg;
 export const F16_WING_AREA = F16_PROFILE.wingAreaM2;
 export const F16_CD0 = F16_PROFILE.cd0;
-export const F16_AB_THRUST_ACCEL = F16_PROFILE.abThrustAccel;
 
 export function computeF16AfterburnerThrust(altitudeMeters: number): number {
-    const airDensity = computeAirDensity(altitudeMeters);
-    return computeThrustDensityFactor(airDensity, altitudeMeters) * F16_AB_THRUST_ACCEL * F16_DRY_MASS;
+    return computeF16EngineThrustN(1.0, altitudeMeters);
+}
+
+export function computeF16MilThrust(altitudeMeters: number): number {
+    return computeF16EngineThrustN(F16_PROFILE.milLeverEnd, altitudeMeters);
 }
 
 /** Level-flight drag: Anderson polar (CD₀ + K·CL²), L = W. Optional transonic penalty above VNE. */

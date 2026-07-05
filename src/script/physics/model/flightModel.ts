@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { UP } from '../../utils/math';
 
-const SIM_FPS = 120;
+export const SIM_FPS = 120;
 const SIM_DELTA = 1.0 / SIM_FPS;
 
 export abstract class FlightModel {
@@ -22,7 +22,11 @@ export abstract class FlightModel {
 
     protected angleOfAttackRad: number = 0;
     protected loadFactorG: number = 1;
+    protected engineThrustN: number = 0;
 
+    private prevPosition = new THREE.Vector3();
+    private prevQuaternion = new THREE.Quaternion();
+    private prevVelocity = new THREE.Vector3();
     private deltaRemainder: number = 0;
 
     abstract step(delta: number): void;
@@ -42,14 +46,47 @@ export abstract class FlightModel {
         this.effectiveThrottle = 0;
         this.angleOfAttackRad = 0;
         this.loadFactorG = 1;
+        this.engineThrustN = 0;
+        this.deltaRemainder = 0;
+        this.syncPreviousState();
     }
 
     update(delta: number): void {
         this.deltaRemainder += delta;
         while (this.deltaRemainder >= SIM_DELTA) {
-            this.deltaRemainder -= SIM_DELTA;
+            this.savePreviousState();
             this.step(SIM_DELTA);
+            this.deltaRemainder -= SIM_DELTA;
         }
+    }
+
+    /** 1 = latest physics state, 0 = previous physics state. */
+    getRenderInterpolationAlpha(): number {
+        return 1 - this.deltaRemainder / SIM_DELTA;
+    }
+
+    getRenderPosition(target: THREE.Vector3): THREE.Vector3 {
+        return target.lerpVectors(this.prevPosition, this.obj.position, this.getRenderInterpolationAlpha());
+    }
+
+    getRenderQuaternion(target: THREE.Quaternion): THREE.Quaternion {
+        return target.slerpQuaternions(this.prevQuaternion, this.obj.quaternion, this.getRenderInterpolationAlpha());
+    }
+
+    getRenderVelocity(target: THREE.Vector3): THREE.Vector3 {
+        return target.lerpVectors(this.prevVelocity, this.velocity, this.getRenderInterpolationAlpha());
+    }
+
+    private savePreviousState(): void {
+        this.prevPosition.copy(this.obj.position);
+        this.prevQuaternion.copy(this.obj.quaternion);
+        this.prevVelocity.copy(this.velocity);
+    }
+
+    private syncPreviousState(): void {
+        this.prevPosition.copy(this.obj.position);
+        this.prevQuaternion.copy(this.obj.quaternion);
+        this.prevVelocity.copy(this.velocity);
     }
 
     setPitch(pitch: number) {
@@ -129,5 +166,36 @@ export abstract class FlightModel {
 
     getLoadFactorG(): number {
         return this.loadFactorG;
+    }
+
+    getEngineThrustKn(): number {
+        return this.engineThrustN / 1000;
+    }
+
+    useF16ThrottleDetents(): boolean {
+        return false;
+    }
+
+    stepThrottleDetent(current: number, direction: 1 | -1): number {
+        return Math.max(0, Math.min(1, current + direction * 0.01));
+    }
+
+    isInThrottleAbDetentBand(_lever: number): boolean {
+        return false;
+    }
+
+    /** Override in models with a non-linear throttle quadrant. */
+    adjustThrottleInput(current: number, step: number): number {
+        return Math.max(0, Math.min(1, current + step));
+    }
+
+    /** Override in models with a non-linear throttle quadrant. */
+    getThrottleHudText(): string {
+        return `THR ${(100 * this.effectiveThrottle).toFixed(0)}`;
+    }
+
+    /** Normalized engine power for audio [0, 1]. */
+    getThrottleAudioLevel(): number {
+        return this.effectiveThrottle;
     }
 }

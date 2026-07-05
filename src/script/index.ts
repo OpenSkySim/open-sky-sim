@@ -59,12 +59,13 @@ function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControl
     keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.ARROWS);
     const joystickInput = new JoystickControlDevice(game.getPlayer());
 
-    const kernel = new Kernel(FPS_CAP);
-    kernel.addTask(materials);
-    kernel.addTask(keyboardInput);
-    kernel.addTask(joystickInput);
-    kernel.addTask(new GameUpdateTask(game));
-    kernel.addTask(new GameRenderTask(game));
+    const kernel = new Kernel();
+    kernel.setTargetFPS(config.techProfiles.getActive().fpsCap ? FPS_CAP : undefined);
+    kernel.addUpdateTask(materials);
+    kernel.addUpdateTask(keyboardInput);
+    kernel.addUpdateTask(joystickInput);
+    kernel.addUpdateTask(new GameUpdateTask(game));
+    kernel.addRenderTask(new GameRenderTask(game));
 
     config.techProfiles.addChangeListener(profile => kernel.setTargetFPS(profile.fpsCap ? FPS_CAP : undefined));
 

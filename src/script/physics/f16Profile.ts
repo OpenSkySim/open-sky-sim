@@ -6,8 +6,10 @@
 import { F16_PAPER_ANALYTICAL } from './f16PaperData';
 
 export const F16_PROFILE = {
-    /** MTOW straight-and-level analysis weight (~42,000 lb). */
+    /** MTOW for paper/envelope analysis (~42,000 lb). */
     combatMassKg: 19051,
+    /** Typical takeoff gross weight for sim dynamics (~30,000 lb). */
+    simMassKg: 13608,
     wingAreaM2: 27.87,
     wingSpanM: 9.45,
     cd0: F16_PAPER_ANALYTICAL.cd0,
@@ -15,8 +17,11 @@ export const F16_PROFILE = {
     cl0: F16_PAPER_ANALYTICAL.cl0,
     clAlphaPerRad: F16_PAPER_ANALYTICAL.clAlphaPerRad,
     abThrustKn: 129.4,
-    /** SL afterburner thrust / MTOW — matches F100-PW-229 rated output. */
-    abThrustAccel: (129.4 * 1000) / 19051,
+    milThrustKn: 76.3,
+    /** Lever at 100% military power (98 on 0–100 quadrant). */
+    milLeverEnd: 0.98,
+    /** Lever at AB1 detent (99 on 0–100 quadrant). */
+    abMinLeverEnd: 0.99,
     minFlyingSpeedMps: 68,
     stallAoaDeg: 22,
     serviceCeilingM: F16_PAPER_ANALYTICAL.serviceCeilingFt * 0.3048,

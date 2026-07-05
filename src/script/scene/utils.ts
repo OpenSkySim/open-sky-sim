@@ -62,16 +62,17 @@ export function updateTargetCamera(actor: PlayerEntity, mainCamera: THREE.Perspe
     const weaponsTarget = actor.weaponsTarget;
     if (!weaponsTarget) return 0;
 
-    const d = actor.position.distanceTo(weaponsTarget.position);
+    const actorPosition = actor.getDisplayPosition();
+    const d = actorPosition.distanceTo(weaponsTarget.position);
     const weaponsTargetZoomFactor = getWeaponsTargetZoomFactor(mainCamera, weaponsTarget, d);
 
-    targetCamera.position.copy(actor.position).setY(Math.max(TARGET_CAMERA_MIN_ALTITUDE, actor.position.y));
+    targetCamera.position.copy(actorPosition).setY(Math.max(TARGET_CAMERA_MIN_ALTITUDE, actorPosition.y));
     camPos.addVectors(weaponsTarget.position, weaponsTarget.localCenter);
     targetCamera.lookAt(camPos);
     targetCamera.fov = COCKPIT_FOV * 1 / weaponsTargetZoomFactor;
     if (d > TARGET_CAMERA_ADAPTIVE_THRESHOLD) {
-        targetCamera.near = actor.position.distanceTo(weaponsTarget.position) / 2;
-        targetCamera.far = actor.position.distanceTo(weaponsTarget.position) * 2;
+        targetCamera.near = actorPosition.distanceTo(weaponsTarget.position) / 2;
+        targetCamera.far = actorPosition.distanceTo(weaponsTarget.position) * 2;
     } else {
         targetCamera.near = TARGET_CAMERA_CONSTANT_NEAR;
         targetCamera.far = TARGET_CAMERA_CONSTANT_FAR;
