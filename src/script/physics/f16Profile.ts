@@ -31,6 +31,8 @@ export const F16_PROFILE = {
     maxRollRateDegS: 300,
     /** Cat III heavy stores roll-rate cap (deg/s). */
     cat3MaxRollRateDegS: 180,
+    /** FBW positive structural g limit (Cat I). */
+    maxLoadFactorG: 9.5,
 } as const;
 
 export type F16ReferenceMetric =

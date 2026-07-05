@@ -20,6 +20,24 @@ export const F16_ENGINE = {
 
 export type F16ThrottleZone = 'mil' | 'ab-min' | 'ab-max';
 
+/** Afterburner nozzle colors — solid, no animation. */
+export const F16_ENGINE_NOZZLE_COLORS = {
+    mil: '#0a0a0a',
+    abMin: '#ff8800',
+    abMax: '#ffff00',
+} as const;
+
+export function getF16EngineNozzleColor(lever: number): string {
+    const zone = getF16ThrottleZone(lever);
+    if (zone === 'ab-min') {
+        return F16_ENGINE_NOZZLE_COLORS.abMin;
+    }
+    if (zone === 'ab-max') {
+        return F16_ENGINE_NOZZLE_COLORS.abMax;
+    }
+    return F16_ENGINE_NOZZLE_COLORS.mil;
+}
+
 /** Lever [0, 1] as 0–100 throttle quadrant position. */
 export function leverToPercent(lever: number): number {
     return clampLever(lever) * 100;

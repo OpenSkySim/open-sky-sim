@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { PITCH_RATE, PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE } from '../../defs';
 import { FORWARD, PI_OVER_180, RIGHT, UP, calculatePitchRoll, clamp, isZero, roundToZero } from '../../utils/math';
 import { computeAngleOfAttack, computeAirDensity, computeDynamicPressure, computeDynamicPressureDragPenalty, computeIsaAirDensity, computeLoadFactorG, computeMachNumber } from '../aeroUtils';
-import { computeF16EngineThrustN, formatF16ThrottleHud, f16ThrottleAudioLevel, getF16ThrottleZone, adjustF16ThrottleInput, stepF16ThrottleDetent, isF16AbDetentBand } from '../f16Engine';
+import { computeF16EngineThrustN, formatF16ThrottleHud, f16ThrottleAudioLevel, getF16EngineNozzleColor, getF16ThrottleZone, adjustF16ThrottleInput, stepF16ThrottleDetent, isF16AbDetentBand } from '../f16Engine';
 import {
     computeF16CommandedRollRate,
     computeF16RollYawCoupling,
@@ -10,6 +10,7 @@ import {
     maxRollRateRad,
     stepF16BodyRollRate,
 } from '../f16RollControl';
+import { clampLoadFactorAcceleration, computeF16PitchGLimit } from '../f16FcsLimits';
 import { F16_PROFILE } from '../f16Profile';
 import { FlightModel } from './flightModel';
 
@@ -133,6 +134,7 @@ export class RealisticFlightModel extends FlightModel {
         this.updateStallState(speed, aoa, altitude);
 
         const pitchAuthority = this.stall >= 0 ? 0.35 : 1.0;
+        const pitchGLimit = computeF16PitchGLimit(this.loadFactorG, this.pitch, F16_PROFILE.maxLoadFactorG);
         const yawControlScale = MIN_CONTROL_Q + (controlScale - MIN_CONTROL_Q) * YAW_CONTROL_Q_SCALE;
         const mach = computeMachNumber(speed, altitude);
 
@@ -164,7 +166,7 @@ export class RealisticFlightModel extends FlightModel {
             && !(this.landed && this.pitch < 0)
             && (this.stall < 0 || (this.pitch < 0 && this.up.y > 0) || (this.pitch > 0 && this.up.y < 0))
         ) {
-            this.obj.rotateX(-this.pitch * PITCH_RATE * controlScale * pitchAuthority * delta);
+            this.obj.rotateX(-this.pitch * PITCH_RATE * controlScale * pitchAuthority * pitchGLimit * delta);
         }
 
         const maxRollRate = maxRollRateRad(F16_ROLL_CONFIG);
@@ -245,6 +247,7 @@ export class RealisticFlightModel extends FlightModel {
 
         const accel = roundToZero(this.forces.divideScalar(DRY_MASS));
         this.up.copy(UP).applyQuaternion(this.obj.quaternion);
+        clampLoadFactorAcceleration(accel, this.up, F16_PROFILE.maxLoadFactorG);
         this.loadFactorG = computeLoadFactorG(accel, this.up);
         this.velocity.addScaledVector(accel, delta);
 
@@ -296,6 +299,10 @@ export class RealisticFlightModel extends FlightModel {
 
     getThrottleAudioLevel(): number {
         return f16ThrottleAudioLevel(this.effectiveThrottle);
+    }
+
+    getEngineNozzleColor(): string {
+        return getF16EngineNozzleColor(this.effectiveThrottle);
     }
 
     private updateStallState(speed: number, aoa: number, altitude: number) {

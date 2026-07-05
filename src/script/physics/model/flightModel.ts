@@ -198,4 +198,9 @@ export abstract class FlightModel {
     getThrottleAudioLevel(): number {
         return this.effectiveThrottle;
     }
+
+    /** CSS color for engine nozzle rendering (MIL black by default). */
+    getEngineNozzleColor(): string {
+        return '#0a0a0a';
+    }
 }

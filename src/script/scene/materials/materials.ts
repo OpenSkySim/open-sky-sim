@@ -203,6 +203,10 @@ export class SceneMaterialManager implements KernelTask {
         const bit = Math.floor(elapsed * 100) % 2 === 0;
         const color = bit ? PaletteColor(this.palette, PaletteCategory.FX_FIRE) : PaletteColor(this.palette, PaletteCategory.FX_FIRE__B);
         for (let i = 0; i < this.fxFire.length; i++) {
+            const data = this.fxFire[i].userData as SceneMaterialData & { afterburnerThrottleDriven?: boolean };
+            if (data.afterburnerThrottleDriven) {
+                continue;
+            }
             const u = this.fxFire[i].uniforms as SceneMaterialUniforms;
             u.color.value.copy(this.colorCache.getColor(color));
         }

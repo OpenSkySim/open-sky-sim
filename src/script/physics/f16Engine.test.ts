@@ -5,9 +5,11 @@ import {
     computeF16EngineThrustKn,
     computeF16SlThrustKn,
     formatF16ThrottleHud,
+    getF16EngineNozzleColor,
     getF16ThrottleZone,
     stepF16ThrottleDetent,
     F16_ENGINE,
+    F16_ENGINE_NOZZLE_COLORS,
 } from './f16Engine';
 import { F16_PROFILE } from './f16Profile';
 
@@ -61,6 +63,13 @@ describe('F-16 F100-PW-229 throttle quadrant', () => {
         assert.equal(formatF16ThrottleHud(stepF16ThrottleDetent(F16_PROFILE.milLeverEnd, 1)), 'AB1');
         assert.equal(stepF16ThrottleDetent(F16_PROFILE.abMinLeverEnd, 1), 1);
         assert.equal(formatF16ThrottleHud(stepF16ThrottleDetent(F16_PROFILE.abMinLeverEnd, 1)), 'AB2');
+    });
+
+    it('maps throttle zones to solid nozzle colors', () => {
+        assert.equal(getF16EngineNozzleColor(0.5), F16_ENGINE_NOZZLE_COLORS.mil);
+        assert.equal(getF16EngineNozzleColor(0.98), F16_ENGINE_NOZZLE_COLORS.mil);
+        assert.equal(getF16EngineNozzleColor(0.99), F16_ENGINE_NOZZLE_COLORS.abMin);
+        assert.equal(getF16EngineNozzleColor(1.0), F16_ENGINE_NOZZLE_COLORS.abMax);
     });
 
     it('continuous ramp stops at MIL 100 without entering AB', () => {
