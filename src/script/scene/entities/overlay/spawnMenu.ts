@@ -10,6 +10,10 @@ import { getOverlayLayout } from './overlayUtils';
 export class SpawnMenuEntity implements Entity {
 
     afterCrash = false;
+    /** Names of the selectable aircraft, in registry order. */
+    aircraftNames: string[] = [];
+    /** Index into {@link aircraftNames} of the currently selected aircraft. */
+    selectedAircraft = 0;
 
     readonly tags: string[] = [];
 
@@ -39,9 +43,12 @@ export class SpawnMenuEntity implements Entity {
         const padding = bodyFont.charHeight * 2;
 
         const title = this.afterCrash ? 'The plane crashed.' : 'Retro Flight Sim';
+        const aircraftName = this.aircraftNames[this.selectedAircraft] ?? '-';
         const lines = [
             '1 - Approach',
             '2 - Runway',
+            '',
+            `C - Aircraft: ${aircraftName}`,
         ];
 
         const maxLineLength = Math.max(title.length, ...lines.map(line => line.length));

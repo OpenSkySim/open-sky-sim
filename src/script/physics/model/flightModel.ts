@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { UP } from '../../utils/math';
+import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 
 export const SIM_FPS = 120;
 const SIM_DELTA = 1.0 / SIM_FPS;
@@ -115,6 +116,14 @@ export abstract class FlightModel {
     /** Match spooled engine state to commanded throttle (e.g. airborne spawn). */
     syncEffectiveThrottle() {
         this.effectiveThrottle = this.throttle;
+    }
+
+    /**
+     * Select the aircraft this model should simulate. Only the FM2 model is
+     * per-aircraft for now; every other model ignores this (generic dynamics).
+     */
+    setAircraft(_config: Fm2AircraftConfig): void {
+        // No-op by default.
     }
 
     setLandingGearDeployed(deployed: boolean) {

@@ -21,37 +21,13 @@ import { clamp } from '../../utils/math';
 import { computeMachNumber } from '../aeroUtils';
 import { computeF16CommandedRollRate, F16_ROLL_CAT1 } from '../f16RollControl';
 import { FM2_FCS } from './f16Fm2Config';
+import { Fcs, FcsInput, FcsOutput } from './fcs';
 
 const DEG = Math.PI / 180;
 
-export interface FcsInput {
-    pitchStick: number; // [-1, 1] positive = nose up / pull
-    rollStick: number;  // [-1, 1] positive = roll right
-    yawPedal: number;   // [-1, 1] positive = nose right
-    /** Body angular velocity components (rad/s). */
-    pitchRate: number;  // about +X
-    yawRate: number;    // about +Y
-    rollRate: number;   // about +Z
-    loadFactorG: number;
-    aoaRad: number;
-    dynamicPressure: number;
-    qRef: number;
-    speed: number;
-    altitudeM: number;
-    flapsExtended: boolean;
-    landed: boolean;
-}
+export type { FcsInput, FcsOutput };
 
-export interface FcsOutput {
-    /** Elevator command, positive = nose up. */
-    elevator: number;
-    /** Aileron command, positive = roll right. */
-    aileron: number;
-    /** Rudder command, positive = nose right. */
-    rudder: number;
-}
-
-export class F16Fcs {
+export class F16Fcs implements Fcs {
     private elevator = 0;
     private aileron = 0;
     private rudder = 0;

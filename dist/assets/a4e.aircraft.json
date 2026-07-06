@@ -1,0 +1,367 @@
+{
+  "name": "A-4E Skyhawk",
+  "body": "assets/a4e_body.gltf",
+  "shadow": "assets/a4e_shadow.gltf",
+  "gear": "assets/a4e_gear.gltf",
+  "surfaces": [
+    {
+      "role": "elevatorLeft",
+      "path": "assets/a4e_surf_elevatorLeft.gltf",
+      "pivot": [
+        1.1164,
+        1.4424,
+        -4.2491
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "control": "pitch",
+      "sign": 1,
+      "rangeRad": 0.42
+    },
+    {
+      "role": "elevatorRight",
+      "path": "assets/a4e_surf_elevatorRight.gltf",
+      "pivot": [
+        -1.1177,
+        1.4424,
+        -4.2491
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "control": "pitch",
+      "sign": 1,
+      "rangeRad": 0.42
+    },
+    {
+      "role": "aileronLeft",
+      "path": "assets/a4e_surf_aileronLeft.gltf",
+      "pivot": [
+        3.2868,
+        -0.0233,
+        -2.176
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "control": "roll",
+      "sign": 1,
+      "rangeRad": 0.4
+    },
+    {
+      "role": "aileronRight",
+      "path": "assets/a4e_surf_aileronRight.gltf",
+      "pivot": [
+        -3.2868,
+        -0.0233,
+        -2.176
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "control": "roll",
+      "sign": -1,
+      "rangeRad": 0.4
+    },
+    {
+      "role": "rudder",
+      "path": "assets/a4e_surf_rudder.gltf",
+      "pivot": [
+        0.0036,
+        2.5441,
+        -5.4679
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "control": "yaw",
+      "sign": 1,
+      "rangeRad": 0.45
+    },
+    {
+      "role": "flapLeft",
+      "path": "assets/a4e_surf_flapLeft.gltf",
+      "pivot": [
+        1.2736,
+        -0.1516,
+        -2.1592
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "control": "flaps",
+      "sign": 1,
+      "rangeRad": 0.5
+    },
+    {
+      "role": "flapRight",
+      "path": "assets/a4e_surf_flapRight.gltf",
+      "pivot": [
+        -1.271,
+        -0.1456,
+        -2.1595
+      ],
+      "axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "control": "flaps",
+      "sign": 1,
+      "rangeRad": 0.5
+    }
+  ],
+  "fx": {
+    "nozzles": null,
+    "wingtips": null
+  },
+  "cockpitOffset": [
+    0.0,
+    0.9,
+    4.5
+  ],
+  "spawn": {},
+  "groundOffsetY": 0.5112,
+  "flight": {
+    "geometry": {
+      "massKg": 8200,
+      "wingAreaM2": 24.15,
+      "wingSpanM": 8.38,
+      "meanChordM": 2.9
+    },
+    "inertia": {
+      "pitch": 30000,
+      "yaw": 33000,
+      "roll": 8500
+    },
+    "surfaces": {
+      "fuselage": {
+        "name": "fuselage",
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "forward": [
+          0,
+          0,
+          1
+        ],
+        "areaM2": 6.0,
+        "liftSlopePerRad": 2.2,
+        "stallAoaRad": 0.6981,
+        "cd0": 0.0,
+        "inducedK": 0.3,
+        "controlEffectiveness": 0
+      },
+      "wingLeft": {
+        "name": "wingLeft",
+        "position": [
+          -1.8,
+          0.0,
+          -0.1
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "forward": [
+          0,
+          0,
+          1
+        ],
+        "areaM2": 9.0,
+        "liftSlopePerRad": 4.0,
+        "stallAoaRad": 0.384,
+        "cd0": 0.01,
+        "inducedK": 0.16,
+        "controlEffectiveness": 0
+      },
+      "wingRight": {
+        "name": "wingRight",
+        "position": [
+          1.8,
+          0.0,
+          -0.1
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "forward": [
+          0,
+          0,
+          1
+        ],
+        "areaM2": 9.0,
+        "liftSlopePerRad": 4.0,
+        "stallAoaRad": 0.384,
+        "cd0": 0.01,
+        "inducedK": 0.16,
+        "controlEffectiveness": 0
+      },
+      "htailLeft": {
+        "name": "htailLeft",
+        "position": [
+          -1.3,
+          0.0,
+          -4.2
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "forward": [
+          0,
+          0,
+          1
+        ],
+        "areaM2": 1.6,
+        "liftSlopePerRad": 3.2,
+        "stallAoaRad": 0.4189,
+        "cd0": 0.008,
+        "inducedK": 0.18,
+        "controlEffectiveness": 0.9
+      },
+      "htailRight": {
+        "name": "htailRight",
+        "position": [
+          1.3,
+          0.0,
+          -4.2
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "forward": [
+          0,
+          0,
+          1
+        ],
+        "areaM2": 1.6,
+        "liftSlopePerRad": 3.2,
+        "stallAoaRad": 0.4189,
+        "cd0": 0.008,
+        "inducedK": 0.18,
+        "controlEffectiveness": 0.9
+      },
+      "vtail": {
+        "name": "vtail",
+        "position": [
+          0.0,
+          1.0,
+          -4.0
+        ],
+        "up": [
+          1,
+          0,
+          0
+        ],
+        "forward": [
+          0,
+          0,
+          1
+        ],
+        "areaM2": 3.5,
+        "liftSlopePerRad": 2.8,
+        "stallAoaRad": 0.5236,
+        "cd0": 0.008,
+        "inducedK": 0.16,
+        "controlEffectiveness": 0.6
+      }
+    },
+    "aileronMaxDeflectionRad": 0.1047,
+    "flaps": {
+      "aoaBiasRad": 0.1745,
+      "stallReductionRad": 0.0175,
+      "extraCd": 0.03
+    },
+    "gearCd": 0.03,
+    "bodyCd0": 0.028,
+    "waveDrag": {
+      "machOnset": 0.9,
+      "scale": 0.5
+    },
+    "gear": {
+      "points": [
+        [
+          0.0,
+          -2.0,
+          2.4
+        ],
+        [
+          -1.0,
+          -2.0,
+          -0.3
+        ],
+        [
+          1.0,
+          -2.0,
+          -0.3
+        ]
+      ],
+      "stiffness": 3000000,
+      "damping": 130000,
+      "rollFriction": 0.04,
+      "brakeFriction": 0.55,
+      "sideFriction": 0.8
+    },
+    "engine": {
+      "afterburner": false,
+      "idleThrustKn": 0.3,
+      "milThrustKn": 41.4,
+      "abMinThrustKn": 41.4,
+      "abMaxThrustKn": 41.4,
+      "milLeverEnd": 1.0,
+      "abMinLeverEnd": 1.0
+    },
+    "fcs": {
+      "mode": "direct",
+      "maxStabilatorRad": 0.3142,
+      "maxRudderRad": 0.4363,
+      "taileronRollFraction": 0.0,
+      "direct": {
+        "pitchRateDamp": 0.9,
+        "rollRateDamp": 0.1,
+        "yawDamperGain": 1.2,
+        "yawDamperWashoutTauS": 1.0,
+        "ariGain": 0.06,
+        "actuatorTauS": 0.06
+      }
+    },
+    "envelope": {
+      "stallAoaRad": 0.3491,
+      "minFlyingSpeedMps": 52,
+      "cruiseAltitudeM": 9144,
+      "cruiseSpeedMps": 240,
+      "maxLoadFactorG": 7.3,
+      "landingMaxSpeedMps": 80,
+      "landingMaxVerticalSpeedMps": 8,
+      "landingMinPitchRad": -0.1745,
+      "landingMaxRollRad": 0.2094
+    }
+  }
+}

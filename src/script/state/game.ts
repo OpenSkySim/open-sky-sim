@@ -45,6 +45,10 @@ import { StaticModelCameraUpdater } from './cameraUpdaters/staticModelCameraUpda
 import { restoreMainCameraParameters } from './stateUtils';
 import { forEachStaticAircraftSlot, STATIC_MODEL_VIEWS } from './staticModelViews';
 import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
+import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
+import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
+
+const A4E_MANIFEST_URL = 'assets/a4e.aircraft.json';
 
 
 const MAIN_RENDER_TARGET_LO = 'MAIN_RENDER_TARGET_LO';
@@ -203,6 +207,10 @@ export class Game {
     private groundFire: StaticSceneryEntity;
     private spawnMenu: SpawnMenuEntity;
 
+    private aircraftRegistry = new AircraftRegistry();
+    private currentDef: FlyableAircraftDef;
+    private selectedAircraft = 0;
+
     private flightRecorder = new FlightRecorder();
 
     constructor(private configService: ConfigService, private models: ModelManager, private materials: SceneMaterialManager, private renderer: Renderer,
@@ -214,18 +222,9 @@ export class Game {
         this.mapCamera.setRotationFromAxisAngle(RIGHT, -Math.PI / 2);
         this.mapCamera.position.set(0, 500, 0);
 
+        this.currentDef = buildF22Def();
         this.player = new PlayerEntity(this.models,
-            {
-                body: 'assets/f22.glb',
-                shadow: 'assets/f22_shadow.glb',
-                landingGear: 'assets/f22_landinggear.glb',
-                flaperonLeft: 'assets/f22_flaperon_left.glb',
-                flaperonRight: 'assets/f22_flaperon_right.glb',
-                elevatorLeft: 'assets/f22_elevator_left.glb',
-                elevatorRight: 'assets/f22_elevator_right.glb',
-                rudderLeft: 'assets/f22_rudder_left.glb',
-                rudderRight: 'assets/f22_rudder_right.glb'
-            },
+            this.currentDef,
             configService.flightModels.getActive(),
             this.materials,
             this.audio.getGlobal('assets/engine-loop-02.ogg', true),
@@ -269,6 +268,9 @@ export class Game {
         });
         this.configService.flightModels.addChangeListener(flightModel => {
             this.player.setFlightModel(flightModel);
+            if (this.currentDef.flight) {
+                flightModel.setAircraft(this.currentDef.flight);
+            }
         })
 
         const playerLayersLo: RenderLayer[] = [
@@ -444,8 +446,46 @@ export class Game {
         this.materials.setPalette(this.getPalette());
         this.setupControls();
         this.setupScene();
+        this.refreshAircraftMenu();
+        if (this.currentDef.flight) {
+            this.configService.flightModels.getActive().setAircraft(this.currentDef.flight);
+        }
+        // Load imported flyable mods asynchronously and add them to the menu.
+        this.aircraftRegistry.loadManifest('a4e', A4E_MANIFEST_URL).then(() => {
+            this.refreshAircraftMenu();
+        });
         this.enterSpawnMenu(false);
         window.addEventListener('resize', () => this.onViewportResize());
+    }
+
+    private refreshAircraftMenu() {
+        const list = this.aircraftRegistry.list();
+        this.spawnMenu.aircraftNames = list.map(def => def.name);
+        this.selectedAircraft = Math.min(this.selectedAircraft, Math.max(0, list.length - 1));
+        this.spawnMenu.selectedAircraft = this.selectedAircraft;
+    }
+
+    private cycleSelectedAircraft() {
+        const list = this.aircraftRegistry.list();
+        if (list.length === 0) {
+            return;
+        }
+        this.selectedAircraft = (this.selectedAircraft + 1) % list.length;
+        this.spawnMenu.selectedAircraft = this.selectedAircraft;
+    }
+
+    /** Swap the player to the aircraft chosen in the spawn menu, if different. */
+    private applySelectedAircraft() {
+        const list = this.aircraftRegistry.list();
+        const def = list[this.selectedAircraft];
+        if (!def || def.id === this.currentDef.id) {
+            return;
+        }
+        this.currentDef = def;
+        this.player.loadAircraft(def);
+        if (def.flight) {
+            this.configService.flightModels.getActive().setAircraft(def.flight);
+        }
     }
 
     private onViewportResize() {
@@ -730,6 +770,11 @@ export class Game {
                         this.beginFlight('runway');
                         break;
                     }
+                    case 'c':
+                    case 'C': {
+                        this.cycleSelectedAircraft();
+                        break;
+                    }
                 }
             }
 
@@ -856,6 +901,7 @@ export class Game {
     }
 
     private beginFlight(spawn: 'approach' | 'runway') {
+        this.applySelectedAircraft();
         this.state = GameState.PLAYER;
         this.player.setSimulationPaused(false);
         this.spawnMenu.enabled = false;

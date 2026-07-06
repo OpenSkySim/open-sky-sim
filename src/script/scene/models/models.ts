@@ -22,6 +22,13 @@ export interface Model {
 export const LIB_PREFFIX = 'lib:';
 export type ModelLoadedListener = (url: string, model: Model) => void;
 
+// The GLASS material is drawn as a flat dark-grey surface with a light ordered
+// dither, so canopies read as tinted glass without a real alpha-blend pipeline.
+// alphaDither is roughly "fraction of pixels kept" (0.5 ≈ half see-through);
+// a higher value means a lighter, sparser dither. Both are easy to tweak.
+const GLASS_COLOR = '#333333';
+const GLASS_ALPHA_DITHER = 0.65;
+
 export interface ModelLibBuilder {
     readonly type: string;
     build(materials: SceneMaterialManager): Model;
@@ -149,17 +156,29 @@ export class ModelManager {
                 if ('isMesh' in obj) {
                     const matName = (obj.material as THREE.MeshStandardMaterial).name;
                     const rawColor = ModelManager.rawColorFor(matName);
-                    obj.material = this.materials.build({
-                        type: SceneMaterialPrimitiveType.MESH,
-                        category: rawColor ? PaletteCategory.VEHICLE_PLANE_GREY : matName as PaletteCategory,
-                        rawColor,
-                        shaded: !isFlat,
-                        depthWrite: !isFlat
-                    });
-                    // Mod imports often have open/inverted Unity meshes; draw both
-                    // sides so backface culling does not leave see-through holes.
-                    if (rawColor) {
+                    if (matName === PaletteCategory.GLASS) {
+                        obj.material = this.materials.build({
+                            type: SceneMaterialPrimitiveType.MESH,
+                            category: PaletteCategory.GLASS,
+                            rawColor: GLASS_COLOR,
+                            shaded: false,
+                            alphaDither: GLASS_ALPHA_DITHER,
+                            depthWrite: !isFlat
+                        });
                         (obj.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
+                    } else {
+                        obj.material = this.materials.build({
+                            type: SceneMaterialPrimitiveType.MESH,
+                            category: rawColor ? PaletteCategory.VEHICLE_PLANE_GREY : matName as PaletteCategory,
+                            rawColor,
+                            shaded: !isFlat,
+                            depthWrite: !isFlat
+                        });
+                        // Mod imports often have open/inverted Unity meshes; draw both
+                        // sides so backface culling does not leave see-through holes.
+                        if (rawColor) {
+                            (obj.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
+                        }
                     }
                 } else if ('isLineSegments' in child) {
                     obj.material = this.materials.build({

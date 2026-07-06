@@ -179,8 +179,14 @@ export class WingtipTrails {
     private readonly right: WingTrailSide;
     private readonly _leftTip = new THREE.Vector3();
     private readonly _rightTip = new THREE.Vector3();
+    private readonly leftTipBody = LEFT_WINGTIP.clone();
+    private readonly rightTipBody = RIGHT_WINGTIP.clone();
 
-    constructor(materials: SceneMaterialManager) {
+    constructor(materials: SceneMaterialManager, tips?: { left: THREE.Vector3, right: THREE.Vector3 }) {
+        if (tips) {
+            this.leftTipBody.copy(tips.left);
+            this.rightTipBody.copy(tips.right);
+        }
         this.segmentMaterials = Array.from({ length: SEGMENT_COUNT }, (_, index) => {
             const material = materials.build({
                 type: SceneMaterialPrimitiveType.MESH,
@@ -227,8 +233,8 @@ export class WingtipTrails {
 
         if (airborne && speed >= MIN_TRAIL_SPEED_MPS) {
             const spacing = sampleSpacingM(speed);
-            this._leftTip.copy(LEFT_WINGTIP).applyQuaternion(displayQuaternion).add(displayPosition);
-            this._rightTip.copy(RIGHT_WINGTIP).applyQuaternion(displayQuaternion).add(displayPosition);
+            this._leftTip.copy(this.leftTipBody).applyQuaternion(displayQuaternion).add(displayPosition);
+            this._rightTip.copy(this.rightTipBody).applyQuaternion(displayQuaternion).add(displayPosition);
             this.left.tryPush(this._leftTip, spacing);
             this.right.tryPush(this._rightTip, spacing);
         }

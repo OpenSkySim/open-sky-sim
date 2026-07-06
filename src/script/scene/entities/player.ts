@@ -17,19 +17,8 @@ import { Scene, SceneLayers } from "../scene";
 import { AfterburnerCones } from './afterburnerCones';
 import { WingtipTrails } from './wingtipTrails';
 import { GroundTargetEntity } from './groundTarget';
+import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 
-
-export interface PlayerModelParts {
-    body: string;
-    shadow: string;
-    landingGear: string;
-    flaperonLeft: string;
-    flaperonRight: string;
-    elevatorLeft: string;
-    elevatorRight: string;
-    rudderLeft: string;
-    rudderRight: string;
-}
 
 const ENGINE_LOWEST_VOLUME = 0.05; // [0,1]
 
@@ -38,22 +27,9 @@ const LANDING_GEAR_ANIM_DURATION = 3; // Seconds
 const FLAPS_ANIM_DURATION = 2; // Seconds
 const FLAPS_EXTENDED_ANGLE = Math.PI / 5; // Radians
 
-const ELEVATOR_LEFT_POSITION = new THREE.Vector3(0, 0, -6);
-const ELEVATOR_LEFT_AXIS = RIGHT;
-const ELEVATOR_RIGHT_POSITION = new THREE.Vector3(0, 0, -6);
-const ELEVATOR_RIGHT_AXIS = RIGHT;
-const FLAPERON_LEFT_POSITION = new THREE.Vector3(4.5, -0.21, -3);
-const FLAPERON_LEFT_AXIS = new THREE.Vector3(1.681781, -0.152682, 0.57654);
-const FLAPERON_RIGHT_POSITION = new THREE.Vector3(-4.5, -0.21, -3);
-const FLAPERON_RIGHT_AXIS = new THREE.Vector3(-1.681781, -0.152682, 0.57654);
-const RUDDER_LEFT_POSITION = new THREE.Vector3(2.34, 1.8, -4.05);
-const RUDDER_LEFT_AXIS = new THREE.Vector3(0.383502, 0.802989, 0.456217);
-const RUDDER_RIGHT_POSITION = new THREE.Vector3(-2.34, 1.8, -4.05);
-const RUDDER_RIGHT_AXIS = new THREE.Vector3(-0.383502, 0.802989, 0.456217);
-
 interface ControlSurfaceDescriptor {
     model: LODHelper;
-    positiom: THREE.Vector3;
+    position: THREE.Vector3;
     axis: THREE.Vector3;
     value: () => number;
     range: number;
@@ -75,20 +51,17 @@ export interface PlayerSpawnState {
 export class PlayerEntity implements Entity {
 
     private scene: Scene | undefined;
-    private modelBody: LODHelper;
-    private modelShadow: LODHelper;
+    private readonly models: ModelManager;
+    private modelBody!: LODHelper;
+    private modelShadow!: LODHelper;
     private modelLandingGear: LODHelper | undefined;
-    private modelFlaperonLeft: LODHelper;
-    private modelFlaperonRight: LODHelper;
-    private modelElevatorLeft: LODHelper;
-    private modelElevatorRight: LODHelper;
-    private modelRudderLeft: LODHelper;
-    private modelRudderRight: LODHelper;
     private shadowPosition = new THREE.Vector3();
     private shadowQuaternion = new THREE.Quaternion();
     private shadowScale = new THREE.Vector3();
 
-    private controlSurfaceDescriptors: ControlSurfaceDescriptor[];
+    private controlSurfaceDescriptors: ControlSurfaceDescriptor[] = [];
+    private cockpitOffset = new THREE.Vector3();
+    private hasWingtips = true;
 
     private flightModel: FlightModel;
 
@@ -141,25 +114,12 @@ export class PlayerEntity implements Entity {
     private _exteriorView: boolean = false;
 
     // Heading increases CCW, radians
-    constructor(models: ModelManager, modelParts: PlayerModelParts, flightModel: FlightModel, materials: SceneMaterialManager, inEngineAudio: AudioClip, outEngineAudio: AudioClip, position: THREE.Vector3, heading: number) {
+    constructor(models: ModelManager, def: FlyableAircraftDef, flightModel: FlightModel, private materials: SceneMaterialManager, inEngineAudio: AudioClip, outEngineAudio: AudioClip, position: THREE.Vector3, heading: number) {
+        this.models = models;
         this.afterburnerCones = new AfterburnerCones(materials);
         this.wingtipTrails = new WingtipTrails(materials);
-        this.modelBody = new LODHelper(models.getModel(modelParts.body, () => {
-            this.bindAfterburnerPaneMaterials();
-        }));
-        this.modelShadow = new LODHelper(models.getModel(modelParts.shadow), 5);
-        this.modelFlaperonLeft = new LODHelper(models.getModel(modelParts.flaperonLeft));
-        this.modelFlaperonRight = new LODHelper(models.getModel(modelParts.flaperonRight));
-        this.modelElevatorLeft = new LODHelper(models.getModel(modelParts.elevatorLeft));
-        this.modelElevatorRight = new LODHelper(models.getModel(modelParts.elevatorRight));
-        this.modelRudderLeft = new LODHelper(models.getModel(modelParts.rudderLeft));
-        this.modelRudderRight = new LODHelper(models.getModel(modelParts.rudderRight));
 
-        models.getModel(modelParts.landingGear, (_, model) => {
-            this.modelLandingGear = new LODHelper(model);
-            this.modelLandingGear.setPlaybackDuration(LANDING_GEAR_ANIM_DURATION);
-            this.modelLandingGear.setPlaybackPosition(1);
-        });
+        this.buildFromDef(def);
 
         this.flightModel = flightModel;
         this.flightModel.position = position;
@@ -171,51 +131,74 @@ export class PlayerEntity implements Entity {
         this.outEngineAudio = outEngineAudio;
 
         this.bindAfterburnerPaneMaterials();
+    }
 
-        this.controlSurfaceDescriptors = [
-            {
-                model: this.modelFlaperonLeft,
-                positiom: FLAPERON_LEFT_POSITION,
-                axis: FLAPERON_LEFT_AXIS,
-                value: () => { return this.flapsProgressUnit * -FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * this.roll },
-                range: Math.PI / 6
-            },
-            {
-                model: this.modelFlaperonRight,
-                positiom: FLAPERON_RIGHT_POSITION,
-                axis: FLAPERON_RIGHT_AXIS,
-                value: () => { return this.flapsProgressUnit * FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * this.roll },
-                range: Math.PI / 6
-            },
-            {
-                model: this.modelElevatorLeft,
-                positiom: ELEVATOR_LEFT_POSITION,
-                axis: ELEVATOR_LEFT_AXIS,
-                value: () => { return this.pitch },
-                range: Math.PI / 6
-            },
-            {
-                model: this.modelElevatorRight,
-                positiom: ELEVATOR_RIGHT_POSITION,
-                axis: ELEVATOR_RIGHT_AXIS,
-                value: () => { return this.pitch },
-                range: Math.PI / 6
-            },
-            {
-                model: this.modelRudderLeft,
-                positiom: RUDDER_LEFT_POSITION,
-                axis: RUDDER_LEFT_AXIS,
-                value: () => { return this.yaw },
-                range: Math.PI / 6
-            },
-            {
-                model: this.modelRudderRight,
-                positiom: RUDDER_RIGHT_POSITION,
-                axis: RUDDER_RIGHT_AXIS,
-                value: () => { return this.yaw },
-                range: Math.PI / 6
-            }
-        ];
+    /** (Re)build all visual models and control surfaces from an aircraft def. */
+    private buildFromDef(def: FlyableAircraftDef): void {
+        this.afterburnerPanesBound = false;
+        this.afterburnerInteriorMaterials.length = 0;
+
+        this.modelBody = new LODHelper(this.models.getModel(def.body, () => {
+            this.bindAfterburnerPaneMaterials();
+        }));
+        this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
+
+        this.modelLandingGear = undefined;
+        if (def.gear) {
+            const animated = def.gearAnimated ?? true;
+            this.models.getModel(def.gear, (_, model) => {
+                this.modelLandingGear = new LODHelper(model);
+                if (animated) {
+                    this.modelLandingGear.setPlaybackDuration(LANDING_GEAR_ANIM_DURATION);
+                    this.modelLandingGear.setPlaybackPosition(1);
+                }
+            });
+        }
+
+        this.cockpitOffset.fromArray(def.cockpitOffset);
+
+        const wingtips = def.fx?.wingtips ?? null;
+        this.hasWingtips = !!wingtips;
+        if (wingtips) {
+            this.wingtipTrails = new WingtipTrails(this.materials, {
+                left: new THREE.Vector3().fromArray(wingtips[0]),
+                right: new THREE.Vector3().fromArray(wingtips[1]),
+            });
+        }
+
+        this.controlSurfaceDescriptors = def.surfaces.map((s: ControlSurfaceConfig) => ({
+            model: new LODHelper(this.models.getModel(s.model)),
+            position: new THREE.Vector3().fromArray(s.pivot),
+            axis: new THREE.Vector3().fromArray(s.axis),
+            value: () => this.surfaceValue(s.control, s.sign),
+            range: s.rangeRad,
+        }));
+    }
+
+    /** Swap the visual aircraft at runtime (flight model swapped separately). */
+    loadAircraft(def: FlyableAircraftDef): void {
+        this.buildFromDef(def);
+        this.bindAfterburnerPaneMaterials();
+    }
+
+    /** Map a surface's control binding to a normalized deflection value. */
+    private surfaceValue(control: ControlAxis, sign: number): number {
+        switch (control) {
+            case 'pitch': return sign * this.pitch;
+            case 'roll': return sign * this.roll;
+            case 'yaw': return sign * this.yaw;
+            case 'flaps': return sign * this.flapsProgressUnit;
+            case 'flaperonLeft':
+                return this.flapsProgressUnit * -FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * this.roll;
+            case 'flaperonRight':
+                return this.flapsProgressUnit * FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * this.roll;
+            default: return 0;
+        }
+    }
+
+    /** Cockpit eye offset in the body frame (m). */
+    getCockpitOffset(target: THREE.Vector3): THREE.Vector3 {
+        return target.copy(this.cockpitOffset);
     }
 
     init(scene: Scene): void {
@@ -267,12 +250,14 @@ export class PlayerEntity implements Entity {
         this.bindAfterburnerPaneMaterials();
         this.updateAfterburnerPaneColors();
         this.updateDisplayTransform();
-        this.wingtipTrails.update(
-            this.displayPosition,
-            this.displayQuaternion,
-            this.displayVelocity,
-            !this.isLanded && !this.isCrashed,
-        );
+        if (this.hasWingtips) {
+            this.wingtipTrails.update(
+                this.displayPosition,
+                this.displayQuaternion,
+                this.displayVelocity,
+                !this.isLanded && !this.isCrashed,
+            );
+        }
 
         if (!this.isCrashed) {
             this.updateLandingGear(delta);
@@ -635,7 +620,7 @@ export class PlayerEntity implements Entity {
                     const d = this.controlSurfaceDescriptors[i];
 
                     this._q.setFromAxisAngle(this._v.copy(d.axis).applyQuaternion(this.displayQuaternion), this.isCrashed ? 0 : d.value() * d.range).multiply(this.displayQuaternion);
-                    this._v.copy(d.positiom).applyQuaternion(this.displayQuaternion).add(this.displayPosition);
+                    this._v.copy(d.position).applyQuaternion(this.displayQuaternion).add(this.displayPosition);
                     d.model.addToRenderList(
                         this._v, this._q, this.obj.scale,
                         targetWidth, camera, palette,
@@ -643,7 +628,9 @@ export class PlayerEntity implements Entity {
                 }
             }
 
-            this.wingtipTrails.addToRenderList(SceneLayers.EntityFX, lists, camera);
+            if (this.hasWingtips) {
+                this.wingtipTrails.addToRenderList(SceneLayers.EntityFX, lists, camera);
+            }
         }
     }
 

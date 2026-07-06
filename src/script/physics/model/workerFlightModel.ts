@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FlightModel } from './flightModel';
 import { formatF16ThrottleHud, stepF16ThrottleDetent, isF16AbDetentBand, adjustF16ThrottleInput, getF16ThrottleZone, f16ThrottleAudioLevel, getF16EngineNozzleColor } from '../f16Engine';
+import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 
 export type FlightModelType = 'realistic' | 'fm2' | 'arcade' | 'debug';
 
@@ -8,6 +9,11 @@ export class WorkerFlightModel extends FlightModel {
     private worker: Worker;
     private lastState: any = null;
     private modelType: FlightModelType;
+    private aircraftConfig: Fm2AircraftConfig | undefined;
+    // Afterburner-equipped FM2 aircraft use the F-16 throttle quadrant; others
+    // (e.g. the A-4E) use a plain linear lever. Defaults true until an aircraft
+    // is selected so the F-16 remains the default behaviour.
+    private fm2Afterburner = true;
 
     constructor(modelType: FlightModelType) {
         super();
@@ -136,9 +142,21 @@ export class WorkerFlightModel extends FlightModel {
         return super.velocityVector;
     }
 
-    /** Both the Realistic and FM2 models simulate the F-16's throttle quadrant. */
+    setAircraft(config: Fm2AircraftConfig): void {
+        this.aircraftConfig = config;
+        this.fm2Afterburner = config.engine.afterburner;
+        this.worker.postMessage({ type: 'setAircraft', aircraftConfig: config });
+    }
+
+    /**
+     * Whether this model uses the F-16 throttle quadrant (MIL/AB detents). The
+     * Realistic model always does; the FM2 model does only for afterburner
+     * aircraft.
+     */
     private isF16(): boolean {
-        return this.modelType === 'realistic' || this.modelType === 'fm2';
+        if (this.modelType === 'realistic') return true;
+        if (this.modelType === 'fm2') return this.fm2Afterburner;
+        return false;
     }
 
     // F-16 specific overrides to match the F-16 flight models' behavior

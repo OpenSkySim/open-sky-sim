@@ -16,54 +16,35 @@ import { PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../
 import { clamp, FORWARD, RIGHT, UP } from '../../utils/math';
 import {
     computeAirDensity, computeDynamicPressure, computeIsaAirDensity,
-    computeMachNumber,
+    computeMachNumber, computeThrustDensityFactor,
 } from '../aeroUtils';
 import {
     adjustF16ThrottleInput, computeF16EngineThrustN, f16ThrottleAudioLevel,
     formatF16ThrottleHud, getF16EngineNozzleColor, getF16ThrottleZone,
     isF16AbDetentBand, stepF16ThrottleDetent,
 } from '../f16Engine';
-import { F16_PROFILE } from '../f16Profile';
 import { AeroSurface } from '../fm2/aeroSurface';
+import { DirectFcs } from '../fm2/directFcs';
+import { Fcs } from '../fm2/fcs';
 import { F16Fcs } from '../fm2/f16Fcs';
-import {
-    FM2_AILERON, FM2_BODY_CD0, FM2_FCS, FM2_FLAPS, FM2_GEAR_CD, FM2_GEOMETRY,
-    FM2_INERTIA, FM2_SURFACES, FM2_WAVE_DRAG,
-} from '../fm2/f16Fm2Config';
+import { Fm2AircraftConfig, Fm2DirectFcsConfig, f16Fm2Config } from '../fm2/fm2AircraftConfig';
 import { RigidBody } from '../fm2/rigidBody';
 import { FlightModel } from './flightModel';
 
 const GRAVITY = 9.80665;
-const DEG = Math.PI / 180;
 
 const THROTTLE_UP_RATE = 0.10;
 const THROTTLE_DOWN_RATE = 0.07;
 
-const MAX_STABILATOR_AOA = FM2_FCS.maxStabilatorRad;
-const MAX_AILERON_AOA = FM2_AILERON.maxDeflectionRad;
-const MAX_RUDDER_AOA = 22 * DEG;
-
-const Q_REF = 0.5 * computeIsaAirDensity(F16_PROFILE.cruiseAltitudeM) * F16_PROFILE.cruiseSpeedMps ** 2;
-const STALL_AOA = F16_PROFILE.stallAoaDeg * DEG;
-const MIN_FLYING_SPEED = F16_PROFILE.minFlyingSpeedMps;
-
-// Landing-gear spring-damper contact points (body frame, m). Y ≈ -PLANE_DISTANCE_TO_GROUND.
-const GEAR_POINTS: [number, number, number][] = [
-    [0.0, -PLANE_DISTANCE_TO_GROUND, 2.6],   // nose
-    [-1.2, -PLANE_DISTANCE_TO_GROUND, -0.6], // left main
-    [1.2, -PLANE_DISTANCE_TO_GROUND, -0.6],  // right main
-];
-const GEAR_STIFFNESS = 4.0e6;   // N/m
-const GEAR_DAMPING = 1.6e5;     // N·s/m
-const GEAR_ROLL_FRICTION = 0.04;
-const GEAR_BRAKE_FRICTION = 0.55;
-const GEAR_SIDE_FRICTION = 0.8;
-
-// Touchdown limits (crash otherwise), mirroring the F-16 profile.
-const LANDING_MAX_SPEED = F16_PROFILE.landingMaxSpeedMps;
-const LANDING_MAX_VSPEED = F16_PROFILE.landingMaxVerticalSpeedMps;
-const LANDING_MIN_PITCH = F16_PROFILE.landingMinPitchDeg * DEG;
-const LANDING_MAX_ROLL = F16_PROFILE.landingMaxRollDeg * DEG;
+// Fallback mechanical FCS tuning for a direct-mode aircraft that omits its own.
+const DEFAULT_DIRECT_FCS: Fm2DirectFcsConfig = {
+    pitchRateDamp: 0.9,
+    rollRateDamp: 0.12,
+    yawDamperGain: 1.4,
+    yawDamperWashoutTauS: 1.0,
+    ariGain: 0.08,
+    actuatorTauS: 0.06,
+};
 
 interface SurfaceControls {
     wingLeftAoa: number;
@@ -75,19 +56,20 @@ interface SurfaceControls {
 
 export class Fm2FlightModel extends FlightModel {
 
-    private readonly rb = new RigidBody(FM2_GEOMETRY.massKg, {
-        x: FM2_INERTIA.pitch,
-        y: FM2_INERTIA.yaw,
-        z: FM2_INERTIA.roll,
-    });
-    private readonly fcs = new F16Fcs();
+    private readonly config: Fm2AircraftConfig;
 
-    private readonly fuselage = new AeroSurface(FM2_SURFACES.fuselage);
-    private readonly wingLeft = new AeroSurface(FM2_SURFACES.wingLeft);
-    private readonly wingRight = new AeroSurface(FM2_SURFACES.wingRight);
-    private readonly htailLeft = new AeroSurface(FM2_SURFACES.htailLeft);
-    private readonly htailRight = new AeroSurface(FM2_SURFACES.htailRight);
-    private readonly vtail = new AeroSurface(FM2_SURFACES.vtail);
+    private readonly rb: RigidBody;
+    private readonly fcs: Fcs;
+
+    private readonly fuselage: AeroSurface;
+    private readonly wingLeft: AeroSurface;
+    private readonly wingRight: AeroSurface;
+    private readonly htailLeft: AeroSurface;
+    private readonly htailRight: AeroSurface;
+    private readonly vtail: AeroSurface;
+
+    /** Reference dynamic pressure at the design cruise condition (Pa). */
+    private readonly qRef: number;
 
     private stall = -1;
 
@@ -109,8 +91,25 @@ export class Fm2FlightModel extends FlightModel {
     private readonly _omegaWorld = new THREE.Vector3();
     private readonly _friction = new THREE.Vector3();
 
-    constructor() {
+    constructor(config: Fm2AircraftConfig = f16Fm2Config) {
         super();
+        this.config = config;
+        this.rb = new RigidBody(config.geometry.massKg, {
+            x: config.inertia.pitch,
+            y: config.inertia.yaw,
+            z: config.inertia.roll,
+        });
+        this.fcs = config.fcs.mode === 'direct'
+            ? new DirectFcs(config.fcs.direct ?? DEFAULT_DIRECT_FCS)
+            : new F16Fcs();
+        this.fuselage = new AeroSurface(config.surfaces.fuselage);
+        this.wingLeft = new AeroSurface(config.surfaces.wingLeft);
+        this.wingRight = new AeroSurface(config.surfaces.wingRight);
+        this.htailLeft = new AeroSurface(config.surfaces.htailLeft);
+        this.htailRight = new AeroSurface(config.surfaces.htailRight);
+        this.vtail = new AeroSurface(config.surfaces.vtail);
+        this.qRef = 0.5 * computeIsaAirDensity(config.envelope.cruiseAltitudeM)
+            * config.envelope.cruiseSpeedMps ** 2;
         this.obj.up.copy(UP);
     }
 
@@ -156,7 +155,7 @@ export class Fm2FlightModel extends FlightModel {
             loadFactorG: this.loadFactorG,
             aoaRad: aoa,
             dynamicPressure,
-            qRef: Q_REF,
+            qRef: this.qRef,
             speed,
             altitudeM: altitude,
             flapsExtended: this.flapsExtended,
@@ -169,9 +168,10 @@ export class Fm2FlightModel extends FlightModel {
         this.forceBody.set(0, 0, 0);
         this.momentBody.set(0, 0, 0);
 
-        const camber = this.flapsExtended ? FM2_FLAPS.aoaBiasRad : 0;
-        const stallShift = this.flapsExtended ? FM2_FLAPS.stallReductionRad : 0;
-        const wingExtraCd = this.flapsExtended ? FM2_FLAPS.extraCd : 0;
+        const flaps = this.config.flaps;
+        const camber = this.flapsExtended ? flaps.aoaBiasRad : 0;
+        const stallShift = this.flapsExtended ? flaps.stallReductionRad : 0;
+        const wingExtraCd = this.flapsExtended ? flaps.extraCd : 0;
 
         // Blended lifting body at the CG (no flaps, no control incidence).
         this.accumulateSurface(this.fuselage, 0, 0, 0, 0, airDensity);
@@ -185,7 +185,7 @@ export class Fm2FlightModel extends FlightModel {
         this.addBodyDrag(dynamicPressure, speed, mach);
 
         // Thrust along the nose (+Z body).
-        const thrustN = computeF16EngineThrustN(this.effectiveThrottle, altitude);
+        const thrustN = this.computeThrustN(this.effectiveThrottle, altitude);
         this.engineThrustN = thrustN;
         this.forceBody.z += thrustN;
 
@@ -194,7 +194,7 @@ export class Fm2FlightModel extends FlightModel {
 
         // Load factor: specific normal (body-up) force / g, incl. gear reaction.
         const gearBodyUpY = this._v.copy(this.gearForceWorld).applyQuaternion(this.invOrient).y;
-        this.loadFactorG = (this.forceBody.y + gearBodyUpY) / (FM2_GEOMETRY.massKg * GRAVITY);
+        this.loadFactorG = (this.forceBody.y + gearBodyUpY) / (this.config.geometry.massKg * GRAVITY);
 
         // ---- Integrate rotational dynamics (body frame). ----
         this.momentBody.add(this.gearMomentBody);
@@ -203,7 +203,7 @@ export class Fm2FlightModel extends FlightModel {
         // ---- Integrate translational dynamics (world frame). ----
         this.forceWorld.copy(this.forceBody).applyQuaternion(this.rb.orientation);
         this.forceWorld.add(this.gearForceWorld);
-        this.forceWorld.y -= FM2_GEOMETRY.massKg * GRAVITY; // gravity
+        this.forceWorld.y -= this.config.geometry.massKg * GRAVITY; // gravity
         this.rb.integrateLinear(this.forceWorld, delta, this.obj.position);
 
         // Publish rigid-body state back to the base model.
@@ -224,17 +224,33 @@ export class Fm2FlightModel extends FlightModel {
     }
 
     private mapControls(elevator: number, aileron: number, rudder: number): SurfaceControls {
+        const maxStabilator = this.config.fcs.maxStabilatorRad;
+        const maxAileron = this.config.aileronMaxDeflectionRad;
+        const maxRudder = this.config.fcs.maxRudderRad;
         // Elevator: +cmd = nose up → negative stabilator incidence (tail lift down).
-        const elevatorAoa = -elevator * MAX_STABILATOR_AOA;
+        const elevatorAoa = -elevator * maxStabilator;
         // Differential tail (taileron) assists roll.
-        const taileronAoa = aileron * FM2_FCS.taileronRollFraction * MAX_STABILATOR_AOA;
+        const taileronAoa = aileron * this.config.fcs.taileronRollFraction * maxStabilator;
         return {
-            wingLeftAoa: aileron * MAX_AILERON_AOA,
-            wingRightAoa: -aileron * MAX_AILERON_AOA,
+            wingLeftAoa: aileron * maxAileron,
+            wingRightAoa: -aileron * maxAileron,
             htailLeftAoa: elevatorAoa + taileronAoa,
             htailRightAoa: elevatorAoa - taileronAoa,
-            vtailAoa: -rudder * MAX_RUDDER_AOA,
+            vtailAoa: -rudder * maxRudder,
         };
+    }
+
+    /** Delivered thrust (N) at altitude for the configured engine. */
+    private computeThrustN(lever: number, altitude: number): number {
+        const e = this.config.engine;
+        if (e.afterburner) {
+            // F-16 F100 quadrant + lapse, unchanged for the default aircraft.
+            return computeF16EngineThrustN(lever, altitude);
+        }
+        // Plain idle→military schedule with the same ISA density lapse.
+        const slKn = e.idleThrustKn + (e.milThrustKn - e.idleThrustKn) * clamp(lever, 0, 1);
+        const rho = computeAirDensity(altitude);
+        return slKn * 1000 * computeThrustDensityFactor(rho, altitude);
     }
 
     private accumulateSurface(
@@ -255,12 +271,13 @@ export class Fm2FlightModel extends FlightModel {
     /** Parasite (fuselage + gear) and transonic wave drag along the relative wind. */
     private addBodyDrag(dynamicPressure: number, speed: number, mach: number): void {
         if (speed < 1e-3) return;
-        let cd0 = FM2_BODY_CD0 + (this.landingGearDeployed ? FM2_GEAR_CD : 0);
-        if (mach > FM2_WAVE_DRAG.machOnset) {
-            const excess = (mach - FM2_WAVE_DRAG.machOnset) / FM2_WAVE_DRAG.machOnset;
-            cd0 += FM2_WAVE_DRAG.scale * excess * excess;
+        const waveDrag = this.config.waveDrag;
+        let cd0 = this.config.bodyCd0 + (this.landingGearDeployed ? this.config.gearCd : 0);
+        if (mach > waveDrag.machOnset) {
+            const excess = (mach - waveDrag.machOnset) / waveDrag.machOnset;
+            cd0 += waveDrag.scale * excess * excess;
         }
-        const dragN = dynamicPressure * FM2_GEOMETRY.wingAreaM2 * cd0;
+        const dragN = dynamicPressure * this.config.geometry.wingAreaM2 * cd0;
         // Opposes body velocity (acts through CG, no moment).
         this._v.copy(this.velBody).multiplyScalar(-dragN / speed);
         this.forceBody.add(this._v);
@@ -273,7 +290,8 @@ export class Fm2FlightModel extends FlightModel {
 
         this._omegaWorld.copy(this.rb.angularVelocityBody).applyQuaternion(this.rb.orientation);
 
-        for (const gp of GEAR_POINTS) {
+        const gear = this.config.gear;
+        for (const gp of gear.points) {
             this._v.set(gp[0], gp[1], gp[2]).applyQuaternion(this.rb.orientation);
             this._gearWorld.copy(this._v).add(this.obj.position);
             const penetration = -this._gearWorld.y; // ground plane at world y = 0
@@ -283,7 +301,7 @@ export class Fm2FlightModel extends FlightModel {
             this._contactVel.crossVectors(this._omegaWorld, this._v).add(this.rb.velocityWorld);
 
             // Normal (vertical) spring-damper reaction.
-            let normal = GEAR_STIFFNESS * penetration - GEAR_DAMPING * this._contactVel.y;
+            let normal = gear.stiffness * penetration - gear.damping * this._contactVel.y;
             if (normal < 0) normal = 0;
 
             // Horizontal friction opposing the contact ground velocity.
@@ -292,8 +310,8 @@ export class Fm2FlightModel extends FlightModel {
             const vh = Math.hypot(vhx, vhz);
             this._friction.set(0, normal, 0);
             if (vh > 1e-3) {
-                const rolling = this.wheelBrakesApplied ? GEAR_BRAKE_FRICTION : GEAR_ROLL_FRICTION;
-                const mu = Math.max(rolling, GEAR_SIDE_FRICTION * this.sideSlipFraction(vhx, vhz));
+                const rolling = this.wheelBrakesApplied ? gear.brakeFriction : gear.rollFriction;
+                const mu = Math.max(rolling, gear.sideFriction * this.sideSlipFraction(vhx, vhz));
                 const fMag = mu * normal;
                 this._friction.x = -fMag * vhx / vh;
                 this._friction.z = -fMag * vhz / vh;
@@ -319,9 +337,11 @@ export class Fm2FlightModel extends FlightModel {
 
     private updateStallState(speed: number, aoa: number, altitude: number): void {
         if (this.landed) { this.stall = -1; return; }
-        const aoaStall = speed > 5 ? clamp((Math.abs(aoa) - STALL_AOA * 0.85) / (STALL_AOA * 0.3), 0, 1) : 0;
+        const stallAoa = this.config.envelope.stallAoaRad;
+        const minFlyingSpeed = this.config.envelope.minFlyingSpeedMps;
+        const aoaStall = speed > 5 ? clamp((Math.abs(aoa) - stallAoa * 0.85) / (stallAoa * 0.3), 0, 1) : 0;
         const speedStall = altitude > PLANE_DISTANCE_TO_GROUND + 5
-            ? clamp((MIN_FLYING_SPEED - speed) / MIN_FLYING_SPEED, 0, 1) : 0;
+            ? clamp((minFlyingSpeed - speed) / minFlyingSpeed, 0, 1) : 0;
         const level = Math.max(aoaStall, speedStall);
         this.stall = level > 0 ? level : -1;
     }
@@ -348,10 +368,11 @@ export class Fm2FlightModel extends FlightModel {
         const pitchAngle = Math.asin(clamp(this._fwd.y, -1, 1));
         const rollAngle = Math.asin(clamp(this._right.y, -1, 1));
 
-        const hardContact = this.velocity.y < -LANDING_MAX_VSPEED;
-        const badAttitude = Math.abs(rollAngle) > LANDING_MAX_ROLL || pitchAngle < LANDING_MIN_PITCH;
+        const env = this.config.envelope;
+        const hardContact = this.velocity.y < -env.landingMaxVerticalSpeedMps;
+        const badAttitude = Math.abs(rollAngle) > env.landingMaxRollRad || pitchAngle < env.landingMinPitchRad;
 
-        if (!this.landed && (hardContact || speed > LANDING_MAX_SPEED)) {
+        if (!this.landed && (hardContact || speed > env.landingMaxSpeedMps)) {
             if (!this.landingGearDeployed || hardContact || badAttitude) {
                 this.crashed = true;
                 return;
@@ -361,7 +382,7 @@ export class Fm2FlightModel extends FlightModel {
             this.crashed = true;
             return;
         }
-        if (speed < LANDING_MAX_SPEED && Math.abs(rollAngle) < LANDING_MAX_ROLL) {
+        if (speed < env.landingMaxSpeedMps && Math.abs(rollAngle) < env.landingMaxRollRad) {
             this.landed = true;
         }
     }
@@ -376,13 +397,15 @@ export class Fm2FlightModel extends FlightModel {
 
     getStallStatus(): number { return this.stall; }
 
-    // --- F-16 throttle quadrant behaviour (shared with the Realistic model). ---
-    getThrottleHudText(): string { return formatF16ThrottleHud(this.throttle); }
-    useF16ThrottleDetents(): boolean { return true; }
-    stepThrottleDetent(current: number, direction: 1 | -1): number { return stepF16ThrottleDetent(current, direction); }
-    isInThrottleAbDetentBand(lever: number): boolean { return isF16AbDetentBand(lever); }
-    adjustThrottleInput(current: number, step: number): number { return adjustF16ThrottleInput(current, step); }
-    getThrottleZone(): string { return getF16ThrottleZone(this.effectiveThrottle); }
-    getThrottleAudioLevel(): number { return f16ThrottleAudioLevel(this.effectiveThrottle); }
-    getEngineNozzleColor(): string { return getF16EngineNozzleColor(this.effectiveThrottle); }
+    // --- Throttle quadrant behaviour. Afterburner aircraft (F-16) use the F100
+    // quadrant with MIL/AB detents; others use a plain linear 0–100% lever. ---
+    private get afterburner(): boolean { return this.config.engine.afterburner; }
+    getThrottleHudText(): string { return this.afterburner ? formatF16ThrottleHud(this.throttle) : super.getThrottleHudText(); }
+    useF16ThrottleDetents(): boolean { return this.afterburner; }
+    stepThrottleDetent(current: number, direction: 1 | -1): number { return this.afterburner ? stepF16ThrottleDetent(current, direction) : super.stepThrottleDetent(current, direction); }
+    isInThrottleAbDetentBand(lever: number): boolean { return this.afterburner ? isF16AbDetentBand(lever) : super.isInThrottleAbDetentBand(lever); }
+    adjustThrottleInput(current: number, step: number): number { return this.afterburner ? adjustF16ThrottleInput(current, step) : super.adjustThrottleInput(current, step); }
+    getThrottleZone(): string { return this.afterburner ? getF16ThrottleZone(this.effectiveThrottle) : 'mil'; }
+    getThrottleAudioLevel(): number { return this.afterburner ? f16ThrottleAudioLevel(this.effectiveThrottle) : super.getThrottleAudioLevel(); }
+    getEngineNozzleColor(): string { return this.afterburner ? getF16EngineNozzleColor(this.effectiveThrottle) : super.getEngineNozzleColor(); }
 }
