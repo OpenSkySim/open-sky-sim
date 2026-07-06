@@ -156,6 +156,11 @@ export class ModelManager {
                         shaded: !isFlat,
                         depthWrite: !isFlat
                     });
+                    // Mod imports often have open/inverted Unity meshes; draw both
+                    // sides so backface culling does not leave see-through holes.
+                    if (rawColor) {
+                        (obj.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
+                    }
                 } else if ('isLineSegments' in child) {
                     obj.material = this.materials.build({
                         type: SceneMaterialPrimitiveType.LINE,
