@@ -292,6 +292,7 @@ export class RealisticFlightModel extends FlightModel {
         const accel = roundToZero(this.forces.divideScalar(DRY_MASS));
         this.up.copy(UP).applyQuaternion(this.obj.quaternion);
         clampLoadFactorAcceleration(accel, this.up, F16_PROFILE.maxLoadFactorG);
+        this.accelWorld.copy(accel);
         this.loadFactorG = computeLoadFactorG(accel, this.up);
         this.velocity.addScaledVector(accel, delta);
 

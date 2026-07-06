@@ -6,7 +6,7 @@ export class PointEmitter implements ParticleEmitter {
 
     constructor(private minSpeed: number, private maxSpeed: number) { }
 
-    emit(source: THREE.Object3D<THREE.Event>, particle: Particle): Particle {
+    emit(source: THREE.Object3D, particle: Particle): Particle {
         particle.position.copy(source.position);
         particle.velocity
             .set(

@@ -131,6 +131,7 @@ function sendState() {
         landed: flightModel.isLanded(),
         angleOfAttackRad: flightModel.getAngleOfAttack(),
         loadFactorG: flightModel.getLoadFactorG(),
+        accelWorld: flightModel.getAccelerationWorld().toArray(),
         engineThrustN: flightModel.getEngineThrustKn() * 1000,
         effectiveThrottle: flightModel.getEffectiveThrottle(),
         // @ts-ignore

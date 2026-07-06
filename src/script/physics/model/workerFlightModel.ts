@@ -44,6 +44,9 @@ export class WorkerFlightModel extends FlightModel {
         this.loadFactorG = state.loadFactorG;
         this.engineThrustN = state.engineThrustN;
         this.effectiveThrottle = state.effectiveThrottle;
+        if (state.accelWorld) {
+            this.accelWorld.fromArray(state.accelWorld);
+        }
         
         // @ts-ignore
         this.prevPosition.fromArray(state.prevPosition);

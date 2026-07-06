@@ -9,7 +9,7 @@ import { getF16AfterburnerConeDither, getF16EngineNozzleColor } from '../../phys
 import { LODHelper, getLodLevel } from '../../render/helpers';
 import { CanvasPainter } from "../../render/screen/canvasPainter";
 import { HUDFocusMode } from '../../state/gameDefs';
-import { easeOutQuad, easeOutQuint, FORWARD, RIGHT, UP } from '../../utils/math';
+import { clamp, easeOutQuad, easeOutQuint, FORWARD, RIGHT, UP } from '../../utils/math';
 import { Entity, ENTITY_TAGS } from "../entity";
 import { SceneMaterialData, SceneMaterialManager, SceneMaterialUniforms } from '../materials/materials';
 import { ModelManager } from '../models/models';
@@ -26,6 +26,11 @@ const LANDING_GEAR_ANIM_DURATION = 3; // Seconds
 
 const FLAPS_ANIM_DURATION = 2; // Seconds
 const FLAPS_EXTENDED_ANGLE = Math.PI / 5; // Radians
+
+/** Slats begin deploying above this absolute AoA (rad). */
+const SLAT_AOA_ONSET_RAD = 10 * Math.PI / 180;
+/** Slats reach full extension at this absolute AoA (rad). */
+const SLAT_AOA_FULL_RAD = 18 * Math.PI / 180;
 
 interface ControlSurfaceDescriptor {
     model: LODHelper;
@@ -181,6 +186,16 @@ export class PlayerEntity implements Entity {
         this.bindAfterburnerPaneMaterials();
     }
 
+    /** Normalized [0, 1] slat deployment from flaps and high angle of attack. */
+    private slatDeploymentUnit(): number {
+        const flapDeploy = this.flapsProgressUnit;
+        const aoa = Math.abs(this.flightModel.getAngleOfAttack());
+        const aoaDeploy = aoa <= SLAT_AOA_ONSET_RAD
+            ? 0
+            : clamp((aoa - SLAT_AOA_ONSET_RAD) / (SLAT_AOA_FULL_RAD - SLAT_AOA_ONSET_RAD), 0, 1);
+        return Math.max(flapDeploy, aoaDeploy);
+    }
+
     /** Map a surface's control binding to a normalized deflection value. */
     private surfaceValue(control: ControlAxis, sign: number): number {
         switch (control) {
@@ -188,6 +203,7 @@ export class PlayerEntity implements Entity {
             case 'roll': return sign * this.roll;
             case 'yaw': return sign * this.yaw;
             case 'flaps': return sign * this.flapsProgressUnit;
+            case 'slats': return sign * this.slatDeploymentUnit();
             case 'flaperonLeft':
                 return this.flapsProgressUnit * -FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * this.roll;
             case 'flaperonRight':
@@ -780,6 +796,10 @@ export class PlayerEntity implements Entity {
 
     get loadFactorG(): number {
         return this.flightModel.getLoadFactorG();
+    }
+
+    getDebugAcceleration(target: THREE.Vector3): THREE.Vector3 {
+        return this.flightModel.getAccelerationWorld(target);
     }
 
     get engineThrustKn(): number {

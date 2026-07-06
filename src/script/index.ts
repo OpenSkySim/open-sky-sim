@@ -27,7 +27,7 @@ import { Game, GameRenderTask, GameUpdateTask } from './state/game';
 import { FlightModels, TechProfiles } from './state/gameDefs';
 
 
-function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice] {
+async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice]> {
     const config = new ConfigService(
         { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
         { [FlightModels.FM2]: new WorkerFlightModel('fm2'), [FlightModels.REALISTIC]: new WorkerFlightModel('realistic'), [FlightModels.ARCADE]: new WorkerFlightModel('arcade'), [FlightModels.DEBUG]: new WorkerFlightModel('debug'), }
@@ -51,7 +51,7 @@ function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControl
     const audio = new AudioSystem();
     const game = new Game(config, models, materials, renderer, audio);
     config.techProfiles.setActive(TechProfiles.HD);
-    game.setup();
+    await game.setup();
 
     const keyboardInput = new KeyboardControlDevice(game.getPlayer());
     keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.ARROWS);
@@ -71,7 +71,8 @@ function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControl
 }
 
 window.addEventListener("load", () => {
-    const [kernel, config, keyboardInput, joystickInput] = setup();
-    kernel.start();
-    setupOSD(config, keyboardInput, joystickInput);
+    void setup().then(([kernel, config, keyboardInput, joystickInput]) => {
+        kernel.start();
+        setupOSD(config, keyboardInput, joystickInput);
+    });
 });

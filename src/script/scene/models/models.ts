@@ -5,6 +5,7 @@ import { assertIsDefined } from '../../utils/asserts';
 import { isZero } from '../../utils/math';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/materials';
 import { updateUniforms } from '../utils';
+import { aircraftPackStore, isPackUrl, parsePackUrl } from '../../state/aircraftPack';
 
 
 export interface ModelLodLevel {
@@ -82,6 +83,26 @@ export class ModelManager {
                     model: builder.build(this.materials),
                     status: RequestStatus.COMPLETED,
                     pending: []
+                }
+            } else if (isPackUrl(url)) {
+                modelWrapper = {
+                    model: this.empty(),
+                    status: RequestStatus.LOADING,
+                    pending: []
+                };
+                const { packId, path } = parsePackUrl(url);
+                const pack = aircraftPackStore.get(packId);
+                if (!pack) {
+                    modelWrapper.status = RequestStatus.ERROR;
+                    console.error(`Error loading "${url}": pack "${packId}" is not loaded`);
+                } else {
+                    const loader = new GLTFLoader(pack.createLoadingManager());
+                    loader.load(
+                        pack.getBlobUrl(path),
+                        this.getLoadFn(url, modelWrapper),
+                        undefined,
+                        this.getErrorFn(url, modelWrapper),
+                    );
                 }
             } else {
                 modelWrapper = {

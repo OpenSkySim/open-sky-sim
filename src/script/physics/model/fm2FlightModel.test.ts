@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { describe, it } from 'node:test';
 import * as THREE from 'three';
 import { Fm2FlightModel } from './fm2FlightModel';
+import { fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
 import { PLANE_DISTANCE_TO_GROUND } from '../../defs';
 
 const DEG = 180 / Math.PI;
@@ -127,5 +129,97 @@ describe('FM2 rigid-body flight model', () => {
             if (model.position.y > 15) { airborneNow = true; break; }
         }
         assert.ok(airborneNow, 'did not get airborne within time limit');
+    });
+
+    it('A4E roll and yaw match the F-16 input convention', () => {
+        const manifest = JSON.parse(fs.readFileSync('assets/a4e.aircraft.json', 'utf8'));
+        const a4e = new Fm2FlightModel(manifest.flight);
+        const f16 = new Fm2FlightModel();
+
+        function rollAxisZ(model: Fm2FlightModel, stick: number): number {
+            model.reset();
+            model.position.set(0, 4000, 0);
+            model.velocityVector.set(0, 0, 250);
+            model.setLanded(false);
+            model.setLandingGearDeployed(false);
+            model.setFlapsExtended(false);
+            model.setThrottle(0.6);
+            model.syncEffectiveThrottle();
+            model.setRoll(stick);
+            const q0 = model.quaternion.clone();
+            for (let i = 0; i < 30; i++) model.update(1 / 120);
+            const dq = q0.clone().invert().multiply(model.quaternion);
+            const angle = 2 * Math.acos(Math.min(1, Math.abs(dq.w)));
+            const s = Math.sin(angle / 2);
+            return s > 1e-6 ? dq.z / s : 0;
+        }
+
+        function yawHeadingDelta(model: Fm2FlightModel, pedal: number): number {
+            model.reset();
+            model.position.set(0, 4000, 0);
+            model.velocityVector.set(0, 0, 250);
+            model.setLanded(false);
+            model.setLandingGearDeployed(false);
+            model.setFlapsExtended(false);
+            model.setThrottle(0.6);
+            model.syncEffectiveThrottle();
+            model.setYaw(pedal);
+            const fwd0 = new THREE.Vector3(0, 0, 1).applyQuaternion(model.quaternion);
+            const h0 = Math.atan2(fwd0.x, fwd0.z);
+            for (let i = 0; i < 120; i++) model.update(1 / 120);
+            const fwd1 = new THREE.Vector3(0, 0, 1).applyQuaternion(model.quaternion);
+            const h1 = Math.atan2(fwd1.x, fwd1.z);
+            let dh = h1 - h0;
+            while (dh > Math.PI) dh -= 2 * Math.PI;
+            while (dh < -Math.PI) dh += 2 * Math.PI;
+            return dh;
+        }
+
+        const stick = 0.75;
+        const a4eRoll = rollAxisZ(a4e, stick);
+        const f16Roll = rollAxisZ(f16, stick);
+        assert.ok(Math.sign(a4eRoll) === Math.sign(f16Roll) && Math.abs(a4eRoll) > 0.5,
+            `roll axis mismatch: a4e z=${a4eRoll.toFixed(2)} f16 z=${f16Roll.toFixed(2)}`);
+
+        const a4eYaw = yawHeadingDelta(a4e, stick);
+        const f16Yaw = yawHeadingDelta(f16, stick);
+        assert.ok(Math.sign(a4eYaw) === Math.sign(f16Yaw) && Math.abs(a4eYaw) > 0.05,
+            `yaw sign mismatch: a4e=${(a4eYaw * DEG).toFixed(1)}° f16=${(f16Yaw * DEG).toFixed(1)}°`);
+    });
+
+    it('A4E rests on mesh-derived gear contacts', () => {
+        const manifest = JSON.parse(fs.readFileSync('assets/a4e.aircraft.json', 'utf8'));
+        const config = manifest.flight;
+        const restY = fm2GroundRestHeight(config);
+        assert.ok(restY > PLANE_DISTANCE_TO_GROUND,
+            `expected deeper nose contact than F-16 rest height: ${restY.toFixed(3)} m`);
+
+        const model = new Fm2FlightModel(config);
+        model.reset();
+        model.position.set(1500, restY, -800);
+        model.setLanded(true);
+        model.setThrottle(0);
+
+        for (let i = 0; i < 4 * 120; i++) {
+            model.update(1 / 120);
+        }
+
+        assert.ok(!model.isCrashed(), 'should not crash sitting on the ground');
+        assert.ok(model.velocityVector.length() < 6,
+            `drifted on the ground: ${model.velocityVector.length().toFixed(1)} m/s`);
+
+        const contact = new THREE.Vector3();
+        let minContactWorldY = Infinity;
+        let maxContactWorldY = -Infinity;
+        for (const p of config.gear.points as [number, number, number][]) {
+            contact.set(p[0], p[1], p[2]).applyQuaternion(model.quaternion);
+            const worldY = model.position.y + contact.y;
+            minContactWorldY = Math.min(minContactWorldY, worldY);
+            maxContactWorldY = Math.max(maxContactWorldY, worldY);
+        }
+        assert.ok(minContactWorldY <= 0.05,
+            `deepest gear should touch ground: min world y=${minContactWorldY.toFixed(3)} m`);
+        assert.ok(maxContactWorldY < 0.2,
+            `no gear should float far above ground: max world y=${maxContactWorldY.toFixed(3)} m`);
     });
 });

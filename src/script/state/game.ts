@@ -15,6 +15,7 @@ import { VGANoonPalette } from '../config/palettes/vga-noon';
 import { DisplayResolution, getDisplayResolutionSize } from '../config/profiles/profile';
 import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { FlightRecorder } from '../physics/flightRecorder';
+import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
 import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
@@ -48,7 +49,7 @@ import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 
-const A4E_MANIFEST_URL = 'assets/a4e.aircraft.json';
+const A4E_PACK_URL = 'assets/a4e.aircraft.pack';
 
 
 const MAIN_RENDER_TARGET_LO = 'MAIN_RENDER_TARGET_LO';
@@ -429,7 +430,7 @@ export class Game {
         this.exteriorRenderLayersHd = [...playerLayersHd, ...canvasLayersHd];
     }
 
-    setup() {
+    async setup() {
         const textColors = this.getTextColors();
 
         this.renderer.createRenderTarget(MAIN_RENDER_TARGET_LO, RenderTargetType.WEBGL, 0, 0, LO_H_RES, LO_V_RES);
@@ -445,15 +446,12 @@ export class Game {
         this.renderer.setPalette(this.getPalette());
         this.materials.setPalette(this.getPalette());
         this.setupControls();
+        await this.aircraftRegistry.loadPack('a4e', A4E_PACK_URL);
         this.setupScene();
         this.refreshAircraftMenu();
         if (this.currentDef.flight) {
             this.configService.flightModels.getActive().setAircraft(this.currentDef.flight);
         }
-        // Load imported flyable mods asynchronously and add them to the menu.
-        this.aircraftRegistry.loadManifest('a4e', A4E_MANIFEST_URL).then(() => {
-            this.refreshAircraftMenu();
-        });
         this.enterSpawnMenu(false);
         window.addEventListener('resize', () => this.onViewportResize());
     }
@@ -486,6 +484,14 @@ export class Game {
         if (def.flight) {
             this.configService.flightModels.getActive().setAircraft(def.flight);
         }
+    }
+
+    /** Runway spawn position; Y matches FM2 gear rest height when the aircraft has a flight config. */
+    private runwaySpawnPosition(): THREE.Vector3 {
+        const y = this.currentDef.flight
+            ? fm2GroundRestHeight(this.currentDef.flight)
+            : PLANE_DISTANCE_TO_GROUND;
+        return PLAYER_LAND_POSITION.clone().setY(y);
     }
 
     private onViewportResize() {
@@ -893,7 +899,7 @@ export class Game {
                 this.exteriorEntities[i].enabled = false;
             }
         } else {
-            this.player.reset(PLAYER_LAND_POSITION, PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
+            this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
             this.groundSmoke.enabled = false;
             this.groundFire.enabled = false;
             this.setCockpitFrontView();
@@ -911,7 +917,7 @@ export class Game {
         if (spawn === 'approach') {
             this.player.reset(PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
         } else {
-            this.player.reset(PLAYER_LAND_POSITION, PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
+            this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
         }
         this.setCockpitFrontView();
     }

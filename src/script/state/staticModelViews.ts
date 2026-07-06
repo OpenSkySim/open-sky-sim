@@ -29,8 +29,8 @@ export const STATIC_AIRCRAFT_TYPES: StaticAircraftType[] = [
     },
     {
         name: 'A-4E',
-        body: 'assets/a4e_static.gltf',
-        shadow: 'assets/a4e_shadow.gltf',
+        body: 'pack:a4e/a4e_static.gltf',
+        shadow: 'pack:a4e/a4e_shadow.gltf',
         lodBias: 100,
         rampX: 1620,
     },

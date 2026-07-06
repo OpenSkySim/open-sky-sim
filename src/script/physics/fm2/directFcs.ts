@@ -38,9 +38,11 @@ export class DirectFcs implements Fcs {
         const elevatorTarget = clamp(
             input.pitchStick + this.cfg.pitchRateDamp * input.pitchRate, -1, 1);
 
-        // Aileron: stick straight through, with roll-rate damping.
+        // Aileron: stick straight through, with roll-rate damping. Roll sign is
+        // negated so direct-mode aircraft match the surface mapping convention
+        // used by the F-16 FBW (positive stick → negative aileron command).
         const aileronTarget = clamp(
-            input.rollStick - this.cfg.rollRateDamp * input.rollRate, -1, 1);
+            -input.rollStick - this.cfg.rollRateDamp * input.rollRate, -1, 1);
 
         // Rudder: pedal + washed-out yaw damper + aileron-rudder interconnect.
         const tau = Math.max(this.cfg.yawDamperWashoutTauS, 1e-3);

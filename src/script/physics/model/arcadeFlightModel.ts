@@ -212,6 +212,7 @@ export class ArcadeFlightModel extends FlightModel {
 
         //! Timestep
         const accel = roundToZero(this.forces.add(this.friction).divideScalar(DRY_MASS));
+        this.accelWorld.copy(accel);
         this.velocity.addScaledVector(accel, delta);
         if (this.landed && this.velocity.y < 0) {
             this.velocity.setY(0);

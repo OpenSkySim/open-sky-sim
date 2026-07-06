@@ -3,12 +3,13 @@
  *
  * The F-22 is built in code from the values that used to be hard-wired into
  * PlayerEntity (regression guard — it flies and animates identically). Imported
- * mods such as the A-4E are described by an `*.aircraft.json` manifest emitted
- * by tools/import_mod.py and loaded at runtime into the same
+ * mods such as the A-4E are shipped as `.aircraft.pack` archives built by
+ * tools/pack_aircraft_mods.py and loaded at runtime into the same
  * {@link FlyableAircraftDef} shape.
  */
 import { Fm2AircraftConfig, f16Fm2Config } from '../physics/fm2/fm2AircraftConfig';
 import { ControlSurfaceConfig, FlyableAircraftDef } from '../scene/entities/aircraftDef';
+import { aircraftPackStore, toPackUrl } from './aircraftPack';
 
 const HINGE_RANGE = Math.PI / 6;
 
@@ -66,12 +67,13 @@ export function buildF22Def(): FlyableAircraftDef {
     };
 }
 
-/** Raw shape of an `*.aircraft.json` manifest (subset the sim consumes). */
-interface AircraftManifest {
+/** Raw shape of a packed `manifest.json` (subset the sim consumes). */
+export interface AircraftManifest {
     name?: string;
     body: string;
     shadow: string;
     gear?: string | null;
+    static?: string | null;
     surfaces: {
         role: string; path: string;
         pivot: [number, number, number]; axis: [number, number, number];
@@ -80,6 +82,21 @@ interface AircraftManifest {
     fx?: { wingtips?: [[number, number, number], [number, number, number]] | null; nozzles?: [number, number, number][] | null };
     cockpitOffset?: [number, number, number];
     flight?: Fm2AircraftConfig | null;
+}
+
+function rewriteManifestForPack(id: string, manifest: AircraftManifest): AircraftManifest {
+    const packPath = (path: string) => toPackUrl(id, path);
+    return {
+        ...manifest,
+        body: packPath(manifest.body),
+        shadow: packPath(manifest.shadow),
+        gear: manifest.gear ? packPath(manifest.gear) : manifest.gear,
+        static: manifest.static ? packPath(manifest.static) : manifest.static,
+        surfaces: manifest.surfaces.map(surface => ({
+            ...surface,
+            path: packPath(surface.path),
+        })),
+    };
 }
 
 export function manifestToDef(id: string, m: AircraftManifest): FlyableAircraftDef {
@@ -128,16 +145,12 @@ export class AircraftRegistry {
         return this.order.map(id => this.defs.get(id)!).filter(Boolean);
     }
 
-    /** Fetch and register a mod manifest; resolves to its id (or undefined on failure). */
-    async loadManifest(id: string, url: string): Promise<string | undefined> {
+    /** Fetch, unpack, and register a mod pack; resolves to its id (or undefined on failure). */
+    async loadPack(id: string, url: string): Promise<string | undefined> {
         try {
-            const res = await fetch(url);
-            if (!res.ok) {
-                console.warn(`[aircraftRegistry] ${url} -> HTTP ${res.status}`);
-                return undefined;
-            }
-            const manifest = await res.json() as AircraftManifest;
-            this.register(manifestToDef(id, manifest));
+            const pack = await aircraftPackStore.loadFromUrl(id, url);
+            const manifest = JSON.parse(pack.getText('manifest.json')) as AircraftManifest;
+            this.register(manifestToDef(id, rewriteManifestForPack(id, manifest)));
             return id;
         } catch (err) {
             console.warn(`[aircraftRegistry] failed to load ${url}`, err);

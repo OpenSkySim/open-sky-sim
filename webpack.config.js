@@ -1,4 +1,16 @@
 const CopyPlugin = require('copy-webpack-plugin');
+const fs = require('fs');
+const path = require('path');
+
+const modPrefixes = fs.readdirSync('assets')
+    .filter(f => f.endsWith('.aircraft.json'))
+    .map(f => f.slice(0, -'.aircraft.json'.length));
+
+function isModAsset(resourcePath) {
+    const base = path.basename(resourcePath);
+    return modPrefixes.some(p =>
+        base === `${p}.aircraft.json` || base.startsWith(`${p}_`));
+}
 
 module.exports = {
     entry: './src/script/index.ts',
@@ -28,7 +40,8 @@ module.exports = {
                 },
                 {
                     from: 'assets/*',
-                    to: 'assets/[name][ext]'
+                    to: 'assets/[name][ext]',
+                    filter: (resourcePath) => !isModAsset(resourcePath),
                 }
             ]
         })

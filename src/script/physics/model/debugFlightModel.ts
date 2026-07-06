@@ -66,7 +66,13 @@ export class DebugFlightModel extends FlightModel {
         }
 
         // Velocity
+        const prevVel = this._w.copy(this.velocity);
         this.velocity.copy(FORWARD).applyQuaternion(this.obj.quaternion).multiplyScalar(this.speed);
+        if (delta > 0) {
+            this.accelWorld.copy(this.velocity).sub(prevVel).divideScalar(delta);
+        } else {
+            this.accelWorld.set(0, 0, 0);
+        }
 
         this.landed = this.obj.position.y <= PLANE_DISTANCE_TO_GROUND;
     }

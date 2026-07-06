@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { CanvasPainter } from '../render/screen/canvasPainter';
 import { Palette } from '../config/palettes/palette';
 import { Scene } from './scene';

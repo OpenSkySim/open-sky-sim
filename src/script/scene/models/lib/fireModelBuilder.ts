@@ -13,7 +13,7 @@ export class FireModelLibBuilder implements ModelLibBuilder {
     }
 
     build(materials: SceneMaterialManager): Model {
-        const geometry = new THREE.CircleBufferGeometry(this.radius, 5);
+        const geometry = new THREE.CircleGeometry(this.radius, 5);
         geometry.center();
         geometry.rotateX(-Math.PI / 2);
         geometry.rotateY(Math.PI / 4);

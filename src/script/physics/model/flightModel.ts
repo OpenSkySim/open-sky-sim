@@ -25,6 +25,8 @@ export abstract class FlightModel {
     protected angleOfAttackRad: number = 0;
     protected loadFactorG: number = 1;
     protected engineThrustN: number = 0;
+    /** World-frame linear acceleration from the last physics step (m/s²). */
+    protected readonly accelWorld = new THREE.Vector3();
 
     private prevPosition = new THREE.Vector3();
     private prevQuaternion = new THREE.Quaternion();
@@ -50,6 +52,7 @@ export abstract class FlightModel {
         this.angleOfAttackRad = 0;
         this.loadFactorG = 1;
         this.engineThrustN = 0;
+        this.accelWorld.set(0, 0, 0);
         this.deltaRemainder = 0;
         this.syncPreviousState();
     }
@@ -195,6 +198,10 @@ export abstract class FlightModel {
 
     getLoadFactorG(): number {
         return this.loadFactorG;
+    }
+
+    getAccelerationWorld(target: THREE.Vector3 = this.accelWorld): THREE.Vector3 {
+        return target.copy(this.accelWorld);
     }
 
     getEngineThrustKn(): number {

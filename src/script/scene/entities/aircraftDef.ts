@@ -4,10 +4,11 @@ import { Fm2AircraftConfig } from '../../physics/fm2/fm2AircraftConfig';
  * How a control surface's deflection is driven from the pilot's inputs.
  *   pitch/roll/yaw : signed stick/pedal input.
  *   flaps          : flap deployment progress [0,1].
+ *   slats          : leading-edge slats — follow flaps and high AoA.
  *   flaperonLeft/Right : the F-22's combined flap + roll blend (kept so the
  *                        default aircraft animates exactly as before).
  */
-export type ControlAxis = 'pitch' | 'roll' | 'yaw' | 'flaps' | 'flaperonLeft' | 'flaperonRight';
+export type ControlAxis = 'pitch' | 'roll' | 'yaw' | 'flaps' | 'slats' | 'flaperonLeft' | 'flaperonRight';
 
 /** A single animated control surface loaded as its own hinge-pivoted model. */
 export interface ControlSurfaceConfig {

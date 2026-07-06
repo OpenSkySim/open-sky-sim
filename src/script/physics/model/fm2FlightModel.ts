@@ -27,7 +27,7 @@ import { AeroSurface } from '../fm2/aeroSurface';
 import { DirectFcs } from '../fm2/directFcs';
 import { Fcs } from '../fm2/fcs';
 import { F16Fcs } from '../fm2/f16Fcs';
-import { Fm2AircraftConfig, Fm2DirectFcsConfig, f16Fm2Config } from '../fm2/fm2AircraftConfig';
+import { Fm2AircraftConfig, Fm2DirectFcsConfig, f16Fm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
 import { RigidBody } from '../fm2/rigidBody';
 import { FlightModel } from './flightModel';
 
@@ -72,6 +72,11 @@ export class Fm2FlightModel extends FlightModel {
     private readonly qRef: number;
 
     private stall = -1;
+
+    /** Body Y when level on flat ground (deepest gear contact at world y=0). */
+    private get groundRestY(): number {
+        return fm2GroundRestHeight(this.config);
+    }
 
     // Scratch vectors (avoid per-step allocation in the worker).
     private readonly velBody = new THREE.Vector3();
@@ -148,7 +153,10 @@ export class Fm2FlightModel extends FlightModel {
         const fcsOut = this.fcs.update({
             pitchStick: this.pitch,
             rollStick: this.roll,
-            yawPedal: this.yaw,
+            // Negated so positive pedal yaws the nose the same way as the other
+            // flight models (right pedal -> nose right); only the pilot command
+            // is flipped, the yaw-damper/ARI feedback keeps its stabilizing sign.
+            yawPedal: -this.yaw,
             pitchRate: this.rb.angularVelocityBody.x,
             yawRate: this.rb.angularVelocityBody.y,
             rollRate: this.rb.angularVelocityBody.z,
@@ -204,11 +212,13 @@ export class Fm2FlightModel extends FlightModel {
         this.forceWorld.copy(this.forceBody).applyQuaternion(this.rb.orientation);
         this.forceWorld.add(this.gearForceWorld);
         this.forceWorld.y -= this.config.geometry.massKg * GRAVITY; // gravity
+        this.accelWorld.copy(this.forceWorld).divideScalar(this.config.geometry.massKg);
         this.rb.integrateLinear(this.forceWorld, delta, this.obj.position);
 
         // Publish rigid-body state back to the base model.
         this.obj.quaternion.copy(this.rb.orientation);
         this.velocity.copy(this.rb.velocityWorld);
+        this.clampParkedGroundSpeed();
 
         this.updateStallState(speed, aoa, altitude);
         this.handleGroundState();
@@ -325,6 +335,22 @@ export class Fm2FlightModel extends FlightModel {
         }
     }
 
+    /** Stop residual ground creep once the aircraft has settled on the runway. */
+    private clampParkedGroundSpeed(): void {
+        if (!this.landed) return;
+        if (this.obj.position.y > this.groundRestY + 0.25) return;
+        // Leave the rollout alone once the pilot advances the throttle.
+        if (this.throttle > 0.01 || this.effectiveThrottle > 0.05) return;
+
+        const vh = Math.hypot(this.velocity.x, this.velocity.z);
+        if (vh > 0.25) return;
+
+        this.velocity.x = 0;
+        this.velocity.z = 0;
+        this.rb.velocityWorld.x = 0;
+        this.rb.velocityWorld.z = 0;
+    }
+
     /** Higher effective friction for sideways (non-rolling) contact motion. */
     private sideSlipFraction(vhx: number, vhz: number): number {
         this._fwd.copy(FORWARD).applyQuaternion(this.rb.orientation);
@@ -347,14 +373,15 @@ export class Fm2FlightModel extends FlightModel {
     }
 
     private handleGroundState(): void {
-        const onGround = this.obj.position.y <= PLANE_DISTANCE_TO_GROUND + 0.25;
+        const restY = this.groundRestY;
+        const onGround = this.obj.position.y <= restY + 0.25;
 
-        if (this.obj.position.y > PLANE_DISTANCE_TO_GROUND + 0.3) {
+        if (this.obj.position.y > restY + 0.3) {
             this.landed = false;
         }
 
         // Hard floor so the gear spring can never let the body tunnel through.
-        const minY = PLANE_DISTANCE_TO_GROUND - 0.6;
+        const minY = restY - 0.6;
         if (this.obj.position.y < minY) {
             this.obj.position.y = minY;
             if (this.velocity.y < 0) this.velocity.y = 0;

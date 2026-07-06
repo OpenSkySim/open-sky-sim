@@ -68,6 +68,11 @@ export interface Fm2GearConfig {
     sideFriction: number;
 }
 
+/** Body-frame altitude (m) when level on a flat runway: -min(gear Y). */
+export function fm2GroundRestHeight(config: Fm2AircraftConfig): number {
+    return -Math.min(...config.gear.points.map(p => p[1]));
+}
+
 /**
  * Engine thrust schedule. When `afterburner` is true the F-16 F100 quadrant and
  * thrust lapse are used verbatim; otherwise a simple linear idle→military

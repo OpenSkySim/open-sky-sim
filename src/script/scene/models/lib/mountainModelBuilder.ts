@@ -16,7 +16,7 @@ export class MountainModelLibBuilder implements ModelLibBuilder {
     }
 
     build(materials: SceneMaterialManager): Model {
-        const geometry = new THREE.ConeBufferGeometry(this.radius, this.height, FACES, undefined, true).toNonIndexed();
+        const geometry = new THREE.ConeGeometry(this.radius, this.height, FACES, undefined, true).toNonIndexed();
         geometry.computeVertexNormals();
         geometry.translate(0, this.height / 2, 0);
         geometry.rotateY(Math.PI / 4);

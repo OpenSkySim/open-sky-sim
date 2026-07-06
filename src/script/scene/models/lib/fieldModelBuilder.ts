@@ -139,7 +139,7 @@ export class FieldModelLibBuilder implements ModelLibBuilder {
     }
 
     private buildHexagonGeometry() {
-        const geometry = new THREE.CircleBufferGeometry(0.5, 6);
+        const geometry = new THREE.CircleGeometry(0.5, 6);
         geometry.center();
         geometry.rotateX(-Math.PI / 2);
         geometry.scale(0.8, 1.0, 1.0);
