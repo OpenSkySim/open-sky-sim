@@ -41,7 +41,9 @@ import { ExteriorFrontBehindCameraUpdater, ExteriorViewHeading } from './cameraU
 import { ExteriorSideCameraUpdater, ExteriorViewSide } from './cameraUpdaters/exteriorSideCameraUpdater';
 import { TargetFromCameraUpdater } from './cameraUpdaters/targetFromCameraUpdater';
 import { TargetToCameraUpdater } from './cameraUpdaters/targetToCameraUpdater';
+import { StaticModelCameraUpdater } from './cameraUpdaters/staticModelCameraUpdater';
 import { restoreMainCameraParameters } from './stateUtils';
+import { forEachStaticAircraftSlot, STATIC_MODEL_VIEWS } from './staticModelViews';
 import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 
 
@@ -92,6 +94,7 @@ enum PlayerViewState {
     EXTERIOR_RIGHT,
     TARGET_TO,
     TARGET_FROM,
+    STATIC_MODEL,
 }
 
 enum GameState {
@@ -179,6 +182,8 @@ export class Game {
     private hdResolutionHeight = 0;
 
     private view: PlayerViewState = PlayerViewState.COCKPIT_FRONT;
+    private staticModelIndex = 0;
+    private staticModelCameraUpdater: StaticModelCameraUpdater;
 
     // Numpad orbit: how far the camera is currently orbited around the aircraft,
     // relative to the active view's default position (yaw about world UP, pitch
@@ -241,6 +246,8 @@ export class Game {
         this.cameraUpdaters.set(PlayerViewState.EXTERIOR_RIGHT, new ExteriorSideCameraUpdater(this.player, this.playerCamera.main, ExteriorViewSide.RIGHT));
         this.cameraUpdaters.set(PlayerViewState.TARGET_TO, new TargetToCameraUpdater(this.player, this.playerCamera.main));
         this.cameraUpdaters.set(PlayerViewState.TARGET_FROM, new TargetFromCameraUpdater(this.player, this.playerCamera.main));
+        this.staticModelCameraUpdater = new StaticModelCameraUpdater(this.player, this.playerCamera.main);
+        this.cameraUpdaters.set(PlayerViewState.STATIC_MODEL, this.staticModelCameraUpdater);
         this.cameraUpdater = this.getCameraUpdater(this.view);
         this.configService.techProfiles.addChangeListener(profile => {
             if (profile.resolution === DisplayResolution.HD_RES) {
@@ -595,7 +602,7 @@ export class Game {
 
     // Accumulates the orbit yaw/pitch/zoom from any held numpad keys.
     private updateOrbitFromKeys(delta: number) {
-        if (this.heldOrbitKeys.size === 0) {
+        if (this.view === PlayerViewState.STATIC_MODEL || this.heldOrbitKeys.size === 0) {
             return;
         }
         let yawDir = 0;
@@ -669,6 +676,12 @@ export class Game {
                     event.preventDefault();
                     this.resetOrbit();
                     this.setExteriorSideView();
+                    break;
+                }
+                case 'F6': {
+                    event.preventDefault();
+                    this.resetOrbit();
+                    this.cycleStaticModelView();
                     break;
                 }
             }
@@ -764,6 +777,22 @@ export class Game {
         } else {
             this.setExteriorView(PlayerViewState.TARGET_FROM);
         }
+    }
+
+    private cycleStaticModelView() {
+        if (this.view !== PlayerViewState.STATIC_MODEL) {
+            this.staticModelIndex = 0;
+        } else {
+            this.staticModelIndex = (this.staticModelIndex + 1) % STATIC_MODEL_VIEWS.length;
+        }
+        this.setStaticModelView(this.staticModelIndex);
+    }
+
+    private setStaticModelView(index: number) {
+        restoreMainCameraParameters(this.playerCamera.main);
+        const entry = STATIC_MODEL_VIEWS[index];
+        this.staticModelCameraUpdater.setTarget(entry.position, entry.heading);
+        this.setExteriorView(PlayerViewState.STATIC_MODEL);
     }
 
     private setExteriorView(view: PlayerViewState) {
@@ -1026,21 +1055,15 @@ export class Game {
         hangar4.quaternion.setFromAxisAngle(UP, Math.PI);
         scene.add(hangar4);
 
-        const planes = [
-            { p: new THREE.Vector3(1580, PLANE_DISTANCE_TO_GROUND, -840), r: -Math.PI / 2 },
-            { p: new THREE.Vector3(1580, PLANE_DISTANCE_TO_GROUND, -870), r: -Math.PI / 2 },
-            { p: new THREE.Vector3(1580, PLANE_DISTANCE_TO_GROUND, -900), r: -Math.PI / 2 },
-            { p: new THREE.Vector3(1580, PLANE_DISTANCE_TO_GROUND, -930), r: -Math.PI / 2 },
-        ];
-        planes.forEach(p => {
-            const plane = new StaticSceneryEntity(models.getModel('assets/f22_scenery.glb'));
-            plane.position.copy(p.p);
-            plane.quaternion.setFromAxisAngle(UP, p.r);
+        forEachStaticAircraftSlot((type, position, heading) => {
+            const plane = new StaticSceneryEntity(models.getModel(type.body), type.lodBias);
+            plane.position.copy(position);
+            plane.quaternion.setFromAxisAngle(UP, heading);
             scene.add(plane);
 
-            const shadow = new StaticSceneryEntity(models.getModel('assets/f22_shadow.glb'));
-            shadow.position.copy(p.p).setY(0);
-            shadow.quaternion.setFromAxisAngle(UP, p.r);
+            const shadow = new StaticSceneryEntity(models.getModel(type.shadow), type.lodBias);
+            shadow.position.copy(position).setY(0);
+            shadow.quaternion.setFromAxisAngle(UP, heading);
             scene.add(shadow);
         });
 
@@ -1050,9 +1073,9 @@ export class Game {
         scene.add(tower);
     }
 
-    private randomPosOver(surface: THREE.Object3D<THREE.Event>, position: THREE.Vector3, spread: number): THREE.Vector3 {
+    private randomPosOver(surface: THREE.Object3D, position: THREE.Vector3, spread: number): THREE.Vector3 {
         assertIsDefined(surface);
-        let intersections: THREE.Intersection<THREE.Object3D<THREE.Event>>[] = [];
+        let intersections: THREE.Intersection[] = [];
         const caster = new THREE.Raycaster();
         const p = UP.clone();
         const d = UP.clone().negate();
