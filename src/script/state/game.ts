@@ -602,7 +602,7 @@ export class Game {
 
     // Accumulates the orbit yaw/pitch/zoom from any held numpad keys.
     private updateOrbitFromKeys(delta: number) {
-        if (this.view === PlayerViewState.STATIC_MODEL || this.heldOrbitKeys.size === 0) {
+        if (this.heldOrbitKeys.size === 0) {
             return;
         }
         let yawDir = 0;
@@ -628,10 +628,14 @@ export class Game {
         }
     }
 
-    // Orbits the active player camera around the aircraft by `viewYaw` (about the
-    // world UP axis) and `viewPitch` (elevation), keeping the aircraft centred.
+    // Orbits the active player camera around the view pivot by `viewYaw` (about the
+    // world UP axis) and `viewPitch` (elevation), keeping the subject centred.
     private orbitCameraAroundAircraft() {
-        this._orbitPivot.copy(this.player.getDisplayPosition());
+        if (this.view === PlayerViewState.STATIC_MODEL) {
+            this._orbitPivot.copy(STATIC_MODEL_VIEWS[this.staticModelIndex].position);
+        } else {
+            this._orbitPivot.copy(this.player.getDisplayPosition());
+        }
         this._orbitOffset
             .copy(this.playerCamera.main.position)
             .sub(this._orbitPivot)

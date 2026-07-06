@@ -14,16 +14,16 @@
     "license": "MIT",
     "homepage": "https://github.com/ruben3d/retroflightsim",
     "dependencies": {
-        "three": "0.136.0"
+        "three": "0.185.1"
     },
     "devDependencies": {
-        "@types/three": "0.136.1",
-        "copy-webpack-plugin": "~6.4.1",
-        "local-web-server": "~4.2.1",
-        "ts-loader": "~8.3.0",
-        "tsx": "^4.19.4",
-        "typescript": "~4.5.4",
-        "webpack": "~5.65.0",
-        "webpack-cli": "~4.9.1"
+        "@types/three": "0.185.0",
+        "copy-webpack-plugin": "~14.0.0",
+        "local-web-server": "~5.4.0",
+        "ts-loader": "~9.6.2",
+        "tsx": "^4.23.0",
+        "typescript": "~6.0.3",
+        "webpack": "~5.108.4",
+        "webpack-cli": "~7.2.1"
     }
 }

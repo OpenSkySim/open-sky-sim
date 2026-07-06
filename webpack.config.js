@@ -24,13 +24,11 @@ module.exports = {
             patterns: [
                 {
                     from: 'src/*',
-                    to: './',
-                    flatten: true
+                    to: '[name][ext]'
                 },
                 {
                     from: 'assets/*',
-                    to: './assets/',
-                    flatten: true
+                    to: 'assets/[name][ext]'
                 }
             ]
         })

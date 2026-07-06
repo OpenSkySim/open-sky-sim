@@ -31,6 +31,13 @@ export type SceneMaterialProperties = SceneMaterialCommonProperties & (
 export interface SceneMaterialCommonProperties {
     category: PaletteCategory;
     depthWrite: boolean;
+    /**
+     * Literal CSS colour (e.g. '#b5b4ba') that overrides the palette lookup for
+     * this material. Used by models that carry their own per-polygon colours
+     * (e.g. the A-4E, whose livery comes from a palette-swatch texture) instead
+     * of mapping to a PaletteCategory. `category` is still used for fog.
+     */
+    rawColor?: string;
 }
 
 export type SceneMaterialMeshProperties = {
@@ -95,6 +102,7 @@ export type SceneMaterialData = SceneCommonMaterialData & (SceneFlatMaterialData
 
 export interface SceneCommonMaterialData {
     category: PaletteCategory;
+    rawColor?: string;
     depthWrite: boolean;
     particles: boolean;
     line: boolean;
@@ -221,7 +229,7 @@ export class SceneMaterialManager implements KernelTask {
                 ...properties,
                 shaded: false,
                 highp: undefined
-            }
+            } as SceneMaterialProperties;
         }
         return { ...properties };
     }
@@ -231,6 +239,7 @@ export class SceneMaterialManager implements KernelTask {
             shaded: properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded,
             shading: this.shading,
             category: properties.category,
+            rawColor: properties.rawColor,
             depthWrite: properties.depthWrite,
             particles: properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH,
             line: properties.type === SceneMaterialPrimitiveType.LINE,
@@ -251,8 +260,8 @@ export class SceneMaterialManager implements KernelTask {
                 halfWidth: { value: 0 },
                 halfHeight: { value: 0 },
                 shadingType: { value: this.shading },
-                color: { value: new THREE.Color(PaletteColor(this.palette, properties.category)) },
-                colorSecondary: { value: new THREE.Color(PaletteColorShade(this.palette, properties.category)) },
+                color: { value: new THREE.Color(properties.rawColor ?? PaletteColor(this.palette, properties.category)) },
+                colorSecondary: { value: new THREE.Color(properties.rawColor ?? PaletteColorShade(this.palette, properties.category)) },
                 fogType: { value: this.fog },
                 fogDensity: { value: this.palette.values[FogValueCategory(properties.category)] },
                 fogColor: { value: new THREE.Color(PaletteColor(this.palette, FogColorCategory(properties.category))) },
@@ -315,8 +324,10 @@ export class SceneMaterialManager implements KernelTask {
             }
             const u = m.uniforms as SceneMaterialUniforms;
             const c = d.category;
-            u.color.value.copy(this.colorCache.getColor(PaletteColor(palette, c)));
-            u.colorSecondary.value.copy(this.colorCache.getColor(PaletteColorShade(palette, c)));
+            if (!d.rawColor) {
+                u.color.value.copy(this.colorCache.getColor(PaletteColor(palette, c)));
+                u.colorSecondary.value.copy(this.colorCache.getColor(PaletteColorShade(palette, c)));
+            }
             u.fogDensity.value = palette.values[FogValueCategory(c)];
             u.fogColor.value.copy(this.colorCache.getColor(PaletteColor(palette, FogColorCategory(c))));
             if (d.particles && d.category === PaletteCategory.FX_SMOKE && d.ramp) {

@@ -47,7 +47,7 @@ export interface RenderLayer {
 
 export class Renderer {
     private container: HTMLElement;
-    private renderer: THREE.WebGL1Renderer;
+    private renderer: THREE.WebGLRenderer;
     private composeScene: THREE.Scene = new THREE.Scene();
     private composeCamera: THREE.OrthographicCamera;
     private renderTargets: Map<string, RenderTarget> = new Map();
@@ -63,9 +63,14 @@ export class Renderer {
         this.container = container;
         this.composeCamera = new THREE.OrthographicCamera(-composeWidth / 2, composeWidth / 2, composeHeight / 2, -composeHeight / 2, -10, 10);
         this.palette = palette;
-        this.renderer = new THREE.WebGL1Renderer({ antialias: false });
+        this.renderer = new THREE.WebGLRenderer({ antialias: false });
         this.renderer.setPixelRatio(window.devicePixelRatio);
-        assertExpr(this.renderer.extensions.has('ANGLE_instanced_arrays'), 'Renderer: WebGL1 extension "ANGLE_instanced_arrays" is required');
+        const gl = this.renderer.getContext();
+        const isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+        assertExpr(
+            isWebGL2 || this.renderer.extensions.has('ANGLE_instanced_arrays'),
+            'Renderer: instanced rendering requires WebGL2 or the ANGLE_instanced_arrays extension'
+        );
         this.renderer.autoClear = false;
         this.renderer.sortObjects = false;
         this.updateViewportSize();

@@ -111,11 +111,11 @@ export class ModelManager {
         }
     }
 
-    private getErrorFn(url: string, wrapper: ModelWrapper): (error: ErrorEvent) => void {
-        return (error: ErrorEvent) => {
+    private getErrorFn(url: string, wrapper: ModelWrapper): (error: unknown) => void {
+        return (error: unknown) => {
             wrapper.status = RequestStatus.ERROR;
             wrapper.pending = [];
-            console.error(`Error loading "${url}":`, error.message);
+            console.error(`Error loading "${url}":`, error);
         }
     }
 
@@ -147,9 +147,12 @@ export class ModelManager {
                 }
 
                 if ('isMesh' in obj) {
+                    const matName = (obj.material as THREE.MeshStandardMaterial).name;
+                    const rawColor = ModelManager.rawColorFor(matName);
                     obj.material = this.materials.build({
                         type: SceneMaterialPrimitiveType.MESH,
-                        category: (obj.material as THREE.MeshStandardMaterial).name as PaletteCategory,
+                        category: rawColor ? PaletteCategory.VEHICLE_PLANE_GREY : matName as PaletteCategory,
+                        rawColor,
                         shaded: !isFlat,
                         depthWrite: !isFlat
                     });
@@ -180,6 +183,15 @@ export class ModelManager {
 
     private sortingFn(a: THREE.Object3D, b: THREE.Object3D) {
         return parseInt(a.name.charAt(0)) - parseInt(b.name.charAt(0));
+    }
+
+    /**
+     * Material names shaped like '#rrggbb' carry a literal colour (models that
+     * bring their own per-polygon palette, e.g. the A-4E) rather than a
+     * PaletteCategory. Returns the CSS colour, or undefined for category names.
+     */
+    private static rawColorFor(name: string): string | undefined {
+        return /^#[0-9a-fA-F]{6}$/.test(name) ? name : undefined;
     }
 
     private empty(): Model {
