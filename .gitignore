@@ -1,5 +1,5 @@
 node_modules
 *.blend1
-/dist/
+dist
 /tools/mods/uploads/
 /tools/mods/imports/
