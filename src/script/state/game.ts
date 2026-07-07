@@ -8,6 +8,7 @@ import { EGANoonPalette } from '../config/palettes/ega-noon';
 import { Palette, PaletteCategory, PaletteColor } from '../config/palettes/palette';
 import { SVGAMidnightPalette } from '../config/palettes/svga-midnight';
 import { SVGANoonPalette } from '../config/palettes/svga-noon';
+import { ShowcasePalette } from '../config/palettes/showcase';
 import { HDMidnightPalette } from '../config/palettes/hd-midnight';
 import { HDNoonPalette } from '../config/palettes/hd-noon';
 import { VGAMidnightPalette } from '../config/palettes/vga-midnight';
@@ -43,6 +44,7 @@ import { ExteriorSideCameraUpdater, ExteriorViewSide } from './cameraUpdaters/ex
 import { TargetFromCameraUpdater } from './cameraUpdaters/targetFromCameraUpdater';
 import { TargetToCameraUpdater } from './cameraUpdaters/targetToCameraUpdater';
 import { StaticModelCameraUpdater } from './cameraUpdaters/staticModelCameraUpdater';
+import { ShowcaseCameraUpdater } from './cameraUpdaters/showcaseCameraUpdater';
 import { restoreMainCameraParameters } from './stateUtils';
 import { forEachStaticAircraftSlot, STATIC_MODEL_VIEWS } from './staticModelViews';
 import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
@@ -50,6 +52,8 @@ import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 
 const A4E_PACK_URL = 'assets/a4e.aircraft.pack';
+const F16_PACK_URL = 'assets/f16.aircraft.pack';
+const DEFAULT_START_AIRCRAFT_ID = 'f16';
 
 
 const MAIN_RENDER_TARGET_LO = 'MAIN_RENDER_TARGET_LO';
@@ -100,6 +104,7 @@ enum PlayerViewState {
     TARGET_TO,
     TARGET_FROM,
     STATIC_MODEL,
+    SHOWCASE,
 }
 
 enum GameState {
@@ -176,17 +181,21 @@ export class Game {
     private cockpitRenderLayersLo: RenderLayer[];
     private cockpitTargetRenderLayersLo: RenderLayer[];
     private exteriorRenderLayersLo: RenderLayer[];
+    private showcaseRenderLayersLo: RenderLayer[];
     private cockpitRenderLayersHi: RenderLayer[];
     private cockpitTargetRenderLayersHi: RenderLayer[];
     private exteriorRenderLayersHi: RenderLayer[];
+    private showcaseRenderLayersHi: RenderLayer[];
     private cockpitRenderLayersHd: RenderLayer[];
     private cockpitTargetRenderLayersHd: RenderLayer[];
     private exteriorRenderLayersHd: RenderLayer[];
+    private showcaseRenderLayersHd: RenderLayer[];
 
     private hdResolutionWidth = 0;
     private hdResolutionHeight = 0;
 
     private view: PlayerViewState = PlayerViewState.COCKPIT_FRONT;
+    private viewBeforeShowcase: PlayerViewState | null = null;
     private staticModelIndex = 0;
     private staticModelCameraUpdater: StaticModelCameraUpdater;
 
@@ -248,6 +257,7 @@ export class Game {
         this.cameraUpdaters.set(PlayerViewState.TARGET_FROM, new TargetFromCameraUpdater(this.player, this.playerCamera.main));
         this.staticModelCameraUpdater = new StaticModelCameraUpdater(this.player, this.playerCamera.main);
         this.cameraUpdaters.set(PlayerViewState.STATIC_MODEL, this.staticModelCameraUpdater);
+        this.cameraUpdaters.set(PlayerViewState.SHOWCASE, new ShowcaseCameraUpdater(this.player, this.playerCamera.main));
         this.cameraUpdater = this.getCameraUpdater(this.view);
         this.configService.techProfiles.addChangeListener(profile => {
             if (profile.resolution === DisplayResolution.HD_RES) {
@@ -373,9 +383,27 @@ export class Game {
         this.cockpitRenderLayersLo = [...playerLayersLo, ...mapLayersLo, ...canvasLayersLo];
         this.cockpitTargetRenderLayersLo = [...playerLayersLo, ...mapLayersLo, ...targetLayersLo, ...canvasLayersLo];
         this.exteriorRenderLayersLo = [...playerLayersLo, ...canvasLayersLo];
+        const showcaseLayersLo: RenderLayer[] = [
+            {
+                target: MAIN_RENDER_TARGET_LO,
+                camera: this.playerCamera.main,
+                lists: [SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
+                palette: ShowcasePalette,
+            }
+        ];
+        this.showcaseRenderLayersLo = showcaseLayersLo;
         this.cockpitRenderLayersHi = [...playerLayersHi, ...mapLayersHi, ...canvasLayersHi];
         this.cockpitTargetRenderLayersHi = [...playerLayersHi, ...mapLayersHi, ...targetLayersHi, ...canvasLayersHi];
         this.exteriorRenderLayersHi = [...playerLayersHi, ...canvasLayersHi];
+        const showcaseLayersHi: RenderLayer[] = [
+            {
+                target: MAIN_RENDER_TARGET_HI,
+                camera: this.playerCamera.main,
+                lists: [SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
+                palette: ShowcasePalette,
+            }
+        ];
+        this.showcaseRenderLayersHi = showcaseLayersHi;
 
         const playerLayersHd: RenderLayer[] = [
             {
@@ -428,6 +456,15 @@ export class Game {
         this.cockpitRenderLayersHd = [...playerLayersHd, ...mapLayersHd, ...canvasLayersHd];
         this.cockpitTargetRenderLayersHd = [...playerLayersHd, ...mapLayersHd, ...targetLayersHd, ...canvasLayersHd];
         this.exteriorRenderLayersHd = [...playerLayersHd, ...canvasLayersHd];
+        const showcaseLayersHd: RenderLayer[] = [
+            {
+                target: MAIN_RENDER_TARGET_HD,
+                camera: this.playerCamera.main,
+                lists: [SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
+                palette: ShowcasePalette,
+            }
+        ];
+        this.showcaseRenderLayersHd = showcaseLayersHd;
     }
 
     async setup() {
@@ -447,12 +484,11 @@ export class Game {
         this.materials.setPalette(this.getPalette());
         this.setupControls();
         await this.aircraftRegistry.loadPack('a4e', A4E_PACK_URL);
+        await this.aircraftRegistry.loadPack('f16', F16_PACK_URL);
         this.setupScene();
         this.refreshAircraftMenu();
-        if (this.currentDef.flight) {
-            this.configService.flightModels.getActive().setAircraft(this.currentDef.flight);
-        }
-        this.enterSpawnMenu(false);
+        this.selectAircraftById(DEFAULT_START_AIRCRAFT_ID);
+        this.beginFlight('runway');
         window.addEventListener('resize', () => this.onViewportResize());
     }
 
@@ -470,6 +506,15 @@ export class Game {
         }
         this.selectedAircraft = (this.selectedAircraft + 1) % list.length;
         this.spawnMenu.selectedAircraft = this.selectedAircraft;
+    }
+
+    private selectAircraftById(id: string): void {
+        const list = this.aircraftRegistry.list();
+        const index = list.findIndex(def => def.id === id);
+        if (index >= 0) {
+            this.selectedAircraft = index;
+            this.spawnMenu.selectedAircraft = index;
+        }
     }
 
     /** Swap the player to the aircraft chosen in the spawn menu, if different. */
@@ -594,7 +639,15 @@ export class Game {
         }
 
         let layers: RenderLayer[];
-        if (resolution === DisplayResolution.LO_RES) {
+        if (this.view === PlayerViewState.SHOWCASE) {
+            if (resolution === DisplayResolution.LO_RES) {
+                layers = this.showcaseRenderLayersLo;
+            } else if (resolution === DisplayResolution.HI_RES) {
+                layers = this.showcaseRenderLayersHi;
+            } else {
+                layers = this.showcaseRenderLayersHd;
+            }
+        } else if (resolution === DisplayResolution.LO_RES) {
             layers = this.cockpitRenderLayersLo;
             if (this.view !== PlayerViewState.COCKPIT_FRONT) {
                 layers = this.exteriorRenderLayersLo;
@@ -617,7 +670,7 @@ export class Game {
             }
         }
 
-        if (this.player.weaponsTarget) {
+        if (this.player.weaponsTarget && this.view !== PlayerViewState.SHOWCASE) {
             const weaponsTargetId = resolution === DisplayResolution.LO_RES ? WEAPONSTARGET_RENDER_TARGET_LO
                 : resolution === DisplayResolution.HI_RES ? WEAPONSTARGET_RENDER_TARGET_HI
                     : WEAPONSTARGET_RENDER_TARGET_HD;
@@ -627,6 +680,10 @@ export class Game {
                 if (layer.target === weaponsTargetId) {
                     layer.palette = nightVisionPalette;
                 }
+            }
+        } else if (this.view === PlayerViewState.SHOWCASE) {
+            for (let i = 0; i < layers.length; i++) {
+                layers[i].palette = ShowcasePalette;
             }
         } else {
             for (let i = 0; i < layers.length; i++) {
@@ -734,6 +791,11 @@ export class Game {
                     this.cycleStaticModelView();
                     break;
                 }
+                case 'F12': {
+                    event.preventDefault();
+                    this.toggleShowcaseView();
+                    break;
+                }
             }
 
             if (event.code === 'KeyR') {
@@ -794,7 +856,89 @@ export class Game {
         });
     }
 
+    private leaveShowcaseIfActive() {
+        if (this.view !== PlayerViewState.SHOWCASE) {
+            return;
+        }
+        this.player.setShowcaseMode(false);
+        this.player.setSimulationPaused(false);
+        this.scene.setRenderFilter(undefined);
+        this.viewBeforeShowcase = null;
+    }
+
+    private toggleShowcaseView() {
+        if (this.view === PlayerViewState.SHOWCASE) {
+            this.exitShowcaseView();
+        } else if (!this.player.isCrashed) {
+            this.enterShowcaseView();
+        }
+    }
+
+    private enterShowcaseView() {
+        this.viewBeforeShowcase = this.view;
+        this.resetOrbit();
+        restoreMainCameraParameters(this.playerCamera.main);
+        this.player.setShowcaseMode(true);
+        this.player.setSimulationPaused(true);
+        this.scene.setRenderFilter(entity => entity === this.player);
+        this.setShowcaseView();
+    }
+
+    private exitShowcaseView() {
+        this.player.setShowcaseMode(false);
+        this.player.setSimulationPaused(false);
+        this.scene.setRenderFilter(undefined);
+        this.resetOrbit();
+        const previous = this.viewBeforeShowcase ?? PlayerViewState.COCKPIT_FRONT;
+        this.viewBeforeShowcase = null;
+        restoreMainCameraParameters(this.playerCamera.main);
+        this.restoreView(previous);
+    }
+
+    private setShowcaseView() {
+        this.view = PlayerViewState.SHOWCASE;
+        this.player.exteriorView = true;
+        this.cameraUpdater = this.getCameraUpdater(this.view);
+        for (let i = 0; i < this.cockpitEntities.length; i++) {
+            this.cockpitEntities[i].enabled = false;
+        }
+        for (let i = 0; i < this.exteriorEntities.length; i++) {
+            this.exteriorEntities[i].enabled = false;
+        }
+    }
+
+    private restoreView(view: PlayerViewState) {
+        switch (view) {
+            case PlayerViewState.COCKPIT_FRONT:
+                this.setCockpitFrontView();
+                break;
+            case PlayerViewState.EXTERIOR_BEHIND:
+            case PlayerViewState.EXTERIOR_FRONT:
+                this.setExteriorView(view);
+                break;
+            case PlayerViewState.EXTERIOR_LEFT:
+            case PlayerViewState.EXTERIOR_RIGHT:
+                this.setExteriorView(view);
+                break;
+            case PlayerViewState.TARGET_TO:
+            case PlayerViewState.TARGET_FROM:
+                if (this.player.weaponsTarget) {
+                    this.setExteriorView(view);
+                } else {
+                    this.setCockpitFrontView();
+                }
+                break;
+            case PlayerViewState.STATIC_MODEL:
+                this.setStaticModelView(this.staticModelIndex);
+                break;
+            default:
+                this.setCockpitFrontView();
+                break;
+        }
+    }
+
     private setCockpitFrontView() {
+        this.leaveShowcaseIfActive();
         restoreMainCameraParameters(this.playerCamera.main);
         this.view = PlayerViewState.COCKPIT_FRONT;
         this.player.exteriorView = false;
@@ -851,6 +995,7 @@ export class Game {
     }
 
     private setExteriorView(view: PlayerViewState) {
+        this.leaveShowcaseIfActive();
         this.view = view;
         this.player.exteriorView = true;
         this.cameraUpdater = this.getCameraUpdater(this.view);

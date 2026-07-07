@@ -18,6 +18,11 @@ export enum SceneLayers {
 export class Scene {
 
     private entities: Entity[] = [];
+    private renderFilter: ((entity: Entity) => boolean) | undefined;
+
+    setRenderFilter(filter: ((entity: Entity) => boolean) | undefined): void {
+        this.renderFilter = filter;
+    }
 
     update(delta: number) {
         for (let i = 0; i < this.entities.length; i++) {
@@ -31,7 +36,7 @@ export class Scene {
     buildRenderLists(targetWidth: number, targetHeight: number, camera: THREE.Camera, renderLists: Map<string, THREE.Scene>, palette: Palette) {
         for (let i = 0; i < this.entities.length; i++) {
             const entity = this.entities[i];
-            if (entity.enabled) {
+            if (entity.enabled && (!this.renderFilter || this.renderFilter(entity))) {
                 entity.render3D(targetWidth, targetHeight, camera, renderLists, palette);
             }
         }

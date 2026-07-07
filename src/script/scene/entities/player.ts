@@ -117,6 +117,9 @@ export class PlayerEntity implements Entity {
     enabled: boolean = true;
     private simulationPaused = false;
     private _exteriorView: boolean = false;
+    private _showcaseMode = false;
+    private showcasePosition = new THREE.Vector3(0, PLANE_DISTANCE_TO_GROUND, 0);
+    private showcaseQuaternion = new THREE.Quaternion();
 
     // Heading increases CCW, radians
     constructor(models: ModelManager, def: FlyableAircraftDef, flightModel: FlightModel, private materials: SceneMaterialManager, inEngineAudio: AudioClip, outEngineAudio: AudioClip, position: THREE.Vector3, heading: number) {
@@ -282,6 +285,12 @@ export class PlayerEntity implements Entity {
     }
 
     updateDisplayTransform(): void {
+        if (this._showcaseMode) {
+            this.displayPosition.copy(this.showcasePosition);
+            this.displayQuaternion.copy(this.showcaseQuaternion);
+            this.displayVelocity.set(0, 0, 0);
+            return;
+        }
         this.flightModel.getRenderPosition(this.displayPosition);
         this.flightModel.getRenderQuaternion(this.displayQuaternion);
         this.flightModel.getRenderVelocity(this.displayVelocity);
@@ -600,7 +609,7 @@ export class PlayerEntity implements Entity {
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
 
-        if (!this.isCrashed) {
+        if (!this.isCrashed && !this._showcaseMode) {
             this.shadowPosition.copy(this.displayPosition).setY(0);
             this.shadowQuaternion.setFromUnitVectors(FORWARD, this.getDisplayWorldDirection(this._v).setY(0).normalize());
             const shadowLength = Math.max(0.2, this._v.copy(FORWARD).applyQuaternion(this.displayQuaternion).setY(0).length());
@@ -625,7 +634,9 @@ export class PlayerEntity implements Entity {
             this.afterburnerCones.addToRenderList(SceneLayers.EntityVolumes, lists);
 
             if (lod === 0) {
-                if (this.landingGearState !== AircraftDeviceState.RETRACTED) {
+                const showLandingGear = this._showcaseMode
+                    || this.landingGearState !== AircraftDeviceState.RETRACTED;
+                if (showLandingGear) {
                     this.modelLandingGear?.addToRenderList(
                         this.displayPosition, this.displayQuaternion, this.obj.scale,
                         targetWidth, camera, palette,
@@ -634,8 +645,9 @@ export class PlayerEntity implements Entity {
 
                 for (let i = 0; i < this.controlSurfaceDescriptors.length; i++) {
                     const d = this.controlSurfaceDescriptors[i];
+                    const deflection = this._showcaseMode || this.isCrashed ? 0 : d.value() * d.range;
 
-                    this._q.setFromAxisAngle(this._v.copy(d.axis).applyQuaternion(this.displayQuaternion), this.isCrashed ? 0 : d.value() * d.range).multiply(this.displayQuaternion);
+                    this._q.setFromAxisAngle(this._v.copy(d.axis).applyQuaternion(this.displayQuaternion), deflection).multiply(this.displayQuaternion);
                     this._v.copy(d.position).applyQuaternion(this.displayQuaternion).add(this.displayPosition);
                     d.model.addToRenderList(
                         this._v, this._q, this.obj.scale,
@@ -644,7 +656,7 @@ export class PlayerEntity implements Entity {
                 }
             }
 
-            if (this.hasWingtips) {
+            if (this.hasWingtips && !this._showcaseMode) {
                 this.wingtipTrails.addToRenderList(SceneLayers.EntityFX, lists, camera);
             }
         }
@@ -660,6 +672,22 @@ export class PlayerEntity implements Entity {
 
     setSimulationPaused(paused: boolean): void {
         this.simulationPaused = paused;
+    }
+
+    setShowcaseMode(enabled: boolean): void {
+        if (enabled === this._showcaseMode) {
+            return;
+        }
+        this._showcaseMode = enabled;
+        if (enabled) {
+            this.showcasePosition.set(0, PLANE_DISTANCE_TO_GROUND, 0);
+            this.showcaseQuaternion.identity();
+        }
+        this.updateDisplayTransform();
+    }
+
+    get showcaseMode(): boolean {
+        return this._showcaseMode;
     }
 
     get controlsEnabled(): boolean {
