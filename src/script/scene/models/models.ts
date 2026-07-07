@@ -29,6 +29,12 @@ export type ModelLoadedListener = (url: string, model: Model) => void;
 // a higher value means a lighter, sparser dither. Both are easy to tweak.
 const GLASS_COLOR = '#333333';
 const GLASS_ALPHA_DITHER = 0.65;
+// Legacy mod imports tagged glass as the default import_mod.py hex instead of GLASS.
+const LEGACY_GLASS_MATERIAL_NAMES = new Set(['GLASS', '#d1f7ff']);
+
+function isGlassMaterialName(matName: string): boolean {
+    return LEGACY_GLASS_MATERIAL_NAMES.has(matName);
+}
 
 export interface ModelLibBuilder {
     readonly type: string;
@@ -184,7 +190,7 @@ export class ModelManager {
                 if ('isMesh' in obj) {
                     const matName = (obj.material as THREE.MeshStandardMaterial).name;
                     const rawColor = ModelManager.rawColorFor(matName);
-                    if (matName === PaletteCategory.GLASS) {
+                    if (isGlassMaterialName(matName)) {
                         obj.material = this.materials.build({
                             type: SceneMaterialPrimitiveType.MESH,
                             category: PaletteCategory.GLASS,
