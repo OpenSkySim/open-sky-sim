@@ -52,11 +52,9 @@ import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 
-const A4E_PACK_URL = 'assets/a4e.aircraft.pack';
-const F16_PACK_URL = 'assets/f16.aircraft.pack';
-const DEFAULT_START_AIRCRAFT_ID = 'f16';
-/** Shipped packs loaded explicitly in setup; persisted scan skips these ids. */
-const BUILTIN_PACK_IDS = new Set(['a4e', 'f16']);
+const DEFAULT_START_AIRCRAFT_ID = 'f22';
+/** Legacy shipped packs kept out of the spawn menu when present in dist/. */
+const EXCLUDED_PACK_IDS = new Set(['a4e', 'f16']);
 
 
 const MAIN_RENDER_TARGET_LO = 'MAIN_RENDER_TARGET_LO';
@@ -495,8 +493,6 @@ export class Game {
         this.renderer.setPalette(this.getPalette());
         this.materials.setPalette(this.getPalette());
         this.setupControls();
-        await this.aircraftRegistry.loadPack('a4e', A4E_PACK_URL);
-        await this.aircraftRegistry.loadPack('f16', F16_PACK_URL);
         await this.loadPersistedPacks();
         this.setupScene();
         this.refreshAircraftMenu();
@@ -521,7 +517,7 @@ export class Game {
             const packs: { id: string; packUrl: string }[] = await res.json();
             await Promise.all(
                 packs
-                    .filter(p => !BUILTIN_PACK_IDS.has(p.id))
+                    .filter(p => !EXCLUDED_PACK_IDS.has(p.id))
                     .map(p => this.aircraftRegistry.loadPack(p.id, p.packUrl)),
             );
         } catch {

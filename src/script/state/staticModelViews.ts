@@ -27,20 +27,6 @@ export const STATIC_AIRCRAFT_TYPES: StaticAircraftType[] = [
         lodBias: DEFAULT_LOD_BIAS,
         rampX: 1580,
     },
-    {
-        name: 'A-4E',
-        body: 'pack:a4e/a4e_static.gltf',
-        shadow: 'pack:a4e/a4e_shadow.gltf',
-        lodBias: 100,
-        rampX: 1620,
-    },
-    {
-        name: 'F-16A',
-        body: 'pack:f16/f16_static.gltf',
-        shadow: 'pack:f16/f16_shadow.gltf',
-        lodBias: 100,
-        rampX: 1660,
-    },
 ];
 
 function buildStaticModelViews(): StaticModelView[] {
