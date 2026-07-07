@@ -69,7 +69,17 @@ export function buildF22Def(): FlyableAircraftDef {
 
 /** Raw shape of a packed `manifest.json` (subset the sim consumes). */
 export interface AircraftManifest {
+    id?: string;
     name?: string;
+    displayName?: string;
+    canonicalName?: string;
+    category?: string;
+    description?: string;
+    tags?: string[];
+    sourceMod?: string;
+    sourceModId?: string;
+    sourceMaterial?: string;
+    importMeta?: { confidence?: number; discoveredFrom?: string | null };
     body: string;
     shadow: string;
     gear?: string | null;
@@ -101,8 +111,8 @@ function rewriteManifestForPack(id: string, manifest: AircraftManifest): Aircraf
 
 export function manifestToDef(id: string, m: AircraftManifest): FlyableAircraftDef {
     return {
-        id,
-        name: m.name ?? id,
+        id: m.id ?? id,
+        name: m.displayName ?? m.name ?? id,
         body: m.body,
         shadow: m.shadow,
         gear: m.gear ?? undefined,
