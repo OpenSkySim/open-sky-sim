@@ -127,6 +127,13 @@ export class ModelManager {
         return newModel;
     }
 
+    /** Resolves when the model at {@link url} has finished loading (no-op if cached). */
+    waitForModel(url: string): Promise<void> {
+        return new Promise((resolve) => {
+            this.getModel(url, () => resolve());
+        });
+    }
+
     private getLoadFn(url: string, wrapper: ModelWrapper): (gltf: GLTF) => void {
         return (gltf: GLTF) => {
             wrapper.model = this.processModel(gltf, wrapper.model);

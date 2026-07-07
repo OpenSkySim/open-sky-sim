@@ -48,12 +48,15 @@ import { ShowcaseCameraUpdater } from './cameraUpdaters/showcaseCameraUpdater';
 import { restoreMainCameraParameters } from './stateUtils';
 import { forEachStaticAircraftSlot, STATIC_MODEL_VIEWS } from './staticModelViews';
 import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
+import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 
 const A4E_PACK_URL = 'assets/a4e.aircraft.pack';
 const F16_PACK_URL = 'assets/f16.aircraft.pack';
 const DEFAULT_START_AIRCRAFT_ID = 'f16';
+/** Shipped packs loaded explicitly in setup; persisted scan skips these ids. */
+const BUILTIN_PACK_IDS = new Set(['a4e', 'f16']);
 
 
 const MAIN_RENDER_TARGET_LO = 'MAIN_RENDER_TARGET_LO';
@@ -216,10 +219,14 @@ export class Game {
     private groundSmoke: GroundSmokeEntity;
     private groundFire: StaticSceneryEntity;
     private spawnMenu: SpawnMenuEntity;
+    private spawnPanel: SpawnPanel;
 
     private aircraftRegistry = new AircraftRegistry();
     private currentDef: FlyableAircraftDef;
     private selectedAircraft = 0;
+    private modUploadInput?: HTMLInputElement;
+    private modImportInFlight = false;
+    private modStatusToken?: symbol;
 
     private flightRecorder = new FlightRecorder();
 
@@ -246,6 +253,11 @@ export class Game {
         this.groundFire = new StaticSceneryEntity(models.getModel('lib:smallFire'));
         this.groundFire.enabled = false;
         this.spawnMenu = new SpawnMenuEntity();
+        this.spawnPanel = new SpawnPanel(
+            (index) => this.selectAircraftByIndex(index),
+            () => void this.beginFlight('approach'),
+            () => void this.beginFlight('runway'),
+        );
 
         this.cameraUpdaters.set(PlayerViewState.CRASHED, new CrashedCameraUpdater(this.player, this.playerCamera.main));
         this.cameraUpdaters.set(PlayerViewState.COCKPIT_FRONT, new CockpitFrontCameraUpdater(this.player, this.playerCamera.main));
@@ -485,6 +497,7 @@ export class Game {
         this.setupControls();
         await this.aircraftRegistry.loadPack('a4e', A4E_PACK_URL);
         await this.aircraftRegistry.loadPack('f16', F16_PACK_URL);
+        await this.loadPersistedPacks();
         this.setupScene();
         this.refreshAircraftMenu();
         this.selectAircraftById(DEFAULT_START_AIRCRAFT_ID);
@@ -494,26 +507,53 @@ export class Game {
 
     private refreshAircraftMenu() {
         const list = this.aircraftRegistry.list();
-        this.spawnMenu.aircraftNames = list.map(def => def.name);
         this.selectedAircraft = Math.min(this.selectedAircraft, Math.max(0, list.length - 1));
-        this.spawnMenu.selectedAircraft = this.selectedAircraft;
+        this.spawnPanel.setAircraft(list.map(def => def.name), this.selectedAircraft);
     }
 
-    private cycleSelectedAircraft() {
+    /** Load aircraft packs produced by prior F10 imports (survives page reload / rebuild). */
+    private async loadPersistedPacks(): Promise<void> {
+        try {
+            const res = await fetch('/api/aircraft-packs');
+            if (!res.ok) {
+                return;
+            }
+            const packs: { id: string; packUrl: string }[] = await res.json();
+            await Promise.all(
+                packs
+                    .filter(p => !BUILTIN_PACK_IDS.has(p.id))
+                    .map(p => this.aircraftRegistry.loadPack(p.id, p.packUrl)),
+            );
+        } catch {
+            // No modserver (static hosting) — built-in packs only.
+        }
+    }
+
+    /** Wait for an aircraft's glTF parts to finish loading before first render. */
+    private async preloadAircraftModels(def: FlyableAircraftDef): Promise<void> {
+        const urls = [
+            def.body,
+            def.shadow,
+            ...(def.gear ? [def.gear] : []),
+            ...def.surfaces.map(s => s.model),
+        ];
+        await Promise.all(urls.map(url => this.models.waitForModel(url)));
+    }
+
+    private selectAircraftByIndex(index: number) {
         const list = this.aircraftRegistry.list();
-        if (list.length === 0) {
+        if (index < 0 || index >= list.length) {
             return;
         }
-        this.selectedAircraft = (this.selectedAircraft + 1) % list.length;
-        this.spawnMenu.selectedAircraft = this.selectedAircraft;
+        this.selectedAircraft = index;
+        this.spawnPanel.setSelectedIndex(index);
     }
 
     private selectAircraftById(id: string): void {
         const list = this.aircraftRegistry.list();
         const index = list.findIndex(def => def.id === id);
         if (index >= 0) {
-            this.selectedAircraft = index;
-            this.spawnMenu.selectedAircraft = index;
+            this.selectAircraftByIndex(index);
         }
     }
 
@@ -528,6 +568,113 @@ export class Game {
         this.player.loadAircraft(def);
         if (def.flight) {
             this.configService.flightModels.getActive().setAircraft(def.flight);
+        }
+    }
+
+    /** F10: open a file picker to upload a Unity mod .zip for import. */
+    private triggerModImport(): void {
+        if (this.modImportInFlight) {
+            return;
+        }
+        if (!this.modUploadInput) {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.zip';
+            input.style.display = 'none';
+            input.addEventListener('change', () => {
+                const file = input.files && input.files[0];
+                input.value = '';
+                if (file) {
+                    void this.importModFromFile(file);
+                }
+            });
+            document.body.appendChild(input);
+            this.modUploadInput = input;
+        }
+        this.modUploadInput.click();
+    }
+
+    /** Upload the mod to the dev server, register the imported plane(s), and open the menu. */
+    private async importModFromFile(file: File): Promise<void> {
+        this.modImportInFlight = true;
+        this.setModStatus(`Importing ${file.name}...`, 0);
+        try {
+            const form = new FormData();
+            form.append('mod', file);
+            const res = await fetch('/api/import-mod', { method: 'POST', body: form });
+
+            if (res.status === 405 || res.status === 404) {
+                this.setModStatus(
+                    'Import unavailable: run npm run serve and open that URL (not a static file server).',
+                );
+                return;
+            }
+
+            let data: { ok?: boolean; error?: string; log?: string; imported?: { id: string; name: string; packUrl: string }[] };
+            try {
+                data = await res.json();
+            } catch {
+                this.setModStatus(`Import failed: unexpected response (HTTP ${res.status}).`);
+                return;
+            }
+
+            if (!res.ok || !data.ok) {
+                const msg = data.error || `HTTP ${res.status}`;
+                this.setModStatus(`Import failed: ${msg}`);
+                if (data.log) {
+                    console.warn('[mod import]\n' + data.log);
+                }
+                return;
+            }
+
+            const imported: { id: string; name: string; packUrl: string }[] = data.imported ?? [];
+            this.setModStatus(`Loading ${imported.length} aircraft pack(s)...`, 0);
+            const registered: string[] = [];
+            await Promise.all(imported.map(async (entry) => {
+                const id = await this.aircraftRegistry.loadPack(entry.id, entry.packUrl);
+                if (id) {
+                    registered.push(entry.name);
+                }
+            }));
+
+            if (registered.length === 0) {
+                this.setModStatus('Import failed: no aircraft could be loaded.');
+                return;
+            }
+
+            this.refreshAircraftMenu();
+            this.selectAircraftById(imported[0].id);
+            const firstDef = this.aircraftRegistry.get(imported[0].id);
+            if (firstDef) {
+                this.setModStatus(`Loading models for ${firstDef.name}...`, 0);
+                await this.preloadAircraftModels(firstDef);
+            }
+            this.setModStatus(`Imported: ${registered.join(', ')}. Select and fly from the menu.`, 20000);
+            this.enterSpawnMenu(false);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.setModStatus(`Import failed: ${msg}`);
+        } finally {
+            this.modImportInFlight = false;
+        }
+    }
+
+    /** Show a transient status message in the #mod-status overlay. */
+    private setModStatus(text: string, autoHideMs = 8000): void {
+        const el = document.getElementById('mod-status');
+        if (!el) {
+            return;
+        }
+        el.textContent = text;
+        el.classList.remove('hidden');
+        const token = Symbol();
+        this.modStatusToken = token;
+        if (autoHideMs > 0) {
+            window.setTimeout(() => {
+                if (this.modStatusToken === token) {
+                    el.classList.add('hidden');
+                }
+            }, autoHideMs);
         }
     }
 
@@ -761,7 +908,20 @@ export class Game {
 
     private setupControls() {
         document.addEventListener('keydown', (event: KeyboardEvent) => {
+            if (event.code === 'F10') {
+                event.preventDefault();
+                this.triggerModImport();
+                return;
+            }
+            if (this.state === GameState.SPAWN_MENU) {
+                return;
+            }
             if (this.state !== GameState.PLAYER) {
+                return;
+            }
+            if (event.code === 'Escape') {
+                event.preventDefault();
+                this.enterSpawnMenu(false);
                 return;
             }
             switch (event.key) {
@@ -831,16 +991,11 @@ export class Game {
             } else if (this.state === GameState.SPAWN_MENU) {
                 switch (event.key) {
                     case '1': {
-                        this.beginFlight('approach');
+                        void this.beginFlight('approach');
                         break;
                     }
                     case '2': {
-                        this.beginFlight('runway');
-                        break;
-                    }
-                    case 'c':
-                    case 'C': {
-                        this.cycleSelectedAircraft();
+                        void this.beginFlight('runway');
                         break;
                     }
                 }
@@ -1031,6 +1186,9 @@ export class Game {
         this.player.setSimulationPaused(true);
         this.spawnMenu.afterCrash = afterCrash;
         this.spawnMenu.enabled = true;
+        this.spawnPanel.setTitle(afterCrash ? 'The plane crashed.' : 'Retro Flight Sim');
+        this.refreshAircraftMenu();
+        this.spawnPanel.show();
 
         if (afterCrash) {
             restoreMainCameraParameters(this.playerCamera.main);
@@ -1051,11 +1209,17 @@ export class Game {
         }
     }
 
-    private beginFlight(spawn: 'approach' | 'runway') {
+    private async beginFlight(spawn: 'approach' | 'runway') {
+        const list = this.aircraftRegistry.list();
+        const def = list[this.selectedAircraft];
+        if (def) {
+            await this.preloadAircraftModels(def);
+        }
         this.applySelectedAircraft();
         this.state = GameState.PLAYER;
         this.player.setSimulationPaused(false);
         this.spawnMenu.enabled = false;
+        this.spawnPanel.hide();
         this.groundSmoke.enabled = false;
         this.groundFire.enabled = false;
 

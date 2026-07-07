@@ -8,7 +8,7 @@
         "build:prod": "webpack --mode=production && npm run pack-mods",
         "watch": "webpack --mode=development --watch",
         "preserve": "npm run build",
-        "serve": "ws -d dist",
+        "serve": "tsx tools/modserver.ts",
         "test": "node --import tsx --test src/script/physics/**/*.test.ts"
     },
     "author": "Ruben Moreno Montoliu <ruben3d@gmail.com>",
@@ -19,9 +19,13 @@
         "three": "0.185.1"
     },
     "devDependencies": {
+        "@types/express": "^5.0.6",
+        "@types/multer": "^2.2.0",
         "@types/three": "0.185.0",
         "copy-webpack-plugin": "~14.0.0",
+        "express": "^5.2.1",
         "local-web-server": "~5.4.0",
+        "multer": "^2.2.0",
         "ts-loader": "~9.6.2",
         "tsx": "^4.23.0",
         "typescript": "~6.0.3",

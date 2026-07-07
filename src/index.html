@@ -12,6 +12,18 @@
 
 <body>
     <div id="container"></div>
+    <div id="mod-status" class="hidden"></div>
+    <div id="spawn-panel" class="hidden">
+        <div id="spawn-dialog">
+            <h2 id="spawn-title">Retro Flight Sim</h2>
+            <label for="aircraft-select">Aircraft</label>
+            <select id="aircraft-select"></select>
+            <div id="spawn-actions">
+                <button type="button" id="spawn-approach">Approach (1)</button>
+                <button type="button" id="spawn-runway">Runway (2)</button>
+            </div>
+        </div>
+    </div>
     <div id="panel">
         <nav>
             <div id="help-button">?</div>
@@ -51,6 +63,15 @@
                 <li><span>I</span>: Target night view</li>
                 <li><span>H</span>: Cycle HUD focus</li>
                 <li><span>R</span>: Flight recorder (toggle, downloads JSON)</li>
+                <li><span>F10</span>: Import aircraft mod (.zip)</li>
+            </ul>
+
+            <h2>Spawn menu</h2>
+            <ul>
+                <li><span>Esc</span>: Open spawn menu</li>
+                <li><span>1</span>: Approach spawn</li>
+                <li><span>2</span>: Runway spawn</li>
+                <li>Aircraft list: pick from the combobox in the spawn menu</li>
             </ul>
 
             <h2>Views</h2>
