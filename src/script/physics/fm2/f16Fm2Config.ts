@@ -208,9 +208,9 @@ export const FM2_FCS = {
     /** Positive/negative structural g command limits. */
     maxCommandG: F16_PROFILE.maxLoadFactorG, // 9.5
     minCommandG: -3.0,
-    /** Command AoA limiter (deg). Widened fade band so authority tapers gently. */
-    aoaLimitDeg: 26,
-    aoaSoftDeg: 18,
+    /** Command AoA limiter (deg). Raised for aerobatic deep-stall / tail-slide entry. */
+    aoaLimitDeg: 85,
+    aoaSoftDeg: 55,
 
     /**
      * Pitch loop: stabilator command per unit g error, integral trim, pitch-rate
@@ -231,6 +231,8 @@ export const FM2_FCS = {
     pitchStickExpo: 0.92,
     integralLeakTauS: 0.35,
     maxStabilatorRad: 25 * DEG,
+    /** Extra stabilator authority in the aerobatic (low-q / deep-stall) envelope. */
+    aerobaticStabilatorGain: 1.65,
 
     /** Roll loop: rate command and proportional gain to aileron/taileron. */
     maxRollRateDegS: F16_PROFILE.maxRollRateDegS, // 300

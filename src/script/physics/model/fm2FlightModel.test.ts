@@ -187,6 +187,36 @@ describe('FM2 rigid-body flight model', () => {
             `yaw sign mismatch: a4e=${(a4eYaw * DEG).toFixed(1)}° f16=${(f16Yaw * DEG).toFixed(1)}°`);
     });
 
+    it('can enter a tail slide with backward body-frame velocity while nose stays high', () => {
+        const model = new Fm2FlightModel();
+        airborne(model, 3000, 160, 0.05);
+
+        let sawBackwardBodyVel = false;
+        let sawHighPitch = false;
+        const inv = new THREE.Quaternion();
+        const velBody = new THREE.Vector3();
+        const fwd = new THREE.Vector3();
+
+        for (let i = 0; i < 16 * 120; i++) {
+            model.setPitch(1.0);
+            model.update(1 / 120);
+            assert.ok(!Number.isNaN(model.position.y), 'simulation diverged to NaN');
+
+            inv.copy(model.quaternion).invert();
+            velBody.copy(model.velocityVector).applyQuaternion(inv);
+            fwd.set(0, 0, 1).applyQuaternion(model.quaternion);
+
+            if (velBody.z < -5) sawBackwardBodyVel = true;
+            if (fwd.y > 0.45) sawHighPitch = true;
+            if (sawBackwardBodyVel && sawHighPitch) break;
+        }
+
+        assert.ok(sawHighPitch,
+            `nose never stayed high during maneuver: forward.y=${fwd.y.toFixed(2)}`);
+        assert.ok(sawBackwardBodyVel,
+            `never developed backward body-frame velocity: velBody.z=${velBody.z.toFixed(1)} m/s`);
+    });
+
     it('A4E rests on mesh-derived gear contacts', () => {
         const manifest = JSON.parse(fs.readFileSync('assets/a4e.aircraft.json', 'utf8'));
         const config = manifest.flight;

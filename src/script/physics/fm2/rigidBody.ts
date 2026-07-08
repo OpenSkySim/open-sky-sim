@@ -74,6 +74,12 @@ export class RigidBody {
 
         w.addScaledVector(this._angAccel, dt);
 
+        // Prevent tumbling runaway in extreme aerobatic attitudes.
+        const maxOmega = 6.0;
+        if (w.lengthSq() > maxOmega * maxOmega) {
+            w.multiplyScalar(maxOmega / w.length());
+        }
+
         // Advance orientation by the incremental body-frame rotation.
         const omega = w.length();
         if (omega > 1e-9) {

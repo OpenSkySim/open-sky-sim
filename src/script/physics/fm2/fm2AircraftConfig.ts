@@ -104,6 +104,8 @@ export interface Fm2FcsConfig {
     maxRudderRad: number;
     /** Fraction of roll command routed to the differential stabilator. */
     taileronRollFraction: number;
+    /** Extra stabilator gain in the low-q / deep-stall aerobatic envelope. */
+    aerobaticStabilatorGain?: number;
     /** Direct-mode handling gains (ignored in fbw mode). */
     direct?: Fm2DirectFcsConfig;
 }
@@ -213,6 +215,7 @@ export const f16Fm2Config: Fm2AircraftConfig = {
         maxStabilatorRad: FM2_FCS.maxStabilatorRad,
         maxRudderRad: 22 * DEG,
         taileronRollFraction: FM2_FCS.taileronRollFraction,
+        aerobaticStabilatorGain: FM2_FCS.aerobaticStabilatorGain,
     },
     envelope: {
         stallAoaRad: F16_PROFILE.stallAoaDeg * DEG,

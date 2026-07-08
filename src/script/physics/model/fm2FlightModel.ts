@@ -143,7 +143,7 @@ export class Fm2FlightModel extends FlightModel {
         const speed = this.velBody.length();
 
         // Aircraft angle of attack (in the body X-plane) and sideslip.
-        const aoa = speed > 1 ? Math.atan2(-this.velBody.y, this.velBody.z) : 0;
+        const aoa = this.computeBodyAoa(speed);
         this.angleOfAttackRad = aoa;
 
         const dynamicPressure = computeDynamicPressure(airDensity, speed);
@@ -192,6 +192,10 @@ export class Fm2FlightModel extends FlightModel {
         // Fuselage / parasite / gear / wave drag along the relative wind.
         this.addBodyDrag(dynamicPressure, speed, mach);
 
+        // Help the pilot hold nose-up attitude through the low-energy apex so
+        // velocity can overtake the body axis (tail-slide entry).
+        this.applyDeepStallPitchAssist(speed, aoa);
+
         // Thrust along the nose (+Z body).
         const thrustN = this.computeThrustN(this.effectiveThrottle, altitude);
         this.engineThrustN = thrustN;
@@ -237,8 +241,13 @@ export class Fm2FlightModel extends FlightModel {
         const maxStabilator = this.config.fcs.maxStabilatorRad;
         const maxAileron = this.config.aileronMaxDeflectionRad;
         const maxRudder = this.config.fcs.maxRudderRad;
+        const speed = this.velBody.length();
+        const absAoa = Math.abs(this.angleOfAttackRad);
+        const aerobatic = speed < 130 || absAoa > 35 * (Math.PI / 180);
+        const stabGain = aerobatic ? (this.config.fcs.aerobaticStabilatorGain ?? 1) : 1;
+        const effectiveStab = maxStabilator * stabGain;
         // Elevator: +cmd = nose up → negative stabilator incidence (tail lift down).
-        const elevatorAoa = -elevator * maxStabilator;
+        const elevatorAoa = -elevator * effectiveStab;
         // Differential tail (taileron) assists roll.
         const taileronAoa = aileron * this.config.fcs.taileronRollFraction * maxStabilator;
         return {
@@ -276,6 +285,18 @@ export class Fm2FlightModel extends FlightModel {
             stallShiftRad: stallShift,
             extraCd,
         }, this.forceBody, this.momentBody);
+    }
+
+    /** Extra nose-up moment when holding aft stick in the deep-stall apex. */
+    private applyDeepStallPitchAssist(speed: number, aoa: number): void {
+        if (this.landed || this.pitch < 0.6) return;
+        const absAoa = Math.abs(aoa);
+        if (speed > 55 || absAoa < 0.45 || absAoa > 1.65) return;
+        const stick = clamp((this.pitch - 0.6) / 0.4, 0, 1);
+        const energy = clamp((55 - speed) / 40, 0, 1);
+        const deepStall = clamp((absAoa - 0.45) / 0.7, 0, 1);
+        const momentN = stick * energy * deepStall * 1.6e5;
+        this.momentBody.x -= momentN;
     }
 
     /** Parasite (fuselage + gear) and transonic wave drag along the relative wind. */
@@ -359,6 +380,21 @@ export class Fm2FlightModel extends FlightModel {
         const vh = Math.hypot(vhx, vhz) || 1;
         const along = Math.abs((vhx * fwx + vhz * fwz) / (fwLen * vh));
         return clamp(1 - along, 0, 1);
+    }
+
+    /**
+     * Body-frame AoA. At very low airspeed (tail-slide apex) the velocity vector
+     * is unreliable, so fall back to pitch attitude for FBW / stall telemetry.
+     */
+    private computeBodyAoa(speed: number): number {
+        if (speed > 1) {
+            return Math.atan2(-this.velBody.y, this.velBody.z);
+        }
+        if (speed > 0.15) {
+            return Math.atan2(-this.velBody.y, this.velBody.z);
+        }
+        this._fwd.set(0, 0, 1).applyQuaternion(this.rb.orientation);
+        return Math.asin(clamp(this._fwd.y, -1, 1));
     }
 
     private updateStallState(speed: number, aoa: number, altitude: number): void {

@@ -14,6 +14,7 @@
  * yaw aerodynamic damping all appear automatically from the geometry.
  */
 import * as THREE from 'three';
+import { clamp } from '../../utils/math';
 import { SurfaceGeometry } from './f16Fm2Config';
 
 export interface SurfaceInput {
@@ -95,9 +96,13 @@ export class AeroSurface {
         const stall = this.geom.stallAoaRad - input.stallShiftRad;
         const cl = liftCoefficient(effectiveAoa, this.geom.liftSlopePerRad, stall);
         const separated = Math.sin(effectiveAoa);
+        const postStall = Math.max(0, Math.abs(effectiveAoa) - stall);
+        // Separated drag peaks in the mid-stall band then eases at very high AoA so
+        // a tail slide can bleed speed without locking the aircraft at 90°.
+        const separatedScale = 0.75 * (1 - 0.35 * clamp(postStall / stall, 0, 1));
         const cd = this.geom.cd0 + input.extraCd
             + this.geom.inducedK * cl * cl
-            + 1.0 * separated * separated;
+            + separatedScale * separated * separated;
 
         // Drag acts downstream (direction the air is moving relative to surface).
         this._dragDir.copy(this._u).multiplyScalar(-1 / speed);
@@ -106,7 +111,13 @@ export class AeroSurface {
 
         const q = 0.5 * input.airDensity * speedSq;
         const area = this.geom.areaM2;
-        const lift = q * area * cl;
+        // At low airspeed, control surfaces still bite enough to hold attitude in
+        // deep stall / tail-slide manoeuvres (real jet wash & dynamic pressure
+        // from rotation at the tail still provide some q).
+        const hasControl = input.controlDeltaAoaRad !== 0;
+        const minControlQ = 0.5 * input.airDensity * 18 * 18;
+        const effectiveQ = hasControl && q < minControlQ ? minControlQ : q;
+        const lift = effectiveQ * area * cl;
         const drag = q * area * cd;
 
         // Force contribution.
@@ -126,18 +137,24 @@ export class AeroSurface {
 }
 
 /**
- * Lift coefficient with a linear range and a smooth post-stall collapse.
- * Beyond the stall AoA the coefficient decays like a cosine so lift falls off
- * (and, combined with the separated-flow drag term, produces a nose drop).
+ * Lift coefficient with a linear pre-stall range, a deep-stall plateau (vortex /
+ * strake lift), and flat-plate behaviour at extreme AoA for tail-slide recovery.
  */
 export function liftCoefficient(aoaRad: number, slopePerRad: number, stallRad: number): number {
     const mag = Math.abs(aoaRad);
-    const sign = Math.sign(aoaRad);
+    const sign = Math.sign(aoaRad) || 1;
     if (mag <= stallRad) {
         return slopePerRad * aoaRad;
     }
-    const peak = slopePerRad * stallRad;
-    // Decay to ~0 over roughly the next 35°.
-    const decay = Math.cos((mag - stallRad) * 2.2);
-    return sign * peak * Math.max(0, decay);
+    const clMax = slopePerRad * stallRad;
+    // Hold most of peak CL through the deep-stall band so the nose can stay high
+    // while forward speed bleeds off into a tail slide.
+    const deepStallSpan = Math.PI / 3;
+    if (mag <= stallRad + deepStallSpan) {
+        const t = (mag - stallRad) / deepStallSpan;
+        return sign * clMax * (1 - 0.25 * t);
+    }
+    // Beyond deep stall: flat-plate lift (sin 2α) for backward-flow / recovery.
+    const flat = Math.sin(2 * aoaRad);
+    return sign * Math.abs(flat) * clMax * 0.5;
 }
