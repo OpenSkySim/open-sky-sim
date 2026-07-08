@@ -52,7 +52,7 @@ import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 
-const DEFAULT_START_AIRCRAFT_ID = 'f22';
+const DEFAULT_START_AIRCRAFT_ID = 'cold_war_planes_a_10a_511th';
 /** Legacy shipped packs kept out of the spawn menu when present in dist/. */
 const EXCLUDED_PACK_IDS = new Set(['a4e', 'f16']);
 
@@ -507,7 +507,8 @@ export class Game {
         this.setupScene();
         this.refreshAircraftMenu();
         this.selectAircraftById(DEFAULT_START_AIRCRAFT_ID);
-        this.beginFlight('runway');
+        await this.beginFlight('approach');
+        this.setExteriorBehindFrontView();
         window.addEventListener('resize', () => this.onViewportResize());
     }
 

@@ -6,7 +6,8 @@
         "pack-mods": "python tools/pack_aircraft_mods.py",
         "build": "webpack --mode=development && npm run pack-mods",
         "build:prod": "webpack --mode=production && npm run pack-mods",
-        "watch": "webpack --mode=development --watch",
+        "start": "node tools/dev.mjs",
+        "watch": "node tools/watch.mjs",
         "preserve": "npm run build",
         "serve": "tsx tools/modserver.ts",
         "test": "node --import tsx --test src/script/physics/**/*.test.ts"
