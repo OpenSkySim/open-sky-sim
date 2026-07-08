@@ -18,6 +18,8 @@ const SEGMENT_COUNT = 50;
 const DITHER_MIN = 0.05;
 const DITHER_MAX = 0.9;
 const SEGMENT_WIDTH = 0.0784;
+/** Shift trail origins aft in body space (+Z forward, −Z aft). */
+const WINGTIP_TRAIL_AFT_OFFSET_M = 1;
 const MIN_TRAIL_SPEED_MPS = 0;
 const SAMPLE_SPACING_SPEED_FACTOR = 0.028;
 const MIN_SAMPLE_SPACING_M = 0.45;
@@ -233,8 +235,12 @@ export class WingtipTrails {
 
         if (airborne && speed >= MIN_TRAIL_SPEED_MPS) {
             const spacing = sampleSpacingM(speed);
-            this._leftTip.copy(this.leftTipBody).applyQuaternion(displayQuaternion).add(displayPosition);
-            this._rightTip.copy(this.rightTipBody).applyQuaternion(displayQuaternion).add(displayPosition);
+            this._leftTip.copy(this.leftTipBody);
+            this._leftTip.z -= WINGTIP_TRAIL_AFT_OFFSET_M;
+            this._leftTip.applyQuaternion(displayQuaternion).add(displayPosition);
+            this._rightTip.copy(this.rightTipBody);
+            this._rightTip.z -= WINGTIP_TRAIL_AFT_OFFSET_M;
+            this._rightTip.applyQuaternion(displayQuaternion).add(displayPosition);
             this.left.tryPush(this._leftTip, spacing);
             this.right.tryPush(this._rightTip, spacing);
         }

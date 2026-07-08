@@ -13,13 +13,6 @@ import { aircraftPackStore, toPackUrl } from './aircraftPack';
 
 const HINGE_RANGE = Math.PI / 6;
 
-// F-22 wingtip vortex origins at the outermost wing (half-span).
-const F22_WINGTIP_OUTWARD = 9.45 * 0.5;
-const F22_WINGTIPS: [[number, number, number], [number, number, number]] = [
-    [F22_WINGTIP_OUTWARD, -0.28, -2.7],
-    [-F22_WINGTIP_OUTWARD, -0.28, -2.7],
-];
-
 export function buildF22Def(): FlyableAircraftDef {
     return {
         id: 'f22',
@@ -29,7 +22,7 @@ export function buildF22Def(): FlyableAircraftDef {
         gear: 'assets/f22_landinggear.glb',
         gearAnimated: true,
         cockpitOffset: [0, 1.0, 8.0],
-        fx: { wingtips: F22_WINGTIPS, nozzles: null },
+        fx: { wingtips: null, nozzles: null },
         flight: f16Fm2Config,
         surfaces: [
             {

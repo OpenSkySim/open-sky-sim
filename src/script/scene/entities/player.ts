@@ -4,7 +4,6 @@ import { AudioClip } from '../../audio/audioSystem';
 import { Palette, PaletteCategory } from "../../config/palettes/palette";
 import { AIRBASE_RUNWAY, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
-import { F16_PROFILE } from '../../physics/f16Profile';
 import { FlightSample } from '../../physics/flightRecorder';
 import { LODHelper, getLodLevel } from '../../render/helpers';
 import { CanvasPainter } from "../../render/screen/canvasPainter";
@@ -17,11 +16,7 @@ import { isPackUrl } from '../../state/aircraftPack';
 import { Scene, SceneLayers } from "../scene";
 import { AfterburnerCones } from './afterburnerCones';
 import { WingtipTrails } from './wingtipTrails';
-import {
-    deriveWingtipOriginsFromModel,
-    isPlausibleWingtipDerivation,
-    resolveWingtipOrigins,
-} from './wingtipOrigins';
+import { countBodyMeshVertices, deriveWingtipOriginsFromModel } from './wingtipOrigins';
 import { GroundTargetEntity } from './groundTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 
@@ -90,9 +85,7 @@ export class PlayerEntity implements Entity {
     private afterburnerCones: AfterburnerCones;
     private wingtipTrails: WingtipTrails;
     private afterburnerPanesBound = false;
-    private wingtipsRefined = false;
-    private wingtipsAllowMeshRefine = true;
-    private wingtipsBaselineOutward = F16_PROFILE.wingSpanM * 0.5;
+    private wingtipsReady = false;
     /** True when the body model comes from an imported (pack) mod. */
     private bodyIsImported = false;
     /** True when the def provides nozzle exits (afterburner glow + plumes). */
@@ -161,8 +154,11 @@ export class PlayerEntity implements Entity {
     /** (Re)build all visual models and control surfaces from an aircraft def. */
     private buildFromDef(def: FlyableAircraftDef): void {
         this.afterburnerPanesBound = false;
-        this.wingtipsRefined = false;
+        this.wingtipsReady = false;
         this.bodyIsImported = isPackUrl(def.body);
+
+        this.wingtipTrails = new WingtipTrails(this.materials);
+        this.wingtipTrails.reset();
 
         this.modelBody = new LODHelper(this.models.getModel(def.body, (_, model) => {
             // Operate on the model the loader hands back rather than this.modelBody:
@@ -187,14 +183,6 @@ export class PlayerEntity implements Entity {
         }
 
         this.cockpitOffset.fromArray(def.cockpitOffset);
-
-        this.wingtipsAllowMeshRefine = !def.fx?.wingtips;
-        const wingtips = resolveWingtipOrigins(def);
-        this.wingtipsBaselineOutward = Math.abs(wingtips[0][0]);
-        this.wingtipTrails = new WingtipTrails(this.materials, {
-            left: new THREE.Vector3().fromArray(wingtips[0]),
-            right: new THREE.Vector3().fromArray(wingtips[1]),
-        });
 
         // Auto-place afterburner exhaust plumes at the aircraft's own nozzle
         // exits (importer-provided); falls back to the built-in twin layout.
@@ -300,12 +288,14 @@ export class PlayerEntity implements Entity {
         this.bindAfterburnerPaneMaterials();
         this.updateAfterburnerPaneColors();
         this.updateDisplayTransform();
-        this.wingtipTrails.update(
-            this.displayPosition,
-            this.displayQuaternion,
-            this.displayVelocity,
-            !this.isLanded && !this.isCrashed,
-        );
+        if (this.wingtipsReady) {
+            this.wingtipTrails.update(
+                this.displayPosition,
+                this.displayQuaternion,
+                this.displayVelocity,
+                !this.isLanded && !this.isCrashed,
+            );
+        }
 
         if (!this.isCrashed) {
             this.updateLandingGear(delta);
@@ -433,19 +423,20 @@ export class PlayerEntity implements Entity {
     }
 
     private bindWingtipOrigins(model: Model): void {
-        if (this.wingtipsRefined) {
+        if (this.wingtipsReady) {
             return;
         }
-        this.wingtipsRefined = true;
-        if (!this.wingtipsAllowMeshRefine) {
+        const vertexCount = countBodyMeshVertices(model);
+        if (vertexCount < 8) {
             return;
         }
         const derived = deriveWingtipOriginsFromModel(model);
-        if (!derived || !isPlausibleWingtipDerivation(derived, this.wingtipsBaselineOutward)) {
+        if (!derived) {
             return;
         }
         this.wingtipTrails.setTipOrigins(derived.left, derived.right);
         this.wingtipTrails.reset();
+        this.wingtipsReady = true;
     }
 
     /**
@@ -696,7 +687,7 @@ export class PlayerEntity implements Entity {
                 }
             }
 
-            if (!this._showcaseMode) {
+            if (!this._showcaseMode && this.wingtipsReady) {
                 this.wingtipTrails.addToRenderList(SceneLayers.EntityFX, lists, camera);
             }
         }
