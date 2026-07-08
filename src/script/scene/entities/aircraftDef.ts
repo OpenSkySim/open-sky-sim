@@ -30,8 +30,10 @@ export interface ControlSurfaceConfig {
 export interface AircraftFxConfig {
     /** Wingtip vortex trail origins [left, right] (body frame); null disables. */
     wingtips?: [[number, number, number], [number, number, number]] | null;
-    /** Reserved for future per-aircraft nozzle FX; null uses defaults. */
+    /** Afterburner nozzle exit origins (body frame); null uses the twin default. */
     nozzles?: [number, number, number][] | null;
+    /** Representative nozzle radius (m) for sizing the plume/interior; null uses default. */
+    nozzleRadius?: number | null;
 }
 
 /** Everything needed to build and fly a player aircraft. */

@@ -5,7 +5,7 @@ import { Palette, PaletteCategory } from "../../config/palettes/palette";
 import { AIRBASE_RUNWAY, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
 import { FlightSample } from '../../physics/flightRecorder';
-import { getF16AfterburnerConeDither, getF16EngineNozzleColor } from '../../physics/f16Engine';
+import { getF16EngineNozzleColor } from '../../physics/f16Engine';
 import { LODHelper, getLodLevel } from '../../render/helpers';
 import { CanvasPainter } from "../../render/screen/canvasPainter";
 import { HUDFocusMode } from '../../state/gameDefs';
@@ -87,6 +87,8 @@ export class PlayerEntity implements Entity {
     private wingtipTrails: WingtipTrails;
     private afterburnerInteriorColor = new THREE.Color();
     private afterburnerPanesBound = false;
+    /** True when the def provides nozzle exits (afterburner glow + plumes). */
+    private hasNozzles = false;
 
     private obj = new THREE.Object3D();
 
@@ -173,6 +175,15 @@ export class PlayerEntity implements Entity {
                 right: new THREE.Vector3().fromArray(wingtips[1]),
             });
         }
+
+        // Auto-place afterburner exhaust plumes at the aircraft's own nozzle
+        // exits (importer-provided); falls back to the built-in twin layout.
+        const nozzles = def.fx?.nozzles ?? null;
+        this.hasNozzles = !!(nozzles && nozzles.length > 0);
+        this.afterburnerCones.setNozzles(
+            nozzles ? nozzles.map(n => new THREE.Vector3().fromArray(n)) : null,
+            def.fx?.nozzleRadius ?? null,
+        );
 
         this.controlSurfaceDescriptors = def.surfaces.map((s: ControlSurfaceConfig) => ({
             model: new LODHelper(this.models.getModel(s.model)),
@@ -426,10 +437,15 @@ export class PlayerEntity implements Entity {
     private updateAfterburnerPaneColors() {
         const f16Detents = this.flightModel.useF16ThrottleDetents();
         const lever = this.throttle;
+        // An aircraft is afterburner-capable if the flight model runs the F-16
+        // quadrant OR the model provides nozzle exits. The latter decouples the
+        // effect from the (possibly inherited) flight config so imported jets
+        // with nozzles reliably light up regardless of what was flown before.
+        const hasAfterburner = f16Detents || this.hasNozzles;
 
         for (let i = 0; i < this.afterburnerInteriorMaterials.length; i++) {
             const uniforms = this.afterburnerInteriorMaterials[i].uniforms as SceneMaterialUniforms;
-            const color = f16Detents
+            const color = hasAfterburner
                 ? getF16EngineNozzleColor(lever)
                 : this.flightModel.getEngineNozzleColor();
             this.afterburnerInteriorColor.set(color);
@@ -437,10 +453,14 @@ export class PlayerEntity implements Entity {
             uniforms.colorSecondary.value.copy(this.afterburnerInteriorColor);
         }
 
-        const coneDither = f16Detents ? getF16AfterburnerConeDither(lever) : null;
+        // Draw synthetic glowing nozzle discs only when the model ships no real
+        // nozzle-interior mesh (e.g. multi-plane imports); otherwise the mesh
+        // above already provides the glow.
+        const interiorEnabled = this.hasNozzles && this.afterburnerInteriorMaterials.length === 0;
         this.afterburnerCones.update(
             lever,
-            coneDither,
+            hasAfterburner,
+            interiorEnabled,
             this.displayPosition,
             this.displayQuaternion,
         );

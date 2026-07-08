@@ -89,7 +89,7 @@ export interface AircraftManifest {
         pivot: [number, number, number]; axis: [number, number, number];
         control: string; sign: number; rangeRad: number;
     }[];
-    fx?: { wingtips?: [[number, number, number], [number, number, number]] | null; nozzles?: [number, number, number][] | null };
+    fx?: { wingtips?: [[number, number, number], [number, number, number]] | null; nozzles?: [number, number, number][] | null; nozzleRadius?: number | null };
     cockpitOffset?: [number, number, number];
     flight?: Fm2AircraftConfig | null;
 }
@@ -118,7 +118,7 @@ export function manifestToDef(id: string, m: AircraftManifest): FlyableAircraftD
         gear: m.gear ?? undefined,
         gearAnimated: false, // imported gear models are static (no retract clip)
         cockpitOffset: m.cockpitOffset ?? [0, 1.0, 6.0],
-        fx: { wingtips: m.fx?.wingtips ?? null, nozzles: m.fx?.nozzles ?? null },
+        fx: { wingtips: m.fx?.wingtips ?? null, nozzles: m.fx?.nozzles ?? null, nozzleRadius: m.fx?.nozzleRadius ?? null },
         flight: m.flight ?? undefined,
         surfaces: m.surfaces.map((s): ControlSurfaceConfig => ({
             role: s.role,
