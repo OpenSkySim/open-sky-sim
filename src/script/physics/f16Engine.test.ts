@@ -79,18 +79,18 @@ describe('F-16 F100-PW-229 throttle quadrant', () => {
         assert.equal(getF16AfterburnerConeDither(0.98), null);
         assert.deepEqual(getF16AfterburnerConeDither(0.99), {
             primary: F16_ENGINE_NOZZLE_COLORS.abMin,
-            secondary: F16_ENGINE_NOZZLE_COLORS.abMax,
+            secondary: F16_ENGINE_NOZZLE_COLORS.abMin,
         });
         assert.deepEqual(getF16AfterburnerConeDither(1.0), {
             primary: F16_ENGINE_NOZZLE_COLORS.abMax,
-            secondary: F16_ENGINE_NOZZLE_COLORS.abMin,
+            secondary: F16_ENGINE_NOZZLE_COLORS.abMax,
         });
     });
 
     it('returns AB cone plume length in meters', () => {
         assert.equal(getF16AfterburnerConeLengthM(0.98), 0);
-        assert.equal(getF16AfterburnerConeLengthM(0.99), 4);
-        assert.equal(getF16AfterburnerConeLengthM(1.0), 7);
+        assert.equal(getF16AfterburnerConeLengthM(0.99), 1.96);
+        assert.equal(getF16AfterburnerConeLengthM(1.0), 3.43);
     });
 
     it('continuous ramp stops at MIL 100 without entering AB', () => {

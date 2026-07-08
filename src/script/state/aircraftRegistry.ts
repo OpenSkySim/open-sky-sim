@@ -13,9 +13,8 @@ import { aircraftPackStore, toPackUrl } from './aircraftPack';
 
 const HINGE_RANGE = Math.PI / 6;
 
-// F-22 wingtip vortex origins (matching the previous WingtipTrails defaults so
-// the trails render exactly as before): span/2 + 2.05 outboard, aft and low.
-const F22_WINGTIP_OUTWARD = 9.45 * 0.5 + 2.05;
+// F-22 wingtip vortex origins at the outermost wing (half-span).
+const F22_WINGTIP_OUTWARD = 9.45 * 0.5;
 const F22_WINGTIPS: [[number, number, number], [number, number, number]] = [
     [F22_WINGTIP_OUTWARD, -0.28, -2.7],
     [-F22_WINGTIP_OUTWARD, -0.28, -2.7],

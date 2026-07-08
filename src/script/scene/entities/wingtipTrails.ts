@@ -6,15 +6,10 @@ import { PaletteCategory } from '../../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType, SceneMaterialUniforms } from '../materials/materials';
 import { updateUniforms } from '../utils';
 
-const WINGTIP_OUTWARD = F16_PROFILE.wingSpanM * 0.5 + 2.05;
-
-/** Body space: +Z forward, −Z aft. */
-const WINGTIP_AFT = -2.7;
-const WINGTIP_HEIGHT = -0.28;
-
-/** Wingtip vortex origins — beyond the physical wingtip, aft of the leading edge. */
-const LEFT_WINGTIP = new THREE.Vector3(WINGTIP_OUTWARD, WINGTIP_HEIGHT, WINGTIP_AFT);
-const RIGHT_WINGTIP = new THREE.Vector3(-WINGTIP_OUTWARD, WINGTIP_HEIGHT, WINGTIP_AFT);
+/** Body space: +Z forward, −Z aft. Last-resort defaults when no tips are passed. */
+const DEFAULT_WINGTIP_OUTWARD = F16_PROFILE.wingSpanM * 0.5;
+const DEFAULT_LEFT_WINGTIP = new THREE.Vector3(DEFAULT_WINGTIP_OUTWARD, -0.28, -2.7);
+const DEFAULT_RIGHT_WINGTIP = new THREE.Vector3(-DEFAULT_WINGTIP_OUTWARD, -0.28, -2.7);
 
 const TRAIL_WHITE = '#ffffff';
 
@@ -179,8 +174,8 @@ export class WingtipTrails {
     private readonly right: WingTrailSide;
     private readonly _leftTip = new THREE.Vector3();
     private readonly _rightTip = new THREE.Vector3();
-    private readonly leftTipBody = LEFT_WINGTIP.clone();
-    private readonly rightTipBody = RIGHT_WINGTIP.clone();
+    private readonly leftTipBody = DEFAULT_LEFT_WINGTIP.clone();
+    private readonly rightTipBody = DEFAULT_RIGHT_WINGTIP.clone();
 
     constructor(materials: SceneMaterialManager, tips?: { left: THREE.Vector3, right: THREE.Vector3 }) {
         if (tips) {
@@ -211,6 +206,11 @@ export class WingtipTrails {
     reset(): void {
         this.left.reset();
         this.right.reset();
+    }
+
+    setTipOrigins(left: THREE.Vector3, right: THREE.Vector3): void {
+        this.leftTipBody.copy(left);
+        this.rightTipBody.copy(right);
     }
 
     private applyWhiteColors(): void {

@@ -35,8 +35,18 @@ module.exports = {
         new CopyPlugin({
             patterns: [
                 {
-                    from: 'src/*',
-                    to: '[name][ext]'
+                    from: 'src/index.html',
+                    to: 'index.html',
+                    transform(content) {
+                        return content.toString().replace(
+                            'src="./bundle.js"',
+                            `src="./bundle.js?v=${Date.now()}"`,
+                        );
+                    },
+                },
+                {
+                    from: 'src/style.css',
+                    to: 'style.css',
                 },
                 {
                     from: 'assets/*',

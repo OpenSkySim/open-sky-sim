@@ -26,9 +26,9 @@ export interface ControlSurfaceConfig {
     rangeRad: number;
 }
 
-/** Optional visual effects; omit or null to disable per aircraft. */
+/** Optional visual effects; omit fields to use auto-derived defaults. */
 export interface AircraftFxConfig {
-    /** Wingtip vortex trail origins [left, right] (body frame); null disables. */
+    /** Wingtip vortex trail origins [left, right] (body frame); null/omit auto-derives. */
     wingtips?: [[number, number, number], [number, number, number]] | null;
     /** Afterburner nozzle exit origins (body frame); null uses the twin default. */
     nozzles?: [number, number, number][] | null;

@@ -4,6 +4,7 @@ import { AudioClip } from '../../audio/audioSystem';
 import { Palette, PaletteCategory } from "../../config/palettes/palette";
 import { AIRBASE_RUNWAY, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
+import { F16_PROFILE } from '../../physics/f16Profile';
 import { FlightSample } from '../../physics/flightRecorder';
 import { LODHelper, getLodLevel } from '../../render/helpers';
 import { CanvasPainter } from "../../render/screen/canvasPainter";
@@ -16,6 +17,11 @@ import { isPackUrl } from '../../state/aircraftPack';
 import { Scene, SceneLayers } from "../scene";
 import { AfterburnerCones } from './afterburnerCones';
 import { WingtipTrails } from './wingtipTrails';
+import {
+    deriveWingtipOriginsFromModel,
+    isPlausibleWingtipDerivation,
+    resolveWingtipOrigins,
+} from './wingtipOrigins';
 import { GroundTargetEntity } from './groundTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 
@@ -66,7 +72,6 @@ export class PlayerEntity implements Entity {
 
     private controlSurfaceDescriptors: ControlSurfaceDescriptor[] = [];
     private cockpitOffset = new THREE.Vector3();
-    private hasWingtips = true;
 
     private flightModel: FlightModel;
 
@@ -85,6 +90,9 @@ export class PlayerEntity implements Entity {
     private afterburnerCones: AfterburnerCones;
     private wingtipTrails: WingtipTrails;
     private afterburnerPanesBound = false;
+    private wingtipsRefined = false;
+    private wingtipsAllowMeshRefine = true;
+    private wingtipsBaselineOutward = F16_PROFILE.wingSpanM * 0.5;
     /** True when the body model comes from an imported (pack) mod. */
     private bodyIsImported = false;
     /** True when the def provides nozzle exits (afterburner glow + plumes). */
@@ -153,6 +161,7 @@ export class PlayerEntity implements Entity {
     /** (Re)build all visual models and control surfaces from an aircraft def. */
     private buildFromDef(def: FlyableAircraftDef): void {
         this.afterburnerPanesBound = false;
+        this.wingtipsRefined = false;
         this.bodyIsImported = isPackUrl(def.body);
 
         this.modelBody = new LODHelper(this.models.getModel(def.body, (_, model) => {
@@ -161,6 +170,7 @@ export class PlayerEntity implements Entity {
             // this.modelBody has been reassigned, so this.modelBody would still be
             // the previous aircraft.
             this.bindAfterburnerNozzles(model);
+            this.bindWingtipOrigins(model);
         }));
         this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
 
@@ -178,14 +188,13 @@ export class PlayerEntity implements Entity {
 
         this.cockpitOffset.fromArray(def.cockpitOffset);
 
-        const wingtips = def.fx?.wingtips ?? null;
-        this.hasWingtips = !!wingtips;
-        if (wingtips) {
-            this.wingtipTrails = new WingtipTrails(this.materials, {
-                left: new THREE.Vector3().fromArray(wingtips[0]),
-                right: new THREE.Vector3().fromArray(wingtips[1]),
-            });
-        }
+        this.wingtipsAllowMeshRefine = !def.fx?.wingtips;
+        const wingtips = resolveWingtipOrigins(def);
+        this.wingtipsBaselineOutward = Math.abs(wingtips[0][0]);
+        this.wingtipTrails = new WingtipTrails(this.materials, {
+            left: new THREE.Vector3().fromArray(wingtips[0]),
+            right: new THREE.Vector3().fromArray(wingtips[1]),
+        });
 
         // Auto-place afterburner exhaust plumes at the aircraft's own nozzle
         // exits (importer-provided); falls back to the built-in twin layout.
@@ -291,14 +300,12 @@ export class PlayerEntity implements Entity {
         this.bindAfterburnerPaneMaterials();
         this.updateAfterburnerPaneColors();
         this.updateDisplayTransform();
-        if (this.hasWingtips) {
-            this.wingtipTrails.update(
-                this.displayPosition,
-                this.displayQuaternion,
-                this.displayVelocity,
-                !this.isLanded && !this.isCrashed,
-            );
-        }
+        this.wingtipTrails.update(
+            this.displayPosition,
+            this.displayQuaternion,
+            this.displayVelocity,
+            !this.isLanded && !this.isCrashed,
+        );
 
         if (!this.isCrashed) {
             this.updateLandingGear(delta);
@@ -404,10 +411,13 @@ export class PlayerEntity implements Entity {
 
     /** Retry hook (from the update loop) once the body model has loaded. */
     private bindAfterburnerPaneMaterials() {
-        if (this.afterburnerPanesBound || this.modelBody.model.lod.length === 0) {
+        if (this.modelBody.model.lod.length === 0) {
             return;
         }
-        this.bindAfterburnerNozzles(this.modelBody.model);
+        if (!this.afterburnerPanesBound) {
+            this.bindAfterburnerNozzles(this.modelBody.model);
+        }
+        this.bindWingtipOrigins(this.modelBody.model);
     }
 
     private bindAfterburnerNozzles(model: Model) {
@@ -420,6 +430,22 @@ export class PlayerEntity implements Entity {
             this.hideNozzleFireMeshes(model);
         }
         this.afterburnerPanesBound = true;
+    }
+
+    private bindWingtipOrigins(model: Model): void {
+        if (this.wingtipsRefined) {
+            return;
+        }
+        this.wingtipsRefined = true;
+        if (!this.wingtipsAllowMeshRefine) {
+            return;
+        }
+        const derived = deriveWingtipOriginsFromModel(model);
+        if (!derived || !isPlausibleWingtipDerivation(derived, this.wingtipsBaselineOutward)) {
+            return;
+        }
+        this.wingtipTrails.setTipOrigins(derived.left, derived.right);
+        this.wingtipTrails.reset();
     }
 
     /**
@@ -670,7 +696,7 @@ export class PlayerEntity implements Entity {
                 }
             }
 
-            if (this.hasWingtips && !this._showcaseMode) {
+            if (!this._showcaseMode) {
                 this.wingtipTrails.addToRenderList(SceneLayers.EntityFX, lists, camera);
             }
         }

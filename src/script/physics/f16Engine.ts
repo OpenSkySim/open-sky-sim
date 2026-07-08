@@ -44,19 +44,19 @@ export interface F16AfterburnerConeDither {
     secondary: string;
 }
 
-/** Orange/yellow checkerboard dither for AB cone meshes; null when MIL (cones hidden). */
+/** AB cone dither pair (solid orange in AB1, solid yellow in AB2); null when MIL. */
 export function getF16AfterburnerConeDither(lever: number): F16AfterburnerConeDither | null {
     const zone = getF16ThrottleZone(lever);
     if (zone === 'ab-min') {
         return {
             primary: F16_ENGINE_NOZZLE_COLORS.abMin,
-            secondary: F16_ENGINE_NOZZLE_COLORS.abMax,
+            secondary: F16_ENGINE_NOZZLE_COLORS.abMin,
         };
     }
     if (zone === 'ab-max') {
         return {
             primary: F16_ENGINE_NOZZLE_COLORS.abMax,
-            secondary: F16_ENGINE_NOZZLE_COLORS.abMin,
+            secondary: F16_ENGINE_NOZZLE_COLORS.abMax,
         };
     }
     return null;
@@ -68,8 +68,8 @@ export function isF16AfterburnerActive(lever: number): boolean {
 
 export const F16_AFTERBURNER_CONE_LENGTH_M = {
     mil: 0,
-    abMin: 4,
-    abMax: 7,
+    abMin: 1.96,
+    abMax: 3.43,
 } as const;
 
 export function getF16AfterburnerConeLengthM(lever: number): number {
