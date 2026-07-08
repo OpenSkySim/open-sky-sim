@@ -11,6 +11,7 @@ export const DepthFragProgram: string = `
   uniform float fogDensity;
   uniform vec3 fogColor;
   uniform float alphaDither;
+  uniform float colorDither;
 
   varying vec3 vPosition;
 
@@ -57,7 +58,10 @@ export const DepthFragProgram: string = `
     }
 
     vec3 diffuse;
-    if (shadingType == 0) {
+    // shadingType 0 (duotone) dithers every surface; colorDither forces the same
+    // two-tone stipple for specific materials (e.g. fire) in all shading modes so
+    // they read as a steady dither instead of a temporal colour flicker.
+    if (shadingType == 0 || colorDither > 0.5) {
       bool dithering = mod(floor(screen.x + screen.y), 2.0) > 0.5;
       diffuse = dithering ? color : colorSecondary;
     } else {

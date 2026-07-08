@@ -5,14 +5,14 @@ import { Palette, PaletteCategory } from "../../config/palettes/palette";
 import { AIRBASE_RUNWAY, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
 import { FlightSample } from '../../physics/flightRecorder';
-import { getF16EngineNozzleColor } from '../../physics/f16Engine';
 import { LODHelper, getLodLevel } from '../../render/helpers';
 import { CanvasPainter } from "../../render/screen/canvasPainter";
 import { HUDFocusMode } from '../../state/gameDefs';
 import { clamp, easeOutQuad, easeOutQuint, FORWARD, RIGHT, UP } from '../../utils/math';
 import { Entity, ENTITY_TAGS } from "../entity";
-import { SceneMaterialData, SceneMaterialManager, SceneMaterialUniforms } from '../materials/materials';
-import { ModelManager } from '../models/models';
+import { SceneMaterialData, SceneMaterialManager } from '../materials/materials';
+import { Model, ModelManager } from '../models/models';
+import { isPackUrl } from '../../state/aircraftPack';
 import { Scene, SceneLayers } from "../scene";
 import { AfterburnerCones } from './afterburnerCones';
 import { WingtipTrails } from './wingtipTrails';
@@ -82,11 +82,11 @@ export class PlayerEntity implements Entity {
     private flapsProgress = FLAPS_ANIM_DURATION;
     private flapsProgressUnit = 1.0;
 
-    private afterburnerInteriorMaterials: ShaderMaterial[] = [];
     private afterburnerCones: AfterburnerCones;
     private wingtipTrails: WingtipTrails;
-    private afterburnerInteriorColor = new THREE.Color();
     private afterburnerPanesBound = false;
+    /** True when the body model comes from an imported (pack) mod. */
+    private bodyIsImported = false;
     /** True when the def provides nozzle exits (afterburner glow + plumes). */
     private hasNozzles = false;
 
@@ -146,10 +146,14 @@ export class PlayerEntity implements Entity {
     /** (Re)build all visual models and control surfaces from an aircraft def. */
     private buildFromDef(def: FlyableAircraftDef): void {
         this.afterburnerPanesBound = false;
-        this.afterburnerInteriorMaterials.length = 0;
+        this.bodyIsImported = isPackUrl(def.body);
 
-        this.modelBody = new LODHelper(this.models.getModel(def.body, () => {
-            this.bindAfterburnerPaneMaterials();
+        this.modelBody = new LODHelper(this.models.getModel(def.body, (_, model) => {
+            // Operate on the model the loader hands back rather than this.modelBody:
+            // for an already-cached body the listener fires synchronously, before
+            // this.modelBody has been reassigned, so this.modelBody would still be
+            // the previous aircraft.
+            this.bindAfterburnerNozzles(model);
         }));
         this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
 
@@ -391,24 +395,33 @@ export class PlayerEntity implements Entity {
         }
     }
 
+    /** Retry hook (from the update loop) once the body model has loaded. */
     private bindAfterburnerPaneMaterials() {
         if (this.afterburnerPanesBound || this.modelBody.model.lod.length === 0) {
             return;
         }
-        this.collectAfterburnerPaneMaterials(this.modelBody);
-        if (this.afterburnerInteriorMaterials.length > 0) {
-            this.afterburnerPanesBound = true;
+        this.bindAfterburnerNozzles(this.modelBody.model);
+    }
+
+    private bindAfterburnerNozzles(model: Model) {
+        if (this.afterburnerPanesBound) {
+            return;
         }
+        // Only imported (mod) jets get their nozzle glow removed; the built-in
+        // aircraft keep their authored FX_FIRE nozzle interiors.
+        if (this.bodyIsImported) {
+            this.hideNozzleFireMeshes(model);
+        }
+        this.afterburnerPanesBound = true;
     }
 
-    /** Hide authored FireCone FX meshes; procedural plumes are used instead. */
-    private isAfterburnerConeMesh(obj: THREE.Object3D): boolean {
-        return obj.name.includes('FireCone') || obj.userData.time === 'night';
-    }
-
-    /** FX_FIRE nozzle interior panes (solid color by throttle). */
-    private collectAfterburnerPaneMaterials(model: LODHelper) {
-        for (const level of model.model.lod) {
+    /**
+     * Hide an imported jet's FX_FIRE nozzle-interior meshes (and any authored
+     * FireCone FX) so the nozzle itself does not glow; the exhaust is represented
+     * solely by the procedural afterburner plume.
+     */
+    private hideNozzleFireMeshes(model: Model) {
+        for (const level of model.lod) {
             for (const obj of [...level.flats, ...level.volumes]) {
                 if (!('isMesh' in obj) && !('isPoints' in obj)) {
                     continue;
@@ -416,20 +429,9 @@ export class PlayerEntity implements Entity {
                 const drawable = obj as THREE.Mesh | THREE.Points;
                 const material = drawable.material as ShaderMaterial;
                 const data = material.userData as SceneMaterialData;
-                if (data.category !== PaletteCategory.FX_FIRE) {
-                    continue;
-                }
-                if (this.isAfterburnerConeMesh(drawable)) {
+                if (data.category === PaletteCategory.FX_FIRE) {
                     drawable.visible = false;
-                    continue;
                 }
-                const uniqueMaterial = material.clone();
-                const uniforms = uniqueMaterial.uniforms as SceneMaterialUniforms;
-                uniforms.color = { value: uniforms.color.value.clone() };
-                uniforms.colorSecondary = { value: uniforms.colorSecondary.value.clone() };
-                (uniqueMaterial.userData as SceneMaterialData & { afterburnerThrottleDriven?: boolean }).afterburnerThrottleDriven = true;
-                drawable.material = uniqueMaterial;
-                this.afterburnerInteriorMaterials.push(uniqueMaterial);
             }
         }
     }
@@ -440,27 +442,12 @@ export class PlayerEntity implements Entity {
         // An aircraft is afterburner-capable if the flight model runs the F-16
         // quadrant OR the model provides nozzle exits. The latter decouples the
         // effect from the (possibly inherited) flight config so imported jets
-        // with nozzles reliably light up regardless of what was flown before.
+        // with plumes reliably light up regardless of what was flown before.
         const hasAfterburner = f16Detents || this.hasNozzles;
 
-        for (let i = 0; i < this.afterburnerInteriorMaterials.length; i++) {
-            const uniforms = this.afterburnerInteriorMaterials[i].uniforms as SceneMaterialUniforms;
-            const color = hasAfterburner
-                ? getF16EngineNozzleColor(lever)
-                : this.flightModel.getEngineNozzleColor();
-            this.afterburnerInteriorColor.set(color);
-            uniforms.color.value.copy(this.afterburnerInteriorColor);
-            uniforms.colorSecondary.value.copy(this.afterburnerInteriorColor);
-        }
-
-        // Draw synthetic glowing nozzle discs only when the model ships no real
-        // nozzle-interior mesh (e.g. multi-plane imports); otherwise the mesh
-        // above already provides the glow.
-        const interiorEnabled = this.hasNozzles && this.afterburnerInteriorMaterials.length === 0;
         this.afterburnerCones.update(
             lever,
             hasAfterburner,
-            interiorEnabled,
             this.displayPosition,
             this.displayQuaternion,
         );

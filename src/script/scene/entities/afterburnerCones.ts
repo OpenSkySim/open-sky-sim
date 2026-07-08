@@ -3,7 +3,6 @@ import { ShaderMaterial } from 'three';
 import {
     getF16AfterburnerConeDither,
     getF16AfterburnerConeLengthM,
-    getF16EngineNozzleColor,
 } from '../../physics/f16Engine';
 import { PaletteCategory } from '../../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType, SceneMaterialUniforms } from '../materials/materials';
@@ -61,61 +60,32 @@ function writeConeGeometry(geometry: THREE.BufferGeometry, length: number, radiu
     geometry.computeVertexNormals();
 }
 
-/**
- * A flat, double-sided disc filling the nozzle mouth. Stands in for a modelled
- * nozzle-interior cavity on imported aircraft that ship none, and is coloured by
- * throttle (dark at MIL, glowing in afterburner) so the exhaust reads correctly.
- */
-function writeInteriorDisc(geometry: THREE.BufferGeometry, radius: number): void {
-    const segments = 8;
-    const z = -0.05; // just aft of the exit plane to avoid z-fighting the skin
-    const verts: number[] = [];
-    const center = [0, 0, z];
-    const rim = (k: number): number[] => {
-        const t = (k / segments) * Math.PI * 2;
-        return [Math.cos(t) * radius, Math.sin(t) * radius, z];
-    };
-    const pushTri = (a: number[], b: number[], c: number[]) => {
-        verts.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
-    };
-    for (let i = 0; i < segments; i++) {
-        const a = rim(i);
-        const b = rim(i + 1);
-        pushTri(center, a, b);  // front
-        pushTri(center, b, a);  // back (reversed winding -> double-sided)
-    }
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
-    geometry.computeVertexNormals();
-}
-
 export class AfterburnerCones {
     private plumeRoots: THREE.Object3D[] = [];
     private plumeMeshes: THREE.Mesh[] = [];
-    private interiorRoots: THREE.Object3D[] = [];
-    private interiorMeshes: THREE.Mesh[] = [];
     private nozzles: THREE.Vector3[] = [];
     private radius = DEFAULT_RADIUS;
     private plumeMaterial: ShaderMaterial;
-    private interiorMaterial: ShaderMaterial;
     private lastLength = -1;
     private primary = new THREE.Color();
     private secondary = new THREE.Color();
-    private interiorColor = new THREE.Color();
     private _offset = new THREE.Vector3();
 
     constructor(private materials: SceneMaterialManager) {
-        this.plumeMaterial = this.buildMaterial();
-        this.interiorMaterial = this.buildMaterial();
+        // Plume reads as a see-through exhaust via the alpha-dither stipple.
+        this.plumeMaterial = this.buildMaterial(0.5);
         this.setNozzles(null, null);
     }
 
-    private buildMaterial(): ShaderMaterial {
+    private buildMaterial(alphaDither: number): ShaderMaterial {
         const material = this.materials.build({
             type: SceneMaterialPrimitiveType.MESH,
             category: PaletteCategory.FX_FIRE,
             shaded: false,
             depthWrite: true,
-            alphaDither: 0.55,
+            // alphaDither > 0 discards a screen-space stipple of pixels, making the
+            // plume semi-transparent; the colour two-tone stays a steady dither.
+            alphaDither,
         }) as ShaderMaterial;
         (material.userData as { afterburnerThrottleDriven?: boolean }).afterburnerThrottleDriven = true;
         const uniforms = material.uniforms as SceneMaterialUniforms;
@@ -134,16 +104,11 @@ export class AfterburnerCones {
         for (const mesh of this.plumeMeshes) {
             mesh.geometry.dispose();
         }
-        for (const mesh of this.interiorMeshes) {
-            mesh.geometry.dispose();
-        }
         const src = nozzles && nozzles.length > 0 ? nozzles : DEFAULT_NOZZLES;
         this.nozzles = src.map(n => n.clone());
         this.radius = radius && radius > 0 ? radius : DEFAULT_RADIUS;
         this.plumeRoots = [];
         this.plumeMeshes = [];
-        this.interiorRoots = [];
-        this.interiorMeshes = [];
         for (let i = 0; i < this.nozzles.length; i++) {
             const plumeRoot = new THREE.Object3D();
             const plumeMesh = new THREE.Mesh(new THREE.BufferGeometry(), this.plumeMaterial);
@@ -152,30 +117,17 @@ export class AfterburnerCones {
             plumeRoot.visible = false;
             this.plumeRoots.push(plumeRoot);
             this.plumeMeshes.push(plumeMesh);
-
-            const interiorGeom = new THREE.BufferGeometry();
-            writeInteriorDisc(interiorGeom, this.radius);
-            const interiorRoot = new THREE.Object3D();
-            const interiorMesh = new THREE.Mesh(interiorGeom, this.interiorMaterial);
-            interiorMesh.onBeforeRender = updateUniforms;
-            interiorRoot.add(interiorMesh);
-            interiorRoot.visible = false;
-            this.interiorRoots.push(interiorRoot);
-            this.interiorMeshes.push(interiorMesh);
         }
         this.lastLength = -1;
     }
 
     /**
-     * @param throttleLever   Throttle [0, 1] driving nozzle colour and plume length.
-     * @param plumeActive     Whether the aircraft's afterburner may spawn plumes.
-     * @param interiorEnabled Whether to draw the synthetic glowing nozzle discs
-     *                        (only when the model ships no nozzle-interior mesh).
+     * @param throttleLever Throttle [0, 1] driving plume colour and length.
+     * @param plumeActive   Whether the aircraft's afterburner may spawn plumes.
      */
     update(
         throttleLever: number,
         plumeActive: boolean,
-        interiorEnabled: boolean,
         displayPosition: THREE.Vector3,
         displayQuaternion: THREE.Quaternion,
     ): void {
@@ -186,44 +138,29 @@ export class AfterburnerCones {
         for (const root of this.plumeRoots) {
             root.visible = plumeOn;
         }
-        for (const root of this.interiorRoots) {
-            root.visible = interiorEnabled;
-        }
 
-        if (plumeOn && dither) {
-            if (length !== this.lastLength) {
-                for (const mesh of this.plumeMeshes) {
-                    writeConeGeometry(mesh.geometry, length, this.radius);
-                }
-                this.lastLength = length;
-            }
-            this.primary.set(dither.primary);
-            this.secondary.set(dither.secondary);
-            const uniforms = this.plumeMaterial.uniforms as SceneMaterialUniforms;
-            uniforms.color.value.copy(this.primary);
-            uniforms.colorSecondary.value.copy(this.secondary);
-        }
-
-        if (interiorEnabled) {
-            this.interiorColor.set(getF16EngineNozzleColor(throttleLever));
-            const uniforms = this.interiorMaterial.uniforms as SceneMaterialUniforms;
-            uniforms.color.value.copy(this.interiorColor);
-            uniforms.colorSecondary.value.copy(this.interiorColor);
-        }
-
-        if (!plumeOn && !interiorEnabled) {
+        if (!plumeOn || !dither) {
             return;
         }
+
+        if (length !== this.lastLength) {
+            for (const mesh of this.plumeMeshes) {
+                writeConeGeometry(mesh.geometry, length, this.radius);
+            }
+            this.lastLength = length;
+        }
+        // Two-tone ordered dither (orange/yellow) via the shader's colorDither;
+        // a steady stipple, not a temporal colour flicker.
+        this.primary.set(dither.primary);
+        this.secondary.set(dither.secondary);
+        const uniforms = this.plumeMaterial.uniforms as SceneMaterialUniforms;
+        uniforms.color.value.copy(this.primary);
+        uniforms.colorSecondary.value.copy(this.secondary);
+
         for (let i = 0; i < this.nozzles.length; i++) {
             this._offset.copy(this.nozzles[i]).applyQuaternion(displayQuaternion).add(displayPosition);
-            if (plumeOn) {
-                this.plumeRoots[i].position.copy(this._offset);
-                this.plumeRoots[i].quaternion.copy(displayQuaternion);
-            }
-            if (interiorEnabled) {
-                this.interiorRoots[i].position.copy(this._offset);
-                this.interiorRoots[i].quaternion.copy(displayQuaternion);
-            }
+            this.plumeRoots[i].position.copy(this._offset);
+            this.plumeRoots[i].quaternion.copy(displayQuaternion);
         }
     }
 
@@ -231,11 +168,6 @@ export class AfterburnerCones {
         const list = lists.get(volumesId);
         if (!list) {
             return;
-        }
-        for (const root of this.interiorRoots) {
-            if (root.visible) {
-                list.add(root);
-            }
         }
         for (const root of this.plumeRoots) {
             if (root.visible) {

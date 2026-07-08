@@ -82,6 +82,7 @@ export interface SceneFlatMaterialUniforms {
     fogColor: { value: THREE.Color; };
     fogType: { value: number; };
     alphaDither: { value: number; };
+    colorDither: { value: number; };
     [uniform: string]: THREE.IUniform<any>;
 }
 
@@ -207,19 +208,25 @@ export class SceneMaterialManager implements KernelTask {
 
     update(delta: number) {
         this.elapsed += delta;
-        this.updateFxFire(this.elapsed);
+        this.updateFxFire();
     }
 
-    private updateFxFire(elapsed: number) {
-        const bit = Math.floor(elapsed * 100) % 2 === 0;
-        const color = bit ? PaletteColor(this.palette, PaletteCategory.FX_FIRE) : PaletteColor(this.palette, PaletteCategory.FX_FIRE__B);
+    private updateFxFire() {
+        // Steady two-tone fire. Previously this alternated the whole material
+        // between FX_FIRE and FX_FIRE__B at 100Hz, which read as a harsh
+        // orange/yellow flicker (most visibly on engine nozzles). Instead we set
+        // both tones once and let the shader's ordered dither (colorDither) stipple
+        // them per-pixel: a steady retro dither with no temporal flicker.
+        const color = this.colorCache.getColor(PaletteColor(this.palette, PaletteCategory.FX_FIRE));
+        const colorSecondary = this.colorCache.getColor(PaletteColor(this.palette, PaletteCategory.FX_FIRE__B));
         for (let i = 0; i < this.fxFire.length; i++) {
             const data = this.fxFire[i].userData as SceneMaterialData & { afterburnerThrottleDriven?: boolean };
             if (data.afterburnerThrottleDriven) {
                 continue;
             }
             const u = this.fxFire[i].uniforms as SceneMaterialUniforms;
-            u.color.value.copy(this.colorCache.getColor(color));
+            u.color.value.copy(color);
+            u.colorSecondary.value.copy(colorSecondary);
         }
     }
 
@@ -270,6 +277,9 @@ export class SceneMaterialManager implements KernelTask {
                         ? (properties.alphaDither ?? 0)
                         : 0,
                 },
+                // Fire renders as a steady two-tone ordered dither (orange/yellow)
+                // in every shading mode rather than a temporal colour flip.
+                colorDither: { value: properties.category === PaletteCategory.FX_FIRE ? 1 : 0 },
             },
             ...(properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded) ? {
                 distance: { value: 0 },
@@ -336,7 +346,7 @@ export class SceneMaterialManager implements KernelTask {
                 d.ramp[2].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__C)));
             }
         }
-        this.updateFxFire(this.elapsed);
+        this.updateFxFire();
     }
 
     // This shouldn't be handled by the material system
