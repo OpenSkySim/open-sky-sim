@@ -36,6 +36,15 @@ export const COCKPIT_FAR = 40000;
 
 export const GROUND_SMOKE_PARTICLE_COUNT = 100;
 
+/** KeyboardEvent.code that opens the telemetry graph popup. */
+export const TELEMETRY_GRAPH_KEY_CODE = 'NumLock';
+
+export function isTelemetryGraphKey(event: KeyboardEvent): boolean {
+    return event.code === TELEMETRY_GRAPH_KEY_CODE
+        || event.code === 'Clear'
+        || event.key === 'NumLock';
+}
+
 export const AIRBASE_RUNWAY = { x: 1500, y: 0, z: -800 };
 export const RUNWAY_HALF_LENGTH_M = 1500;
 export const APPROACH_ALTITUDE_M = 500;

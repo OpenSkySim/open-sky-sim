@@ -17,7 +17,7 @@ import { DisplayResolution, getDisplayResolutionSize } from '../config/profiles/
 import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { FlightRecorder } from '../physics/flightRecorder';
 import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
-import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
+import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
 import { GroundSmokeEntity } from '../scene/entities/groundSmoke';
@@ -25,6 +25,8 @@ import { GroundTargetEntity } from '../scene/entities/groundTarget';
 import { CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize } from '../scene/entities/overlay/cockpit';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
 import { HUDEntity } from '../scene/entities/overlay/hud';
+import { TelemetryGraph } from '../scene/entities/overlay/telemetryGraph';
+import { TelemetryGraphWindow } from '../scene/entities/overlay/telemetryGraphWindow';
 import { PlayerEntity, PlayerSpawnState } from '../scene/entities/player';
 import { SceneryField, SceneryFieldSettings } from '../scene/entities/sceneryField';
 import { SimpleEntity } from '../scene/entities/simpleEntity';
@@ -35,7 +37,7 @@ import { SceneMaterialManager } from "../scene/materials/materials";
 import { ModelManager } from "../scene/models/models";
 import { Scene, SceneLayers } from '../scene/scene';
 import { assertIsDefined } from '../utils/asserts';
-import { clamp, FORWARD, RIGHT, UP } from '../utils/math';
+import { clamp, FORWARD, RIGHT, UP, toDegrees } from '../utils/math';
 import { CameraUpdater } from './cameraUpdaters/cameraUpdater';
 import { CockpitFrontCameraUpdater } from './cameraUpdaters/cockpitFrontCameraUpdater';
 import { CrashedCameraUpdater } from './cameraUpdaters/crashedCameraUpdater';
@@ -217,6 +219,9 @@ export class Game {
     private _orbitAxis = new THREE.Vector3();
 
     private cockpitEntities: Entity[] = [];
+    private readonly telemetryGraph = new TelemetryGraph();
+    private readonly telemetryGraphWindow = new TelemetryGraphWindow();
+    private readonly telemetryAccel = new THREE.Vector3();
     private exteriorEntities: Entity[] = [];
 
     private groundSmoke: GroundSmokeEntity;
@@ -889,6 +894,7 @@ export class Game {
                 this.setCockpitFrontView();
             }
             this.updateOrbitFromKeys(delta);
+            this.recordTelemetry(delta);
             this.scene.update(delta);
 
             if (this.flightRecorder.isRecording()) {
@@ -1046,8 +1052,28 @@ export class Game {
         this.playerCamera.main.lookAt(this._orbitPivot);
     }
 
+    private openTelemetryGraphWindow(): void {
+        const borderColor = PaletteColor(this.getPalette(), PaletteCategory.HUD_TEXT_SECONDARY);
+        this.telemetryGraphWindow.open(this.telemetryGraph, borderColor);
+    }
+
+    private recordTelemetry(delta: number): void {
+        this.player.getAccelerationWorld(this.telemetryAccel);
+        this.telemetryGraph.record(delta, {
+            g: this.player.loadFactorG,
+            aoaDeg: toDegrees(this.player.angleOfAttack),
+            accelG: this.telemetryAccel.length() / 9.80665,
+            pitch: this.player.pitchInput,
+        });
+    }
+
     private setupControls() {
         document.addEventListener('keydown', (event: KeyboardEvent) => {
+            if (isTelemetryGraphKey(event)) {
+                event.preventDefault();
+                this.openTelemetryGraphWindow();
+                return;
+            }
             if (event.code === 'F10') {
                 event.preventDefault();
                 this.triggerModImport();
@@ -1108,7 +1134,7 @@ export class Game {
                 event.preventDefault();
                 this.heldOrbitKeys.add(event.code);
             }
-        });
+        }, { capture: true });
 
         document.addEventListener('keyup', (event: KeyboardEvent) => {
             this.heldOrbitKeys.delete(event.code);

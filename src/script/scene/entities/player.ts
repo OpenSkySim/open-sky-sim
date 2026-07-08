@@ -953,7 +953,7 @@ export class PlayerEntity implements Entity {
         return this.flightModel.getLoadFactorG();
     }
 
-    getDebugAcceleration(target: THREE.Vector3): THREE.Vector3 {
+    getAccelerationWorld(target: THREE.Vector3): THREE.Vector3 {
         return this.flightModel.getAccelerationWorld(target);
     }
 

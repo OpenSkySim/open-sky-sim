@@ -28,6 +28,7 @@ import { DirectFcs } from '../fm2/directFcs';
 import { Fcs } from '../fm2/fcs';
 import { F16Fcs } from '../fm2/f16Fcs';
 import { Fm2AircraftConfig, Fm2DirectFcsConfig, f16Fm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
+import { FM2_FCS } from '../fm2/f16Fm2Config';
 import { RigidBody } from '../fm2/rigidBody';
 import { FlightModel } from './flightModel';
 
@@ -192,9 +193,14 @@ export class Fm2FlightModel extends FlightModel {
         // Fuselage / parasite / gear / wave drag along the relative wind.
         this.addBodyDrag(dynamicPressure, speed, mach);
 
+        // Bleed energy when the nose has rotated ahead of velocity (cobra snap).
+        this.applyCobraDragBleed(speed, aoa, dynamicPressure);
+
         // Help the pilot hold nose-up attitude through the low-energy apex so
         // velocity can overtake the body axis (tail-slide entry).
         this.applyDeepStallPitchAssist(speed, aoa);
+        // High-speed cobra entry: out-rotate the velocity vector at the snap.
+        this.applyCobraPitchAssist(speed, aoa);
 
         // Thrust along the nose (+Z body).
         const thrustN = this.computeThrustN(this.effectiveThrottle, altitude);
@@ -215,6 +221,7 @@ export class Fm2FlightModel extends FlightModel {
         // ---- Integrate translational dynamics (world frame). ----
         this.forceWorld.copy(this.forceBody).applyQuaternion(this.rb.orientation);
         this.forceWorld.add(this.gearForceWorld);
+        this.applyCobraWorldDecouple(speed, aoa);
         this.forceWorld.y -= this.config.geometry.massKg * GRAVITY; // gravity
         this.accelWorld.copy(this.forceWorld).divideScalar(this.config.geometry.massKg);
         this.rb.integrateLinear(this.forceWorld, delta, this.obj.position);
@@ -243,8 +250,10 @@ export class Fm2FlightModel extends FlightModel {
         const maxRudder = this.config.fcs.maxRudderRad;
         const speed = this.velBody.length();
         const absAoa = Math.abs(this.angleOfAttackRad);
+        const cobraEntry = this.isCobraEntry(speed, absAoa);
         const aerobatic = speed < 130 || absAoa > 35 * (Math.PI / 180);
-        const stabGain = aerobatic ? (this.config.fcs.aerobaticStabilatorGain ?? 1) : 1;
+        const stabGain = cobraEntry ? (this.config.fcs.cobraStabilatorGain ?? 1)
+            : aerobatic ? (this.config.fcs.aerobaticStabilatorGain ?? 1) : 1;
         const effectiveStab = maxStabilator * stabGain;
         // Elevator: +cmd = nose up → negative stabilator incidence (tail lift down).
         const elevatorAoa = -elevator * effectiveStab;
@@ -287,6 +296,14 @@ export class Fm2FlightModel extends FlightModel {
         }, this.forceBody, this.momentBody);
     }
 
+    /** High-speed cobra entry: full aft stick within the cobra speed band. */
+    private isCobraEntry(speed: number, absAoa: number): boolean {
+        if (this.landed || this.pitch < FM2_FCS.cobraStickThreshold) return false;
+        return speed >= FM2_FCS.cobraMinSpeedMps
+            && speed <= FM2_FCS.cobraMaxSpeedMps
+            && absAoa < 95 * (Math.PI / 180);
+    }
+
     /** Extra nose-up moment when holding aft stick in the deep-stall apex. */
     private applyDeepStallPitchAssist(speed: number, aoa: number): void {
         if (this.landed || this.pitch < 0.6) return;
@@ -297,6 +314,45 @@ export class Fm2FlightModel extends FlightModel {
         const deepStall = clamp((absAoa - 0.45) / 0.7, 0, 1);
         const momentN = stick * energy * deepStall * 1.6e5;
         this.momentBody.x -= momentN;
+    }
+
+    /** Nose-up assist during high-speed cobra snap so the body out-rotates velocity. */
+    private applyCobraPitchAssist(speed: number, aoa: number): void {
+        const aoaLag = this.cobraAoaLag(aoa);
+        if (aoaLag <= 0 || !this.isCobraEntry(speed, Math.abs(aoa))) return;
+        const stick = clamp((this.pitch - FM2_FCS.cobraStickThreshold) / 0.1, 0, 1);
+        const speedBand = clamp((speed - FM2_FCS.cobraMinSpeedMps)
+            / (FM2_FCS.cobraMaxSpeedMps - FM2_FCS.cobraMinSpeedMps), 0, 1);
+        const momentN = stick * speedBand * aoaLag * FM2_FCS.cobraPitchAssistN;
+        this.momentBody.x -= momentN;
+    }
+
+    /** Extra drag when the nose leads velocity so AoA can build during a cobra snap. */
+    private applyCobraDragBleed(speed: number, aoa: number, dynamicPressure: number): void {
+        const aoaLag = this.cobraAoaLag(aoa);
+        if (aoaLag <= 0.2 || !this.isCobraEntry(speed, Math.abs(aoa)) || speed < 1e-3) return;
+        const dragN = dynamicPressure * this.config.geometry.wingAreaM2
+            * FM2_FCS.cobraDragBleedCd * aoaLag;
+        this._v.copy(this.velBody).multiplyScalar(-dragN / speed);
+        this.forceBody.add(this._v);
+    }
+
+    /** Bleed world-up velocity so the flight path stays horizontal during cobra snap. */
+    private applyCobraWorldDecouple(speed: number, aoa: number): void {
+        const aoaLag = this.cobraAoaLag(aoa);
+        if (aoaLag <= 0.25 || !this.isCobraEntry(speed, Math.abs(aoa))) return;
+        const mass = this.config.geometry.massKg;
+        const vy = this.rb.velocityWorld.y;
+        if (vy > 5) {
+            this.forceWorld.y -= mass * vy * FM2_FCS.cobraWorldVyBleedGain * aoaLag;
+        }
+    }
+
+    /** How far the nose has rotated ahead of the velocity vector (0-1). */
+    private cobraAoaLag(aoa: number): number {
+        this._fwd.set(0, 0, 1).applyQuaternion(this.rb.orientation);
+        const pitchRad = Math.asin(clamp(this._fwd.y, -1, 1));
+        return clamp((Math.abs(pitchRad) - Math.abs(aoa)) / (50 * (Math.PI / 180)), 0, 1);
     }
 
     /** Parasite (fuselage + gear) and transonic wave drag along the relative wind. */

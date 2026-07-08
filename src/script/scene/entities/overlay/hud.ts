@@ -42,8 +42,6 @@ const LADDER_HALF_HEIGHT = Math.floor(LADDER_HEIGHT / 2);
 const TARGET_HALF_WIDTH = 8; // Pixels
 const TARGET_WIDTH = TARGET_HALF_WIDTH * 2 + 1;
 
-const GRAVITY = 9.80665;
-
 //const HALF_CHAR = Math.floor(CHAR_HEIGHT / 2);
 
 
@@ -82,12 +80,6 @@ export class HUDEntity implements Entity {
     private yawInput: number = 0; // [-1, 1]
     private elapsed: number = 0; // Seconds
     private lastRenderTime: number = 0;
-    private speedX: number = 0;
-    private speedY: number = 0;
-    private speedZ: number = 0;
-    private gForceX: number = 0;
-    private gForceY: number = 0;
-    private gForceZ: number = 0;
 
     private _v = new THREE.Vector3();
     private _w = new THREE.Vector3();
@@ -152,15 +144,6 @@ export class HUDEntity implements Entity {
         if (displayVel.lengthSq() > 1e-6) {
             this.velocityDirection.copy(displayVel).normalize();
         }
-
-        this.speedX = displayVel.x;
-        this.speedY = displayVel.y;
-        this.speedZ = displayVel.z;
-
-        this.actor.getDebugAcceleration(this._w);
-        this.gForceX = this._w.x / GRAVITY;
-        this.gForceY = this._w.y / GRAVITY;
-        this.gForceZ = this._w.z / GRAVITY;
 
         this.machNumber = computeMachNumber(displayVel.length(), displayPos.y);
     }
@@ -264,10 +247,6 @@ export class HUDEntity implements Entity {
         painter.text(font, x, margin + lineHeight, `${altitudeFeet.toFixed(0)}FT`, hudColor, TextAlignment.RIGHT);
         painter.text(font, x, margin + lineHeight * 2, `${this.engineThrustKn.toFixed(1)}KN`, hudColor, TextAlignment.RIGHT);
         painter.text(font, x, margin + lineHeight * 3, `${this.renderFps.toFixed(0)}FPS`, hudColor, TextAlignment.RIGHT);
-        painter.text(font, x, margin + lineHeight * 4,
-            `V ${this.speedX.toFixed(1)}/${this.speedY.toFixed(1)}/${this.speedZ.toFixed(1)}`, hudColor, TextAlignment.RIGHT);
-        painter.text(font, x, margin + lineHeight * 5,
-            `G ${this.gForceX.toFixed(2)}/${this.gForceY.toFixed(2)}/${this.gForceZ.toFixed(2)}`, hudColor, TextAlignment.RIGHT);
     }
 
     private renderFlightDataIndicators(

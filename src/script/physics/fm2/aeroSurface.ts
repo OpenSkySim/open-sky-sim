@@ -94,7 +94,9 @@ export class AeroSurface {
 
         const effectiveAoa = aoa + input.controlDeltaAoaRad + input.camberBiasRad;
         const stall = this.geom.stallAoaRad - input.stallShiftRad;
-        const cl = liftCoefficient(effectiveAoa, this.geom.liftSlopePerRad, stall);
+        const cl = liftCoefficient(
+            effectiveAoa, this.geom.liftSlopePerRad, stall, this.geom.vortexLiftScale ?? 0,
+        );
         const separated = Math.sin(effectiveAoa);
         const postStall = Math.max(0, Math.abs(effectiveAoa) - stall);
         // Separated drag peaks in the mid-stall band then eases at very high AoA so
@@ -139,22 +141,34 @@ export class AeroSurface {
 /**
  * Lift coefficient with a linear pre-stall range, a deep-stall plateau (vortex /
  * strake lift), and flat-plate behaviour at extreme AoA for tail-slide recovery.
+ * Optional vortex lift (forebody strakes) boosts CL between ~30-80° for cobra entry.
  */
-export function liftCoefficient(aoaRad: number, slopePerRad: number, stallRad: number): number {
+export function liftCoefficient(
+    aoaRad: number, slopePerRad: number, stallRad: number, vortexScale = 0,
+): number {
     const mag = Math.abs(aoaRad);
     const sign = Math.sign(aoaRad) || 1;
+    let cl: number;
     if (mag <= stallRad) {
-        return slopePerRad * aoaRad;
+        cl = slopePerRad * aoaRad;
+    } else {
+        const clMax = slopePerRad * stallRad;
+        const deepStallSpan = Math.PI / 3;
+        if (mag <= stallRad + deepStallSpan) {
+            const t = (mag - stallRad) / deepStallSpan;
+            cl = sign * clMax * (1 - 0.25 * t);
+        } else {
+            const flat = Math.sin(2 * aoaRad);
+            cl = sign * Math.abs(flat) * clMax * 0.5;
+        }
     }
-    const clMax = slopePerRad * stallRad;
-    // Hold most of peak CL through the deep-stall band so the nose can stay high
-    // while forward speed bleeds off into a tail slide.
-    const deepStallSpan = Math.PI / 3;
-    if (mag <= stallRad + deepStallSpan) {
-        const t = (mag - stallRad) / deepStallSpan;
-        return sign * clMax * (1 - 0.25 * t);
+    if (vortexScale > 0) {
+        const vortexHigh = 80 * (Math.PI / 180);
+        if (mag >= stallRad && mag <= vortexHigh) {
+            const clMax = slopePerRad * stallRad;
+            const vortex = Math.sin(aoaRad) * Math.cos(aoaRad / 2);
+            cl += sign * Math.abs(vortex) * clMax * vortexScale;
+        }
     }
-    // Beyond deep stall: flat-plate lift (sin 2α) for backward-flow / recovery.
-    const flat = Math.sin(2 * aoaRad);
-    return sign * Math.abs(flat) * clMax * 0.5;
+    return cl;
 }

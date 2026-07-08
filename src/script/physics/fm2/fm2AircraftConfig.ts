@@ -106,6 +106,8 @@ export interface Fm2FcsConfig {
     taileronRollFraction: number;
     /** Extra stabilator gain in the low-q / deep-stall aerobatic envelope. */
     aerobaticStabilatorGain?: number;
+    /** Extra stabilator gain during high-speed cobra entry. */
+    cobraStabilatorGain?: number;
     /** Direct-mode handling gains (ignored in fbw mode). */
     direct?: Fm2DirectFcsConfig;
 }
@@ -216,6 +218,7 @@ export const f16Fm2Config: Fm2AircraftConfig = {
         maxRudderRad: 22 * DEG,
         taileronRollFraction: FM2_FCS.taileronRollFraction,
         aerobaticStabilatorGain: FM2_FCS.aerobaticStabilatorGain,
+        cobraStabilatorGain: FM2_FCS.cobraStabilatorGain,
     },
     envelope: {
         stallAoaRad: F16_PROFILE.stallAoaDeg * DEG,

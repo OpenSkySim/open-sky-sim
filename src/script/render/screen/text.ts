@@ -51,6 +51,16 @@ const ASCII_SMALL_A = 97;
 const ASCII_LETTERS = 26;
 const ASCII_NUMBERS = 10;
 const FONT_CHAR_PADDING = 1;
+const GREEK_SMALL_ALPHA = 0x03B1;
+
+/** 3x5 lowercase alpha bitmap for HUD_SMALL; scaled to larger font sizes. */
+const ALPHA_GLYPH_ROWS = [
+    0b010,
+    0b101,
+    0b111,
+    0b101,
+    0b010,
+];
 
 const HUDFontNumberMap = new Map<number, { col: number, row: number }>([
     [0, { col: 2, row: 3 }],
@@ -112,7 +122,7 @@ export class TextRenderer {
             source: new Image(),
             colors: new Map()
         };
-        handle.source.src = font.atlas;
+        handle.source.src = new URL(font.atlas, window.location.href).href;
         if (handle.source.complete) {
             this.onImageLoaded(handle, colors);
         } else {
@@ -128,7 +138,7 @@ export class TextRenderer {
         const charWidth = h.font.charWidth;
         const charHeight = h.font.charHeight;
         const charSpacing = h.font.charSpacing;
-        const srcCanvas = h.colors.get(color?.toLowerCase() || '') || h.source;
+        const srcCanvas = this.getColoredAtlas(h, color);
         let x0 = x;
         if (alignment === TextAlignment.RIGHT) {
             x0 = x - text.length * charWidth - (text.length - 1) * charSpacing;
@@ -143,11 +153,17 @@ export class TextRenderer {
 
         for (let i = 0; i < text.length; i++) {
             const c = text.charCodeAt(i);
-            const { srcX, srcY } = this.codeToCoords(c, charWidth, charHeight);
             const dstX = x0 + i * (charWidth + charSpacing);
 
+            if (c === GREEK_SMALL_ALPHA) {
+                this.drawAlphaGlyph(dstX, y, charWidth, charHeight, color, effect, effectColor);
+                continue;
+            }
+
+            const { srcX, srcY } = this.codeToCoords(c, charWidth, charHeight);
+
             if (effect === TextEffect.SHADOW) {
-                const shadowCanvas = h.colors.get(effectColor) || h.source;
+                const shadowCanvas = this.getColoredAtlas(h, effectColor);
                 this.ctx.drawImage(shadowCanvas,
                     srcX, srcY, charWidth, charHeight,
                     dstX + 1, y + 1, charWidth, charHeight);
@@ -165,6 +181,19 @@ export class TextRenderer {
                 srcX, srcY, charWidth, charHeight,
                 dstX, y, charWidth, charHeight);
         }
+    }
+
+    private getColoredAtlas(handle: FontHandle, color: string | undefined): HTMLImageElement | HTMLCanvasElement {
+        if (!color) {
+            return handle.source;
+        }
+        const key = color.toLowerCase();
+        let tinted = handle.colors.get(key);
+        if (!tinted) {
+            tinted = this.createColor(handle.source, color);
+            handle.colors.set(key, tinted);
+        }
+        return tinted;
     }
 
     private onImageLoaded(handle: FontHandle, colors: string[]) {
@@ -188,6 +217,51 @@ export class TextRenderer {
         dstCtx.globalCompositeOperation = "destination-in";
         dstCtx.drawImage(src, 0, 0);
         return canvas;
+    }
+
+    private drawAlphaGlyph(
+        x: number,
+        y: number,
+        charWidth: number,
+        charHeight: number,
+        color: string | undefined,
+        effect: TextEffect,
+        effectColor: string,
+    ): void {
+        const glyphWidth = 3;
+        const glyphHeight = ALPHA_GLYPH_ROWS.length;
+        const pixelW = Math.max(1, Math.floor(charWidth / glyphWidth));
+        const pixelH = Math.max(1, Math.floor(charHeight / glyphHeight));
+        const offsetX = Math.floor((charWidth - pixelW * glyphWidth) / 2);
+        const offsetY = Math.floor((charHeight - pixelH * glyphHeight) / 2);
+
+        const drawAt = (dx: number, dy: number, fill: string) => {
+            this.ctx.fillStyle = fill;
+            for (let row = 0; row < glyphHeight; row++) {
+                const bits = ALPHA_GLYPH_ROWS[row];
+                for (let col = 0; col < glyphWidth; col++) {
+                    if ((bits >> (glyphWidth - 1 - col)) & 1) {
+                        this.ctx.fillRect(
+                            x + offsetX + col * pixelW + dx,
+                            y + offsetY + row * pixelH + dy,
+                            pixelW,
+                            pixelH,
+                        );
+                    }
+                }
+            }
+        };
+
+        const fill = color || '#ffffff';
+        if (effect === TextEffect.SHADOW) {
+            drawAt(1, 1, effectColor);
+        }
+        if (effect === TextEffect.BOLD) {
+            for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+                drawAt(dx, dy, fill);
+            }
+        }
+        drawAt(0, 0, fill);
     }
 
     private codeToCoords(code: number, charWidth: number, charHeight: number): { srcX: number, srcY: number } {

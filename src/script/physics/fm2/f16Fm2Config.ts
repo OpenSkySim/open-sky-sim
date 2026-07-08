@@ -72,6 +72,8 @@ export interface SurfaceGeometry {
     inducedK: number;
     /** ΔAoA (rad) produced per unit control deflection [-1,1] (0 = no control). */
     controlEffectiveness: number;
+    /** Forebody vortex lift scale (0 = off). Used on fuselage/strakes for cobra. */
+    vortexLiftScale?: number;
 }
 
 /**
@@ -105,6 +107,7 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         cd0: 0.0,
         inducedK: 0.25,
         controlEffectiveness: 0,
+        vortexLiftScale: 0.55,
     },
     wingLeft: {
         name: 'wingLeft',
@@ -233,6 +236,20 @@ export const FM2_FCS = {
     maxStabilatorRad: 25 * DEG,
     /** Extra stabilator authority in the aerobatic (low-q / deep-stall) envelope. */
     aerobaticStabilatorGain: 1.65,
+    /** Extra stabilator authority during high-speed cobra entry. */
+    cobraStabilatorGain: 1.85,
+    /** Full-stick bypass for Pugachev cobra entry at high speed. */
+    cobraStickThreshold: 0.9,
+    cobraMinSpeedMps: 80,
+    cobraMaxSpeedMps: 250,
+    /** Pitch / AoA rate damping scale while cobra bypass is active. */
+    cobraPitchRateDampScale: 0.25,
+    /** High-speed pitch assist (N) at full stick during cobra entry. */
+    cobraPitchAssistN: 1.2e6,
+    /** Extra parasite drag (CD) when nose leads velocity during cobra entry. */
+    cobraDragBleedCd: 1.1,
+    /** World-frame upward-velocity bleed gain during cobra (1/s). */
+    cobraWorldVyBleedGain: 14,
 
     /** Roll loop: rate command and proportional gain to aileron/taileron. */
     maxRollRateDegS: F16_PROFILE.maxRollRateDegS, // 300

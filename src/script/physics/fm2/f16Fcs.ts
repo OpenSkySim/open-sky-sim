@@ -80,9 +80,15 @@ export class F16Fcs implements Fcs {
         const aoaDeg = input.aoaRad / DEG;
         const absAoaDeg = Math.abs(aoaDeg);
         const aerobatic = input.speed < 130 || absAoaDeg > 35;
-        const directBlend = aerobatic
-            ? clamp(Math.abs(input.pitchStick) * (absAoaDeg > 50 ? 1 : (130 - input.speed) / 90), 0, 1)
-            : 0;
+        const cobraEntry = input.pitchStick > FM2_FCS.cobraStickThreshold
+            && input.speed >= FM2_FCS.cobraMinSpeedMps
+            && input.speed <= FM2_FCS.cobraMaxSpeedMps
+            && absAoaDeg < 95;
+        const directBlend = cobraEntry ? 1
+            : aerobatic
+                ? clamp(Math.abs(input.pitchStick) * (absAoaDeg > 50 ? 1 : (130 - input.speed) / 90), 0, 1)
+                : 0;
+        const directFlight = cobraEntry || aerobatic;
 
         // Stick shaping: a cubic "expo" (logarithmic-style) curve. Near neutral the
         // response is dominated by the small (1-e) linear term so a light pull barely
@@ -114,7 +120,7 @@ export class F16Fcs implements Fcs {
         this.aoaRateFilt += (aoaRate - this.aoaRateFilt) * fAoa;
 
         // AoA limiter: fade the nose-up authority as AoA approaches the limit.
-        const aoaLimiter = aerobatic ? 1 : clamp(
+        const aoaLimiter = directFlight ? 1 : clamp(
             (FM2_FCS.aoaLimitDeg - aoaDeg) / (FM2_FCS.aoaLimitDeg - FM2_FCS.aoaSoftDeg),
             0, 1,
         );
@@ -123,18 +129,20 @@ export class F16Fcs implements Fcs {
         }
 
         const gError = commandedG - input.loadFactorG;
-        const aoaRateDamp = aerobatic ? FM2_FCS.pitchAoaRateDampGain * 0.12 : FM2_FCS.pitchAoaRateDampGain;
+        const dampScale = cobraEntry ? FM2_FCS.cobraPitchRateDampScale
+            : aerobatic ? 0.12 : 1;
+        const aoaRateDamp = FM2_FCS.pitchAoaRateDampGain * dampScale;
         // pitchRate about +X is nose-down-positive, so +pitchRate damps a nose-up
         // command; -α̇ term adds dedicated short-period damping.
         const proportional = pitchGGain * gError
-            + pitchRateDampGain * input.pitchRate
+            + pitchRateDampGain * dampScale * input.pitchRate
             - aoaRateDamp * this.aoaRateFilt;
 
         // Integral trim with anti-windup. Freeze the accumulator whenever the AoA
         // limiter is active (in either error direction) and bleed it down, so it
         // cannot wind up below the limiter band and get chopped above it — the
         // pumping action that drives the low-speed pitch limit cycle.
-        const limiterActive = !aerobatic && aoaLimiter < 0.999;
+        const limiterActive = !directFlight && aoaLimiter < 0.999;
         const raw = proportional + pitchIGain * (this.pitchIntegral + gError * dt);
         const outputSaturated = raw <= -1 || raw >= 1;
         if (!outputSaturated && !limiterActive) {
@@ -144,9 +152,9 @@ export class F16Fcs implements Fcs {
             this.pitchIntegral -= this.pitchIntegral * leak;
         }
         const gCommandElevator = proportional + pitchIGain * this.pitchIntegral;
-        const directElevator = clamp(
-            input.pitchStick + pitchRateDampGain * 0.35 * input.pitchRate, -1, 1,
-        );
+        const directElevator = cobraEntry
+            ? input.pitchStick
+            : clamp(input.pitchStick + pitchRateDampGain * 0.35 * input.pitchRate, -1, 1);
         const elevator = gCommandElevator * (1 - directBlend) + directElevator * directBlend;
         return clamp(elevator, -1, 1);
     }

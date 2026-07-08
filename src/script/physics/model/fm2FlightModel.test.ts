@@ -187,6 +187,40 @@ describe('FM2 rigid-body flight model', () => {
             `yaw sign mismatch: a4e=${(a4eYaw * DEG).toFixed(1)}° f16=${(f16Yaw * DEG).toFixed(1)}°`);
     });
 
+    it('can perform a cobra with high AoA within 2s and recover', () => {
+        const model = new Fm2FlightModel();
+        airborne(model, 3000, 220, 0.15);
+
+        let peakAoaDeg = 0;
+        let peakAoaTime = Infinity;
+        let recovered = false;
+
+        for (let i = 0; i < 8 * 120; i++) {
+            const t = i / 120;
+            model.setPitch(t < 1.5 ? 1.0 : 0.0);
+            model.update(1 / 120);
+            assert.ok(!Number.isNaN(model.position.y), 'simulation diverged to NaN');
+            assert.ok(!model.isCrashed(), 'crashed during cobra');
+
+            const aoaDeg = Math.abs(model.getAngleOfAttack()) * DEG;
+            if (aoaDeg > peakAoaDeg) {
+                peakAoaDeg = aoaDeg;
+                peakAoaTime = t;
+            }
+            if (t > 2 && Math.abs(model.getAngleOfAttack()) * DEG < 30) {
+                recovered = true;
+            }
+        }
+
+        assert.ok(peakAoaDeg > 80,
+            `peak AoA too low for cobra: ${peakAoaDeg.toFixed(0)}°`);
+        assert.ok(peakAoaTime <= 2,
+            `peak AoA reached too late: ${peakAoaTime.toFixed(1)} s`);
+        assert.ok(model.velocityVector.length() < 150,
+            `speed did not bleed enough: ${model.velocityVector.length().toFixed(0)} m/s`);
+        assert.ok(recovered, 'did not recover to moderate AoA');
+    });
+
     it('can enter a tail slide with backward body-frame velocity while nose stays high', () => {
         const model = new Fm2FlightModel();
         airborne(model, 3000, 160, 0.05);
