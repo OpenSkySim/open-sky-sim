@@ -12,8 +12,14 @@ import { formatHeading, getAircraftDeviceStatusPosition, getOverlayLayout, rende
 
 
 // Pixels
-export function CockpitMFDSize(height: number): number {
-    return Math.floor(height / 3.333);
+export function CockpitMFDSize(height: number, width?: number): number {
+    const byHeight = Math.floor(height / 3.333);
+    if (width === undefined) {
+        return byHeight;
+    }
+    const maxByWidth = Math.floor((width - 2) / 2);
+    const maxByHeight = Math.floor(height - 2);
+    return Math.max(1, Math.min(byHeight, maxByWidth, maxByHeight));
 }
 
 // Pixels
@@ -23,17 +29,17 @@ export function CockpitMFD1X(width: number, height: number, size: number): numbe
 
 // Pixels
 export function CockpitMFD1Y(width: number, height: number, size: number): number {
-    return height - size - 1;
+    return Math.max(1, height - size - 1);
 }
 
 // Pixels
 export function CockpitMFD2X(width: number, height: number, size: number): number {
-    return width - size - 1;
+    return Math.max(1, width - size - 1);
 }
 
 // Pixels
 export function CockpitMFD2Y(width: number, height: number, size: number): number {
-    return height - size - 1;
+    return Math.max(1, height - size - 1);
 }
 
 export class CockpitEntity implements Entity {
@@ -120,7 +126,7 @@ export class CockpitEntity implements Entity {
 
         this.renderAttitudeIndicator(targetWidth, targetHeight, painter, palette);
 
-        const MFDSize = CockpitMFDSize(targetHeight);
+        const MFDSize = CockpitMFDSize(targetHeight, targetWidth);
         this.renderMFD1(
             CockpitMFD1X(targetWidth, targetHeight, MFDSize),
             CockpitMFD1Y(targetWidth, targetHeight, MFDSize),

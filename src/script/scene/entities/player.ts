@@ -122,6 +122,13 @@ export class PlayerEntity implements Entity {
     private _showcaseMode = false;
     private showcasePosition = new THREE.Vector3(0, PLANE_DISTANCE_TO_GROUND, 0);
     private showcaseQuaternion = new THREE.Quaternion();
+    private showcasePickLists: Map<string, THREE.Scene> = new Map([
+        ['showcasePickFlats', new THREE.Scene()],
+        ['showcasePickVolumes', new THREE.Scene()],
+    ]);
+    private showcasePickTmpPoint = new THREE.Vector3();
+    private showcasePickTmpClosest = new THREE.Vector3();
+    private showcasePickSphere = new THREE.Sphere();
 
     // Heading increases CCW, radians
     constructor(models: ModelManager, def: FlyableAircraftDef, flightModel: FlightModel, private materials: SceneMaterialManager, inEngineAudio: AudioClip, outEngineAudio: AudioClip, position: THREE.Vector3, heading: number) {
@@ -671,6 +678,102 @@ export class PlayerEntity implements Entity {
 
     render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
         // Nothing
+    }
+
+    /**
+     * Build temporary showcase render lists and return ray intersections against
+     * the same mesh objects used by exterior rendering (LOD 0).
+     */
+    raycastShowcase(raycaster: THREE.Raycaster, targetWidth: number, camera: THREE.Camera, palette: Palette): THREE.Intersection[] {
+        const flats = this.showcasePickLists.get('showcasePickFlats');
+        const volumes = this.showcasePickLists.get('showcasePickVolumes');
+        if (!flats || !volumes) {
+            return [];
+        }
+        flats.clear();
+        volumes.clear();
+
+        this.modelBody.addToRenderList(
+            this.displayPosition, this.displayQuaternion, this.obj.scale,
+            targetWidth, camera, palette,
+            'showcasePickFlats', 'showcasePickVolumes', this.showcasePickLists, 0);
+
+        const showLandingGear = this._showcaseMode || this.landingGearState !== AircraftDeviceState.RETRACTED;
+        if (showLandingGear) {
+            this.modelLandingGear?.addToRenderList(
+                this.displayPosition, this.displayQuaternion, this.obj.scale,
+                targetWidth, camera, palette,
+                'showcasePickFlats', 'showcasePickVolumes', this.showcasePickLists, 0);
+        }
+
+        for (let i = 0; i < this.controlSurfaceDescriptors.length; i++) {
+            const d = this.controlSurfaceDescriptors[i];
+            this._q.copy(this.displayQuaternion);
+            this._v.copy(d.position).applyQuaternion(this.displayQuaternion).add(this.displayPosition);
+            d.model.addToRenderList(
+                this._v, this._q, this.obj.scale,
+                targetWidth, camera, palette,
+                'showcasePickFlats', 'showcasePickVolumes', this.showcasePickLists, 0);
+        }
+
+        const objects = [...flats.children, ...volumes.children];
+        if (objects.length === 0) {
+            return [];
+        }
+        const intersections = raycaster.intersectObjects(objects, true);
+        if (intersections.length > 0) {
+            return intersections;
+        }
+
+        // Fallback for thin/holed imported meshes: if the ray misses triangles,
+        // select the nearest mesh whose world-space bounding sphere lies close
+        // to the ray. This greatly improves hover reliability on models with
+        // sparse geometry or cutouts.
+        for (const root of objects) {
+            root.updateMatrixWorld(true);
+        }
+        let bestObject: THREE.Object3D | null = null;
+        let bestDistance = Infinity;
+        for (const root of objects) {
+            root.traverse((obj) => {
+                if (!('isMesh' in obj)) {
+                    return;
+                }
+                const mesh = obj as THREE.Mesh;
+                const geometry = mesh.geometry;
+                if (!geometry.boundingSphere) {
+                    geometry.computeBoundingSphere();
+                }
+                if (!geometry.boundingSphere) {
+                    return;
+                }
+                this.showcasePickSphere.copy(geometry.boundingSphere).applyMatrix4(mesh.matrixWorld);
+                raycaster.ray.closestPointToPoint(this.showcasePickSphere.center, this.showcasePickTmpClosest);
+                const toClosest = this.showcasePickTmpPoint.copy(this.showcasePickTmpClosest).sub(raycaster.ray.origin);
+                const alongRay = toClosest.dot(raycaster.ray.direction);
+                if (alongRay < 0) {
+                    return;
+                }
+                const d2 = this.showcasePickTmpClosest.distanceToSquared(this.showcasePickSphere.center);
+                const radius = this.showcasePickSphere.radius * 1.25;
+                if (d2 > radius * radius) {
+                    return;
+                }
+                if (alongRay < bestDistance) {
+                    bestDistance = alongRay;
+                    bestObject = mesh;
+                }
+            });
+        }
+        if (!bestObject) {
+            return [];
+        }
+        this.showcasePickTmpPoint.copy(raycaster.ray.direction).multiplyScalar(bestDistance).add(raycaster.ray.origin);
+        return [{
+            distance: bestDistance,
+            point: this.showcasePickTmpPoint.clone(),
+            object: bestObject,
+        } as THREE.Intersection];
     }
 
     setPitch(pitch: number) {

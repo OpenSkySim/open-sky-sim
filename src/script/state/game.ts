@@ -113,6 +113,11 @@ enum GameState {
     PLAYER,
 }
 
+interface ShowcaseHighlightState {
+    object: THREE.Object3D;
+    originalMaterial: THREE.Material | THREE.Material[];
+}
+
 // Numpad orbit: while held, the numpad grid moves the camera around the aircraft.
 // 4/6 orbit left/right (yaw), 8/2 raise/lower the camera (elevation), the corners
 // combine both, and 5 recenters. Each entry is a direction that gets integrated
@@ -225,6 +230,11 @@ export class Game {
     private modUploadInput?: HTMLInputElement;
     private modImportInFlight = false;
     private modStatusToken?: symbol;
+    private showcaseRaycaster = new THREE.Raycaster();
+    private showcasePointerNdc = new THREE.Vector2();
+    private showcasePointerInside = false;
+    private showcasePointerDown = false;
+    private showcaseHighlight: ShowcaseHighlightState | undefined;
 
     private flightRecorder = new FlightRecorder();
 
@@ -484,10 +494,10 @@ export class Game {
         this.renderer.createRenderTarget(CANVAS_RENDER_TARGET_LO, RenderTargetType.CANVAS, 0, 0, LO_H_RES, LO_V_RES, { textColors });
         this.renderer.createRenderTarget(MAIN_RENDER_TARGET_HI, RenderTargetType.WEBGL, 0, 0, HI_H_RES, HI_V_RES);
         this.renderer.createRenderTarget(CANVAS_RENDER_TARGET_HI, RenderTargetType.CANVAS, 0, 0, HI_H_RES, HI_V_RES, { textColors });
-        const LO_MFD_SIZE = CockpitMFDSize(LO_V_RES);
+        const LO_MFD_SIZE = CockpitMFDSize(LO_V_RES, LO_H_RES);
         this.renderer.createRenderTarget(MAP_RENDER_TARGET_LO, RenderTargetType.WEBGL, CockpitMFD1X(LO_H_RES, LO_V_RES, LO_MFD_SIZE), CockpitMFD1Y(LO_H_RES, LO_V_RES, LO_MFD_SIZE), LO_MFD_SIZE, LO_MFD_SIZE);
         this.renderer.createRenderTarget(WEAPONSTARGET_RENDER_TARGET_LO, RenderTargetType.WEBGL, CockpitMFD2X(LO_H_RES, LO_V_RES, LO_MFD_SIZE), CockpitMFD2Y(LO_H_RES, LO_V_RES, LO_MFD_SIZE), LO_MFD_SIZE, LO_MFD_SIZE);
-        const HI_MFD_SIZE = CockpitMFDSize(HI_V_RES);
+        const HI_MFD_SIZE = CockpitMFDSize(HI_V_RES, HI_H_RES);
         this.renderer.createRenderTarget(MAP_RENDER_TARGET_HI, RenderTargetType.WEBGL, CockpitMFD1X(HI_H_RES, HI_V_RES, HI_MFD_SIZE), CockpitMFD1Y(HI_H_RES, HI_V_RES, HI_MFD_SIZE), HI_MFD_SIZE, HI_MFD_SIZE);
         this.renderer.createRenderTarget(WEAPONSTARGET_RENDER_TARGET_HI, RenderTargetType.WEBGL, CockpitMFD2X(HI_H_RES, HI_V_RES, HI_MFD_SIZE), CockpitMFD2Y(HI_H_RES, HI_V_RES, HI_MFD_SIZE), HI_MFD_SIZE, HI_MFD_SIZE);
         this.renderer.setPalette(this.getPalette());
@@ -674,6 +684,133 @@ export class Game {
         }
     }
 
+    private setShowcasePickLabel(text: string | null): void {
+        const el = document.getElementById('showcase-pick');
+        if (!el) {
+            return;
+        }
+        if (!text || this.view !== PlayerViewState.SHOWCASE) {
+            el.textContent = '';
+            el.classList.add('hidden');
+            return;
+        }
+        el.textContent = `Mesh: ${text}`;
+        el.classList.remove('hidden');
+    }
+
+    private updateShowcasePointerFromEvent(event: MouseEvent): boolean {
+        const container = document.getElementById('container');
+        if (!container) {
+            this.showcasePointerInside = false;
+            return false;
+        }
+        const rect = container.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const inside = x >= 0 && y >= 0 && x <= rect.width && y <= rect.height;
+        this.showcasePointerInside = inside;
+        if (!inside || rect.width <= 0 || rect.height <= 0) {
+            return false;
+        }
+        this.showcasePointerNdc.set(
+            (x / rect.width) * 2 - 1,
+            -(y / rect.height) * 2 + 1,
+        );
+        return true;
+    }
+
+    private applyShowcaseHighlight(object: THREE.Object3D | null): void {
+        if (!object || !('material' in object)) {
+            this.clearShowcaseHighlight();
+            return;
+        }
+        if (this.showcaseHighlight?.object === object) {
+            return;
+        }
+        this.clearShowcaseHighlight();
+        const drawable = object as THREE.Mesh | THREE.LineSegments | THREE.Points;
+        const originalMaterial = drawable.material;
+        const clones = Array.isArray(originalMaterial)
+            ? originalMaterial.map(m => m.clone())
+            : originalMaterial.clone();
+
+        const tint = (m: THREE.Material) => {
+            if ('uniforms' in m) {
+                const shader = m as THREE.ShaderMaterial;
+                const uniforms = shader.uniforms as Record<string, { value: unknown }>;
+                if (uniforms.color?.value instanceof THREE.Color) {
+                    uniforms.color.value = new THREE.Color('#ffff66');
+                }
+                if (uniforms.colorSecondary?.value instanceof THREE.Color) {
+                    uniforms.colorSecondary.value = new THREE.Color('#ffe066');
+                }
+            }
+            if ('color' in m) {
+                const mat = m as THREE.MeshBasicMaterial;
+                if (mat.color) {
+                    mat.color.set('#ffff66');
+                }
+            }
+        };
+
+        if (Array.isArray(clones)) {
+            clones.forEach(tint);
+            drawable.material = clones;
+        } else {
+            tint(clones);
+            drawable.material = clones;
+        }
+
+        this.showcaseHighlight = { object, originalMaterial };
+    }
+
+    private clearShowcaseHighlight(): void {
+        if (!this.showcaseHighlight) {
+            return;
+        }
+        if ('material' in this.showcaseHighlight.object) {
+            const drawable = this.showcaseHighlight.object as THREE.Mesh | THREE.LineSegments | THREE.Points;
+            drawable.material = this.showcaseHighlight.originalMaterial;
+        }
+        this.showcaseHighlight = undefined;
+    }
+
+    private updateShowcasePicking(targetWidth: number): void {
+        if (this.view !== PlayerViewState.SHOWCASE) {
+            return;
+        }
+        if (!this.showcasePointerInside) {
+            this.setShowcasePickLabel(null);
+            if (!this.showcasePointerDown) {
+                this.clearShowcaseHighlight();
+            }
+            return;
+        }
+
+        this.showcaseRaycaster.setFromCamera(this.showcasePointerNdc, this.playerCamera.main);
+        const intersections = this.player.raycastShowcase(
+            this.showcaseRaycaster,
+            targetWidth,
+            this.playerCamera.main,
+            ShowcasePalette,
+        );
+        const hit = intersections.length > 0 ? intersections[0].object : null;
+        this.setShowcasePickLabel(hit ? (hit.name || '(unnamed)') : null);
+
+        if (this.showcasePointerDown) {
+            this.applyShowcaseHighlight(hit);
+        } else {
+            this.clearShowcaseHighlight();
+        }
+    }
+
+    private clearShowcasePickingState(): void {
+        this.showcasePointerDown = false;
+        this.showcasePointerInside = false;
+        this.setShowcasePickLabel(null);
+        this.clearShowcaseHighlight();
+    }
+
     /** Runway spawn position; Y matches FM2 gear rest height when the aircraft has a flight config. */
     private runwaySpawnPosition(): THREE.Vector3 {
         const y = this.currentDef.flight
@@ -701,13 +838,13 @@ export class Game {
             const textColors = this.getTextColors();
             this.renderer.createRenderTarget(MAIN_RENDER_TARGET_HD, RenderTargetType.WEBGL, 0, 0, width, height);
             this.renderer.createRenderTarget(CANVAS_RENDER_TARGET_HD, RenderTargetType.CANVAS, 0, 0, width, height, { textColors });
-            const mfdSize = CockpitMFDSize(height);
+            const mfdSize = CockpitMFDSize(height, width);
             this.renderer.createRenderTarget(MAP_RENDER_TARGET_HD, RenderTargetType.WEBGL, CockpitMFD1X(width, height, mfdSize), CockpitMFD1Y(width, height, mfdSize), mfdSize, mfdSize);
             this.renderer.createRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, RenderTargetType.WEBGL, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize);
         } else {
             this.renderer.resizeRenderTarget(MAIN_RENDER_TARGET_HD, 0, 0, width, height);
             this.renderer.resizeRenderTarget(CANVAS_RENDER_TARGET_HD, 0, 0, width, height);
-            const mfdSize = CockpitMFDSize(height);
+            const mfdSize = CockpitMFDSize(height, width);
             this.renderer.resizeRenderTarget(MAP_RENDER_TARGET_HD, CockpitMFD1X(width, height, mfdSize), CockpitMFD1Y(width, height, mfdSize), mfdSize, mfdSize);
             this.renderer.resizeRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize);
         }
@@ -780,6 +917,12 @@ export class Game {
         if (resolution === DisplayResolution.HD_RES) {
             this.updateHdResolution();
         }
+        const showcasePickWidth = resolution === DisplayResolution.LO_RES
+            ? LO_H_RES
+            : resolution === DisplayResolution.HI_RES
+                ? HI_H_RES
+                : this.hdResolutionWidth || H_RES;
+        this.updateShowcasePicking(showcasePickWidth);
 
         let layers: RenderLayer[];
         if (this.view === PlayerViewState.SHOWCASE) {
@@ -972,6 +1115,25 @@ export class Game {
 
         window.addEventListener('blur', () => {
             this.heldOrbitKeys.clear();
+            this.clearShowcasePickingState();
+        });
+
+        document.addEventListener('mousemove', (event: MouseEvent) => {
+            this.updateShowcasePointerFromEvent(event);
+        });
+        document.addEventListener('mousedown', (event: MouseEvent) => {
+            if (event.button !== 0 || this.view !== PlayerViewState.SHOWCASE) {
+                return;
+            }
+            this.showcasePointerDown = true;
+            this.updateShowcasePointerFromEvent(event);
+        });
+        document.addEventListener('mouseup', (event: MouseEvent) => {
+            if (event.button !== 0) {
+                return;
+            }
+            this.showcasePointerDown = false;
+            this.clearShowcaseHighlight();
         });
 
         document.addEventListener('keypress', (event: KeyboardEvent) => {
@@ -1015,6 +1177,7 @@ export class Game {
         this.player.setSimulationPaused(false);
         this.scene.setRenderFilter(undefined);
         this.viewBeforeShowcase = null;
+        this.clearShowcasePickingState();
     }
 
     private toggleShowcaseView() {
@@ -1032,6 +1195,7 @@ export class Game {
         this.player.setShowcaseMode(true);
         this.player.setSimulationPaused(true);
         this.scene.setRenderFilter(entity => entity === this.player);
+        this.clearShowcasePickingState();
         this.setShowcaseView();
     }
 
@@ -1043,6 +1207,7 @@ export class Game {
         const previous = this.viewBeforeShowcase ?? PlayerViewState.COCKPIT_FRONT;
         this.viewBeforeShowcase = null;
         restoreMainCameraParameters(this.playerCamera.main);
+        this.clearShowcasePickingState();
         this.restoreView(previous);
     }
 

@@ -153,6 +153,20 @@ a:hover {
     text-align: center;
 }
 
+#showcase-pick {
+    z-index: 2;
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    max-width: 40vw;
+    padding: 0.4rem 0.8rem;
+    color: white;
+    background-color: rgba(0, 0, 0, 0.8);
+    border: 1px rgb(138, 138, 138) solid;
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+}
+
 #spawn-panel {
     z-index: 3;
     position: fixed;
