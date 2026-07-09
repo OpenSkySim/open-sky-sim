@@ -192,6 +192,10 @@ export class Fm2FlightModel extends FlightModel {
         this.commandedElevator = fcsOut.elevator;
         this.commandedAileron = -fcsOut.aileron;
         this.commandedRudder = -fcsOut.rudder;
+        // Elevator clamp bounds already share the +nose-up (aft-stick) polarity of
+        // the exposed elevator command, so they pass through unchanged.
+        this.elevatorCommandLimitHigh = fcsOut.elevatorLimitHi;
+        this.elevatorCommandLimitLow = fcsOut.elevatorLimitLo;
 
         // Blend the AoA-gated CG shift (emergent-cobra static-margin relaxation)
         // into every surface's moment / rotation arm before the force build-up.
@@ -394,6 +398,9 @@ export class Fm2FlightModel extends FlightModel {
         this.commandedElevator = this.pitch;
         this.commandedAileron = this.roll;
         this.commandedRudder = this.yaw;
+        // Kinematic free-fly bypasses the FCS clamp, so the pitch input is unbounded.
+        this.elevatorCommandLimitHigh = 1;
+        this.elevatorCommandLimitLow = -1;
 
         if (!isZero(this.roll)) this.obj.rotateZ(this.roll * ROLL_RATE * delta);
         if (!isZero(this.pitch)) this.obj.rotateX(-this.pitch * PITCH_RATE * delta);

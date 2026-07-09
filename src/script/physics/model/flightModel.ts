@@ -38,6 +38,15 @@ export abstract class FlightModel {
     protected commandedElevator: number = 0;
     protected commandedAileron: number = 0;
     protected commandedRudder: number = 0;
+    /**
+     * Upper / lower clamp bounds the FCS applies to the normalized elevator
+     * command this step, in the SAME polarity as {@link commandedElevator}
+     * (positive = nose-up / aft stick). With the limiters ON these are the
+     * combined AoA/g deflection caps; with the limiters OFF (direct law) they are
+     * +1 / -1. Used by the HUD to mark the pitch-input limits. Default ±1.
+     */
+    protected elevatorCommandLimitHigh: number = 1;
+    protected elevatorCommandLimitLow: number = -1;
     /** World-frame linear acceleration from the last physics step (m/s²). */
     protected readonly accelWorld = new THREE.Vector3();
 
@@ -69,6 +78,8 @@ export abstract class FlightModel {
         this.commandedElevator = 0;
         this.commandedAileron = 0;
         this.commandedRudder = 0;
+        this.elevatorCommandLimitHigh = 1;
+        this.elevatorCommandLimitLow = -1;
         this.accelWorld.set(0, 0, 0);
         this.deltaRemainder = 0;
         this.syncPreviousState();
@@ -241,6 +252,19 @@ export abstract class FlightModel {
 
     getCommandedRudder(): number {
         return this.commandedRudder;
+    }
+
+    /**
+     * Upper / lower clamp bounds on the normalized elevator command (same
+     * +nose-up polarity as {@link getCommandedElevator}). The HUD draws these as
+     * the max/min pitch-input limit lines. Default ±1 (no clamp / direct law).
+     */
+    getElevatorCommandLimitHigh(): number {
+        return this.elevatorCommandLimitHigh;
+    }
+
+    getElevatorCommandLimitLow(): number {
+        return this.elevatorCommandLimitLow;
     }
 
     getAccelerationWorld(target: THREE.Vector3 = this.accelWorld): THREE.Vector3 {

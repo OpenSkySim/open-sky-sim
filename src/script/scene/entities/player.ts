@@ -931,6 +931,16 @@ export class PlayerEntity implements Entity {
         return this.pitch;
     }
 
+    /** Max nose-up / nose-down elevator-command clamp bounds (same +nose-up
+     *  polarity as the pitch input), ±1 with the FBW limiters OFF. */
+    get elevatorLimitHigh(): number {
+        return this.flightModel.getElevatorCommandLimitHigh();
+    }
+
+    get elevatorLimitLow(): number {
+        return this.flightModel.getElevatorCommandLimitLow();
+    }
+
     get rollInput(): number {
         return this.roll;
     }

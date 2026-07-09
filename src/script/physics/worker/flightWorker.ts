@@ -127,6 +127,8 @@ function sendState() {
         commandedElevator: flightModel.getCommandedElevator(),
         commandedAileron: flightModel.getCommandedAileron(),
         commandedRudder: flightModel.getCommandedRudder(),
+        elevatorLimitHigh: flightModel.getElevatorCommandLimitHigh(),
+        elevatorLimitLow: flightModel.getElevatorCommandLimitLow(),
         accelWorld: flightModel.getAccelerationWorld().toArray(),
         engineThrustN: flightModel.getEngineThrustKn() * 1000,
         effectiveThrottle: flightModel.getEffectiveThrottle(),

@@ -51,6 +51,8 @@ export class WorkerFlightModel extends FlightModel {
         this.commandedElevator = state.commandedElevator ?? 0;
         this.commandedAileron = state.commandedAileron ?? 0;
         this.commandedRudder = state.commandedRudder ?? 0;
+        this.elevatorCommandLimitHigh = state.elevatorLimitHigh ?? 1;
+        this.elevatorCommandLimitLow = state.elevatorLimitLow ?? -1;
         this.engineThrustN = state.engineThrustN;
         this.effectiveThrottle = state.effectiveThrottle;
         if (state.accelWorld) {

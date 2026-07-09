@@ -193,6 +193,15 @@ export interface FcsOutput {
     aileron: number;
     /** Rudder command, positive = nose right. */
     rudder: number;
+    /**
+     * Upper / lower clamp bounds actually applied to the normalized elevator
+     * command this step, in the SAME polarity as {@link elevator} (positive =
+     * nose-up / aft-stick). With the FBW limiters ON these are the combined
+     * AoA-limit and g-limit deflection caps (the noseUp/noseDown min/max
+     * composition); with the limiters OFF (direct law, no clamp) they are +1 / -1.
+     */
+    elevatorLimitHi: number;
+    elevatorLimitLo: number;
 }
 
 export class Fm2Fcs {
@@ -207,6 +216,8 @@ export class Fm2Fcs {
     private prevG = 0;
     private gRateFilt = 0;
     private prevGValid = false;
+    private elevatorLimitHi = 1;
+    private elevatorLimitLo = -1;
 
     constructor(private readonly cfg: Fm2FcsConfig) { }
 
@@ -222,10 +233,18 @@ export class Fm2Fcs {
         this.prevG = 0;
         this.gRateFilt = 0;
         this.prevGValid = false;
+        this.elevatorLimitHi = 1;
+        this.elevatorLimitLo = -1;
     }
 
     getState(): FcsOutput {
-        return { elevator: this.elevator, aileron: this.aileron, rudder: this.rudder };
+        return {
+            elevator: this.elevator,
+            aileron: this.aileron,
+            rudder: this.rudder,
+            elevatorLimitHi: this.elevatorLimitHi,
+            elevatorLimitLo: this.elevatorLimitLo,
+        };
     }
 
     update(input: FcsInput, dt: number): FcsOutput {
@@ -255,7 +274,15 @@ export class Fm2Fcs {
             elevatorTarget = clamp(input.pitchStick, -1, 1);
             aileronTarget = clamp(-input.rollStick, -1, 1);
             rudderTarget = clamp(input.yawPedal, -1, 1);
+            // Direct law: no elevator clamp, so the bounds are the full ±1 travel.
+            this.elevatorLimitHi = 1;
+            this.elevatorLimitLo = -1;
         } else {
+            // Default to the full ±1 travel; the g-command law overwrites these with
+            // the actual AoA/g deflection caps it applies (the direct pitch law
+            // applies no clamp, so ±1 stands).
+            this.elevatorLimitHi = 1;
+            this.elevatorLimitLo = -1;
             elevatorTarget = this.cfg.pitch.gCommand
                 ? this.gCommandPitchLaw(input, dt)
                 : this.directPitchLaw(input);
@@ -482,6 +509,11 @@ export class Fm2Fcs {
             }
 
             elevator = clamp(elevator, noseDown, noseUp);
+            // Surface the applied clamp bounds (same +nose-up polarity as the
+            // exposed elevator command) so the HUD can mark where the pitch input
+            // is being limited.
+            this.elevatorLimitHi = clamp(noseUp, -1, 1);
+            this.elevatorLimitLo = clamp(noseDown, -1, 1);
         }
         return clamp(elevator, -1, 1);
     }

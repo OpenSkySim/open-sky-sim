@@ -78,6 +78,8 @@ export class HUDEntity implements Entity {
     private pitchInput: number = 0; // [-1, 1]
     private rollInput: number = 0; // [-1, 1]
     private yawInput: number = 0; // [-1, 1]
+    private elevatorLimitHigh: number = 1; // [-1, 1] nose-up elevator-command clamp
+    private elevatorLimitLow: number = -1; // [-1, 1] nose-down elevator-command clamp
     private elapsed: number = 0; // Seconds
     private lastRenderTime: number = 0;
 
@@ -105,6 +107,8 @@ export class HUDEntity implements Entity {
         this.pitchInput = this.actor.pitchInput;
         this.rollInput = this.actor.rollInput;
         this.yawInput = this.actor.yawInput;
+        this.elevatorLimitHigh = this.actor.elevatorLimitHigh;
+        this.elevatorLimitLow = this.actor.elevatorLimitLow;
 
         this.elapsed += delta;
     }
@@ -167,6 +171,7 @@ export class HUDEntity implements Entity {
         const hudColor = PaletteColor(palette, PaletteCategory.HUD_TEXT);
         const hudSecondaryColor = PaletteColor(palette, PaletteCategory.HUD_TEXT_SECONDARY);
         const hudWarnColor = PaletteColor(palette, PaletteCategory.HUD_TEXT_WARN);
+        const hudLimitColor = PaletteColor(palette, PaletteCategory.LIGHT_RED);
         painter.setColor(hudColor);
 
         const halfWidth = targetWidth / 2;
@@ -216,7 +221,7 @@ export class HUDEntity implements Entity {
         const stickLabelMargin = (fontSmall.charWidth + fontSmall.charSpacing) * 4 + 6;
         const stickCenterX = altitudeX + stickLabelMargin + stickGap + stickArm;
         const stickCenterY = halfHeight;
-        this.renderStickIndicator(stickCenterX, stickCenterY, stickArm, geomScale, painter, hudColor, hudSecondaryColor);
+        this.renderStickIndicator(stickCenterX, stickCenterY, stickArm, geomScale, painter, hudColor, hudSecondaryColor, hudLimitColor);
 
         this.renderTarget(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale);
         this.renderBoresight(halfWidth, halfHeight, painter, geomScale);
@@ -454,7 +459,7 @@ export class HUDEntity implements Entity {
         painter.text(font, x, y, this.actor.throttleHudText, hudColor);
     }
 
-    private renderStickIndicator(centerX: number, centerY: number, arm: number, geomScale: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string) {
+    private renderStickIndicator(centerX: number, centerY: number, arm: number, geomScale: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, hudLimitColor: string) {
         const travel = arm - Math.max(2, Math.round(2 * geomScale));
         const pitch = this.pitchInput;
         const roll = this.rollInput;
@@ -467,6 +472,20 @@ export class HUDEntity implements Entity {
         painter.batch()
             .hLine(centerX - arm, centerX + arm, centerY)
             .vLine(centerX, centerY - arm, centerY + arm)
+            .commit();
+
+        // Max/min elevator-command clamp lines (where the FCS limits the pitch
+        // input). Uses the SAME +nose-up→travel mapping as the stick marker below,
+        // clamped to the box so they never spill outside. With the limiters ON they
+        // tighten as the AoA/g caps bite; with the limiters OFF they sit at ±1 (the
+        // box edges). Drawn before the white marker so the marker reads on top.
+        const limitY = (v: number) => Math.max(centerY - arm, Math.min(centerY + arm, Math.round(centerY + v * travel)));
+        const limitHiY = limitY(this.elevatorLimitHigh);
+        const limitLoY = limitY(this.elevatorLimitLow);
+        painter.setColor(hudLimitColor);
+        painter.batch()
+            .hLine(centerX - arm, centerX + arm, limitHiY)
+            .hLine(centerX - arm, centerX + arm, limitLoY)
             .commit();
 
         const stickX = centerX + roll * travel;
