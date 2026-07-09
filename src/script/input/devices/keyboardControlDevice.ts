@@ -1,13 +1,8 @@
 import { KernelTask } from "../../core/kernel";
 import {
-    ARROWS_STICK_FULL_HOLD_S,
-    ARROWS_STICK_LOG_K,
-    ARROWS_STICK_TAP_INCREMENT,
-    ARROWS_STICK_TAP_MAX_S,
     THROTTLE_RATE,
 } from "../../defs";
 import { PlayerEntity } from "../../scene/entities/player";
-import { clamp } from "../../utils/math";
 
 
 export enum KeyboardControlAction {
@@ -112,83 +107,9 @@ export class KeyboardControlDevice implements KernelTask {
 
     private layout: KeyboardControlLayout = ArrowsKeyboardControlLayout;
     private layoutId: KeyboardControlLayoutId = KeyboardControlLayoutId.ARROWS;
-    private pitchPressAt = 0;
-    private pitchPressFrom = 0;
-    private rollPressAt = 0;
 
     constructor(private player: PlayerEntity) {
         this.setupInput();
-    }
-
-    private usesCumulativeStick(): boolean {
-        return this.layoutId === KeyboardControlLayoutId.ARROWS;
-    }
-
-    /** Log-shaped 0..1: fine control near centre, faster approach to full stick. */
-    private arrowStickCurve(linear: number): number {
-        const t = clamp(linear, 0, 1);
-        const k = ARROWS_STICK_LOG_K;
-        return (Math.exp(k * t) - 1) / (Math.exp(k) - 1);
-    }
-
-    private arrowStickCurveInverse(curved: number): number {
-        const y = clamp(curved, 0, 1);
-        const k = ARROWS_STICK_LOG_K;
-        return Math.log(y * (Math.exp(k) - 1) + 1) / k;
-    }
-
-    private shapeStick(linear: number): number {
-        const sign = Math.sign(linear) || 1;
-        return sign * this.arrowStickCurve(Math.abs(linear));
-    }
-
-    private unshapeStick(shaped: number): number {
-        const sign = Math.sign(shaped) || 1;
-        return sign * this.arrowStickCurveInverse(Math.abs(shaped));
-    }
-
-    /** Tap: +INCREMENT; hold: ramp from press value to ±1.0 over FULL_HOLD_S (log-shaped). */
-    private arrowPitchStick(from: number, pressAt: number, dir: 1 | -1, onRelease: boolean): number {
-        const heldS = (performance.now() - pressAt) / 1000;
-        const linearFrom = this.unshapeStick(from);
-        if (onRelease && heldS < ARROWS_STICK_TAP_MAX_S) {
-            return this.shapeStick(clamp(linearFrom + dir * ARROWS_STICK_TAP_INCREMENT, -1, 1));
-        }
-        if (!onRelease && heldS < ARROWS_STICK_TAP_MAX_S) {
-            return from;
-        }
-        const t = Math.min(heldS / ARROWS_STICK_FULL_HOLD_S, 1);
-        const linearTarget = dir > 0 ? 1 : -1;
-        const linear = linearFrom + (linearTarget - linearFrom) * t;
-        return this.shapeStick(linear);
-    }
-
-    /** Roll springs back on release; ramp from neutral immediately while held. */
-    private arrowRollStick(pressAt: number, dir: 1 | -1): number {
-        const heldS = (performance.now() - pressAt) / 1000;
-        const t = Math.min(heldS / ARROWS_STICK_FULL_HOLD_S, 1);
-        return this.shapeStick(dir * t);
-    }
-
-    private beginPitchPress(state: Stick.POSITIVE | Stick.NEGATIVE): void {
-        if (this.pitchState !== state) {
-            this.pitchPressAt = performance.now();
-            this.pitchPressFrom = this.player.pitchInput;
-        }
-        this.pitchState = state;
-    }
-
-    private beginRollPress(state: Stick.POSITIVE | Stick.NEGATIVE): void {
-        if (this.rollState !== state) {
-            this.rollPressAt = performance.now();
-        }
-        this.rollState = state;
-    }
-
-    private finishPitchPress(state: Stick.POSITIVE | Stick.NEGATIVE): void {
-        const dir: 1 | -1 = state === Stick.POSITIVE ? 1 : -1;
-        this.player.setPitch(this.arrowPitchStick(this.pitchPressFrom, this.pitchPressAt, dir, true));
-        this.pitchState = state === Stick.POSITIVE ? Stick.POSITIVE_ENDED : Stick.NEGATIVE_ENDED;
     }
 
     update(delta: number) {
@@ -207,60 +128,39 @@ export class KeyboardControlDevice implements KernelTask {
         }
 
         if (this.pitchState !== Stick.IDLE) {
-            if (this.usesCumulativeStick()) {
-                if (this.pitchState === Stick.POSITIVE) {
-                    this.player.setPitch(this.arrowPitchStick(this.pitchPressFrom, this.pitchPressAt, 1, false));
-                } else if (this.pitchState === Stick.NEGATIVE) {
-                    this.player.setPitch(this.arrowPitchStick(this.pitchPressFrom, this.pitchPressAt, -1, false));
-                } else {
+            switch (this.pitchState) {
+                case Stick.POSITIVE_ENDED:
+                case Stick.NEGATIVE_ENDED: {
                     this.pitchState = Stick.IDLE;
+                    this.player.setPitch(0.0);
+                    break;
                 }
-            } else {
-                switch (this.pitchState) {
-                    case Stick.POSITIVE_ENDED:
-                    case Stick.NEGATIVE_ENDED: {
-                        this.pitchState = Stick.IDLE;
-                        this.player.setPitch(0.0);
-                        break;
-                    }
-                    case Stick.NEGATIVE: {
-                        this.player.setPitch(-0.75);
-                        break;
-                    }
-                    case Stick.POSITIVE: {
-                        this.player.setPitch(0.75);
-                        break;
-                    }
+                case Stick.NEGATIVE: {
+                    this.player.setPitch(-1.0);
+                    break;
+                }
+                case Stick.POSITIVE: {
+                    this.player.setPitch(1.0);
+                    break;
                 }
             }
         }
 
         if (this.rollState !== Stick.IDLE) {
-            if (this.usesCumulativeStick()) {
-                if (this.rollState === Stick.POSITIVE) {
-                    this.player.setRoll(this.arrowRollStick(this.rollPressAt, 1));
-                } else if (this.rollState === Stick.NEGATIVE) {
-                    this.player.setRoll(this.arrowRollStick(this.rollPressAt, -1));
-                } else {
+            switch (this.rollState) {
+                case Stick.POSITIVE_ENDED:
+                case Stick.NEGATIVE_ENDED: {
                     this.rollState = Stick.IDLE;
                     this.player.setRoll(0.0);
+                    break;
                 }
-            } else {
-                switch (this.rollState) {
-                    case Stick.POSITIVE_ENDED:
-                    case Stick.NEGATIVE_ENDED: {
-                        this.rollState = Stick.IDLE;
-                        this.player.setRoll(0.0);
-                        break;
-                    }
-                    case Stick.NEGATIVE: {
-                        this.player.setRoll(-0.75);
-                        break;
-                    }
-                    case Stick.POSITIVE: {
-                        this.player.setRoll(0.75);
-                        break;
-                    }
+                case Stick.NEGATIVE: {
+                    this.player.setRoll(-1.0);
+                    break;
+                }
+                case Stick.POSITIVE: {
+                    this.player.setRoll(1.0);
+                    break;
                 }
             }
         }
@@ -274,11 +174,11 @@ export class KeyboardControlDevice implements KernelTask {
                     break;
                 }
                 case Stick.NEGATIVE: {
-                    this.player.setYaw(-0.75);
+                    this.player.setYaw(-1.0);
                     break;
                 }
                 case Stick.POSITIVE: {
-                    this.player.setYaw(0.75);
+                    this.player.setYaw(1.0);
                     break;
                 }
             }
@@ -299,10 +199,6 @@ export class KeyboardControlDevice implements KernelTask {
     }
 
     setKeyboardLayout(layoutId: KeyboardControlLayoutId) {
-        if (this.usesCumulativeStick() && layoutId !== KeyboardControlLayoutId.ARROWS) {
-            this.player.setPitch(0);
-            this.player.setRoll(0);
-        }
         this.layoutId = layoutId;
         this.layout = KeyboardControlLayouts.get(layoutId) || QwertyKeyboardControlLayout;
     }
@@ -321,19 +217,19 @@ export class KeyboardControlDevice implements KernelTask {
             }
             switch (key) {
                 case this.layout[KeyboardControlAction.PITCH_POS]: {
-                    this.beginPitchPress(Stick.POSITIVE);
+                    this.pitchState = Stick.POSITIVE;
                     break;
                 }
                 case this.layout[KeyboardControlAction.PITCH_NEG]: {
-                    this.beginPitchPress(Stick.NEGATIVE);
+                    this.pitchState = Stick.NEGATIVE;
                     break;
                 }
                 case this.layout[KeyboardControlAction.ROLL_POS]: {
-                    this.beginRollPress(Stick.POSITIVE);
+                    this.rollState = Stick.POSITIVE;
                     break;
                 }
                 case this.layout[KeyboardControlAction.ROLL_NEG]: {
-                    this.beginRollPress(Stick.NEGATIVE);
+                    this.rollState = Stick.NEGATIVE;
                     break;
                 }
                 case this.layout[KeyboardControlAction.YAW_POS]: {
@@ -378,13 +274,13 @@ export class KeyboardControlDevice implements KernelTask {
             switch (key) {
                 case this.layout[KeyboardControlAction.PITCH_POS]: {
                     if (this.pitchState === Stick.POSITIVE) {
-                        this.finishPitchPress(Stick.POSITIVE);
+                        this.pitchState = Stick.POSITIVE_ENDED;
                     }
                     break;
                 }
                 case this.layout[KeyboardControlAction.PITCH_NEG]: {
                     if (this.pitchState === Stick.NEGATIVE) {
-                        this.finishPitchPress(Stick.NEGATIVE);
+                        this.pitchState = Stick.NEGATIVE_ENDED;
                     }
                     break;
                 }
@@ -481,10 +377,7 @@ export class KeyboardControlDevice implements KernelTask {
 
     private restoreLayoutActionForKey(key: string) {
         if (key === this.layout[KeyboardControlAction.PITCH_NEG]) {
-            this.beginPitchPress(Stick.NEGATIVE);
-            if (!this.usesCumulativeStick()) {
-                this.player.setPitch(-0.75);
-            }
+            this.pitchState = Stick.NEGATIVE;
         } else if (key === this.layout[KeyboardControlAction.THROTTLE_POS]) {
             this.throttleState = Stick.POSITIVE;
         }

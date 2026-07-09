@@ -20,12 +20,6 @@ export const YAW_RATE = Math.PI / 12; // Radians/s
 export const MAX_SPEED = 250.0; // World units/s
 export const THROTTLE_RATE = 33; // Percentage of maximum/s [0,100]
 export const STICK_RATE = 1.5; // Full stick deflection per second (non-arrow layouts)
-export const ARROWS_STICK_FULL_HOLD_S = 1.0; // Arrow keys: seconds to reach ±1.0 on hold
-export const ARROWS_STICK_TAPS_TO_FULL = 15; // Brief pitch taps from neutral to full deflection
-export const ARROWS_STICK_TAP_INCREMENT = 1 / ARROWS_STICK_TAPS_TO_FULL;
-export const ARROWS_STICK_TAP_MAX_S = 0.2; // Releases shorter than this count as taps
-/** Log-style shaping for arrow stick (0→0, 1→1; slow near centre, faster near limits). */
-export const ARROWS_STICK_LOG_K = 2.5;
 export const PLANE_DISTANCE_TO_GROUND = 2.0; // World units
 export const PLANE_COCKPIT_OFFSET_Y = 1.0; // World units
 export const PLANE_COCKPIT_OFFSET_Z = 8.0; // World units
