@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ConfigService } from '../../../config/configService';
 import { Palette, PaletteCategory, PaletteColor } from "../../../config/palettes/palette";
-import { COCKPIT_FOV } from '../../../defs';
+import { COCKPIT_FOV, PITCH_STICK_AFT_UNITS, PITCH_STICK_FWD_UNITS } from '../../../defs';
 import { CanvasPainter } from "../../../render/screen/canvasPainter";
 import { Font, TextAlignment } from "../../../render/screen/text";
 import { HUDFocusMode, UnitSystems } from '../../../state/gameDefs';
@@ -219,7 +219,10 @@ export class HUDEntity implements Entity {
         const stickArm = Math.max(8, Math.round(11 * geomScale));
         const stickGap = Math.round(10 * geomScale);
         const stickLabelMargin = (fontSmall.charWidth + fontSmall.charSpacing) * 4 + 6;
-        const stickCenterX = altitudeX + stickLabelMargin + stickGap + stickArm;
+        const stickCenterX = Math.min(
+            altitudeX + stickLabelMargin + stickGap + stickArm,
+            targetWidth - stickArm - 2,
+        );
         const stickCenterY = halfHeight;
         this.renderStickIndicator(stickCenterX, stickCenterY, stickArm, geomScale, painter, hudColor, hudSecondaryColor, hudLimitColor);
 
@@ -460,7 +463,11 @@ export class HUDEntity implements Entity {
     }
 
     private renderStickIndicator(centerX: number, centerY: number, arm: number, geomScale: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, hudLimitColor: string) {
-        const travel = arm - Math.max(2, Math.round(2 * geomScale));
+        const rollTravel = arm - Math.max(2, Math.round(2 * geomScale));
+        const pitchTotalUnits = PITCH_STICK_FWD_UNITS + PITCH_STICK_AFT_UNITS;
+        const pitchTotalSpan = Math.max(arm * 2, Math.round(40 * geomScale));
+        const pitchFwdTravel = Math.round(pitchTotalSpan * PITCH_STICK_FWD_UNITS / pitchTotalUnits);
+        const pitchAftTravel = pitchTotalSpan - pitchFwdTravel;
         const pitch = this.pitchInput;
         const roll = this.rollInput;
         const yaw = this.yawInput;
@@ -471,15 +478,16 @@ export class HUDEntity implements Entity {
         painter.setColor(hudSecondaryColor);
         painter.batch()
             .hLine(centerX - arm, centerX + arm, centerY)
-            .vLine(centerX, centerY - arm, centerY + arm)
+            .vLine(centerX, centerY - pitchFwdTravel, centerY + pitchAftTravel)
             .commit();
 
         // Max/min elevator-command clamp lines (where the FCS limits the pitch
-        // input). Uses the SAME +nose-up→travel mapping as the stick marker below,
-        // clamped to the box so they never spill outside. With the limiters ON they
-        // tighten as the AoA/g caps bite; with the limiters OFF they sit at ±1 (the
-        // box edges). Drawn before the white marker so the marker reads on top.
-        const limitY = (v: number) => Math.max(centerY - arm, Math.min(centerY + arm, Math.round(centerY + v * travel)));
+        // input). Cross span and stick marker both follow PITCH_STICK_FWD/AFT_UNITS.
+        const pitchCmdYOffset = (v: number) => v >= 0 ? v * pitchAftTravel : v * pitchFwdTravel;
+        const limitY = (v: number) => Math.max(
+            centerY - pitchFwdTravel,
+            Math.min(centerY + pitchAftTravel, Math.round(centerY + pitchCmdYOffset(v))),
+        );
         const limitHiY = limitY(this.elevatorLimitHigh);
         const limitLoY = limitY(this.elevatorLimitLow);
         painter.setColor(hudLimitColor);
@@ -488,12 +496,12 @@ export class HUDEntity implements Entity {
             .hLine(centerX - arm, centerX + arm, limitLoY)
             .commit();
 
-        const stickX = centerX + roll * travel;
-        const stickY = centerY + pitch * travel;
+        const stickX = centerX + roll * rollTravel;
+        const stickY = centerY + pitch * pitchAftTravel;
         painter.setColor(hudColor);
         painter.circle(Math.round(stickX), Math.round(stickY), crossArm);
 
-        const rudderY = centerY + arm + gap;
+        const rudderY = centerY + pitchAftTravel + gap;
         painter.setColor(hudSecondaryColor);
         painter.hLine(centerX - arm, centerX + arm, rudderY);
         painter.setColor(hudColor);

@@ -45,3 +45,10 @@ export const APPROACH_ALTITUDE_M = 5000;
 export const APPROACH_SPEED_KMH = 500;
 export const APPROACH_SPEED_MPS = APPROACH_SPEED_KMH / 3.6;
 export const APPROACH_FINAL_DISTANCE_M = 5000;
+
+// Asymmetric fore/aft pitch-stick travel in stick units. Forward (push /
+// nose-down) reaches -PITCH_STICK_FWD_UNITS; aft (pull / nose-up) reaches
+// +PITCH_STICK_AFT_UNITS. Raw [-1, 1] input is scaled so full forward maps to
+// -FWD/AFT of the aft throw.
+export const PITCH_STICK_FWD_UNITS = 20;
+export const PITCH_STICK_AFT_UNITS = 80;

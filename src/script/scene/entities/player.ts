@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ShaderMaterial } from 'three';
 import { AudioClip } from '../../audio/audioSystem';
 import { Palette, PaletteCategory } from "../../config/palettes/palette";
-import { AIRBASE_RUNWAY, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
+import { AIRBASE_RUNWAY, PITCH_STICK_AFT_UNITS, PITCH_STICK_FWD_UNITS, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
 import { FlightSample } from '../../physics/flightRecorder';
 import { LODHelper, getLodLevel } from '../../render/helpers';
@@ -804,7 +804,12 @@ export class PlayerEntity implements Entity {
     }
 
     setPitch(pitch: number) {
-        this.pitch = pitch;
+        // Fore/aft travel is asymmetric: aft (positive) uses the full throw, while
+        // forward (negative) is limited to PITCH_STICK_FWD_UNITS/PITCH_STICK_AFT_UNITS
+        // of it. Scaling (not clamping) keeps analog forward input proportional.
+        this.pitch = pitch >= 0
+            ? pitch
+            : pitch * (PITCH_STICK_FWD_UNITS / PITCH_STICK_AFT_UNITS);
     }
 
     setSimulationPaused(paused: boolean): void {
