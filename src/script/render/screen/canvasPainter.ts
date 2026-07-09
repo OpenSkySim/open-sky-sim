@@ -222,6 +222,16 @@ export class CanvasPainter {
         }
     }
 
+    circle(x: number, y: number, radius: number, fill: boolean = false) {
+        this.ctx.beginPath();
+        this.ctx.arc(x + 0.5, y + 0.5, radius, 0, Math.PI * 2);
+        if (fill) {
+            this.ctx.fill();
+        } else {
+            this.ctx.stroke();
+        }
+    }
+
     text(font: Font, x: number, y: number, text: string, color?: string, alignment: TextAlignment = TextAlignment.LEFT) {
         this.textRenderer.text(font,x, y, text, color, alignment, this.textEffect, this.textEffectColor);
     }

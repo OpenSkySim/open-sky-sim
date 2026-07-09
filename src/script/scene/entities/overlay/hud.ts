@@ -491,10 +491,7 @@ export class HUDEntity implements Entity {
         const stickX = centerX + roll * travel;
         const stickY = centerY + pitch * travel;
         painter.setColor(hudColor);
-        painter.batch()
-            .hLine(stickX - crossArm, stickX + crossArm, stickY)
-            .vLine(stickX, stickY - crossArm, stickY + crossArm)
-            .commit();
+        painter.circle(Math.round(stickX), Math.round(stickY), crossArm);
 
         const rudderY = centerY + arm + gap;
         painter.setColor(hudSecondaryColor);
