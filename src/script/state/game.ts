@@ -54,7 +54,9 @@ import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 
-const DEFAULT_START_AIRCRAFT_ID = 'cold_war_planes_a_10a_511th';
+const DEFAULT_START_AIRCRAFT_ID = 'cold_war_planes_f_15c_32nd';
+/** Built-in aircraft to spawn when the preferred default pack isn't available. */
+const FALLBACK_START_AIRCRAFT_ID = 'f22';
 /** Legacy shipped packs kept out of the spawn menu when present in dist/. */
 const EXCLUDED_PACK_IDS = new Set(['a4e', 'f16']);
 
@@ -511,7 +513,7 @@ export class Game {
         await this.loadPersistedPacks();
         this.setupScene();
         this.refreshAircraftMenu();
-        this.selectAircraftById(DEFAULT_START_AIRCRAFT_ID);
+        this.selectAircraftById(DEFAULT_START_AIRCRAFT_ID, FALLBACK_START_AIRCRAFT_ID);
         await this.beginFlight('approach');
         this.setExteriorBehindFrontView();
         window.addEventListener('resize', () => this.onViewportResize());
@@ -561,9 +563,12 @@ export class Game {
         this.spawnPanel.setSelectedIndex(index);
     }
 
-    private selectAircraftById(id: string): void {
+    private selectAircraftById(id: string, fallbackId?: string): void {
         const list = this.aircraftRegistry.list();
-        const index = list.findIndex(def => def.id === id);
+        let index = list.findIndex(def => def.id === id);
+        if (index < 0 && fallbackId !== undefined) {
+            index = list.findIndex(def => def.id === fallbackId);
+        }
         if (index >= 0) {
             this.selectAircraftByIndex(index);
         }
