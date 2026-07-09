@@ -39,6 +39,8 @@ export class AeroSurface {
     private readonly geom: SurfaceGeometry;
 
     private readonly position = new THREE.Vector3();
+    /** Moment / rotation arm = position − CG offset (defaults to position). */
+    private readonly arm = new THREE.Vector3();
     private readonly up = new THREE.Vector3();
     private readonly forward = new THREE.Vector3();
     private readonly span = new THREE.Vector3();
@@ -55,6 +57,7 @@ export class AeroSurface {
         this.geom = geom;
         this.name = geom.name;
         this.position.fromArray(geom.position);
+        this.arm.copy(this.position);
         this.up.fromArray(geom.up).normalize();
         this.forward.fromArray(geom.forward).normalize();
         // Spanwise axis (the direction we ignore when measuring AoA).
@@ -66,6 +69,16 @@ export class AeroSurface {
     }
 
     /**
+     * Set the effective CG the moment / rotation arm is measured from. Shifting
+     * the CG aft (offset z < 0) reduces the tail arm and turns wing/forebody lift
+     * into a nose-up moment — the static-margin lever behind the emergent cobra.
+     * Called each step so the shift can be blended in with AoA.
+     */
+    setCgOffset(offset: THREE.Vector3): void {
+        this.arm.copy(this.position).sub(offset);
+    }
+
+    /**
      * Accumulate this surface's aerodynamic force and moment.
      * @param input      Flight condition and control state.
      * @param outForce   Body-frame force accumulator (N) — added to.
@@ -73,7 +86,14 @@ export class AeroSurface {
      */
     accumulate(input: SurfaceInput, outForce: THREE.Vector3, outMoment: THREE.Vector3): void {
         // Local velocity through the air at the surface: v + ω × r.
-        this._rot.crossVectors(input.angularVelocityBody, this.position);
+        this._rot.crossVectors(input.angularVelocityBody, this.arm);
+        // Once this surface's flow is separated, cut its rate-damping contribution
+        // (a stalled tail damps far less). Uses last step's AoA as the separation
+        // gauge so a transient high-AoA pitch overshoot can survive (cobra).
+        const dampScale = this.geom.highAoaDampingScale ?? 1;
+        if (dampScale < 1 && Math.abs(this.lastAoaRad) > this.geom.stallAoaRad) {
+            this._rot.multiplyScalar(dampScale);
+        }
         this._u.copy(input.velocityBody).add(this._rot);
 
         // Remove the spanwise component (that flow does not make lift here).
@@ -130,8 +150,8 @@ export class AeroSurface {
         outForce.y += fy;
         outForce.z += fz;
 
-        // Moment about CG: r × F.
-        const rx = this.position.x, ry = this.position.y, rz = this.position.z;
+        // Moment about CG: r × F (r measured from the effective CG).
+        const rx = this.arm.x, ry = this.arm.y, rz = this.arm.z;
         outMoment.x += ry * fz - rz * fy;
         outMoment.y += rz * fx - rx * fz;
         outMoment.z += rx * fy - ry * fx;

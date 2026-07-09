@@ -61,6 +61,7 @@
             <ul>
                 <li><span>G</span>: Landing gear</li>
                 <li><span>F</span>: Flaps</li>
+                <li><span>L</span>: FCS limiters (AoA/g) on/off</li>
                 <li><span>T</span>: Select target</li>
                 <li><span>I</span>: Target night view</li>
                 <li><span>H</span>: Cycle HUD focus</li>
@@ -120,20 +121,12 @@
             <h2>Flight model</h2>
             <ul>
                 <li>
-                    <input type="radio" id="flightmodel-debug" name="flightmodel" value="debug">
-                    <label for="flightmodel-debug">Debug</label>
-                </li>
-                <li>
-                    <input type="radio" id="flightmodel-arcade" name="flightmodel" value="arcade">
-                    <label for="flightmodel-arcade">Arcade</label>
-                </li>
-                <li>
-                    <input type="radio" id="flightmodel-realistic" name="flightmodel" value="realistic">
-                    <label for="flightmodel-realistic">Realistic</label>
-                </li>
-                <li>
                     <input type="radio" id="flightmodel-fm2" name="flightmodel" value="fm2" checked>
                     <label for="flightmodel-fm2">FM2 (Rigid body)</label>
+                </li>
+                <li>
+                    <input type="radio" id="flightmodel-debug" name="flightmodel" value="debug">
+                    <label for="flightmodel-debug">Debug (Free-fly)</label>
                 </li>
             </ul>
 

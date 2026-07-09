@@ -1,13 +1,9 @@
-import * as THREE from 'three';
-import { RealisticFlightModel } from '../model/realisticFlightModel';
-import { ArcadeFlightModel } from '../model/arcadeFlightModel';
-import { DebugFlightModel } from '../model/debugFlightModel';
 import { Fm2FlightModel } from '../model/fm2FlightModel';
 import { FlightModel } from '../model/flightModel';
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 
 let flightModel: FlightModel;
-let modelType: string | undefined;
+let kinematic = false;
 
 self.onmessage = (event: MessageEvent) => {
     try {
@@ -18,12 +14,8 @@ self.onmessage = (event: MessageEvent) => {
     }
 };
 
-function buildModel(type: string, aircraftConfig?: Fm2AircraftConfig): FlightModel | undefined {
-    if (type === 'realistic') return new RealisticFlightModel();
-    if (type === 'fm2') return new Fm2FlightModel(aircraftConfig);
-    if (type === 'arcade') return new ArcadeFlightModel();
-    if (type === 'debug') return new DebugFlightModel();
-    return undefined;
+function buildModel(aircraftConfig?: Fm2AircraftConfig): FlightModel {
+    return new Fm2FlightModel(aircraftConfig, { kinematic });
 }
 
 /** Copy the live rigid-body state so an aircraft swap does not teleport/reset. */
@@ -39,17 +31,17 @@ function preserveState(from: FlightModel, to: FlightModel) {
 function handleMessage(data: any) {
     switch (data.type) {
         case 'init': {
-            modelType = data.modelType;
-            const model = buildModel(data.modelType, data.aircraftConfig);
-            if (model) flightModel = model;
+            kinematic = !!data.kinematic;
+            flightModel = buildModel(data.aircraftConfig);
             break;
         }
 
         case 'setAircraft': {
-            // Only the FM2 model is per-aircraft; rebuild it with the new config
-            // while carrying over the current flight state.
-            if (modelType !== 'fm2' || !data.aircraftConfig) break;
-            const next = new Fm2FlightModel(data.aircraftConfig);
+            // Rebuild the model with the new per-aircraft config while carrying
+            // over the current flight state.
+            if (!data.aircraftConfig) break;
+            kinematic = !!data.kinematic;
+            const next = new Fm2FlightModel(data.aircraftConfig, { kinematic });
             if (flightModel) preserveState(flightModel, next);
             flightModel = next;
             sendState();
@@ -65,6 +57,7 @@ function handleMessage(data: any) {
             flightModel.setLandingGearDeployed(data.inputs.landingGearDeployed);
             flightModel.setFlapsExtended(data.inputs.flapsExtended);
             flightModel.setWheelBrakes(data.inputs.wheelBrakesApplied);
+            flightModel.setLimitersEnabled(data.inputs.limitersEnabled);
             
             flightModel.update(data.delta);
             
@@ -131,6 +124,9 @@ function sendState() {
         landed: flightModel.isLanded(),
         angleOfAttackRad: flightModel.getAngleOfAttack(),
         loadFactorG: flightModel.getLoadFactorG(),
+        commandedElevator: flightModel.getCommandedElevator(),
+        commandedAileron: flightModel.getCommandedAileron(),
+        commandedRudder: flightModel.getCommandedRudder(),
         accelWorld: flightModel.getAccelerationWorld().toArray(),
         engineThrustN: flightModel.getEngineThrustKn() * 1000,
         effectiveThrottle: flightModel.getEffectiveThrottle(),

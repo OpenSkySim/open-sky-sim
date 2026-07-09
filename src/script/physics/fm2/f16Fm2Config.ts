@@ -74,6 +74,13 @@ export interface SurfaceGeometry {
     controlEffectiveness: number;
     /** Forebody vortex lift scale (0 = off). Used on fuselage/strakes for cobra. */
     vortexLiftScale?: number;
+    /**
+     * Scales this surface's ω×r rate-damping contribution once the surface's own
+     * flow is past its stall (0..1, default 1). A separated tail damps far less,
+     * so a value < 1 lets a transient high-AoA pitch overshoot survive (cobra)
+     * without changing normal-envelope damping.
+     */
+    highAoaDampingScale?: number;
 }
 
 /**
@@ -144,6 +151,7 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         cd0: 0.006,
         inducedK: 0.15,
         controlEffectiveness: 0.9, // all-moving stabilator
+        highAoaDampingScale: 0.7, // separated tail still damps pitch rate → helps arrest the cobra apex before it tumbles over the top
     },
     htailRight: {
         name: 'htailRight',
@@ -156,6 +164,7 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         cd0: 0.006,
         inducedK: 0.15,
         controlEffectiveness: 0.9,
+        highAoaDampingScale: 0.7,
     },
     vtail: {
         name: 'vtail',
@@ -211,9 +220,39 @@ export const FM2_FCS = {
     /** Positive/negative structural g command limits. */
     maxCommandG: F16_PROFILE.maxLoadFactorG, // 9.5
     minCommandG: -3.0,
-    /** Command AoA limiter (deg). Raised for aerobatic deep-stall / tail-slide entry. */
-    aoaLimitDeg: 85,
-    aoaSoftDeg: 55,
+    /**
+     * Command AoA limiter (deg). With the limiters ON this is what actively holds
+     * the airframe below the emergent-cobra CG-relaxation onset (cobraCgOnsetDeg),
+     * so a hard pull — at ANY speed, including low dynamic pressure — can never
+     * destabilize into a cobra. The g-command law only fades COMMANDED g toward
+     * this limit; the direct AoA cap below (aoaLimiter*) adds the low-q authority
+     * that actually enforces it. A genuine post-stall departure (deep stall / tail
+     * slide) therefore requires the pilot to switch the limiters OFF.
+     */
+    aoaLimitDeg: 22,
+    aoaSoftDeg: 17,
+    /**
+     * Direct AoA-cap authority. `aoaLimiterGain` = elevator per degree of AoA
+     * overshoot past `aoaLimitDeg`; ~0.35/deg reaches full nose-down ~3° over the
+     * limit. `aoaLimiterLeadS` predicts AoA ahead by the α̇ rate so the cap
+     * arrests the pitch-up before it reaches the limit (and before the emergent
+     * aft-CG relaxation onset just above it). This is what holds AoA at low
+     * dynamic pressure (e.g. 300 km/h) where the g-loop limiter has no authority.
+     */
+    aoaLimiterGain: 0.35,
+    aoaLimiterLeadS: 0.30,
+    /**
+     * Direct structural-g cap authority. Built like the AoA cap but on load
+     * factor: `gLimiterGain` = nose-down (nose-up on the −g side) command per g of
+     * overshoot past the structural limit, `gLimiterLeadS` predicts the load factor
+     * ahead by ġ so it arrests before overshoot, and `gLimiterSoftMarginG` is the
+     * band below each limit where authority fades in. This holds a hard pull at
+     * ~+9.5 g and a hard push at ~−3 g instead of the transient +10 g / −5 g.
+     */
+    gLimiterGain: 0.9,
+    gLimiterLeadS: 0.05,
+    gLimiterNegLeadS: 0.5,
+    gLimiterSoftMarginG: 1.5,
 
     /**
      * Pitch loop: stabilator command per unit g error, integral trim, pitch-rate
@@ -236,20 +275,51 @@ export const FM2_FCS = {
     maxStabilatorRad: 25 * DEG,
     /** Extra stabilator authority in the aerobatic (low-q / deep-stall) envelope. */
     aerobaticStabilatorGain: 1.65,
-    /** Extra stabilator authority during high-speed cobra entry. */
-    cobraStabilatorGain: 1.85,
-    /** Full-stick bypass for Pugachev cobra entry at high speed. */
-    cobraStickThreshold: 0.9,
-    cobraMinSpeedMps: 80,
-    cobraMaxSpeedMps: 250,
-    /** Pitch / AoA rate damping scale while cobra bypass is active. */
-    cobraPitchRateDampScale: 0.25,
-    /** High-speed pitch assist (N) at full stick during cobra entry. */
-    cobraPitchAssistN: 1.2e6,
-    /** Extra parasite drag (CD) when nose leads velocity during cobra entry. */
-    cobraDragBleedCd: 1.1,
-    /** World-frame upward-velocity bleed gain during cobra (1/s). */
-    cobraWorldVyBleedGain: 14,
+    /**
+     * AoA (deg) above which the aerobatic stabilator boost also engages at speed.
+     * Set just below the FBW AoA-limiter hold (~19°) so a limiters-OFF pull gets
+     * the extra authority it needs to punch past the airframe's natural high-q AoA
+     * ceiling (~20° at 220 m/s) into the cobra CG-relaxation band. With the limiters
+     * ON the AoA cap zeroes the stabilator command at the limit, so the boost adds
+     * no AoA — the hold (≈19°) is unchanged — and the normal low-AoA envelope
+     * (cruise, hard pulls at ~12°, roll) never engages it.
+     */
+    aerobaticStabilatorAoaOnsetDeg: 17,
+
+    // --- Emergent Pugachev cobra (no scripted moments, no artificial triggers) ---
+    // The airframe carries an ALWAYS-ACTIVE, AoA-gated aft CG shift that relaxes
+    // the static margin past stall. It never depends on speed, throttle, or a
+    // pilot switch. The cobra only appears when the pilot turns the FBW limiters
+    // OFF: with limiters ON the g-command law actively holds AoA below the CG
+    // onset, so the relaxation is never reached; with limiters OFF full aft stick
+    // drives the stabilator directly, AoA blows past the onset, and the relaxed
+    // airframe pitches the nose to ~90° and back.
+    /** AoA (deg) above which nose-up authority fades (limiters-off) so recovery is assured. */
+    cobraRecoveryAoaDeg: 60,
+    /** Pitch / AoA-rate damping scale on the limiters-off direct path. Tuned on a
+     *  razor edge: much higher kills the pitch-up, much lower tumbles over the top. */
+    cobraDirectDampScale: 0.19,
+    /** Aft (−Z) CG offset (m) fully blended in at high AoA to relax static margin. */
+    cobraCgOffsetZ: -1.2,
+    /** AoA (deg) where the aft-CG blend starts. Kept ABOVE the 22° hard AoA limit
+     *  (the FBW limiter actually holds ≈19°, so this is ~4° above the real hold) so
+     *  limiters-ON flight never reaches the relaxation regime. A limiters-OFF pull
+     *  uses the high-AoA stabilator boost (aerobaticStabilatorAoaOnsetDeg) to climb
+     *  past the natural ceiling into this band and cobra. */
+    cobraCgOnsetDeg: 23,
+    /** AoA (deg) where the aft-CG blend is fully applied. */
+    cobraCgFullDeg: 31,
+    /** AoA (deg) where the aft-CG blend starts fading back out (re-stabilizing). The
+     *  35–55° band arrests the nose near the ~100° apex so it falls back cleanly
+     *  instead of tumbling over the top. */
+    cobraCgRestabOnsetDeg: 42,
+    /** AoA (deg) where the airframe is back to its stable design CG (arrests nose). */
+    cobraCgRestabFullDeg: 74,
+    /** Re-stabilization overshoot. >1 walks the CG PAST design to a FORWARD offset
+     *  at extreme AoA (a nose-down pitch bucket) so a true DIRECT-law full-aft pull
+     *  held through the cobra still arrests near ~105° and falls back cleanly
+     *  instead of tumbling over the top on residual pitch rate. */
+    cobraCgRestabOvershoot: 1.7,
 
     /** Roll loop: rate command and proportional gain to aileron/taileron. */
     maxRollRateDegS: F16_PROFILE.maxRollRateDegS, // 300

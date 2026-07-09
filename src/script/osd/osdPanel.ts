@@ -83,26 +83,16 @@ function setupGenerationOptions(config: ConfigService) {
 }
 
 function setupFlightModel(config: ConfigService) {
-    const debugFlightModel = document.getElementById('flightmodel-debug');
-    assertIsDefined(debugFlightModel);
-    const arcadeFlightModel = document.getElementById('flightmodel-arcade');
-    assertIsDefined(arcadeFlightModel);
-    const realisticFlightModel = document.getElementById('flightmodel-realistic');
-    assertIsDefined(realisticFlightModel);
     const fm2FlightModel = document.getElementById('flightmodel-fm2');
     assertIsDefined(fm2FlightModel);
+    const debugFlightModel = document.getElementById('flightmodel-debug');
+    assertIsDefined(debugFlightModel);
 
-    debugFlightModel.addEventListener('change', () => {
-        config.flightModels.setActive(FlightModels.DEBUG);
-    });
-    arcadeFlightModel.addEventListener('change', () => {
-        config.flightModels.setActive(FlightModels.ARCADE);
-    });
-    realisticFlightModel.addEventListener('change', () => {
-        config.flightModels.setActive(FlightModels.REALISTIC);
-    });
     fm2FlightModel.addEventListener('change', () => {
         config.flightModels.setActive(FlightModels.FM2);
+    });
+    debugFlightModel.addEventListener('change', () => {
+        config.flightModels.setActive(FlightModels.DEBUG);
     });
 }
 

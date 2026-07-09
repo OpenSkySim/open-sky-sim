@@ -102,6 +102,8 @@ export class PlayerEntity implements Entity {
     private yaw: number = 0; // [-1, 1]
     private throttle: number = 0; // [0, 1]
     private wheelBrakes: boolean = false;
+    /** FBW AoA/g limiters on (true) or overridden off by the pilot (false). */
+    private limitersEnabled: boolean = true;
 
     private velocity: THREE.Vector3 = new THREE.Vector3(); // m/s
 
@@ -220,16 +222,22 @@ export class PlayerEntity implements Entity {
 
     /** Map a surface's control binding to a normalized deflection value. */
     private surfaceValue(control: ControlAxis, sign: number): number {
+        // FCS-mediated axes are driven by the FCS-commanded (limited) deflection —
+        // NOT raw stick — so fly-by-wire shaping (AoA limiter, roll/yaw laws) is
+        // visible on the model. The commanded values are exposed in the same
+        // polarity/scale as the raw stick, so the existing per-surface sign/range
+        // still render correctly. Flaps/slats are not FCS-mediated (kept as-is).
+        const roll = this.flightModel.getCommandedAileron();
         switch (control) {
-            case 'pitch': return sign * this.pitch;
-            case 'roll': return sign * this.roll;
-            case 'yaw': return sign * this.yaw;
+            case 'pitch': return sign * this.flightModel.getCommandedElevator();
+            case 'roll': return sign * roll;
+            case 'yaw': return sign * this.flightModel.getCommandedRudder();
             case 'flaps': return sign * this.flapsProgressUnit;
             case 'slats': return sign * this.slatDeploymentUnit();
             case 'flaperonLeft':
-                return this.flapsProgressUnit * -FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * this.roll;
+                return this.flapsProgressUnit * -FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * roll;
             case 'flaperonRight':
-                return this.flapsProgressUnit * FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * this.roll;
+                return this.flapsProgressUnit * FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * roll;
             default: return 0;
         }
     }
@@ -256,6 +264,7 @@ export class PlayerEntity implements Entity {
         this.flightModel.setLandingGearDeployed(this.landingGearState === AircraftDeviceState.EXTENDED);
         this.flightModel.setFlapsExtended(this.flapsState === AircraftDeviceState.EXTENDED);
         this.flightModel.setWheelBrakes(this.wheelBrakes);
+        this.flightModel.setLimitersEnabled(this.limitersEnabled);
         this.flightModel.update(delta);
         this.obj.position.copy(this.flightModel.position);
         this.obj.quaternion.copy(this.flightModel.quaternion);
@@ -336,6 +345,7 @@ export class PlayerEntity implements Entity {
         this.yaw = 0;
         this.throttle = spawn?.throttle ?? 0;
         this.wheelBrakes = false;
+        this.limitersEnabled = true;
         this.flightModel.setThrottle(this.throttle);
         if (airborne) {
             this.flightModel.syncEffectiveThrottle();
@@ -1004,6 +1014,10 @@ export class PlayerEntity implements Entity {
         return this.wheelBrakes;
     }
 
+    get fcsLimitersEnabled(): boolean {
+        return this.limitersEnabled;
+    }
+
     private setupInput() {
         document.addEventListener('keypress', (event: KeyboardEvent) => {
             if (!this.isCrashed && this.controlsEnabled) {
@@ -1029,6 +1043,10 @@ export class PlayerEntity implements Entity {
                         this.toggleLandingGear();
                         break;
                     }
+                    case 'l': {
+                        this.toggleLimiters();
+                        break;
+                    }
                     case 'a': {
                         this.toggleAutopilot();
                         break;
@@ -1048,6 +1066,10 @@ export class PlayerEntity implements Entity {
             this.target = this.scene?.entityAtByTag(ENTITY_TAGS.TARGET, index) as GroundTargetEntity | undefined;
             this.targetIndex = this.target !== undefined ? index : undefined;
         }
+    }
+
+    private toggleLimiters() {
+        this.limitersEnabled = !this.limitersEnabled;
     }
 
     private toggleFlaps() {

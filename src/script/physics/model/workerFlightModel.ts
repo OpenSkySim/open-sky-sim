@@ -3,32 +3,38 @@ import { FlightModel } from './flightModel';
 import { formatF16ThrottleHud, stepF16ThrottleDetent, isF16AbDetentBand, adjustF16ThrottleInput, getF16ThrottleZone, f16ThrottleAudioLevel, getF16EngineNozzleColor } from '../f16Engine';
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 
-export type FlightModelType = 'realistic' | 'fm2' | 'arcade' | 'debug';
-
+/**
+ * Main-thread proxy for the single FM2 flight model that runs in the physics
+ * Web Worker. Every aircraft uses this one model; per-aircraft handling comes
+ * from the {@link Fm2AircraftConfig} sent over via {@link setAircraft}.
+ */
 export class WorkerFlightModel extends FlightModel {
     private worker: Worker;
     private lastState: any = null;
-    private modelType: FlightModelType;
     private aircraftConfig: Fm2AircraftConfig | undefined;
-    // Afterburner-equipped FM2 aircraft use the F-16 throttle quadrant; others
+    // Afterburner-equipped aircraft use the F-16 throttle quadrant; others
     // (e.g. the A-4E) use a plain linear lever. Defaults true until an aircraft
     // is selected so the F-16 remains the default behaviour.
     private fm2Afterburner = true;
 
-    constructor(modelType: FlightModelType) {
+    /**
+     * @param kinematic When true this proxy drives the no-aerodynamics free-fly
+     *   ("DEBUG") mode of the single FM2 model. Handling still comes from the
+     *   aircraft config; only the integration path differs.
+     */
+    constructor(private readonly kinematic: boolean = false) {
         super();
-        this.modelType = modelType;
         this.worker = new Worker(new URL('../worker/flightWorker.ts', import.meta.url));
-        this.worker.postMessage({ type: 'init', modelType });
+        this.worker.postMessage({ type: 'init', kinematic });
         this.worker.onmessage = (event) => {
             if (event.data.type === 'state') {
                 this.applyState(event.data.state);
             } else if (event.data.type === 'error') {
-                console.error(`[flightWorker:${this.modelType}]`, event.data.message, event.data.stack);
+                console.error('[flightWorker]', event.data.message, event.data.stack);
             }
         };
         this.worker.onerror = (event) => {
-            console.error(`[flightWorker:${this.modelType}] worker error`, event.message, event.filename, event.lineno);
+            console.error('[flightWorker] worker error', event.message, event.filename, event.lineno);
         };
     }
 
@@ -42,6 +48,9 @@ export class WorkerFlightModel extends FlightModel {
         this.landed = state.landed;
         this.angleOfAttackRad = state.angleOfAttackRad;
         this.loadFactorG = state.loadFactorG;
+        this.commandedElevator = state.commandedElevator ?? 0;
+        this.commandedAileron = state.commandedAileron ?? 0;
+        this.commandedRudder = state.commandedRudder ?? 0;
         this.engineThrustN = state.engineThrustN;
         this.effectiveThrottle = state.effectiveThrottle;
         if (state.accelWorld) {
@@ -69,7 +78,8 @@ export class WorkerFlightModel extends FlightModel {
                 throttle: this.throttle,
                 landingGearDeployed: this.landingGearDeployed,
                 flapsExtended: this.flapsExtended,
-                wheelBrakesApplied: this.wheelBrakesApplied
+                wheelBrakesApplied: this.wheelBrakesApplied,
+                limitersEnabled: this.limitersEnabled
             }
         });
     }
@@ -148,18 +158,15 @@ export class WorkerFlightModel extends FlightModel {
     setAircraft(config: Fm2AircraftConfig): void {
         this.aircraftConfig = config;
         this.fm2Afterburner = config.engine.afterburner;
-        this.worker.postMessage({ type: 'setAircraft', aircraftConfig: config });
+        this.worker.postMessage({ type: 'setAircraft', aircraftConfig: config, kinematic: this.kinematic });
     }
 
     /**
-     * Whether this model uses the F-16 throttle quadrant (MIL/AB detents). The
-     * Realistic model always does; the FM2 model does only for afterburner
-     * aircraft.
+     * Whether this aircraft uses the F-16 throttle quadrant (MIL/AB detents):
+     * true only for afterburner-equipped aircraft.
      */
     private isF16(): boolean {
-        if (this.modelType === 'realistic') return true;
-        if (this.modelType === 'fm2') return this.fm2Afterburner;
-        return false;
+        return this.fm2Afterburner;
     }
 
     // F-16 specific overrides to match the F-16 flight models' behavior

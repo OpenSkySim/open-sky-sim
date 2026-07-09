@@ -12,8 +12,11 @@
  * See physics/fm2/* for the building blocks.
  */
 import * as THREE from 'three';
-import { PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
-import { clamp, FORWARD, RIGHT, UP } from '../../utils/math';
+import {
+    MAX_ALTITUDE, MAX_SPEED, PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE,
+    TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE,
+} from '../../defs';
+import { clamp, FORWARD, isZero, RIGHT, UP } from '../../utils/math';
 import {
     computeAirDensity, computeDynamicPressure, computeIsaAirDensity,
     computeMachNumber, computeThrustDensityFactor,
@@ -24,11 +27,8 @@ import {
     isF16AbDetentBand, stepF16ThrottleDetent,
 } from '../f16Engine';
 import { AeroSurface } from '../fm2/aeroSurface';
-import { DirectFcs } from '../fm2/directFcs';
-import { Fcs } from '../fm2/fcs';
-import { F16Fcs } from '../fm2/f16Fcs';
-import { Fm2AircraftConfig, Fm2DirectFcsConfig, f16Fm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
-import { FM2_FCS } from '../fm2/f16Fm2Config';
+import { Fm2Fcs } from '../fm2/fcs';
+import { Fm2AircraftConfig, f16Fm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
 import { RigidBody } from '../fm2/rigidBody';
 import { FlightModel } from './flightModel';
 
@@ -37,15 +37,15 @@ const GRAVITY = 9.80665;
 const THROTTLE_UP_RATE = 0.10;
 const THROTTLE_DOWN_RATE = 0.07;
 
-// Fallback mechanical FCS tuning for a direct-mode aircraft that omits its own.
-const DEFAULT_DIRECT_FCS: Fm2DirectFcsConfig = {
-    pitchRateDamp: 0.9,
-    rollRateDamp: 0.12,
-    yawDamperGain: 1.4,
-    yawDamperWashoutTauS: 1.0,
-    ariGain: 0.08,
-    actuatorTauS: 0.06,
-};
+/** Optional per-model behaviour flags (orthogonal to the aircraft config). */
+export interface Fm2ModelOptions {
+    /**
+     * No-aerodynamics "free-fly" mode: stick rotates the airframe directly and
+     * speed follows the throttle. Handy for inspecting scenery/models without the
+     * rigid-body aerodynamics fighting the camera (the old DEBUG flight model).
+     */
+    kinematic?: boolean;
+}
 
 interface SurfaceControls {
     wingLeftAoa: number;
@@ -58,9 +58,10 @@ interface SurfaceControls {
 export class Fm2FlightModel extends FlightModel {
 
     private readonly config: Fm2AircraftConfig;
+    private readonly kinematic: boolean;
 
     private readonly rb: RigidBody;
-    private readonly fcs: Fcs;
+    private readonly fcs: Fm2Fcs;
 
     private readonly fuselage: AeroSurface;
     private readonly wingLeft: AeroSurface;
@@ -96,18 +97,18 @@ export class Fm2FlightModel extends FlightModel {
     private readonly _contactVel = new THREE.Vector3();
     private readonly _omegaWorld = new THREE.Vector3();
     private readonly _friction = new THREE.Vector3();
+    private readonly _cgOffset = new THREE.Vector3();
 
-    constructor(config: Fm2AircraftConfig = f16Fm2Config) {
+    constructor(config: Fm2AircraftConfig = f16Fm2Config, options: Fm2ModelOptions = {}) {
         super();
         this.config = config;
+        this.kinematic = options.kinematic ?? false;
         this.rb = new RigidBody(config.geometry.massKg, {
             x: config.inertia.pitch,
             y: config.inertia.yaw,
             z: config.inertia.roll,
         });
-        this.fcs = config.fcs.mode === 'direct'
-            ? new DirectFcs(config.fcs.direct ?? DEFAULT_DIRECT_FCS)
-            : new F16Fcs();
+        this.fcs = new Fm2Fcs(config.fcs);
         this.fuselage = new AeroSurface(config.surfaces.fuselage);
         this.wingLeft = new AeroSurface(config.surfaces.wingLeft);
         this.wingRight = new AeroSurface(config.surfaces.wingRight);
@@ -128,6 +129,11 @@ export class Fm2FlightModel extends FlightModel {
 
     step(delta: number): void {
         if (this.crashed) return;
+
+        if (this.kinematic) {
+            this.stepKinematic(delta);
+            return;
+        }
 
         this.spoolThrottle(delta);
 
@@ -167,11 +173,29 @@ export class Fm2FlightModel extends FlightModel {
             qRef: this.qRef,
             speed,
             altitudeM: altitude,
+            limitersEnabled: this.limitersEnabled,
             flapsExtended: this.flapsExtended,
             landed: this.landed,
         }, delta);
 
         const controls = this.mapControls(fcsOut.elevator, fcsOut.aileron, fcsOut.rudder);
+
+        // Publish the FCS-commanded deflections for the visible surfaces, in the
+        // SAME polarity as the raw pilot stick they replace (so the aircraft defs'
+        // existing per-surface sign/range still render correctly):
+        //  - elevator: the g-command law already uses +cmd = nose-up = +aft stick,
+        //    so it is exposed as-is.
+        //  - aileron/rudder: the FCS commands the surface with the OPPOSITE internal
+        //    sign to the stick (a +aileron cmd makes a −roll moment; the pilot yaw is
+        //    negated on the way in via `yawPedal: -this.yaw`), so both are negated
+        //    here to preserve the visual deflection direction.
+        this.commandedElevator = fcsOut.elevator;
+        this.commandedAileron = -fcsOut.aileron;
+        this.commandedRudder = -fcsOut.rudder;
+
+        // Blend the AoA-gated CG shift (emergent-cobra static-margin relaxation)
+        // into every surface's moment / rotation arm before the force build-up.
+        this.updateCgOffset(aoa);
 
         // ---- Aerodynamic force & moment build-up from the rigid parts. ----
         this.forceBody.set(0, 0, 0);
@@ -193,14 +217,9 @@ export class Fm2FlightModel extends FlightModel {
         // Fuselage / parasite / gear / wave drag along the relative wind.
         this.addBodyDrag(dynamicPressure, speed, mach);
 
-        // Bleed energy when the nose has rotated ahead of velocity (cobra snap).
-        this.applyCobraDragBleed(speed, aoa, dynamicPressure);
-
         // Help the pilot hold nose-up attitude through the low-energy apex so
         // velocity can overtake the body axis (tail-slide entry).
         this.applyDeepStallPitchAssist(speed, aoa);
-        // High-speed cobra entry: out-rotate the velocity vector at the snap.
-        this.applyCobraPitchAssist(speed, aoa);
 
         // Thrust along the nose (+Z body).
         const thrustN = this.computeThrustN(this.effectiveThrottle, altitude);
@@ -221,7 +240,6 @@ export class Fm2FlightModel extends FlightModel {
         // ---- Integrate translational dynamics (world frame). ----
         this.forceWorld.copy(this.forceBody).applyQuaternion(this.rb.orientation);
         this.forceWorld.add(this.gearForceWorld);
-        this.applyCobraWorldDecouple(speed, aoa);
         this.forceWorld.y -= this.config.geometry.massKg * GRAVITY; // gravity
         this.accelWorld.copy(this.forceWorld).divideScalar(this.config.geometry.massKg);
         this.rb.integrateLinear(this.forceWorld, delta, this.obj.position);
@@ -250,10 +268,15 @@ export class Fm2FlightModel extends FlightModel {
         const maxRudder = this.config.fcs.maxRudderRad;
         const speed = this.velBody.length();
         const absAoa = Math.abs(this.angleOfAttackRad);
-        const cobraEntry = this.isCobraEntry(speed, absAoa);
-        const aerobatic = speed < 130 || absAoa > 35 * (Math.PI / 180);
-        const stabGain = cobraEntry ? (this.config.fcs.cobraStabilatorGain ?? 1)
-            : aerobatic ? (this.config.fcs.aerobaticStabilatorGain ?? 1) : 1;
+        // High-AoA stabilator boost. The low-q (<130 m/s) branch is always available.
+        // The high-AoA branch only engages with the FBW limiters OFF: it exists to
+        // give the limiters-OFF pilot the authority to punch past the airframe's
+        // natural AoA ceiling into the emergent-cobra band. With the limiters ON the
+        // AoA cap holds AoA at the limit anyway, so enabling the boost there would
+        // only add g overshoot on a hard pull without raising the (capped) AoA.
+        const aeroAoaOnset = (this.config.fcs.aerobaticStabilatorAoaOnsetDeg ?? 35) * (Math.PI / 180);
+        const aerobatic = speed < 130 || (!this.limitersEnabled && absAoa > aeroAoaOnset);
+        const stabGain = aerobatic ? (this.config.fcs.aerobaticStabilatorGain ?? 1) : 1;
         const effectiveStab = maxStabilator * stabGain;
         // Elevator: +cmd = nose up → negative stabilator incidence (tail lift down).
         const elevatorAoa = -elevator * effectiveStab;
@@ -296,12 +319,52 @@ export class Fm2FlightModel extends FlightModel {
         }, this.forceBody, this.momentBody);
     }
 
-    /** High-speed cobra entry: full aft stick within the cobra speed band. */
-    private isCobraEntry(speed: number, absAoa: number): boolean {
-        if (this.landed || this.pitch < FM2_FCS.cobraStickThreshold) return false;
-        return speed >= FM2_FCS.cobraMinSpeedMps
-            && speed <= FM2_FCS.cobraMaxSpeedMps
-            && absAoa < 95 * (Math.PI / 180);
+    /**
+     * Blend the emergent-cobra CG shift into every surface's effective arm.
+     *
+     * Below the onset AoA the offset is zero, so the normal envelope (cruise, hard
+     * pulls, roll) keeps the stable design static margin. As AoA climbs into the
+     * post-stall band the CG walks aft (config `highAoaAero.cgOffsetBody`), which
+     * shortens the tail arm and turns the wing / forebody lift into a growing
+     * nose-up moment — the airframe becomes statically unstable and the nose
+     * diverges toward ~90°. This is the physics that makes the cobra emerge; there
+     * is no injected moment. Aircraft without `highAoaAero` keep a fixed CG.
+     */
+    private updateCgOffset(aoa: number): void {
+        const cfg = this.config.highAoaAero;
+        if (!cfg) return;
+        // Always-active, AoA-gated only: no speed/throttle/switch gate. With the
+        // FBW limiters ON the g-command law holds AoA below the onset, so the
+        // relaxation is only reached once the pilot switches the limiters off.
+        const gate = this.cgOffsetGate(Math.abs(aoa), cfg);
+        this._cgOffset.set(
+            cfg.cgOffsetBody[0] * gate,
+            cfg.cgOffsetBody[1] * gate,
+            cfg.cgOffsetBody[2] * gate,
+        );
+        this.fuselage.setCgOffset(this._cgOffset);
+        this.wingLeft.setCgOffset(this._cgOffset);
+        this.wingRight.setCgOffset(this._cgOffset);
+        this.htailLeft.setCgOffset(this._cgOffset);
+        this.htailRight.setCgOffset(this._cgOffset);
+        this.vtail.setCgOffset(this._cgOffset);
+    }
+
+    /**
+     * Trapezoidal AoA schedule for the aft-CG blend: ramp 0→1 over the entry band
+     * (onset→full) to break the airframe loose past stall, hold fully relaxed, then
+     * (if a re-stabilization band is configured) ramp 1→0 so the airframe returns
+     * to its stable design CG at very high AoA and arrests the nose near the apex.
+     */
+    private cgOffsetGate(absAoa: number, cfg: NonNullable<Fm2AircraftConfig['highAoaAero']>): number {
+        const up = clamp((absAoa - cfg.onsetAoaRad) / Math.max(cfg.fullAoaRad - cfg.onsetAoaRad, 1e-3), 0, 1);
+        if (cfg.restabOnsetAoaRad === undefined || cfg.restabFullAoaRad === undefined) return up;
+        const down = clamp((absAoa - cfg.restabOnsetAoaRad)
+            / Math.max(cfg.restabFullAoaRad - cfg.restabOnsetAoaRad, 1e-3), 0, 1);
+        // overshoot > 1 drives the gate NEGATIVE at full re-stabilization — a
+        // forward CG (nose-down pitch bucket) that actively arrests the cobra apex.
+        const overshoot = cfg.restabOvershoot ?? 1;
+        return clamp(up * (1 - down * overshoot), -1, 1);
     }
 
     /** Extra nose-up moment when holding aft stick in the deep-stall apex. */
@@ -316,43 +379,60 @@ export class Fm2FlightModel extends FlightModel {
         this.momentBody.x -= momentN;
     }
 
-    /** Nose-up assist during high-speed cobra snap so the body out-rotates velocity. */
-    private applyCobraPitchAssist(speed: number, aoa: number): void {
-        const aoaLag = this.cobraAoaLag(aoa);
-        if (aoaLag <= 0 || !this.isCobraEntry(speed, Math.abs(aoa))) return;
-        const stick = clamp((this.pitch - FM2_FCS.cobraStickThreshold) / 0.1, 0, 1);
-        const speedBand = clamp((speed - FM2_FCS.cobraMinSpeedMps)
-            / (FM2_FCS.cobraMaxSpeedMps - FM2_FCS.cobraMinSpeedMps), 0, 1);
-        const momentN = stick * speedBand * aoaLag * FM2_FCS.cobraPitchAssistN;
-        this.momentBody.x -= momentN;
-    }
+    /**
+     * No-aerodynamics free-fly step (kinematic / DEBUG mode). Stick rotates the
+     * airframe directly, speed follows the throttle, with simple ground and
+     * altitude clamps. Ported from the old standalone DebugFlightModel so the
+     * capability lives on the single model as a config-selected mode.
+     */
+    private stepKinematic(delta: number): void {
+        this.effectiveThrottle = this.throttle;
+        this.engineThrustN = 0;
 
-    /** Extra drag when the nose leads velocity so AoA can build during a cobra snap. */
-    private applyCobraDragBleed(speed: number, aoa: number, dynamicPressure: number): void {
-        const aoaLag = this.cobraAoaLag(aoa);
-        if (aoaLag <= 0.2 || !this.isCobraEntry(speed, Math.abs(aoa)) || speed < 1e-3) return;
-        const dragN = dynamicPressure * this.config.geometry.wingAreaM2
-            * FM2_FCS.cobraDragBleedCd * aoaLag;
-        this._v.copy(this.velBody).multiplyScalar(-dragN / speed);
-        this.forceBody.add(this._v);
-    }
+        // No FCS in free-fly mode: drive the visible surfaces straight from the
+        // raw stick (already in the exposed display polarity) so they still animate.
+        this.commandedElevator = this.pitch;
+        this.commandedAileron = this.roll;
+        this.commandedRudder = this.yaw;
 
-    /** Bleed world-up velocity so the flight path stays horizontal during cobra snap. */
-    private applyCobraWorldDecouple(speed: number, aoa: number): void {
-        const aoaLag = this.cobraAoaLag(aoa);
-        if (aoaLag <= 0.25 || !this.isCobraEntry(speed, Math.abs(aoa))) return;
-        const mass = this.config.geometry.massKg;
-        const vy = this.rb.velocityWorld.y;
-        if (vy > 5) {
-            this.forceWorld.y -= mass * vy * FM2_FCS.cobraWorldVyBleedGain * aoaLag;
+        if (!isZero(this.roll)) this.obj.rotateZ(this.roll * ROLL_RATE * delta);
+        if (!isZero(this.pitch)) this.obj.rotateX(-this.pitch * PITCH_RATE * delta);
+        if (!isZero(this.yaw)) this.obj.rotateY(-this.yaw * YAW_RATE * delta);
+
+        // Automatic yaw into the turn when rolling (coordinated look-around feel).
+        const forward = this.obj.getWorldDirection(this._v);
+        if (-0.99 < forward.y && forward.y < 0.99) {
+            const prjForward = forward.setY(0);
+            const up = this._v2.copy(UP).applyQuaternion(this.obj.quaternion);
+            const prjUp = up.projectOnPlane(prjForward).setY(0);
+            const sign = (prjForward.x * prjUp.z - prjForward.z * prjUp.x) > 0 ? -1 : 1;
+            this.obj.rotateOnWorldAxis(UP,
+                sign * prjUp.length() * prjUp.length() * prjForward.length() * 2.0 * YAW_RATE * delta);
         }
-    }
 
-    /** How far the nose has rotated ahead of the velocity vector (0-1). */
-    private cobraAoaLag(aoa: number): number {
-        this._fwd.set(0, 0, 1).applyQuaternion(this.rb.orientation);
-        const pitchRad = Math.asin(clamp(this._fwd.y, -1, 1));
-        return clamp((Math.abs(pitchRad) - Math.abs(aoa)) / (50 * (Math.PI / 180)), 0, 1);
+        const speed = this.effectiveThrottle * MAX_SPEED;
+        this.obj.translateZ(speed * delta);
+
+        if (this.obj.position.y < PLANE_DISTANCE_TO_GROUND) {
+            this.obj.position.y = PLANE_DISTANCE_TO_GROUND;
+            const d = this.obj.getWorldDirection(this._v);
+            if (d.y < 0.0) {
+                d.setY(0).add(this.obj.position);
+                this.obj.lookAt(d);
+            }
+        }
+        if (this.obj.position.y > MAX_ALTITUDE) this.obj.position.y = MAX_ALTITUDE;
+
+        const prevVel = this._v2.copy(this.velocity);
+        this.velocity.copy(FORWARD).applyQuaternion(this.obj.quaternion).multiplyScalar(speed);
+        if (delta > 0) {
+            this.accelWorld.copy(this.velocity).sub(prevVel).divideScalar(delta);
+        } else {
+            this.accelWorld.set(0, 0, 0);
+        }
+
+        this.landed = this.obj.position.y <= PLANE_DISTANCE_TO_GROUND;
+        this.stall = -1;
     }
 
     /** Parasite (fuselage + gear) and transonic wave drag along the relative wind. */

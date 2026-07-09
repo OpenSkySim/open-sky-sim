@@ -15,6 +15,8 @@ export abstract class FlightModel {
     protected landingGearDeployed: boolean = true;
     protected flapsExtended: boolean = true;
     protected wheelBrakesApplied: boolean = false;
+    /** FBW AoA/g limiters. True = normal envelope protection; false = pilot override. */
+    protected limitersEnabled: boolean = true;
 
     protected pitch: number = 0; // [-1, 1]
     protected roll: number = 0; // [-1, 1]
@@ -25,6 +27,17 @@ export abstract class FlightModel {
     protected angleOfAttackRad: number = 0;
     protected loadFactorG: number = 1;
     protected engineThrustN: number = 0;
+    /**
+     * Latest FCS-commanded, post-actuator-lag surface deflections in [-1, 1],
+     * expressed in the SAME polarity as the raw pilot stick they animate from
+     * (positive elevator = nose-up / aft stick, positive aileron = right roll
+     * stick, positive rudder = right pedal). These drive the VISIBLE control
+     * surfaces so the fly-by-wire shaping (AoA limiter, roll/yaw laws) is
+     * visible on the model. They default to 0 until the first physics state.
+     */
+    protected commandedElevator: number = 0;
+    protected commandedAileron: number = 0;
+    protected commandedRudder: number = 0;
     /** World-frame linear acceleration from the last physics step (m/s²). */
     protected readonly accelWorld = new THREE.Vector3();
 
@@ -44,6 +57,7 @@ export abstract class FlightModel {
         this.landingGearDeployed = true;
         this.flapsExtended = true;
         this.wheelBrakesApplied = false;
+        this.limitersEnabled = true;
         this.pitch = 0;
         this.roll = 0;
         this.yaw = 0;
@@ -52,6 +66,9 @@ export abstract class FlightModel {
         this.angleOfAttackRad = 0;
         this.loadFactorG = 1;
         this.engineThrustN = 0;
+        this.commandedElevator = 0;
+        this.commandedAileron = 0;
+        this.commandedRudder = 0;
         this.accelWorld.set(0, 0, 0);
         this.deltaRemainder = 0;
         this.syncPreviousState();
@@ -145,6 +162,15 @@ export abstract class FlightModel {
         return this.wheelBrakesApplied;
     }
 
+    /** Enable/disable the FBW AoA/g limiters (false = pilot limiter override). */
+    setLimitersEnabled(enabled: boolean) {
+        this.limitersEnabled = enabled;
+    }
+
+    isLimitersEnabled(): boolean {
+        return this.limitersEnabled;
+    }
+
     setLanded(isLanded: boolean) {
         this.landed = isLanded;
     }
@@ -198,6 +224,23 @@ export abstract class FlightModel {
 
     getLoadFactorG(): number {
         return this.loadFactorG;
+    }
+
+    /**
+     * FCS-commanded visible surface deflections in [-1, 1], in raw-stick polarity
+     * (see {@link commandedElevator}). Used to animate the control surfaces so the
+     * fly-by-wire shaping (incl. the AoA limiter) is visible on the model.
+     */
+    getCommandedElevator(): number {
+        return this.commandedElevator;
+    }
+
+    getCommandedAileron(): number {
+        return this.commandedAileron;
+    }
+
+    getCommandedRudder(): number {
+        return this.commandedRudder;
     }
 
     getAccelerationWorld(target: THREE.Vector3 = this.accelWorld): THREE.Vector3 {
