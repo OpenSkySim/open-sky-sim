@@ -5,6 +5,23 @@ import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 export const SIM_FPS = 120;
 const SIM_DELTA = 1.0 / SIM_FPS;
 
+/**
+ * The net force acting on a single body part, serialised for the debug overlay.
+ * Origin and vector are both expressed in the aircraft body frame (metres and
+ * newtons respectively). The overlay decomposes `vec` into its X/Y/Z body-axis
+ * components and draws one arrow per axis, rather than a single resultant arrow.
+ */
+/** Which kind of force a sample represents (drives the overlay colour). */
+export type ForceVectorKind = 'lift' | 'drag' | 'thrust' | 'weight';
+
+export interface ForceVectorSample {
+    part: string;
+    /** What the vector represents; defaults to 'lift' when omitted. */
+    kind?: ForceVectorKind;
+    origin: [number, number, number];
+    vec: [number, number, number];
+}
+
 export abstract class FlightModel {
 
     protected obj = new THREE.Object3D();
@@ -49,6 +66,15 @@ export abstract class FlightModel {
     protected elevatorCommandLimitLow: number = -1;
     /** World-frame linear acceleration from the last physics step (m/s²). */
     protected readonly accelWorld = new THREE.Vector3();
+
+    /**
+     * Latest per-part force vectors (body frame) for the debug overlay. Only
+     * populated while {@link setForceVectorsRequested} is enabled, otherwise
+     * left empty to avoid the per-step allocation / transfer cost.
+     */
+    protected forceVectors: ForceVectorSample[] = [];
+    /** Whether the debug force-vector snapshot should be produced each step. */
+    protected forceVectorsRequested: boolean = false;
 
     private prevPosition = new THREE.Vector3();
     private prevQuaternion = new THREE.Quaternion();
@@ -275,7 +301,28 @@ export abstract class FlightModel {
         return this.engineThrustN / 1000;
     }
 
-    useF16ThrottleDetents(): boolean {
+    /** Enable/disable production of the debug force-vector snapshot each step. */
+    setForceVectorsRequested(requested: boolean): void {
+        this.forceVectorsRequested = requested;
+        if (!requested) {
+            this.forceVectors = [];
+        }
+    }
+
+    /** Latest per-part force vectors (body frame) for the debug overlay. */
+    getForceVectors(): ForceVectorSample[] {
+        return this.forceVectors;
+    }
+
+    /**
+     * Build a fresh, serialisable snapshot of the current per-part force vectors.
+     * Base models have no aerodynamic decomposition, so this returns empty.
+     */
+    getForceVectorSnapshot(): ForceVectorSample[] {
+        return [];
+    }
+
+    useAfterburnerThrottleDetents(): boolean {
         return false;
     }
 

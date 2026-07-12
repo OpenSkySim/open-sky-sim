@@ -58,6 +58,7 @@ function handleMessage(data: any) {
             flightModel.setFlapsExtended(data.inputs.flapsExtended);
             flightModel.setWheelBrakes(data.inputs.wheelBrakesApplied);
             flightModel.setLimitersEnabled(data.inputs.limitersEnabled);
+            flightModel.setForceVectorsRequested(!!data.inputs.wantForceVectors);
             
             flightModel.update(data.delta);
             
@@ -134,7 +135,8 @@ function sendState() {
         effectiveThrottle: flightModel.getEffectiveThrottle(),
         // @ts-ignore
         deltaRemainder: flightModel.deltaRemainder,
-        stall: flightModel.getStallStatus()
+        stall: flightModel.getStallStatus(),
+        forceVectors: flightModel.getForceVectorSnapshot()
     };
 
     self.postMessage({ type: 'state', state });

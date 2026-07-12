@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { describe, it } from 'node:test';
 import * as THREE from 'three';
 import { Fm2FlightModel } from './fm2FlightModel';
-import { f16Fm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
+import { defaultFm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
 import { PLANE_DISTANCE_TO_GROUND } from '../../defs';
 
 const DEG = 180 / Math.PI;
@@ -154,10 +154,10 @@ describe('FM2 rigid-body flight model', () => {
         assert.ok(airborneNow, 'did not get airborne within time limit');
     });
 
-    it('A4E roll and yaw match the F-16 input convention', () => {
-        const manifest = JSON.parse(fs.readFileSync('assets/a4e.aircraft.json', 'utf8'));
-        const a4e = new Fm2FlightModel(manifest.flight);
-        const f16 = new Fm2FlightModel();
+    it('imported mod roll and yaw match the default input convention', () => {
+        const manifest = JSON.parse(fs.readFileSync('assets/mod.aircraft.json', 'utf8'));
+        const mod = new Fm2FlightModel(manifest.flight);
+        const base = new Fm2FlightModel();
 
         function rollAxisZ(model: Fm2FlightModel, stick: number): number {
             model.reset();
@@ -199,15 +199,15 @@ describe('FM2 rigid-body flight model', () => {
         }
 
         const stick = 0.75;
-        const a4eRoll = rollAxisZ(a4e, stick);
-        const f16Roll = rollAxisZ(f16, stick);
-        assert.ok(Math.sign(a4eRoll) === Math.sign(f16Roll) && Math.abs(a4eRoll) > 0.5,
-            `roll axis mismatch: a4e z=${a4eRoll.toFixed(2)} f16 z=${f16Roll.toFixed(2)}`);
+        const modRoll = rollAxisZ(mod, stick);
+        const baseRoll = rollAxisZ(base, stick);
+        assert.ok(Math.sign(modRoll) === Math.sign(baseRoll) && Math.abs(modRoll) > 0.5,
+            `roll axis mismatch: mod z=${modRoll.toFixed(2)} base z=${baseRoll.toFixed(2)}`);
 
-        const a4eYaw = yawHeadingDelta(a4e, stick);
-        const f16Yaw = yawHeadingDelta(f16, stick);
-        assert.ok(Math.sign(a4eYaw) === Math.sign(f16Yaw) && Math.abs(a4eYaw) > 0.05,
-            `yaw sign mismatch: a4e=${(a4eYaw * DEG).toFixed(1)}° f16=${(f16Yaw * DEG).toFixed(1)}°`);
+        const modYaw = yawHeadingDelta(mod, stick);
+        const baseYaw = yawHeadingDelta(base, stick);
+        assert.ok(Math.sign(modYaw) === Math.sign(baseYaw) && Math.abs(modYaw) > 0.05,
+            `yaw sign mismatch: mod=${(modYaw * DEG).toFixed(1)}° base=${(baseYaw * DEG).toFixed(1)}°`);
     });
 
     it('performs an emergent cobra with the FCS limiters OFF and recovers', () => {
@@ -241,7 +241,11 @@ describe('FM2 rigid-body flight model', () => {
             `did not reach cobra AoA within 2s: ${maxAoaWithin2s.toFixed(0)}°`);
         assert.ok(peakAoaDeg < 135,
             `tumbled over the top instead of a cobra: peak ${peakAoaDeg.toFixed(0)}°`);
-        assert.ok(model.velocityVector.length() < 150,
+        // Substantial speed bleed from the ~220 m/s entry. With the ailerons
+        // modelled as real lifting surfaces (that also share the high-AoA static-
+        // margin relaxation) the cobra recovers marginally earlier, so the airframe
+        // exits around ~160 m/s rather than <150; still a ~27% energy bleed.
+        assert.ok(model.velocityVector.length() < 165,
             `speed did not bleed enough: ${model.velocityVector.length().toFixed(0)} m/s`);
         assert.ok(recovered, 'did not recover to moderate AoA');
     });
@@ -293,13 +297,13 @@ describe('FM2 rigid-body flight model', () => {
 
     it('holds AoA at low speed for a mod-style config lacking the aoaLimiter fields (built-in defaults)', () => {
         // Runtime regression: aircraft flown in the sim get their Fm2AircraftConfig
-        // from `.aircraft.json` manifests (mods) — NOT the hard-coded f16Fm2Config.
+        // from `.aircraft.json` manifests (mods) — NOT the hard-coded defaultFm2Config.
         // A manifest whose FBW pitch law predates the optional `aoaLimiter*` fields
         // leaves them `undefined`; the deflection cap must still engage from its
         // built-in defaults, otherwise full aft stick runs the AoA away into a
         // cobra even with the limiters ON (the live-sim bug). This config strips
         // those fields to reproduce exactly what such a manifest yields.
-        const modConfig = JSON.parse(JSON.stringify(f16Fm2Config));
+        const modConfig = JSON.parse(JSON.stringify(defaultFm2Config));
         delete modConfig.fcs.pitch.aoaLimiterGain;
         delete modConfig.fcs.pitch.aoaLimiterLeadS;
         assert.equal(modConfig.fcs.pitch.aoaLimiterGain, undefined, 'test setup: gain field must be absent');
@@ -324,7 +328,7 @@ describe('FM2 rigid-body flight model', () => {
         // The defaulted cap must not steal the limiters-OFF emergent cobra: turning
         // the FBW limiters off bypasses the cap, so the relaxed airframe still
         // departs on full aft stick and then recovers.
-        const modConfig = JSON.parse(JSON.stringify(f16Fm2Config));
+        const modConfig = JSON.parse(JSON.stringify(defaultFm2Config));
         delete modConfig.fcs.pitch.aoaLimiterGain;
         delete modConfig.fcs.pitch.aoaLimiterLeadS;
 
@@ -386,12 +390,12 @@ describe('FM2 rigid-body flight model', () => {
             `never developed backward body-frame velocity: velBody.z=${velBody.z.toFixed(1)} m/s`);
     });
 
-    it('A4E rests on mesh-derived gear contacts', () => {
-        const manifest = JSON.parse(fs.readFileSync('assets/a4e.aircraft.json', 'utf8'));
+    it('imported mod rests on mesh-derived gear contacts', () => {
+        const manifest = JSON.parse(fs.readFileSync('assets/mod.aircraft.json', 'utf8'));
         const config = manifest.flight;
         const restY = fm2GroundRestHeight(config);
         assert.ok(restY > PLANE_DISTANCE_TO_GROUND,
-            `expected deeper nose contact than F-16 rest height: ${restY.toFixed(3)} m`);
+            `expected deeper nose contact than default rest height: ${restY.toFixed(3)} m`);
 
         const model = new Fm2FlightModel(config);
         model.reset();
@@ -669,7 +673,7 @@ describe('FM2 flight model — comprehensive behavior', () => {
     });
 
     it('kinematic (DEBUG) free-fly drives visible surfaces straight from raw stick', () => {
-        const model = new Fm2FlightModel(f16Fm2Config, { kinematic: true });
+        const model = new Fm2FlightModel(defaultFm2Config, { kinematic: true });
         model.reset();
         model.position.set(0, 3000, 0);
         model.velocityVector = new THREE.Vector3(0, 0, 120);
@@ -685,7 +689,7 @@ describe('FM2 flight model — comprehensive behavior', () => {
     });
 
     it('kinematic (DEBUG) free-fly rotates directly, tracks throttle speed, and stays above ground', () => {
-        const model = new Fm2FlightModel(f16Fm2Config, { kinematic: true });
+        const model = new Fm2FlightModel(defaultFm2Config, { kinematic: true });
         model.reset();
         model.position.set(0, 3000, 0);
         model.velocityVector = new THREE.Vector3(0, 0, 120);

@@ -3,11 +3,11 @@
  *
  * The F-22 is built in code from the values that used to be hard-wired into
  * PlayerEntity (regression guard — it flies and animates identically). Imported
- * mods such as the A-4E are shipped as `.aircraft.pack` archives built by
+ * mods are shipped as `.aircraft.pack` archives built by
  * tools/pack_aircraft_mods.py and loaded at runtime into the same
  * {@link FlyableAircraftDef} shape.
  */
-import { Fm2AircraftConfig, f16Fm2Config } from '../physics/fm2/fm2AircraftConfig';
+import { Fm2AircraftConfig, defaultFm2Config } from '../physics/fm2/fm2AircraftConfig';
 import { ControlSurfaceConfig, FlyableAircraftDef } from '../scene/entities/aircraftDef';
 import { aircraftPackStore, toPackUrl } from './aircraftPack';
 
@@ -23,7 +23,7 @@ export function buildF22Def(): FlyableAircraftDef {
         gearAnimated: true,
         cockpitOffset: [0, 1.0, 8.0],
         fx: { wingtips: null, nozzles: null },
-        flight: f16Fm2Config,
+        flight: defaultFm2Config,
         surfaces: [
             {
                 role: 'flaperonLeft', model: 'assets/f22_flaperon_left.glb',

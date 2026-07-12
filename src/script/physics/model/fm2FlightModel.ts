@@ -1,11 +1,11 @@
 /**
- * FM2 — F-16C rigid-body "parts" flight model.
+ * FM2 — rigid-body "parts" flight model.
  *
  * Unlike the kinematic Realistic model (which rotates the airframe directly from
  * stick authority), FM2 is a genuine 6-DOF rigid body. Every aerodynamic force
  * is produced by a discrete lifting surface at its real location, so all moments
  * — and the pitch/roll/yaw rate damping — emerge from the geometry. A fly-by-wire
- * layer closes rate/g loops around the airframe to give F-16 handling. Landing
+ * layer closes rate/g loops around the airframe to give crisp jet handling. Landing
  * gear is modelled as spring-damper contact points, so weight-on-wheels, takeoff
  * rotation and ground stability are also just rigid-body reactions.
  *
@@ -28,9 +28,9 @@ import {
 } from '../f16Engine';
 import { AeroSurface } from '../fm2/aeroSurface';
 import { Fm2Fcs } from '../fm2/fcs';
-import { Fm2AircraftConfig, f16Fm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
+import { Fm2AircraftConfig, defaultFm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
 import { RigidBody } from '../fm2/rigidBody';
-import { FlightModel } from './flightModel';
+import { FlightModel, ForceVectorSample } from './flightModel';
 
 const GRAVITY = 9.80665;
 
@@ -53,6 +53,8 @@ interface SurfaceControls {
     htailLeftAoa: number;
     htailRightAoa: number;
     vtailAoa: number;
+    aileronLeftAoa: number;
+    aileronRightAoa: number;
 }
 
 export class Fm2FlightModel extends FlightModel {
@@ -69,6 +71,12 @@ export class Fm2FlightModel extends FlightModel {
     private readonly htailLeft: AeroSurface;
     private readonly htailRight: AeroSurface;
     private readonly vtail: AeroSurface;
+    /** Optional dedicated aileron surfaces (present when the config supplies them). */
+    private readonly aileronLeft?: AeroSurface;
+    private readonly aileronRight?: AeroSurface;
+    /** All lifting surfaces in build order — the single list the step and the
+     *  force-vector snapshot both iterate. */
+    private readonly allSurfaces: AeroSurface[];
 
     /** Reference dynamic pressure at the design cruise condition (Pa). */
     private readonly qRef: number;
@@ -99,7 +107,7 @@ export class Fm2FlightModel extends FlightModel {
     private readonly _friction = new THREE.Vector3();
     private readonly _cgOffset = new THREE.Vector3();
 
-    constructor(config: Fm2AircraftConfig = f16Fm2Config, options: Fm2ModelOptions = {}) {
+    constructor(config: Fm2AircraftConfig = defaultFm2Config, options: Fm2ModelOptions = {}) {
         super();
         this.config = config;
         this.kinematic = options.kinematic ?? false;
@@ -115,6 +123,18 @@ export class Fm2FlightModel extends FlightModel {
         this.htailLeft = new AeroSurface(config.surfaces.htailLeft);
         this.htailRight = new AeroSurface(config.surfaces.htailRight);
         this.vtail = new AeroSurface(config.surfaces.vtail);
+        if (config.surfaces.aileronLeft) {
+            this.aileronLeft = new AeroSurface(config.surfaces.aileronLeft);
+        }
+        if (config.surfaces.aileronRight) {
+            this.aileronRight = new AeroSurface(config.surfaces.aileronRight);
+        }
+        this.allSurfaces = [
+            this.fuselage, this.wingLeft, this.wingRight,
+            this.htailLeft, this.htailRight, this.vtail,
+            ...(this.aileronLeft ? [this.aileronLeft] : []),
+            ...(this.aileronRight ? [this.aileronRight] : []),
+        ];
         this.qRef = 0.5 * computeIsaAirDensity(config.envelope.cruiseAltitudeM)
             * config.envelope.cruiseSpeedMps ** 2;
         this.obj.up.copy(UP);
@@ -217,6 +237,12 @@ export class Fm2FlightModel extends FlightModel {
         this.accumulateSurface(this.htailLeft, controls.htailLeftAoa, 0, 0, 0, airDensity);
         this.accumulateSurface(this.htailRight, controls.htailRightAoa, 0, 0, 0, airDensity);
         this.accumulateSurface(this.vtail, controls.vtailAoa, 0, 0, 0, airDensity);
+        if (this.aileronLeft) {
+            this.accumulateSurface(this.aileronLeft, controls.aileronLeftAoa, 0, 0, 0, airDensity);
+        }
+        if (this.aileronRight) {
+            this.accumulateSurface(this.aileronRight, controls.aileronRightAoa, 0, 0, 0, airDensity);
+        }
 
         // Fuselage / parasite / gear / wave drag along the relative wind.
         this.addBodyDrag(dynamicPressure, speed, mach);
@@ -286,12 +312,18 @@ export class Fm2FlightModel extends FlightModel {
         const elevatorAoa = -elevator * effectiveStab;
         // Differential tail (taileron) assists roll.
         const taileronAoa = aileron * this.config.fcs.taileronRollFraction * maxStabilator;
+        // Roll incidence goes to the dedicated aileron surfaces when present; only
+        // an airframe without them falls back to deflecting the whole wing (legacy).
+        const aileronAoa = aileron * maxAileron;
+        const hasAilerons = this.aileronLeft !== undefined || this.aileronRight !== undefined;
         return {
-            wingLeftAoa: aileron * maxAileron,
-            wingRightAoa: -aileron * maxAileron,
+            wingLeftAoa: hasAilerons ? 0 : aileronAoa,
+            wingRightAoa: hasAilerons ? 0 : -aileronAoa,
             htailLeftAoa: elevatorAoa + taileronAoa,
             htailRightAoa: elevatorAoa - taileronAoa,
             vtailAoa: -rudder * maxRudder,
+            aileronLeftAoa: hasAilerons ? aileronAoa : 0,
+            aileronRightAoa: hasAilerons ? -aileronAoa : 0,
         };
     }
 
@@ -299,7 +331,7 @@ export class Fm2FlightModel extends FlightModel {
     private computeThrustN(lever: number, altitude: number): number {
         const e = this.config.engine;
         if (e.afterburner) {
-            // F-16 F100 quadrant + lapse, unchanged for the default aircraft.
+            // Afterburner F100-class quadrant + lapse for the default aircraft.
             return computeF16EngineThrustN(lever, altitude);
         }
         // Plain idle→military schedule with the same ISA density lapse.
@@ -346,12 +378,9 @@ export class Fm2FlightModel extends FlightModel {
             cfg.cgOffsetBody[1] * gate,
             cfg.cgOffsetBody[2] * gate,
         );
-        this.fuselage.setCgOffset(this._cgOffset);
-        this.wingLeft.setCgOffset(this._cgOffset);
-        this.wingRight.setCgOffset(this._cgOffset);
-        this.htailLeft.setCgOffset(this._cgOffset);
-        this.htailRight.setCgOffset(this._cgOffset);
-        this.vtail.setCgOffset(this._cgOffset);
+        for (const s of this.allSurfaces) {
+            s.setCgOffset(this._cgOffset);
+        }
     }
 
     /**
@@ -603,11 +632,58 @@ export class Fm2FlightModel extends FlightModel {
 
     getStallStatus(): number { return this.stall; }
 
-    // --- Throttle quadrant behaviour. Afterburner aircraft (F-16) use the F100
+    /**
+     * Build a body-frame snapshot of the net force on each body part for the
+     * debug overlay. Each of the six aerodynamic surfaces contributes its total
+     * (lift + drag) force; the engine contributes thrust (body +Z) and the CG
+     * carries weight (world gravity rotated into the body frame). The overlay
+     * splits each force into X/Y/Z components. Kinematic (DEBUG) mode has no
+     * aerodynamics, so nothing is produced.
+     */
+    getForceVectorSnapshot(): ForceVectorSample[] {
+        if (this.kinematic) return [];
+
+        const samples: ForceVectorSample[] = [];
+        for (const s of this.allSurfaces) {
+            const p = s.positionBody;
+            // Lift and drag are reported as separate vectors at the surface, so the
+            // overlay shows both components rather than just their resultant.
+            const l = s.liftForceBody;
+            const d = s.dragForceBody;
+            samples.push({
+                part: s.name, kind: 'lift',
+                origin: [p.x, p.y, p.z], vec: [l.x, l.y, l.z],
+            });
+            samples.push({
+                part: s.name, kind: 'drag',
+                origin: [p.x, p.y, p.z], vec: [d.x, d.y, d.z],
+            });
+        }
+
+        // Thrust acts along the body +Z (nose) through the CG.
+        samples.push({
+            part: 'engine', kind: 'thrust', origin: [0, 0, 0],
+            vec: [0, 0, this.engineThrustN],
+        });
+
+        // Weight: world-down force rotated into the current body frame.
+        const weightWorldY = -this.config.geometry.massKg * GRAVITY;
+        this._v.set(0, weightWorldY, 0);
+        this.invOrient.copy(this.obj.quaternion).invert();
+        this._v.applyQuaternion(this.invOrient);
+        samples.push({
+            part: 'cg', kind: 'weight', origin: [0, 0, 0],
+            vec: [this._v.x, this._v.y, this._v.z],
+        });
+
+        return samples;
+    }
+
+    // --- Throttle quadrant behaviour. Afterburner aircraft use the F100-class
     // quadrant with MIL/AB detents; others use a plain linear 0–100% lever. ---
     private get afterburner(): boolean { return this.config.engine.afterburner; }
     getThrottleHudText(): string { return this.afterburner ? formatF16ThrottleHud(this.throttle) : super.getThrottleHudText(); }
-    useF16ThrottleDetents(): boolean { return this.afterburner; }
+    useAfterburnerThrottleDetents(): boolean { return this.afterburner; }
     stepThrottleDetent(current: number, direction: 1 | -1): number { return this.afterburner ? stepF16ThrottleDetent(current, direction) : super.stepThrottleDetent(current, direction); }
     isInThrottleAbDetentBand(lever: number): boolean { return this.afterburner ? isF16AbDetentBand(lever) : super.isInThrottleAbDetentBand(lever); }
     adjustThrottleInput(current: number, step: number): number { return this.afterburner ? adjustF16ThrottleInput(current, step) : super.adjustThrottleInput(current, step); }

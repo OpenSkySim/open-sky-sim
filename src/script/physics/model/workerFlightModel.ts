@@ -12,9 +12,9 @@ export class WorkerFlightModel extends FlightModel {
     private worker: Worker;
     private lastState: any = null;
     private aircraftConfig: Fm2AircraftConfig | undefined;
-    // Afterburner-equipped aircraft use the F-16 throttle quadrant; others
-    // (e.g. the A-4E) use a plain linear lever. Defaults true until an aircraft
-    // is selected so the F-16 remains the default behaviour.
+    // Afterburner-equipped aircraft use the MIL/AB detented throttle quadrant;
+    // others (e.g. imported mods) use a plain linear lever. Defaults true until
+    // an aircraft is selected so the afterburner quadrant is the default.
     private fm2Afterburner = true;
 
     /**
@@ -58,6 +58,7 @@ export class WorkerFlightModel extends FlightModel {
         if (state.accelWorld) {
             this.accelWorld.fromArray(state.accelWorld);
         }
+        this.forceVectors = state.forceVectors ?? [];
         
         // @ts-ignore
         this.prevPosition.fromArray(state.prevPosition);
@@ -81,7 +82,8 @@ export class WorkerFlightModel extends FlightModel {
                 landingGearDeployed: this.landingGearDeployed,
                 flapsExtended: this.flapsExtended,
                 wheelBrakesApplied: this.wheelBrakesApplied,
-                limitersEnabled: this.limitersEnabled
+                limitersEnabled: this.limitersEnabled,
+                wantForceVectors: this.forceVectorsRequested
             }
         });
     }
@@ -164,50 +166,50 @@ export class WorkerFlightModel extends FlightModel {
     }
 
     /**
-     * Whether this aircraft uses the F-16 throttle quadrant (MIL/AB detents):
+     * Whether this aircraft uses the MIL/AB detented throttle quadrant:
      * true only for afterburner-equipped aircraft.
      */
-    private isF16(): boolean {
+    private isAfterburner(): boolean {
         return this.fm2Afterburner;
     }
 
-    // F-16 specific overrides to match the F-16 flight models' behavior
+    // Afterburner-quadrant overrides (MIL/AB detents, cone glow, audio ramp).
     getThrottleHudText(): string {
-        if (!this.isF16()) return super.getThrottleHudText();
+        if (!this.isAfterburner()) return super.getThrottleHudText();
         return formatF16ThrottleHud(this.throttle);
     }
 
-    useF16ThrottleDetents(): boolean {
-        return this.isF16();
+    useAfterburnerThrottleDetents(): boolean {
+        return this.isAfterburner();
     }
 
     stepThrottleDetent(current: number, direction: 1 | -1): number {
-        if (!this.isF16()) return super.stepThrottleDetent(current, direction);
+        if (!this.isAfterburner()) return super.stepThrottleDetent(current, direction);
         return stepF16ThrottleDetent(current, direction);
     }
 
     isInThrottleAbDetentBand(lever: number): boolean {
-        if (!this.isF16()) return super.isInThrottleAbDetentBand(lever);
+        if (!this.isAfterburner()) return super.isInThrottleAbDetentBand(lever);
         return isF16AbDetentBand(lever);
     }
 
     adjustThrottleInput(current: number, step: number): number {
-        if (!this.isF16()) return super.adjustThrottleInput(current, step);
+        if (!this.isAfterburner()) return super.adjustThrottleInput(current, step);
         return adjustF16ThrottleInput(current, step);
     }
 
     getThrottleZone(): string {
-        if (!this.isF16()) return 'mil';
+        if (!this.isAfterburner()) return 'mil';
         return getF16ThrottleZone(this.effectiveThrottle);
     }
 
     getThrottleAudioLevel(): number {
-        if (!this.isF16()) return super.getThrottleAudioLevel();
+        if (!this.isAfterburner()) return super.getThrottleAudioLevel();
         return f16ThrottleAudioLevel(this.effectiveThrottle);
     }
 
     getEngineNozzleColor(): string {
-        if (!this.isF16()) return super.getEngineNozzleColor();
+        if (!this.isAfterburner()) return super.getEngineNozzleColor();
         return getF16EngineNozzleColor(this.effectiveThrottle);
     }
 }

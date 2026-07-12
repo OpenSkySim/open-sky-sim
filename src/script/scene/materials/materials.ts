@@ -34,8 +34,8 @@ export interface SceneMaterialCommonProperties {
     /**
      * Literal CSS colour (e.g. '#b5b4ba') that overrides the palette lookup for
      * this material. Used by models that carry their own per-polygon colours
-     * (e.g. the A-4E, whose livery comes from a palette-swatch texture) instead
-     * of mapping to a PaletteCategory. `category` is still used for fog.
+     * (e.g. an imported mod, whose livery comes from a palette-swatch texture)
+     * instead of mapping to a PaletteCategory. `category` is still used for fog.
      */
     rawColor?: string;
 }

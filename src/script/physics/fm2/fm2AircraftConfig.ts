@@ -3,9 +3,9 @@
  *
  * Everything the FM2 model needs to fly a specific airframe is captured here as
  * plain, JSON-serializable data so it can be authored by the mod importer and
- * shipped through the worker. The F-16 numbers that used to live as module-level
- * constants are packaged as {@link f16Fm2Config} below, so the default aircraft
- * flies exactly as before.
+ * shipped through the worker. The default-aircraft numbers that used to live as
+ * module-level constants are packaged as {@link defaultFm2Config} below, so the
+ * default aircraft flies exactly as before.
  *
  * Body axes (sim THREE.js convention, see utils/math.ts):
  *   +X = RIGHT, +Y = UP, +Z = FORWARD. Right-handed: RIGHT × UP = FORWARD.
@@ -13,7 +13,7 @@
 import {
     FM2_AILERON, FM2_BODY_CD0, FM2_FCS, FM2_FLAPS, FM2_GEAR_CD, FM2_GEOMETRY,
     FM2_INERTIA, FM2_SURFACES, FM2_WAVE_DRAG, SurfaceGeometry,
-} from './f16Fm2Config';
+} from './fm2Constants';
 import { F16_PROFILE } from '../f16Profile';
 import { PLANE_DISTANCE_TO_GROUND } from '../../defs';
 
@@ -44,6 +44,13 @@ export interface Fm2SurfaceSet {
     htailLeft: SurfaceGeometry;
     htailRight: SurfaceGeometry;
     vtail: SurfaceGeometry;
+    /**
+     * Optional dedicated aileron surfaces. When present the roll command is fed to
+     * these as a direct incidence (instead of adding it to the wing incidence).
+     * Omitted ⇒ no aileron roll authority from separate surfaces.
+     */
+    aileronLeft?: SurfaceGeometry;
+    aileronRight?: SurfaceGeometry;
 }
 
 export interface Fm2FlapsConfig {
@@ -74,7 +81,7 @@ export function fm2GroundRestHeight(config: Fm2AircraftConfig): number {
 }
 
 /**
- * Engine thrust schedule. When `afterburner` is true the F-16 F100 quadrant and
+ * Engine thrust schedule. When `afterburner` is true the F100-class quadrant and
  * thrust lapse are used verbatim; otherwise a simple linear idle→military
  * schedule with the same ISA density lapse is applied and the throttle behaves
  * as a plain 0–100% lever.
@@ -93,9 +100,9 @@ export interface Fm2EngineConfig {
  * Flight-control-system configuration.
  *
  * A SINGLE, config-driven FCS (see fm2/fcs.ts) flies every aircraft. A
- * relaxed-stability fly-by-wire jet (F-16) and a conventionally-stable
- * mechanical aircraft (A-4E) differ ONLY by the values below — the exact same
- * code paths run for both. Per axis, a boolean selects the control law:
+ * relaxed-stability fly-by-wire jet and a conventionally-stable mechanical
+ * aircraft (e.g. an imported mod) differ ONLY by the values below — the exact
+ * same code paths run for both. Per axis, a boolean selects the control law:
  *   - `pitch.gCommand`  true  = relaxed-stability g-command FBW law (PI g
  *                               regulator, AoA limiter, rate/AoA-rate damping,
  *                               limiters-off direct pitch path);
@@ -358,11 +365,11 @@ export interface Fm2AircraftConfig {
 }
 
 /**
- * The F-16C, assembled from the existing FM2 constant tables. Using this config
- * reproduces the previous hard-coded model exactly (regression guard for the
- * default player aircraft).
+ * The default player aircraft, assembled from the FM2 constant tables. Using
+ * this config reproduces the previous hard-coded model exactly (regression guard
+ * for the default player aircraft).
  */
-export const f16Fm2Config: Fm2AircraftConfig = {
+export const defaultFm2Config: Fm2AircraftConfig = {
     geometry: {
         massKg: FM2_GEOMETRY.massKg,
         wingAreaM2: FM2_GEOMETRY.wingAreaM2,
@@ -381,6 +388,8 @@ export const f16Fm2Config: Fm2AircraftConfig = {
         htailLeft: FM2_SURFACES.htailLeft,
         htailRight: FM2_SURFACES.htailRight,
         vtail: FM2_SURFACES.vtail,
+        aileronLeft: FM2_SURFACES.aileronLeft,
+        aileronRight: FM2_SURFACES.aileronRight,
     },
     aileronMaxDeflectionRad: FM2_AILERON.maxDeflectionRad,
     flaps: {
@@ -451,7 +460,7 @@ export const f16Fm2Config: Fm2AircraftConfig = {
             rateDamp: 0,
             maxRollRateDegS: FM2_FCS.maxRollRateDegS,
             // Canonical relaxed-stability roll-rate command schedule (the values
-            // that were the hard-coded F-16 roll law) — now plain per-aircraft data.
+            // that were the hard-coded default roll law) — now plain per-aircraft data.
             qGainMin: 0.12,
             qGainMax: 1.0,
             machLimiterOnset: 0.85,

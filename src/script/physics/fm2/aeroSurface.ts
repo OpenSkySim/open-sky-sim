@@ -15,7 +15,7 @@
  */
 import * as THREE from 'three';
 import { clamp } from '../../utils/math';
-import { SurfaceGeometry } from './f16Fm2Config';
+import { SurfaceGeometry } from './fm2Constants';
 
 export interface SurfaceInput {
     /** Body-frame velocity of the CG through the air (m/s). */
@@ -52,6 +52,11 @@ export class AeroSurface {
 
     /** Last computed angle of attack for this surface (rad); useful telemetry. */
     lastAoaRad = 0;
+
+    /** Last lift force this surface produced (body frame, N); for debug overlays. */
+    readonly liftForceBody = new THREE.Vector3();
+    /** Last drag force this surface produced (body frame, N); for debug overlays. */
+    readonly dragForceBody = new THREE.Vector3();
 
     constructor(geom: SurfaceGeometry) {
         this.geom = geom;
@@ -103,6 +108,8 @@ export class AeroSurface {
         const speedSq = this._u.lengthSq();
         if (speedSq < 1e-4) {
             this.lastAoaRad = 0;
+            this.liftForceBody.set(0, 0, 0);
+            this.dragForceBody.set(0, 0, 0);
             return;
         }
         const speed = Math.sqrt(speedSq);
@@ -116,15 +123,12 @@ export class AeroSurface {
         const stall = this.geom.stallAoaRad - input.stallShiftRad;
         const cl = liftCoefficient(
             effectiveAoa, this.geom.liftSlopePerRad, stall, this.geom.vortexLiftScale ?? 0,
+            this.geom.zeroLiftAoaRad ?? 0, this.geom.clMax,
         );
-        const separated = Math.sin(effectiveAoa);
-        const postStall = Math.max(0, Math.abs(effectiveAoa) - stall);
-        // Separated drag peaks in the mid-stall band then eases at very high AoA so
-        // a tail slide can bleed speed without locking the aircraft at 90°.
-        const separatedScale = 0.75 * (1 - 0.35 * clamp(postStall / stall, 0, 1));
-        const cd = this.geom.cd0 + input.extraCd
-            + this.geom.inducedK * cl * cl
-            + separatedScale * separated * separated;
+        const cd = dragCoefficient(
+            effectiveAoa, cl, this.geom.cd0 + input.extraCd, this.geom.inducedK,
+            stall, this.geom.flatPlateCd,
+        );
 
         // Drag acts downstream (direction the air is moving relative to surface).
         this._dragDir.copy(this._u).multiplyScalar(-1 / speed);
@@ -141,6 +145,10 @@ export class AeroSurface {
         const effectiveQ = hasControl && q < minControlQ ? minControlQ : q;
         const lift = effectiveQ * area * cl;
         const drag = q * area * cd;
+
+        // Store the separated lift / drag contributions for debug overlays.
+        this.liftForceBody.copy(this._liftDir).multiplyScalar(lift);
+        this.dragForceBody.copy(this._dragDir).multiplyScalar(drag);
 
         // Force contribution.
         const fx = this._liftDir.x * lift + this._dragDir.x * drag;
@@ -162,33 +170,89 @@ export class AeroSurface {
  * Lift coefficient with a linear pre-stall range, a deep-stall plateau (vortex /
  * strake lift), and flat-plate behaviour at extreme AoA for tail-slide recovery.
  * Optional vortex lift (forebody strakes) boosts CL between ~30-80° for cobra entry.
+ *
+ * Two optional profile inputs give each surface a realistic lift curve:
+ *   - `alpha0` (zero-lift angle, rad): camber. The linear lift is `slope·(α−α0)`
+ *     so a cambered surface makes lift at α=0 (cl0 = −slope·α0). Applied to the
+ *     LINEAR term only — stall / deep-stall / vortex stay keyed on geometric α so
+ *     the tuned high-AoA (cobra) behaviour is unchanged.
+ *   - `clMaxOverride`: the surface's peak CL. The linear (pre-stall) lift is
+ *     capped at ±CLmax to round the normal curve over to a realistic peak. The
+ *     deep-stall plateau / vortex lift stay referenced to the legacy slope·stall
+ *     peak (never reduced), so a realistic lower CLmax does not weaken the tuned
+ *     post-stall / cobra regime. Omitted ⇒ CLmax = slope·stall, which with the
+ *     (unclamped, in-range) linear term reproduces the legacy curve exactly.
  */
 export function liftCoefficient(
     aoaRad: number, slopePerRad: number, stallRad: number, vortexScale = 0,
+    alpha0 = 0, clMaxOverride?: number,
 ): number {
     const mag = Math.abs(aoaRad);
     const sign = Math.sign(aoaRad) || 1;
+    // Pre-stall cap (rounds the linear curve over at the surface's CLmax).
+    const clMaxLinear = clMaxOverride ?? (slopePerRad * stallRad);
+    // High-AoA reference for the deep-stall plateau / vortex lift. It is NEVER
+    // reduced below the legacy slope·stall value, so setting a realistic (lower)
+    // pre-stall CLmax rounds the normal lift curve WITHOUT weakening the tuned
+    // post-stall / vortex regime the emergent cobra depends on.
+    const clRefHigh = Math.max(clMaxLinear, slopePerRad * stallRad);
     let cl: number;
     if (mag <= stallRad) {
-        cl = slopePerRad * aoaRad;
+        // Camber shifts the linear lift; the cap rounds it over at CLmax. For the
+        // legacy path (α0=0, CLmax=slope·stall) |linear| ≤ CLmax here, so the
+        // clamp is a no-op and cl = slope·α exactly as before.
+        const linear = slopePerRad * (aoaRad - alpha0);
+        cl = clamp(linear, -clMaxLinear, clMaxLinear);
     } else {
-        const clMax = slopePerRad * stallRad;
         const deepStallSpan = Math.PI / 3;
         if (mag <= stallRad + deepStallSpan) {
             const t = (mag - stallRad) / deepStallSpan;
-            cl = sign * clMax * (1 - 0.25 * t);
+            cl = sign * clRefHigh * (1 - 0.25 * t);
         } else {
             const flat = Math.sin(2 * aoaRad);
-            cl = sign * Math.abs(flat) * clMax * 0.5;
+            cl = sign * Math.abs(flat) * clRefHigh * 0.5;
         }
     }
     if (vortexScale > 0) {
         const vortexHigh = 80 * (Math.PI / 180);
         if (mag >= stallRad && mag <= vortexHigh) {
-            const clMax = slopePerRad * stallRad;
             const vortex = Math.sin(aoaRad) * Math.cos(aoaRad / 2);
-            cl += sign * Math.abs(vortex) * clMax * vortexScale;
+            cl += sign * Math.abs(vortex) * clRefHigh * vortexScale;
         }
     }
     return cl;
+}
+
+/** Logistic steepness of the attached→separated drag transition (per rad). A
+ *  higher value narrows the blend band around stall; ~15 gives a ~±4° window.
+ *  (Walter Bislin's whole-range model uses q = 25.) */
+const DRAG_SEPARATION_STEEPNESS = 15;
+const DEFAULT_FLAT_PLATE_CD = 2.0;
+
+/**
+ * Drag coefficient over the whole AoA range, after Walter Bislin's model
+ * (walter.bislins.ch — "Airplane Lift and Drag Coefficients for the whole Range
+ * of AoA"). Two regimes are blended with a logistic window centred on stall:
+ *
+ *   - Attached flow: the classic parabolic drag polar
+ *         CD = CD0 + K·CL²                         (Bislin CD = cd1 + cd2·CL²)
+ *     where CD0 is the surface's profile/parasite drag (plus any flap/gear
+ *     increment folded in) and K·CL² is induced drag.
+ *   - Fully separated flow: a flat-plate / bluff-body term
+ *         CDP = flatPlateCd · ½·(1 − cos 2α)       (Bislin CDP = 1 − cos 2α)
+ *     which is ~0 at α = 0, peaks at α = 90°, and eases back to ~0 by 180° so a
+ *     tail slide / tumble bleeds energy without locking the nose at 90°.
+ *
+ * `sep` ramps 0→1 through ±stall, so below stall the realistic low-drag polar
+ * dominates (preserving cruise L/D) and past stall the high separated drag takes
+ * over. Symmetric in α (camber is handled entirely in the lift curve).
+ */
+export function dragCoefficient(
+    aoaRad: number, cl: number, parasiticCd: number, inducedK: number,
+    stallRad: number, flatPlateCd = DEFAULT_FLAT_PLATE_CD,
+): number {
+    const attached = parasiticCd + inducedK * cl * cl;
+    const flatPlate = flatPlateCd * 0.5 * (1 - Math.cos(2 * aoaRad));
+    const sep = 1 / (1 + Math.exp(-DRAG_SEPARATION_STEEPNESS * (Math.abs(aoaRad) - stallRad)));
+    return (1 - sep) * attached + sep * flatPlate;
 }

@@ -1,5 +1,5 @@
 /**
- * FM2 — F-16C rigid-body "parts" flight model configuration.
+ * FM2 — default-aircraft rigid-body "parts" flight model configuration.
  *
  * This model treats the aircraft as a single rigid body whose aerodynamic
  * forces are built up from discrete lifting surfaces (a component build-up /
@@ -64,12 +64,32 @@ export interface SurfaceGeometry {
     areaM2: number;
     /** Lift-curve slope (per radian) in the linear range. */
     liftSlopePerRad: number;
+    /**
+     * Zero-lift angle of attack (rad), i.e. camber. Linear lift is
+     * slope·(α − zeroLiftAoaRad), so a cambered surface makes lift at α = 0
+     * (cl0 = −slope·zeroLiftAoaRad). Omitted ⇒ 0 (symmetric section).
+     */
+    zeroLiftAoaRad?: number;
+    /**
+     * Peak lift coefficient. The linear lift is capped at ±clMax (rounding the
+     * curve over to a realistic maximum) and the post-stall plateau / vortex lift
+     * are referenced to it. Omitted ⇒ slope·stallAoaRad (legacy curve).
+     */
+    clMax?: number;
     /** Stall angle of attack (rad). Beyond this, CL collapses. */
     stallAoaRad: number;
     /** Profile (zero-lift) drag coefficient of this surface. */
     cd0: number;
     /** Induced-drag factor: CD_i = inducedK · CL². */
     inducedK: number;
+    /**
+     * Fully-separated (90° AoA) bluff-body drag coefficient, referenced to this
+     * surface's own area. Past stall the attached parabolic polar (CD0 + K·CL²)
+     * is blended into a flat-plate CDP = flatPlateCd · ½(1 − cos 2α), which peaks
+     * at α = 90° and eases back toward 180° (Walter Bislin's whole-range AoA
+     * model). Omitted ⇒ 2.0 (thin flat-plate normal to the flow).
+     */
+    flatPlateCd?: number;
     /** ΔAoA (rad) produced per unit control deflection [-1,1] (0 = no control). */
     controlEffectiveness: number;
     /** Forebody vortex lift scale (0 = off). Used on fuselage/strakes for cobra. */
@@ -84,7 +104,7 @@ export interface SurfaceGeometry {
 }
 
 /**
- * The F-16 as a set of rigid lifting surfaces.
+ * The default aircraft as a set of rigid lifting surfaces.
  *
  * Lateral split of the wing and horizontal tail is deliberate: it lets roll
  * damping, differential-tail (taileron) roll authority and dihedral/sideslip
@@ -94,12 +114,12 @@ export interface SurfaceGeometry {
  */
 export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
     /**
-     * Blended fuselage / strake lifting body. The F-16 is a lifting-body design:
-     * the wide forebody and leading-edge strakes carry a large share of the total
+     * Blended fuselage / strake lifting body. This airframe is a lifting-body
+     * design: the wide forebody and leading-edge strakes carry a large share of the total
      * lift. This surface is sized so the fuselage produces ~30% of the aircraft's
-     * lift — its lift-curve contribution (CLα·S = 2.4 × 16.0 ≈ 38.4) is 3/7 of the
-     * combined wing contribution (2 × 5.2 × 8.6 ≈ 89.4), so
-     * 38.4 / (38.4 + 89.4) ≈ 0.30 of the wing+body lift throughout the linear
+     * lift — its lift-curve contribution (CLα·S = 2.4 × 16.0 ≈ 38.4) is ~3/7 of the
+     * combined wing+aileron contribution (2 × (5.2 × 7.1 + 4.5 × 1.5) ≈ 87.3), so
+     * 38.4 / (38.4 + 87.3) ≈ 0.31 of the wing+body lift throughout the linear
      * range. It acts at the CG (no trim moment); parasite form drag stays in
      * FM2_BODY_CD0, so cd0 here is 0 to avoid double-counting.
      */
@@ -110,9 +130,15 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         forward: [0, 0, 1],
         areaM2: 16.0,
         liftSlopePerRad: 2.4,
+        // Lifting-body / strake camber (cl0 ≈ 2.4 × 1.9° ≈ 0.08 of the ~0.2 total).
+        zeroLiftAoaRad: -1.9 * DEG,
+        clMax: 1.5,
         stallAoaRad: 40 * DEG, // a low-aspect body stalls late and gently
         cd0: 0.0,
         inducedK: 0.25,
+        // Wide lifting body: broadside it is a rounded bluff shape, not a sharp
+        // flat plate, so its 90° Cd is well below the thin-surface 2.0.
+        flatPlateCd: 1.3,
         controlEffectiveness: 0,
         vortexLiftScale: 0.55,
     },
@@ -121,24 +147,74 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         position: [-2.1, 0.0, -0.15],
         up: [0, 1, 0],
         forward: [0, 0, 1],
-        areaM2: 8.6,
+        // Inboard wing panel. The outboard 1.5 m² is carved out into the aileron
+        // surface below, so wing + aileron conserve the 8.6 m² half-wing planform
+        // (hence the total lift and the high-AoA flat-plate lift/drag the cobra is
+        // tuned around are unchanged by promoting the ailerons to real surfaces).
+        areaM2: 7.1,
         liftSlopePerRad: 5.2,
+        // Thin cambered wing (cl0 ≈ 5.2 × 1.3° ≈ 0.12 of the ~0.2 total). The
+        // LERX-blended wing reaches a high transient CLmax; ~1.5 rounds the linear
+        // curve over at a realistic peak while the decoupled high-AoA regime keeps
+        // the tuned post-stall / cobra behaviour.
+        zeroLiftAoaRad: -1.3 * DEG,
+        clMax: 1.5,
         stallAoaRad: 24 * DEG,
         cd0: 0.0085,
         inducedK: 0.118,
-        controlEffectiveness: 0, // ailerons applied separately below
+        flatPlateCd: 1.9, // thin wing panel broadside to the flow
+        controlEffectiveness: 0, // ailerons are their own surfaces below
     },
     wingRight: {
         name: 'wingRight',
         position: [2.1, 0.0, -0.15],
         up: [0, 1, 0],
         forward: [0, 0, 1],
-        areaM2: 8.6,
+        areaM2: 7.1,
         liftSlopePerRad: 5.2,
+        zeroLiftAoaRad: -1.3 * DEG,
+        clMax: 1.5,
         stallAoaRad: 24 * DEG,
         cd0: 0.0085,
         inducedK: 0.118,
+        flatPlateCd: 1.9,
         controlEffectiveness: 0,
+    },
+    /**
+     * Ailerons as their own outboard lifting surfaces. Deflection is fed in as a
+     * direct incidence (controlDeltaAoa) by the model, so their differential lift
+     * at the outboard station (x ≈ ±3.4 m) produces the roll moment via r × F, and
+     * roll damping still comes from the full wing panels responding to ω × r.
+     */
+    aileronLeft: {
+        name: 'aileronLeft',
+        position: [-3.4, 0.0, -0.15],
+        up: [0, 1, 0],
+        forward: [0, 0, 1],
+        areaM2: 1.5,
+        liftSlopePerRad: 4.5,
+        clMax: 1.5,
+        // Stall margin kept well above the max deflection (~21°) so the loaded
+        // aileron stays attached and delivers full roll control power.
+        stallAoaRad: 28 * DEG,
+        cd0: 0.009,
+        inducedK: 0.15,
+        flatPlateCd: 1.9, // matches the wing panel so total high-AoA drag is conserved
+        controlEffectiveness: 1.0,
+    },
+    aileronRight: {
+        name: 'aileronRight',
+        position: [3.4, 0.0, -0.15],
+        up: [0, 1, 0],
+        forward: [0, 0, 1],
+        areaM2: 1.5,
+        liftSlopePerRad: 4.5,
+        clMax: 1.5,
+        stallAoaRad: 28 * DEG,
+        cd0: 0.009,
+        inducedK: 0.15,
+        flatPlateCd: 1.9,
+        controlEffectiveness: 1.0,
     },
     htailLeft: {
         name: 'htailLeft',
@@ -150,6 +226,7 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         stallAoaRad: 26 * DEG,
         cd0: 0.006,
         inducedK: 0.15,
+        flatPlateCd: 2.0,
         controlEffectiveness: 0.9, // all-moving stabilator
         highAoaDampingScale: 0.7, // separated tail still damps pitch rate → helps arrest the cobra apex before it tumbles over the top
     },
@@ -163,6 +240,7 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         stallAoaRad: 26 * DEG,
         cd0: 0.006,
         inducedK: 0.15,
+        flatPlateCd: 2.0,
         controlEffectiveness: 0.9,
         highAoaDampingScale: 0.7,
     },
@@ -176,19 +254,22 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         stallAoaRad: 30 * DEG,
         cd0: 0.007,
         inducedK: 0.16,
+        flatPlateCd: 2.0,
         controlEffectiveness: 0.55, // rudder
     },
 };
 
 /**
- * Aileron (roll) parameters — differential incidence added to each wing.
- * Sized so that full deflection produces roughly the F-16's ~360°/s open-loop
- * roll rate (aero roll damping balances control power); the FBW rate loop then
- * caps the commanded rate near 300°/s.
+ * Aileron (roll) parameters — direct incidence commanded on the dedicated
+ * outboard aileron surfaces (aileronLeft/aileronRight above). Because the control
+ * power now comes from small outboard panels (~1.2 m² at x ≈ ±3.4 m) instead of
+ * the whole wing, full deflection is a realistic ~21° — sized so the FBW roll
+ * loop still reaches its commanded-rate cap (~300°/s) with margin, and open-loop
+ * roll stays inside the tested 180–380°/s band.
  */
 export const FM2_AILERON = {
-    /** ΔAoA (rad) at each wing per unit aileron command [-1,1]. */
-    maxDeflectionRad: 4.2 * DEG,
+    /** ΔAoA (rad) at each aileron surface per unit aileron command [-1,1]. */
+    maxDeflectionRad: 21 * DEG,
 } as const;
 
 /** Symmetric flap camber increment (rad of effective wing incidence) with flaps down. */
@@ -211,7 +292,7 @@ export const FM2_WAVE_DRAG = {
 } as const;
 
 /**
- * Fly-by-wire control-law gains. The F-16 is aerodynamically relaxed-stability
+ * Fly-by-wire control-law gains. This airframe is aerodynamically relaxed-stability
  * and only flyable through its FBW system, so these gains are what give the
  * aircraft its handling qualities (crisp ~300°/s roll, g/AoA-limited pitch,
  * coordinated yaw) rather than the bare-airframe response.

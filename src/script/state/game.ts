@@ -1133,6 +1133,9 @@ export class Game {
             if (event.code === 'KeyR') {
                 event.preventDefault();
                 this.flightRecorder.toggle(this.configService.flightModels.getActiveKey());
+            } else if (event.code === 'KeyB') {
+                event.preventDefault();
+                this.player.setForceVectorsEnabled(!this.player.forceVectorsEnabled);
             } else if (event.code === 'Numpad5') {
                 event.preventDefault();
                 this.resetOrbit();

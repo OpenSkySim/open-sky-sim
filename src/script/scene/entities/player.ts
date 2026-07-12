@@ -16,6 +16,7 @@ import { isPackUrl } from '../../state/aircraftPack';
 import { Scene, SceneLayers } from "../scene";
 import { AfterburnerCones } from './afterburnerCones';
 import { WingtipTrails } from './wingtipTrails';
+import { AircraftForceVectors } from './aircraftForceVectors';
 import { countBodyMeshVertices, deriveWingtipOriginsFromModel } from './wingtipOrigins';
 import { GroundTargetEntity } from './groundTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
@@ -84,12 +85,17 @@ export class PlayerEntity implements Entity {
 
     private afterburnerCones: AfterburnerCones;
     private wingtipTrails: WingtipTrails;
+    private forceVectors: AircraftForceVectors;
+    private _forceVectorsEnabled = false;
     private afterburnerPanesBound = false;
     private wingtipsReady = false;
     /** True when the body model comes from an imported (pack) mod. */
     private bodyIsImported = false;
     /** True when the def provides nozzle exits (afterburner glow + plumes). */
     private hasNozzles = false;
+    /** Body-frame point where thrust is drawn (engine nozzle centroid). */
+    private thrustOrigin = new THREE.Vector3();
+    private hasThrustOrigin = false;
 
     private obj = new THREE.Object3D();
 
@@ -139,6 +145,7 @@ export class PlayerEntity implements Entity {
         this.models = models;
         this.afterburnerCones = new AfterburnerCones(materials);
         this.wingtipTrails = new WingtipTrails(materials);
+        this.forceVectors = new AircraftForceVectors(materials);
 
         this.buildFromDef(def);
 
@@ -195,6 +202,17 @@ export class PlayerEntity implements Entity {
             nozzles ? nozzles.map(n => new THREE.Vector3().fromArray(n)) : null,
             def.fx?.nozzleRadius ?? null,
         );
+
+        // Anchor the thrust force arrow at the nozzle exit(s): thrust physically
+        // acts at the tailpipe, not the CG. Use the centroid when several exist.
+        this.hasThrustOrigin = this.hasNozzles;
+        if (nozzles && nozzles.length > 0) {
+            this.thrustOrigin.set(0, 0, 0);
+            for (const n of nozzles) {
+                this.thrustOrigin.add(this._v.fromArray(n));
+            }
+            this.thrustOrigin.multiplyScalar(1 / nozzles.length);
+        }
 
         this.controlSurfaceDescriptors = def.surfaces.map((s: ControlSurfaceConfig) => ({
             model: new LODHelper(this.models.getModel(s.model)),
@@ -473,13 +491,14 @@ export class PlayerEntity implements Entity {
     }
 
     private updateAfterburnerPaneColors() {
-        const f16Detents = this.flightModel.useF16ThrottleDetents();
+        const abDetents = this.flightModel.useAfterburnerThrottleDetents();
         const lever = this.throttle;
-        // An aircraft is afterburner-capable if the flight model runs the F-16
-        // quadrant OR the model provides nozzle exits. The latter decouples the
-        // effect from the (possibly inherited) flight config so imported jets
-        // with plumes reliably light up regardless of what was flown before.
-        const hasAfterburner = f16Detents || this.hasNozzles;
+        // An aircraft is afterburner-capable if the flight model runs the
+        // afterburner quadrant OR the model provides nozzle exits. The latter
+        // decouples the effect from the (possibly inherited) flight config so
+        // imported jets with plumes reliably light up regardless of what was
+        // flown before.
+        const hasAfterburner = abDetents || this.hasNozzles;
 
         this.afterburnerCones.update(
             lever,
@@ -650,6 +669,16 @@ export class PlayerEntity implements Entity {
         return this.autopilotEnabled;
     }
 
+    get forceVectorsEnabled(): boolean {
+        return this._forceVectorsEnabled;
+    }
+
+    /** Toggle the debug per-part force-vector overlay (lift/drag/thrust/weight). */
+    setForceVectorsEnabled(enabled: boolean): void {
+        this._forceVectorsEnabled = enabled;
+        this.flightModel.setForceVectorsRequested(enabled);
+    }
+
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
 
         if (!this.isCrashed && !this._showcaseMode) {
@@ -675,6 +704,21 @@ export class PlayerEntity implements Entity {
                 SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, lod);
 
             this.afterburnerCones.addToRenderList(SceneLayers.EntityVolumes, lists);
+
+            if (this._forceVectorsEnabled) {
+                const samples = this.flightModel.getForceVectors();
+                if (this.hasThrustOrigin) {
+                    for (const s of samples) {
+                        if (s.part === 'engine') {
+                            s.origin[0] = this.thrustOrigin.x;
+                            s.origin[1] = this.thrustOrigin.y;
+                            s.origin[2] = this.thrustOrigin.z;
+                        }
+                    }
+                }
+                this.forceVectors.update(this.displayPosition, this.displayQuaternion, samples);
+                this.forceVectors.addToRenderList(SceneLayers.EntityVolumes, lists);
+            }
 
             if (lod === 0) {
                 const showLandingGear = this._showcaseMode
@@ -872,15 +916,15 @@ export class PlayerEntity implements Entity {
     }
 
     stepThrottle(direction: 1 | -1) {
-        if (this.flightModel.useF16ThrottleDetents()) {
+        if (this.flightModel.useAfterburnerThrottleDetents()) {
             this.throttle = this.flightModel.stepThrottleDetent(this.throttle, direction);
         } else {
             this.adjustThrottle(direction * 0.01 * 33);
         }
     }
 
-    useF16ThrottleDetents(): boolean {
-        return this.flightModel.useF16ThrottleDetents();
+    useAfterburnerThrottleDetents(): boolean {
+        return this.flightModel.useAfterburnerThrottleDetents();
     }
 
     isInThrottleAbDetentBand(): boolean {

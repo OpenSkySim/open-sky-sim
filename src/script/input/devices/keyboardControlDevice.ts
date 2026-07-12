@@ -191,7 +191,7 @@ export class KeyboardControlDevice implements KernelTask {
         if (this.throttleState !== Stick.IDLE) {
             const isPositive = this.throttleState === Stick.POSITIVE || this.throttleState === Stick.POSITIVE_ENDED;
             const step = delta * 0.01 * (isPositive ? THROTTLE_RATE : -THROTTLE_RATE);
-            const skipContinuousInAbBand = this.player.useF16ThrottleDetents() &&
+            const skipContinuousInAbBand = this.player.useAfterburnerThrottleDetents() &&
                 this.player.isInThrottleAbDetentBand() && isPositive;
             if (this.throttleState === Stick.POSITIVE_ENDED || this.throttleState === Stick.NEGATIVE_ENDED) {
                 this.throttleState = Stick.IDLE;
@@ -253,7 +253,7 @@ export class KeyboardControlDevice implements KernelTask {
                     break;
                 }
                 case this.layout[KeyboardControlAction.THROTTLE_POS]: {
-                    if (this.player.useF16ThrottleDetents() && this.player.isInThrottleAbDetentBand()) {
+                    if (this.player.useAfterburnerThrottleDetents() && this.player.isInThrottleAbDetentBand()) {
                         if (!event.repeat) {
                             this.player.stepThrottle(1);
                         }
@@ -263,7 +263,7 @@ export class KeyboardControlDevice implements KernelTask {
                     break;
                 }
                 case this.layout[KeyboardControlAction.THROTTLE_NEG]: {
-                    if (this.player.useF16ThrottleDetents() && this.player.throttleUnit >= 0.99) {
+                    if (this.player.useAfterburnerThrottleDetents() && this.player.throttleUnit >= 0.99) {
                         if (!event.repeat) {
                             this.player.stepThrottle(-1);
                         }

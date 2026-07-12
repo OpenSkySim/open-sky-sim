@@ -4,8 +4,8 @@
  * A SINGLE, config-driven class flies every aircraft. The model asks the FCS to
  * turn pilot stick/pedal inputs (plus the current body rates and flight
  * condition) into normalized surface commands in [-1, 1]. Whether an aircraft
- * behaves as a relaxed-stability fly-by-wire jet (F-16) or a conventionally
- * stable mechanical aircraft (A-4E) is determined ENTIRELY by {@link Fm2FcsConfig}
+ * behaves as a relaxed-stability fly-by-wire jet or a conventionally stable
+ * mechanical aircraft (e.g. an imported mod) is determined ENTIRELY by {@link Fm2FcsConfig}
  * — there is no separate class per handling type. Per axis a boolean picks the
  * control law:
  *   - Pitch (`pitch.gCommand`): a g-command law with pitch-rate damping, an
@@ -313,7 +313,7 @@ export class Fm2Fcs {
     /**
      * g-command pitch law: a PI regulator drives the load factor to the commanded
      * value (so neutral stick holds 1 g / level flight with no steady error, like
-     * the F-16's integral trim), with pitch-rate damping and an AoA limiter.
+     * a fly-by-wire integral trim), with pitch-rate damping and an AoA limiter.
      *
      * Outside the normal envelope (low energy or deep stall) the law blends toward
      * direct stick→elevator so hammerheads and tail slides remain controllable.

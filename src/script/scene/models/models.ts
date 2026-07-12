@@ -245,7 +245,7 @@ export class ModelManager {
 
     /**
      * Material names shaped like '#rrggbb' carry a literal colour (models that
-     * bring their own per-polygon palette, e.g. the A-4E) rather than a
+     * bring their own per-polygon palette, e.g. an imported mod) rather than a
      * PaletteCategory. Returns the CSS colour, or undefined for category names.
      */
     private static rawColorFor(name: string): string | undefined {
