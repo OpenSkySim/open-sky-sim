@@ -166,22 +166,37 @@ export class AeroSurface {
     }
 }
 
+/** Fully-separated flat-plate lift amplitude: CL ≈ FLAT_PLATE_CL·sin(2α). A thin
+ *  plate makes CL = sin(2α); ~1.1 accounts for real separated-flow suction. */
+const FLAT_PLATE_CL = 1.1;
+/** Logistic steepness (per rad) of the attached→separated LIFT blend across
+ *  stall. Gentler than the drag knee so post-stall lift falls off smoothly. */
+const LIFT_SEPARATION_STEEPNESS = 8;
+/** Soft-clip knee exponent for the attached lift. Higher = stays linear longer
+ *  before rounding over at ±CLmax (4 keeps cruise faithful, peak smooth). */
+const CL_SOFTCLIP_EXPONENT = 4;
+
 /**
- * Lift coefficient with a linear pre-stall range, a deep-stall plateau (vortex /
- * strake lift), and flat-plate behaviour at extreme AoA for tail-slide recovery.
- * Optional vortex lift (forebody strakes) boosts CL between ~30-80° for cobra entry.
+ * Lift coefficient over the whole AoA range as a single smooth (C1-continuous)
+ * curve — no piecewise plateaus or jumps. Shaped like a real airfoil (see
+ * aerospaceweb.org "Lift & drag coefficients for the whole range of AoA"):
+ * a linear region that rounds over at CLmax near stall, a gentle post-stall
+ * decline, and an antisymmetric flat-plate sinusoid through ±90° / ±180°.
  *
- * Two optional profile inputs give each surface a realistic lift curve:
- *   - `alpha0` (zero-lift angle, rad): camber. The linear lift is `slope·(α−α0)`
- *     so a cambered surface makes lift at α=0 (cl0 = −slope·α0). Applied to the
- *     LINEAR term only — stall / deep-stall / vortex stay keyed on geometric α so
- *     the tuned high-AoA (cobra) behaviour is unchanged.
- *   - `clMaxOverride`: the surface's peak CL. The linear (pre-stall) lift is
- *     capped at ±CLmax to round the normal curve over to a realistic peak. The
- *     deep-stall plateau / vortex lift stay referenced to the legacy slope·stall
- *     peak (never reduced), so a realistic lower CLmax does not weaken the tuned
- *     post-stall / cobra regime. Omitted ⇒ CLmax = slope·stall, which with the
- *     (unclamped, in-range) linear term reproduces the legacy curve exactly.
+ * Construction:
+ *   - Attached lift: `linear = slope·(α − α0)` (α0 = zero-lift/camber angle, so a
+ *     cambered surface makes lift at α=0), softly saturated toward ±CLmax with a
+ *     p-norm knee — essentially linear through cruise, rounding over smoothly at
+ *     the peak instead of hitting a corner.
+ *   - Separated (flat-plate) lift: `FLAT_PLATE_CL·sin(2α)`.
+ *   - The two are blended with a logistic window `sep` centred on stall, so the
+ *     curve peaks near stall and smoothly hands over to the flat-plate behaviour.
+ *
+ * Profile inputs:
+ *   - `alpha0` (rad): camber / zero-lift angle.
+ *   - `clMaxOverride`: the attached-lift saturation asymptote (the surface's peak
+ *     CL). Omitted ⇒ slope·stall. The achieved peak is slightly below this since
+ *     the post-stall blend rounds it over — as on a real lift curve.
  */
 export function liftCoefficient(
     aoaRad: number, slopePerRad: number, stallRad: number, vortexScale = 0,
@@ -189,35 +204,34 @@ export function liftCoefficient(
 ): number {
     const mag = Math.abs(aoaRad);
     const sign = Math.sign(aoaRad) || 1;
-    // Pre-stall cap (rounds the linear curve over at the surface's CLmax).
-    const clMaxLinear = clMaxOverride ?? (slopePerRad * stallRad);
-    // High-AoA reference for the deep-stall plateau / vortex lift. It is NEVER
-    // reduced below the legacy slope·stall value, so setting a realistic (lower)
-    // pre-stall CLmax rounds the normal lift curve WITHOUT weakening the tuned
-    // post-stall / vortex regime the emergent cobra depends on.
-    const clRefHigh = Math.max(clMaxLinear, slopePerRad * stallRad);
-    let cl: number;
-    if (mag <= stallRad) {
-        // Camber shifts the linear lift; the cap rounds it over at CLmax. For the
-        // legacy path (α0=0, CLmax=slope·stall) |linear| ≤ CLmax here, so the
-        // clamp is a no-op and cl = slope·α exactly as before.
-        const linear = slopePerRad * (aoaRad - alpha0);
-        cl = clamp(linear, -clMaxLinear, clMaxLinear);
-    } else {
-        const deepStallSpan = Math.PI / 3;
-        if (mag <= stallRad + deepStallSpan) {
-            const t = (mag - stallRad) / deepStallSpan;
-            cl = sign * clRefHigh * (1 - 0.25 * t);
-        } else {
-            const flat = Math.sin(2 * aoaRad);
-            cl = sign * Math.abs(flat) * clRefHigh * 0.5;
-        }
-    }
+    const clMax = clMaxOverride ?? (slopePerRad * stallRad);
+
+    // Attached (pre-stall) lift: linear in (α − α0), softly saturated toward
+    // ±CLmax with a p-norm knee so it is ~linear through cruise and rounds over
+    // smoothly at the peak (no corner). Asymptotes to ±CLmax as |α| grows.
+    const linear = slopePerRad * (aoaRad - alpha0);
+    const norm = Math.abs(linear) / clMax;
+    const attached = linear / Math.pow(1 + Math.pow(norm, CL_SOFTCLIP_EXPONENT), 1 / CL_SOFTCLIP_EXPONENT);
+
+    // Fully-separated flat-plate lift (odd in α, so lift reverses past ±90°).
+    const flat = FLAT_PLATE_CL * Math.sin(2 * aoaRad);
+
+    // Smoothly blend attached → separated across stall (logistic in |α|).
+    const sep = 1 / (1 + Math.exp(-LIFT_SEPARATION_STEEPNESS * (mag - stallRad)));
+    let cl = (1 - sep) * attached + sep * flat;
+
+    // Optional vortex / strake lift (forebody LERX): a smooth raised-cosine bump
+    // spanning stall → ~90°, peaking ~50°, so it adds post-stall CL without any
+    // kink (window value AND slope are 0 at both edges and at the peak).
     if (vortexScale > 0) {
-        const vortexHigh = 80 * (Math.PI / 180);
-        if (mag >= stallRad && mag <= vortexHigh) {
-            const vortex = Math.sin(aoaRad) * Math.cos(aoaRad / 2);
-            cl += sign * Math.abs(vortex) * clRefHigh * vortexScale;
+        const vortexPeak = 50 * (Math.PI / 180);
+        const vortexEnd = 90 * (Math.PI / 180);
+        if (mag > stallRad && mag < vortexEnd) {
+            const half = mag <= vortexPeak
+                ? (mag - stallRad) / (vortexPeak - stallRad)
+                : (vortexEnd - mag) / (vortexEnd - vortexPeak);
+            const window = 0.5 * (1 - Math.cos(Math.PI * clamp(half, 0, 1)));
+            cl += sign * window * clMax * vortexScale;
         }
     }
     return cl;

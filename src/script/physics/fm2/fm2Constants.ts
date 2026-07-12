@@ -144,7 +144,7 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
     },
     wingLeft: {
         name: 'wingLeft',
-        position: [-2.1, 0.0, -0.15],
+        position: [-2.4, 0.0, -0.15],
         up: [0, 1, 0],
         forward: [0, 0, 1],
         // Inboard wing panel. The outboard 1.5 m² is carved out into the aileron
@@ -167,7 +167,7 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
     },
     wingRight: {
         name: 'wingRight',
-        position: [2.1, 0.0, -0.15],
+        position: [2.4, 0.0, -0.15],
         up: [0, 1, 0],
         forward: [0, 0, 1],
         areaM2: 7.1,
@@ -188,7 +188,7 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
      */
     aileronLeft: {
         name: 'aileronLeft',
-        position: [-3.4, 0.0, -0.15],
+        position: [-3.4, 0.0, -0.6],
         up: [0, 1, 0],
         forward: [0, 0, 1],
         areaM2: 1.5,
@@ -204,7 +204,7 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
     },
     aileronRight: {
         name: 'aileronRight',
-        position: [3.4, 0.0, -0.15],
+        position: [3.4, 0.0, -0.6],
         up: [0, 1, 0],
         forward: [0, 0, 1],
         areaM2: 1.5,
