@@ -97,7 +97,8 @@ export class PlayerEntity implements Entity {
     private displayQuaternion = new THREE.Quaternion();
     private displayVelocity = new THREE.Vector3();
 
-    private pitch: number = 0; // [-1, 1]
+    private pitch: number = 0; // [-1, 1] normalized command to flight model
+    private pitchStickUnits: number = 0; // [-PITCH_STICK_FWD_UNITS, +PITCH_STICK_AFT_UNITS]
     private roll: number = 0; // [-1, 1]
     private yaw: number = 0; // [-1, 1]
     private throttle: number = 0; // [0, 1]
@@ -341,6 +342,7 @@ export class PlayerEntity implements Entity {
         this.flightModel.setLanded(!airborne);
 
         this.pitch = 0;
+        this.pitchStickUnits = 0;
         this.roll = 0;
         this.yaw = 0;
         this.throttle = spawn?.throttle ?? 0;
@@ -804,12 +806,25 @@ export class PlayerEntity implements Entity {
     }
 
     setPitch(pitch: number) {
-        // Fore/aft travel is asymmetric: aft (positive) uses the full throw, while
-        // forward (negative) is limited to PITCH_STICK_FWD_UNITS/PITCH_STICK_AFT_UNITS
-        // of it. Scaling (not clamping) keeps analog forward input proportional.
-        this.pitch = pitch >= 0
-            ? pitch
-            : pitch * (PITCH_STICK_FWD_UNITS / PITCH_STICK_AFT_UNITS);
+        this.pitchStickUnits = pitch >= 0
+            ? pitch * PITCH_STICK_AFT_UNITS
+            : pitch * PITCH_STICK_FWD_UNITS;
+        this.pitch = this.normalizedPitchFromStickUnits(this.pitchStickUnits);
+    }
+
+    stepPitchStickUnits(delta: number) {
+        this.pitchStickUnits = clamp(
+            this.pitchStickUnits + delta,
+            -PITCH_STICK_FWD_UNITS,
+            PITCH_STICK_AFT_UNITS,
+        );
+        this.pitch = this.normalizedPitchFromStickUnits(this.pitchStickUnits);
+    }
+
+    private normalizedPitchFromStickUnits(units: number): number {
+        return units >= 0
+            ? units / PITCH_STICK_AFT_UNITS
+            : units / PITCH_STICK_FWD_UNITS;
     }
 
     setSimulationPaused(paused: boolean): void {
@@ -934,6 +949,14 @@ export class PlayerEntity implements Entity {
 
     get pitchInput(): number {
         return this.pitch;
+    }
+
+    get pitchStickUnitsValue(): number {
+        return this.pitchStickUnits;
+    }
+
+    get commandedElevator(): number {
+        return this.flightModel.getCommandedElevator();
     }
 
     /** Max nose-up / nose-down elevator-command clamp bounds (same +nose-up

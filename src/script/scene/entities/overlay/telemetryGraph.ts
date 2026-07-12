@@ -1,16 +1,19 @@
 import { clamp } from '../../../utils/math';
+import { PITCH_STICK_AFT_UNITS, PITCH_STICK_FWD_UNITS } from '../../../defs';
 
 export const TELEMETRY_HISTORY_SECONDS = 5;
 const SAMPLE_HZ = 20;
 const BUFFER_SIZE = TELEMETRY_HISTORY_SECONDS * SAMPLE_HZ;
 const LABEL_FONT = '10px monospace';
 const LABEL_LINE_HEIGHT = 12;
+const STICK_TOTAL_UNITS = PITCH_STICK_FWD_UNITS + PITCH_STICK_AFT_UNITS;
 
 const GRAPH_COLORS = {
     g: '#ff4040',
     aoa: '#4080ff',
     accel: '#b060ff',
-    pitch: '#ffff60',
+    stick: '#ffff60',
+    elevator: '#ffff60',
 } as const;
 
 type ChannelKey = keyof typeof GRAPH_COLORS;
@@ -18,6 +21,7 @@ type ChannelKey = keyof typeof GRAPH_COLORS;
 interface TelemetryChannel {
     key: ChannelKey;
     color: string;
+    dashed?: boolean;
     normalize: (value: number) => number;
     format: (value: number) => string;
 }
@@ -42,10 +46,17 @@ const CHANNELS: TelemetryChannel[] = [
         format: (value) => `acc:${value.toFixed(1)}g`,
     },
     {
-        key: 'pitch',
-        color: GRAPH_COLORS.pitch,
+        key: 'stick',
+        color: GRAPH_COLORS.stick,
+        dashed: true,
+        normalize: (value) => (value + PITCH_STICK_FWD_UNITS) / STICK_TOTAL_UNITS,
+        format: (value) => `stk:${value.toFixed(0)}`,
+    },
+    {
+        key: 'elevator',
+        color: GRAPH_COLORS.elevator,
         normalize: (value) => (value + 1) / 2,
-        format: (value) => `elev:${value.toFixed(1)}`,
+        format: (value) => `elev:${value.toFixed(2)}`,
     },
 ];
 
@@ -53,18 +64,20 @@ export interface TelemetrySample {
     g: number;
     aoaDeg: number;
     accelG: number;
-    pitch: number;
+    stick: number;
+    elevator: number;
 }
 
 export class TelemetryGraph {
     private readonly g = new Float32Array(BUFFER_SIZE);
     private readonly aoa = new Float32Array(BUFFER_SIZE);
     private readonly accel = new Float32Array(BUFFER_SIZE);
-    private readonly pitch = new Float32Array(BUFFER_SIZE);
+    private readonly stick = new Float32Array(BUFFER_SIZE);
+    private readonly elevator = new Float32Array(BUFFER_SIZE);
     private head = 0;
     private count = 0;
     private sampleAccum = 0;
-    private latest: TelemetrySample = { g: 1, aoaDeg: 0, accelG: 0, pitch: 0 };
+    private latest: TelemetrySample = { g: 1, aoaDeg: 0, accelG: 0, stick: 0, elevator: 0 };
 
     record(delta: number, sample: TelemetrySample): void {
         this.latest = sample;
@@ -81,7 +94,8 @@ export class TelemetryGraph {
         this.g[idx] = sample.g;
         this.aoa[idx] = sample.aoaDeg;
         this.accel[idx] = sample.accelG;
-        this.pitch[idx] = sample.pitch;
+        this.stick[idx] = sample.stick;
+        this.elevator[idx] = sample.elevator;
         this.head++;
         this.count = Math.min(this.count + 1, BUFFER_SIZE);
     }
@@ -91,7 +105,8 @@ export class TelemetryGraph {
             case 'g': return this.g;
             case 'aoa': return this.aoa;
             case 'accel': return this.accel;
-            case 'pitch': return this.pitch;
+            case 'stick': return this.stick;
+            case 'elevator': return this.elevator;
         }
     }
 
@@ -105,7 +120,8 @@ export class TelemetryGraph {
             case 'g': return this.latest.g;
             case 'aoa': return this.latest.aoaDeg;
             case 'accel': return this.latest.accelG;
-            case 'pitch': return this.latest.pitch;
+            case 'stick': return this.latest.stick;
+            case 'elevator': return this.latest.elevator;
         }
     }
 
@@ -167,6 +183,7 @@ export class TelemetryGraph {
                 const data = this.channelData(channel.key);
                 ctx.strokeStyle = channel.color;
                 ctx.lineWidth = 1;
+                ctx.setLineDash(channel.dashed ? [3, 3] : []);
                 ctx.beginPath();
                 for (let i = 0; i < this.count - 1; i++) {
                     const idx0 = this.sampleIndex(i);
@@ -180,6 +197,7 @@ export class TelemetryGraph {
                 }
                 ctx.stroke();
             }
+            ctx.setLineDash([]);
         }
 
         ctx.textAlign = 'right';

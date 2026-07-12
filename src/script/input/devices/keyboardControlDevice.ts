@@ -112,6 +112,10 @@ export class KeyboardControlDevice implements KernelTask {
         this.setupInput();
     }
 
+    private usesSteppedPitchStick(): boolean {
+        return this.layoutId === KeyboardControlLayoutId.ARROWS;
+    }
+
     update(delta: number) {
         if (!this.player.controlsEnabled || this.player.isAutopilotEnabled) {
             return;
@@ -127,7 +131,7 @@ export class KeyboardControlDevice implements KernelTask {
             }
         }
 
-        if (this.pitchState !== Stick.IDLE) {
+        if (this.pitchState !== Stick.IDLE && !this.usesSteppedPitchStick()) {
             switch (this.pitchState) {
                 case Stick.POSITIVE_ENDED:
                 case Stick.NEGATIVE_ENDED: {
@@ -217,11 +221,19 @@ export class KeyboardControlDevice implements KernelTask {
             }
             switch (key) {
                 case this.layout[KeyboardControlAction.PITCH_POS]: {
-                    this.pitchState = Stick.POSITIVE;
+                    if (this.usesSteppedPitchStick()) {
+                        this.player.stepPitchStickUnits(1);
+                    } else {
+                        this.pitchState = Stick.POSITIVE;
+                    }
                     break;
                 }
                 case this.layout[KeyboardControlAction.PITCH_NEG]: {
-                    this.pitchState = Stick.NEGATIVE;
+                    if (this.usesSteppedPitchStick()) {
+                        this.player.stepPitchStickUnits(-1);
+                    } else {
+                        this.pitchState = Stick.NEGATIVE;
+                    }
                     break;
                 }
                 case this.layout[KeyboardControlAction.ROLL_POS]: {

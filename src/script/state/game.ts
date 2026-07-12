@@ -1068,7 +1068,8 @@ export class Game {
             g: this.player.loadFactorG,
             aoaDeg: toDegrees(this.player.angleOfAttack),
             accelG: this.telemetryAccel.length() / 9.80665,
-            pitch: this.player.pitchInput,
+            stick: this.player.pitchStickUnitsValue,
+            elevator: this.player.commandedElevator,
         });
     }
 
