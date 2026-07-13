@@ -73,6 +73,9 @@ export class HUDEntity implements Entity {
     private machNumber: number = 0;
     private isLanded: boolean = true;
     private isAutopilotEnabled: boolean = false;
+    private hasGun: boolean = false;
+    private gunAmmo: number = 0;
+    private healthFraction: number = 1;
     private pitch: number = 0; // radians
     private roll: number = 0; // radians
     private pitchInput: number = 0; // [-1, 1]
@@ -103,6 +106,9 @@ export class HUDEntity implements Entity {
         this.loadFactorG = this.actor.loadFactorG;
         this.isLanded = this.actor.isLanded;
         this.isAutopilotEnabled = this.actor.isAutopilotEnabled;
+        this.hasGun = this.actor.hasGun;
+        this.gunAmmo = this.actor.gunAmmo;
+        this.healthFraction = this.actor.healthFraction;
 
         this.pitchInput = this.actor.pitchInput;
         this.rollInput = this.actor.rollInput;
@@ -228,6 +234,7 @@ export class HUDEntity implements Entity {
 
         this.renderTarget(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale);
         this.renderBoresight(halfWidth, halfHeight, painter, geomScale);
+        this.renderGunReticle(halfWidth, halfHeight, painter, geomScale, hudColor, hudWarnColor, font);
         this.renderFlightPathMarker(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale);
         this.renderStallWarning(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor, font);
 
@@ -618,6 +625,33 @@ export class HUDEntity implements Entity {
                 painter.rectangle(x - targetHalfWidth, y - targetHalfWidth, targetWidth, targetWidth);
             }
         }
+    }
+
+    /** Gun pipper (a ring around the boresight) plus an ammo/health readout. */
+    private renderGunReticle(halfWidth: number, halfHeight: number, painter: CanvasPainter, geomScale: number, hudColor: string, hudWarnColor: string, font: Font) {
+        if (!this.hasGun) {
+            return;
+        }
+        const u = geomScale;
+        const r = Math.round(7 * u);
+        // A square "pipper" bracket around the boresight to frame the gun aim.
+        painter.batch()
+            .hLine(halfWidth - r, halfWidth - r + 3 * u, halfHeight - r)
+            .hLine(halfWidth + r - 3 * u, halfWidth + r, halfHeight - r)
+            .hLine(halfWidth - r, halfWidth - r + 3 * u, halfHeight + r)
+            .hLine(halfWidth + r - 3 * u, halfWidth + r, halfHeight + r)
+            .vLine(halfWidth - r, halfHeight - r, halfHeight - r + 3 * u)
+            .vLine(halfWidth - r, halfHeight + r - 3 * u, halfHeight + r)
+            .vLine(halfWidth + r, halfHeight - r, halfHeight - r + 3 * u)
+            .vLine(halfWidth + r, halfHeight + r - 3 * u, halfHeight + r)
+            .commit();
+
+        const lineHeight = font.charHeight + font.charSpacing;
+        const x = Math.max(4, Math.round(4 * geomScale));
+        const y = halfHeight * 2 - lineHeight * 2 - 2;
+        const hpPct = Math.round(this.healthFraction * 100);
+        painter.text(font, x, y, `GUN ${this.gunAmmo}`, this.gunAmmo > 0 ? hudColor : hudWarnColor, TextAlignment.LEFT);
+        painter.text(font, x, y + lineHeight, `HULL ${hpPct}%`, hpPct <= 30 ? hudWarnColor : hudColor, TextAlignment.LEFT);
     }
 
     private renderBoresight(halfWidth: number, halfHeight: number, painter: CanvasPainter, geomScale: number) {

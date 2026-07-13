@@ -46,6 +46,7 @@ import { CameraUpdater } from './cameraUpdaters/cameraUpdater';
 import { CockpitFrontCameraUpdater } from './cameraUpdaters/cockpitFrontCameraUpdater';
 import { CrashedCameraUpdater } from './cameraUpdaters/crashedCameraUpdater';
 import { ExteriorFrontBehindCameraUpdater, ExteriorViewHeading } from './cameraUpdaters/exteriorFrontBehindCameraUpdater';
+import { AiExteriorCameraUpdater } from './cameraUpdaters/aiExteriorCameraUpdater';
 import { ExteriorSideCameraUpdater, ExteriorViewSide } from './cameraUpdaters/exteriorSideCameraUpdater';
 import { TargetFromCameraUpdater } from './cameraUpdaters/targetFromCameraUpdater';
 import { TargetToCameraUpdater } from './cameraUpdaters/targetToCameraUpdater';
@@ -57,6 +58,12 @@ import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
+import { Obstacle, Runway, SceneWorldQuery } from '../ai/worldQuery';
+import { AiPilot, AiFlightPhase } from '../ai/aiPilot';
+import { PlayerPilotAdapter } from '../ai/playerPilotAdapter';
+import { AiAircraftEntity } from '../scene/entities/aiAircraft';
+import { WeaponsField } from '../scene/entities/weaponsField';
+import { Combatant, Faction } from '../weapons/combatant';
 
 const DEFAULT_START_AIRCRAFT_ID = 'cold_war_planes_f_15c_32nd';
 /** Built-in aircraft to spawn when the preferred default pack isn't available. */
@@ -130,6 +137,7 @@ enum PlayerViewState {
     TARGET_TO,
     TARGET_FROM,
     STATIC_MODEL,
+    AI_CHASE,
     SHOWCASE,
 }
 
@@ -204,6 +212,11 @@ export class Game {
     private readonly terrainRayOrigin = new THREE.Vector3();
     private readonly terrainRayDir = new THREE.Vector3(0, -1, 0);
     private readonly hillColliders: HillCollider[] = [];
+    private readonly obstacles: Obstacle[] = [];
+    private worldQuery: SceneWorldQuery | undefined;
+    private weaponsField: WeaponsField | undefined;
+    private aiOpponent: AiAircraftEntity | undefined;
+    private playerPilot: AiPilot | undefined;
 
     private playerCamera: SceneCamera;
     private targetCamera: SceneCamera;
@@ -930,7 +943,7 @@ export class Game {
             this.scene.update(delta);
 
             if (this.flightRecorder.isRecording()) {
-                this.flightRecorder.record(this.player.captureFlightSample(), delta);
+                this.flightRecorder.record(this.getShownAircraft().captureFlightSample(), delta);
             }
 
             if (this.player.isCrashed) {
@@ -1061,6 +1074,8 @@ export class Game {
     private orbitCameraAroundAircraft() {
         if (this.view === PlayerViewState.STATIC_MODEL) {
             this._orbitPivot.copy(STATIC_MODEL_VIEWS[this.staticModelIndex].position);
+        } else if (this.view === PlayerViewState.AI_CHASE && this.aiOpponent) {
+            this._orbitPivot.copy(this.aiOpponent.getDisplayPosition());
         } else {
             this._orbitPivot.copy(this.player.getDisplayPosition());
         }
@@ -1087,6 +1102,14 @@ export class Game {
     private openTelemetryGraphWindow(): void {
         const borderColor = PaletteColor(this.getPalette(), PaletteCategory.HUD_TEXT_SECONDARY);
         this.telemetryGraphWindow.open(this.telemetryGraph, borderColor);
+    }
+
+    /** The aircraft currently on screen: the AI opponent in the F6 chase view, otherwise the player. */
+    private getShownAircraft(): PlayerEntity | AiAircraftEntity {
+        if (this.view === PlayerViewState.AI_CHASE && this.aiOpponent && this.aiOpponent.enabled) {
+            return this.aiOpponent;
+        }
+        return this.player;
     }
 
     private recordTelemetry(delta: number): void {
@@ -1147,7 +1170,7 @@ export class Game {
                 case 'F6': {
                     event.preventDefault();
                     this.resetOrbit();
-                    this.cycleStaticModelView();
+                    this.setAiChaseView();
                     break;
                 }
                 case 'F12': {
@@ -1357,6 +1380,14 @@ export class Game {
         }
     }
 
+    private setAiChaseView() {
+        if (!this.aiOpponent || !this.aiOpponent.enabled || !this.cameraUpdaters.has(PlayerViewState.AI_CHASE)) {
+            return;
+        }
+        restoreMainCameraParameters(this.playerCamera.main);
+        this.setExteriorView(PlayerViewState.AI_CHASE);
+    }
+
     private cycleStaticModelView() {
         if (this.view !== PlayerViewState.STATIC_MODEL) {
             this.staticModelIndex = 0;
@@ -1452,7 +1483,109 @@ export class Game {
         } else {
             this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
         }
+        this.spawnOpponent();
         this.setCockpitFrontView();
+    }
+
+    /**
+     * Build the shared combat systems: a {@link SceneWorldQuery} for AI terrain
+     * and obstacle awareness, the projectile pool, the player's gun + AI
+     * autopilot, and one AI-flown opponent.
+     */
+    private setupCombat() {
+        this.obstacles.length = 0;
+        const addObstacle = (x: number, z: number, radius: number, height: number) =>
+            this.obstacles.push({ position: new THREE.Vector3(x, 0, z), radius, height });
+        // Airbase hangars + control tower.
+        addObstacle(1330, -800, 45, 22);
+        addObstacle(1330, -860, 45, 22);
+        addObstacle(1330, -920, 45, 22);
+        addObstacle(1670, -810, 45, 22);
+        addObstacle(1580, -500, 25, 45);
+        // Oil refinery.
+        addObstacle(-1200, 1500, 70, 60);
+        // SAM radar.
+        addObstacle(500, -400, 20, 25);
+        // Warehouse.
+        addObstacle(-16000, 11000, 45, 22);
+
+        const runway: Runway = {
+            center: AIRBASE_RUNWAY.clone(),
+            heading: PLAYER_STARTING_HEADING,
+            halfLength: RUNWAY_HALF_LENGTH_M,
+            halfWidth: RUNWAY_STRIP_HALF_WIDTH,
+        };
+        this.worldQuery = new SceneWorldQuery(
+            this.hillColliders,
+            (x, z) => this.isLandAt(x, z),
+            this.obstacles,
+            runway,
+        );
+
+        this.weaponsField = new WeaponsField(this.models, () => this.getCombatants());
+        this.scene.add(this.weaponsField);
+
+        this.player.setWeapons(this.weaponsField);
+        this.playerPilot = new AiPilot(new PlayerPilotAdapter(this.player), this.worldQuery, {
+            cruiseAltitude: 3000,
+            cruiseSpeed: 220,
+            hardDeck: 150,
+        });
+        this.player.setAiPilot(this.playerPilot);
+
+        this.aiOpponent = new AiAircraftEntity(
+            this.models,
+            buildF22Def(),
+            this.worldQuery,
+            this.weaponsField,
+            Faction.ENEMY,
+            {
+                position: new THREE.Vector3(3000, 3000, 4000),
+                heading: Math.PI,
+                airborne: true,
+                throttle: 0.85,
+                velocity: FORWARD.clone().applyAxisAngle(UP, Math.PI).multiplyScalar(250),
+            },
+            { cruiseAltitude: 3000, cruiseSpeed: 260, combatSpeed: 330, gunRange: 900, hardDeck: 200 },
+        );
+        this.aiOpponent.enabled = false;
+        this.scene.add(this.aiOpponent);
+
+        this.cameraUpdaters.set(
+            PlayerViewState.AI_CHASE,
+            new AiExteriorCameraUpdater(this.player, this.playerCamera.main, this.aiOpponent));
+    }
+
+    private getCombatants(): Combatant[] {
+        const list: Combatant[] = [this.player];
+        if (this.aiOpponent && this.aiOpponent.enabled) {
+            list.push(this.aiOpponent);
+        }
+        return list;
+    }
+
+    /** Spawn/enable the AI opponent airborne near the player and engage. */
+    private spawnOpponent() {
+        if (!this.aiOpponent) {
+            return;
+        }
+        const p = this.player.position;
+        const altitude = Math.max(2500, p.y);
+        const heading = Math.PI; // face back toward the player merge
+        this.aiOpponent.respawn({
+            position: new THREE.Vector3(p.x + 1500, altitude, p.z + 6000),
+            heading,
+            airborne: true,
+            throttle: 0.85,
+            velocity: FORWARD.clone().applyAxisAngle(UP, heading).multiplyScalar(260),
+        });
+        this.aiOpponent.getPilot().setTarget(this.player);
+        this.aiOpponent.getPilot().setPhase(AiFlightPhase.ENGAGE);
+
+        // The player's autopilot flies home and lands (RTB); it also knows about
+        // the opponent should combat logic be enabled for it later.
+        this.playerPilot?.setTarget(this.aiOpponent);
+        this.playerPilot?.setPhase(AiFlightPhase.RTB);
     }
 
     private async setupScene() {
@@ -1561,6 +1694,8 @@ export class Game {
         this.scene.add(this.groundSmoke);
         this.scene.add(this.groundFire);
         this.scene.add(this.player);
+
+        this.setupCombat();
 
         const hud = new HUDEntity(this.player, this.configService);
         this.cockpitEntities.push(hud);

@@ -29,6 +29,7 @@ import {
 import { AeroSurface } from '../fm2/aeroSurface';
 import { Fm2Fcs } from '../fm2/fcs';
 import { Fm2AircraftConfig, defaultFm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
+import { forebodyAsymmetryCy } from '../fm2/forebodyAsymmetry';
 import { RigidBody } from '../fm2/rigidBody';
 import { FlightModel, ForceVectorSample } from './flightModel';
 
@@ -74,9 +75,17 @@ export class Fm2FlightModel extends FlightModel {
     /** Optional dedicated aileron surfaces (present when the config supplies them). */
     private readonly aileronLeft?: AeroSurface;
     private readonly aileronRight?: AeroSurface;
+    /** Optional forward strake/LERX surface (present when the config supplies it) —
+     *  the real, fixed-arm source of the post-stall nose-up moment (see
+     *  `Fm2SurfaceSet.foreStrake`). Replaces the old scripted CG relocation. */
+    private readonly foreStrake?: AeroSurface;
     /** All lifting surfaces in build order — the single list the step and the
      *  force-vector snapshot both iterate. */
     private readonly allSurfaces: AeroSurface[];
+
+    /** Current integration timestep (s), published to the surfaces each step so
+     *  their unsteady separation-state lag advances at the true dt. */
+    private currentStepDt = 1 / 120;
 
     /** Reference dynamic pressure at the design cruise condition (Pa). */
     private readonly qRef: number;
@@ -105,7 +114,8 @@ export class Fm2FlightModel extends FlightModel {
     private readonly _contactVel = new THREE.Vector3();
     private readonly _omegaWorld = new THREE.Vector3();
     private readonly _friction = new THREE.Vector3();
-    private readonly _cgOffset = new THREE.Vector3();
+    /** Last forebody asymmetry side force (body frame, N); for the debug overlay. */
+    private readonly forebodyForceBody = new THREE.Vector3();
 
     constructor(config: Fm2AircraftConfig = defaultFm2Config, options: Fm2ModelOptions = {}) {
         super();
@@ -129,11 +139,15 @@ export class Fm2FlightModel extends FlightModel {
         if (config.surfaces.aileronRight) {
             this.aileronRight = new AeroSurface(config.surfaces.aileronRight);
         }
+        if (config.surfaces.foreStrake) {
+            this.foreStrake = new AeroSurface(config.surfaces.foreStrake);
+        }
         this.allSurfaces = [
             this.fuselage, this.wingLeft, this.wingRight,
             this.htailLeft, this.htailRight, this.vtail,
             ...(this.aileronLeft ? [this.aileronLeft] : []),
             ...(this.aileronRight ? [this.aileronRight] : []),
+            ...(this.foreStrake ? [this.foreStrake] : []),
         ];
         this.qRef = 0.5 * computeIsaAirDensity(config.envelope.cruiseAltitudeM)
             * config.envelope.cruiseSpeedMps ** 2;
@@ -145,6 +159,9 @@ export class Fm2FlightModel extends FlightModel {
         this.rb.reset();
         this.fcs.reset();
         this.stall = -1;
+        for (const s of this.allSurfaces) {
+            s.resetState();
+        }
     }
 
     step(delta: number): void {
@@ -156,6 +173,8 @@ export class Fm2FlightModel extends FlightModel {
         }
 
         this.spoolThrottle(delta);
+        // Publish the timestep for the surfaces' unsteady separation-state lag.
+        this.currentStepDt = delta;
 
         // Adopt any externally set orientation / velocity as the rigid-body state.
         this.rb.orientation.copy(this.obj.quaternion);
@@ -217,10 +236,6 @@ export class Fm2FlightModel extends FlightModel {
         this.elevatorCommandLimitHigh = fcsOut.elevatorLimitHi;
         this.elevatorCommandLimitLow = fcsOut.elevatorLimitLo;
 
-        // Blend the AoA-gated CG shift (emergent-cobra static-margin relaxation)
-        // into every surface's moment / rotation arm before the force build-up.
-        this.updateCgOffset(aoa);
-
         // ---- Aerodynamic force & moment build-up from the rigid parts. ----
         this.forceBody.set(0, 0, 0);
         this.momentBody.set(0, 0, 0);
@@ -243,13 +258,20 @@ export class Fm2FlightModel extends FlightModel {
         if (this.aileronRight) {
             this.accumulateSurface(this.aileronRight, controls.aileronRightAoa, 0, 0, 0, airDensity);
         }
+        if (this.foreStrake) {
+            // Real forward strake/LERX: no flaps, no control incidence — its
+            // own lift curve (vortex lift + unsteady lag) through its real,
+            // fixed arm ahead of the CG is the genuine post-stall pitch-up
+            // source (replaces the old scripted CG relocation).
+            this.accumulateSurface(this.foreStrake, 0, 0, 0, 0, airDensity);
+        }
+
+        // Forebody vortex asymmetry (Ericsson nose slice) — only in the subscale
+        // /laminar Reynolds regime; at full-scale it contributes nothing.
+        this.applyForebodyAsymmetry(aoa, dynamicPressure, speed);
 
         // Fuselage / parasite / gear / wave drag along the relative wind.
         this.addBodyDrag(dynamicPressure, speed, mach);
-
-        // Help the pilot hold nose-up attitude through the low-energy apex so
-        // velocity can overtake the body axis (tail-slide entry).
-        this.applyDeepStallPitchAssist(speed, aoa);
 
         // Thrust along the nose (+Z body).
         const thrustN = this.computeThrustN(this.effectiveThrottle, altitude);
@@ -262,6 +284,11 @@ export class Fm2FlightModel extends FlightModel {
         // Load factor: specific normal (body-up) force / g, incl. gear reaction.
         const gearBodyUpY = this._v.copy(this.gearForceWorld).applyQuaternion(this.invOrient).y;
         this.loadFactorG = (this.forceBody.y + gearBodyUpY) / (this.config.geometry.massKg * GRAVITY);
+
+        // Transonic pitch-damping augmentation (added Cmq): only ramps in above the
+        // configured qNorm knee, so the whole maneuvering envelope is untouched and
+        // only transonic overspeed gets the extra short-period damping.
+        this.applyTransonicPitchDamp(dynamicPressure, this.rb.angularVelocityBody.x);
 
         // ---- Integrate rotational dynamics (body frame). ----
         this.momentBody.add(this.gearMomentBody);
@@ -296,20 +323,10 @@ export class Fm2FlightModel extends FlightModel {
         const maxStabilator = this.config.fcs.maxStabilatorRad;
         const maxAileron = this.config.aileronMaxDeflectionRad;
         const maxRudder = this.config.fcs.maxRudderRad;
-        const speed = this.velBody.length();
-        const absAoa = Math.abs(this.angleOfAttackRad);
-        // High-AoA stabilator boost. The low-q (<130 m/s) branch is always available.
-        // The high-AoA branch only engages with the FBW limiters OFF: it exists to
-        // give the limiters-OFF pilot the authority to punch past the airframe's
-        // natural AoA ceiling into the emergent-cobra band. With the limiters ON the
-        // AoA cap holds AoA at the limit anyway, so enabling the boost there would
-        // only add g overshoot on a hard pull without raising the (capped) AoA.
-        const aeroAoaOnset = (this.config.fcs.aerobaticStabilatorAoaOnsetDeg ?? 35) * (Math.PI / 180);
-        const aerobatic = speed < 130 || (!this.limitersEnabled && absAoa > aeroAoaOnset);
-        const stabGain = aerobatic ? (this.config.fcs.aerobaticStabilatorGain ?? 1) : 1;
-        const effectiveStab = maxStabilator * stabGain;
         // Elevator: +cmd = nose up → negative stabilator incidence (tail lift down).
-        const elevatorAoa = -elevator * effectiveStab;
+        // A single real hardware deflection limit applies at every speed/AoA — no
+        // artificial high-AoA authority boost.
+        const elevatorAoa = -elevator * maxStabilator;
         // Differential tail (taileron) assists roll.
         const taileronAoa = aileron * this.config.fcs.taileronRollFraction * maxStabilator;
         // Roll incidence goes to the dedicated aileron surfaces when present; only
@@ -352,64 +369,65 @@ export class Fm2FlightModel extends FlightModel {
             camberBiasRad: camber,
             stallShiftRad: stallShift,
             extraCd,
+            dt: this.currentStepDt,
         }, this.forceBody, this.momentBody);
     }
 
     /**
-     * Blend the emergent-cobra CG shift into every surface's effective arm.
-     *
-     * Below the onset AoA the offset is zero, so the normal envelope (cruise, hard
-     * pulls, roll) keeps the stable design static margin. As AoA climbs into the
-     * post-stall band the CG walks aft (config `highAoaAero.cgOffsetBody`), which
-     * shortens the tail arm and turns the wing / forebody lift into a growing
-     * nose-up moment — the airframe becomes statically unstable and the nose
-     * diverges toward ~90°. This is the physics that makes the cobra emerge; there
-     * is no injected moment. Aircraft without `highAoaAero` keep a fixed CG.
+     * Forebody vortex asymmetry — the high-alpha "nose slice" (Ericsson,
+     * ICAS-92-4.6R). Above the onset AoA a slender forebody sheds an asymmetric
+     * vortex pair whose side force, acting on the long nose arm, makes a large
+     * yawing moment. The direction locks in with the vehicle's own coning motion
+     * (moving-wall / transition coupling), so it is self-reinforcing → a yaw
+     * departure. This coupling only develops in LAMINAR / subscale flow; at
+     * full-scale Reynolds numbers it is suppressed, which is why the real cobra
+     * stays symmetric. We therefore apply it ONLY in the subscale/laminar regime
+     * (see {@link FlightModel.setForebodyLaminar}); at full-scale (default) it is
+     * a no-op and the airframe stays laterally symmetric.
      */
-    private updateCgOffset(aoa: number): void {
-        const cfg = this.config.highAoaAero;
-        if (!cfg) return;
-        // Always-active, AoA-gated only: no speed/throttle/switch gate. With the
-        // FBW limiters ON the g-command law holds AoA below the onset, so the
-        // relaxation is only reached once the pilot switches the limiters off.
-        const gate = this.cgOffsetGate(Math.abs(aoa), cfg);
-        this._cgOffset.set(
-            cfg.cgOffsetBody[0] * gate,
-            cfg.cgOffsetBody[1] * gate,
-            cfg.cgOffsetBody[2] * gate,
+    private applyForebodyAsymmetry(aoa: number, dynamicPressure: number, speed: number): void {
+        this.forebodyForceBody.set(0, 0, 0);
+        const cfg = this.config.forebodyAsymmetry;
+        if (!cfg || !this.forebodyLaminar) return;
+
+        const cy = forebodyAsymmetryCy(
+            aoa,
+            this.rb.angularVelocityBody.y, // yaw rate about +Y (the coning motion)
+            this.rb.angularVelocityBody.x, // pitch rate about +X (nose-AoA shift)
+            speed, cfg,
         );
-        for (const s of this.allSurfaces) {
-            s.setCgOffset(this._cgOffset);
-        }
+        if (cy === 0) return;
+
+        // Side force along body +X, applied at the nose (0, 0, armZ) relative to
+        // the (fixed) CG, giving a pure yawing moment about +Y.
+        const fx = dynamicPressure * cfg.refAreaM2 * cy;
+        this.forebodyForceBody.set(fx, 0, 0);
+        this.forceBody.x += fx;
+        this.momentBody.y += cfg.armZ * fx;
     }
 
     /**
-     * Trapezoidal AoA schedule for the aft-CG blend: ramp 0→1 over the entry band
-     * (onset→full) to break the airframe loose past stall, hold fully relaxed, then
-     * (if a re-stabilization band is configured) ramp 1→0 so the airframe returns
-     * to its stable design CG at very high AoA and arrests the nose near the apex.
+     * Transonic pitch-damping augmentation (an added aerodynamic Cmq term).
+     *
+     * The geometric tail damping keeps the short period well-damped through the
+     * normal envelope, but as q climbs into transonic overspeed the short-period
+     * frequency rises and the FCS's fixed actuator/sensor lag erodes its phase
+     * margin faster than the natural damping grows, so the closed loop rings (a
+     * hands-off ~Mach 0.98 −4 g ↔ +8 g limit cycle). This adds a pitch-rate
+     * damping MOMENT that scales with q̄·S·c and ramps in only ABOVE the qNorm
+     * knee, so the whole maneuvering envelope (incl. the structural-g pulls and
+     * the low-speed / high-AoA cobra, all below the knee) is byte-for-byte
+     * unchanged. pitchRate about +X is nose-down-positive, so the moment opposes
+     * the rate regardless of sign.
      */
-    private cgOffsetGate(absAoa: number, cfg: NonNullable<Fm2AircraftConfig['highAoaAero']>): number {
-        const up = clamp((absAoa - cfg.onsetAoaRad) / Math.max(cfg.fullAoaRad - cfg.onsetAoaRad, 1e-3), 0, 1);
-        if (cfg.restabOnsetAoaRad === undefined || cfg.restabFullAoaRad === undefined) return up;
-        const down = clamp((absAoa - cfg.restabOnsetAoaRad)
-            / Math.max(cfg.restabFullAoaRad - cfg.restabOnsetAoaRad, 1e-3), 0, 1);
-        // overshoot > 1 drives the gate NEGATIVE at full re-stabilization — a
-        // forward CG (nose-down pitch bucket) that actively arrests the cobra apex.
-        const overshoot = cfg.restabOvershoot ?? 1;
-        return clamp(up * (1 - down * overshoot), -1, 1);
-    }
-
-    /** Extra nose-up moment when holding aft stick in the deep-stall apex. */
-    private applyDeepStallPitchAssist(speed: number, aoa: number): void {
-        if (this.landed || this.pitch < 0.6) return;
-        const absAoa = Math.abs(aoa);
-        if (speed > 55 || absAoa < 0.45 || absAoa > 1.65) return;
-        const stick = clamp((this.pitch - 0.6) / 0.4, 0, 1);
-        const energy = clamp((55 - speed) / 40, 0, 1);
-        const deepStall = clamp((absAoa - 0.45) / 0.7, 0, 1);
-        const momentN = stick * energy * deepStall * 1.6e5;
-        this.momentBody.x -= momentN;
+    private applyTransonicPitchDamp(dynamicPressure: number, pitchRate: number): void {
+        const cfg = this.config.transonicPitchDamp;
+        if (!cfg) return;
+        const qNorm = dynamicPressure / Math.max(this.qRef, 1);
+        if (qNorm <= cfg.qKnee) return;
+        const ramp = clamp(qNorm / cfg.qKnee - 1, 0, cfg.maxRamp ?? 2);
+        const g = this.config.geometry;
+        this.momentBody.x -= cfg.gain * dynamicPressure * g.wingAreaM2 * g.meanChordM * pitchRate * ramp;
     }
 
     /**
@@ -657,6 +675,17 @@ export class Fm2FlightModel extends FlightModel {
             samples.push({
                 part: s.name, kind: 'drag',
                 origin: [p.x, p.y, p.z], vec: [d.x, d.y, d.z],
+            });
+        }
+
+        // Forebody vortex-asymmetry side force (nose slice), when live (subscale
+        // regime). Drawn at the nose so the departure is visible; zero otherwise.
+        const fb = this.forebodyForceBody;
+        if (fb.lengthSq() > 0) {
+            const armZ = this.config.forebodyAsymmetry?.armZ ?? 0;
+            samples.push({
+                part: 'forebody', kind: 'lift', origin: [0, 0, armZ],
+                vec: [fb.x, fb.y, fb.z],
             });
         }
 

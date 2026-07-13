@@ -56,6 +56,21 @@ const DEFAULT_G_LIMITER_GAIN = 0.9;
 const DEFAULT_G_LIMITER_LEAD_S = 0.05;
 const DEFAULT_G_LIMITER_NEG_LEAD_S = 0.5;
 const DEFAULT_G_LIMITER_SOFT_MARGIN_G = 1.5;
+const DEFAULT_CAP_BACK_CALC_GAIN = 0.75;
+const DEFAULT_CAP_RATE_TAU_S = 0.06;
+const DEFAULT_AOA_CAP_Q_FADE_START = 0.3;
+const DEFAULT_AOA_CAP_Q_FADE_END = 0.7;
+
+/** Hermite smoothstep for regime fades (0 at edge0, 1 at edge1). */
+function smoothstep(edge0: number, edge1: number, x: number): number {
+    const t = clamp((x - edge0) / Math.max(edge1 - edge0, 1e-6), 0, 1);
+    return t * t * (3 - 2 * t);
+}
+
+/** Blend `a` toward `b` by weight in [0, 1]. */
+function lerp(a: number, b: number, w: number): number {
+    return a + (b - a) * w;
+}
 
 /**
  * Stick [-1, 1] → commanded body roll rate (rad/s) for the rate-command roll
@@ -218,6 +233,9 @@ export class Fm2Fcs {
     private prevGValid = false;
     private elevatorLimitHi = 1;
     private elevatorLimitLo = -1;
+    /** Rate-limited nose-up / nose-down deflection cap bounds. */
+    private noseUpCapFilt = 1;
+    private noseDownCapFilt = -1;
 
     constructor(private readonly cfg: Fm2FcsConfig) { }
 
@@ -235,6 +253,8 @@ export class Fm2Fcs {
         this.prevGValid = false;
         this.elevatorLimitHi = 1;
         this.elevatorLimitLo = -1;
+        this.noseUpCapFilt = 1;
+        this.noseDownCapFilt = -1;
     }
 
     getState(): FcsOutput {
@@ -432,14 +452,12 @@ export class Fm2Fcs {
         if (directHigh) {
             // Limiters off: stick → stabilator with light pitch-rate / AoA-rate
             // damping (so it isn't numerically divergent), no g clamp, no AoA
-            // limiter. Beyond the recovery AoA stop adding nose-up so the airframe
-            // is guaranteed to fall back out of the cobra.
+            // limiter. The pilot's own stick is what has to come back to recover
+            // — there is no automatic cutoff; holding full aft stick keeps
+            // commanding nose-up for as long as the real airframe can sustain it.
             const damp = hi?.directDampScale ?? 0.25;
             const dampTerm = rateDampGain * damp * input.pitchRate - p.aoaRateDampGain * damp * this.aoaRateFilt;
-            const past = hi?.recoveryAoaRad !== undefined
-                && Math.abs(input.aoaRad) > hi.recoveryAoaRad;
-            const stick = past && input.pitchStick > 0 ? 0 : input.pitchStick;
-            directElevator = clamp(stick + dampTerm, -1, 1);
+            directElevator = clamp(input.pitchStick + dampTerm, -1, 1);
         } else {
             directElevator = clamp(input.pitchStick + rateDampGain * 0.35 * input.pitchRate, -1, 1);
         }
@@ -482,14 +500,28 @@ export class Fm2Fcs {
             let noseUp = 1;
             let noseDown = -1;
 
+            // High q: fade the AoA cap out so the G cap alone governs hard pulls.
+            // During aggressive roll, fade both caps so turn entry does not excite
+            // short-period limit cycles from roll-coupled AoA changes.
+            const qNorm = clamp(input.dynamicPressure / Math.max(input.qRef, 1), 0, 1);
+            const qFadeStart = p.aoaCapQFadeStart ?? DEFAULT_AOA_CAP_Q_FADE_START;
+            const qFadeEnd = p.aoaCapQFadeEnd ?? DEFAULT_AOA_CAP_Q_FADE_END;
+            const aoaCapQWeight = 1 - smoothstep(qFadeStart, qFadeEnd, qNorm);
+            const maxRollRadS = (this.cfg.roll.maxRollRateDegS ?? 300) * DEG;
+            const rollFade = clamp(1 - Math.abs(input.rollRate) / Math.max(maxRollRadS, 1e-3), 0, 1);
+            const aoaCapWeight = aoaCapQWeight * (0.25 + 0.75 * rollFade);
+            const gCapRollScale = 0.5 + 0.5 * rollFade;
+
             const aoaLimiterGain = p.aoaLimiterGain ?? DEFAULT_AOA_LIMITER_GAIN;
-            if (aoaLimiterGain > 0) {
+            if (aoaLimiterGain > 0 && aoaCapWeight > 1e-3) {
                 const aoaRateDegS = this.aoaRateFilt / DEG;
-                noseUp = Math.min(noseUp, aoaLimitDeflectionCeiling(aoaDeg, aoaRateDegS, p));
-                noseDown = Math.max(noseDown, -aoaLimitDeflectionCeiling(-aoaDeg, -aoaRateDegS, p));
+                const aoaUpCeiling = aoaLimitDeflectionCeiling(aoaDeg, aoaRateDegS, p);
+                const aoaDownCeiling = aoaLimitDeflectionCeiling(-aoaDeg, -aoaRateDegS, p);
+                noseUp = Math.min(noseUp, lerp(1, aoaUpCeiling, aoaCapWeight));
+                noseDown = Math.max(noseDown, -lerp(1, aoaDownCeiling, aoaCapWeight));
             }
 
-            const gLimiterGain = p.gLimiterGain ?? DEFAULT_G_LIMITER_GAIN;
+            const gLimiterGain = (p.gLimiterGain ?? DEFAULT_G_LIMITER_GAIN) * gCapRollScale;
             if (gLimiterGain > 0) {
                 const g = input.loadFactorG;
                 const gr = this.gRateFilt;
@@ -508,12 +540,47 @@ export class Fm2Fcs {
                     -gLimitDeflectionCeiling(-g, -gr, -minCommandG, -minCommandG - soft, gLimiterGain, negLead));
             }
 
-            elevator = clamp(elevator, noseDown, noseUp);
+            // Rate-limit the nose-up ceiling only (turn/+g chatter source). The
+            // nose-down floor snaps instantly so the −g cap can arrest a push
+            // without lag-induced overshoot past −3 g.
+            const capTau = p.capRateTauS ?? DEFAULT_CAP_RATE_TAU_S;
+            const capAlpha = dt <= 0 ? 1 : 1 - Math.exp(-dt / Math.max(capTau, 1e-3));
+            if (noseUp >= this.noseUpCapFilt) {
+                this.noseUpCapFilt = noseUp;
+            } else {
+                this.noseUpCapFilt += (noseUp - this.noseUpCapFilt) * capAlpha;
+            }
+            this.noseDownCapFilt = noseDown;
+            const cappedNoseUp = this.noseUpCapFilt;
+            const cappedNoseDown = this.noseDownCapFilt;
+
+            const elevatorUncapped = elevator;
+            elevator = clamp(elevator, cappedNoseDown, cappedNoseUp);
+            const capError = elevator - elevatorUncapped;
+            const softG = p.gLimiterSoftMarginG ?? DEFAULT_G_LIMITER_SOFT_MARGIN_G;
+            const gNow = input.loadFactorG;
+            const gNearLimit = gNow >= maxCommandG - softG || gNow <= minCommandG + softG;
+            const aoaNearLimit = absAoaDeg >= (p.aoaSoftDeg ?? DEFAULT_AOA_SOFT_DEG);
+            if (Math.abs(capError) > 1e-6 && (gNearLimit || aoaNearLimit)) {
+                const backCalc = p.capBackCalcGain ?? DEFAULT_CAP_BACK_CALC_GAIN;
+                // Back-calculate only when the cap is restricting nose-up (positive
+                // uncapped command clipped down). On the −g side the cap restricts
+                // nose-down by raising the floor; feeding that clip back into the
+                // integrator fights the push and prevents reaching −3 g.
+                if (elevatorUncapped > 0 && capError < 0) {
+                    this.pitchIntegral += capError * backCalc / Math.max(iGain, 1e-3);
+                    this.pitchIntegral = clamp(this.pitchIntegral, -3, 3);
+                }
+            }
+
             // Surface the applied clamp bounds (same +nose-up polarity as the
             // exposed elevator command) so the HUD can mark where the pitch input
             // is being limited.
-            this.elevatorLimitHi = clamp(noseUp, -1, 1);
-            this.elevatorLimitLo = clamp(noseDown, -1, 1);
+            this.elevatorLimitHi = clamp(cappedNoseUp, -1, 1);
+            this.elevatorLimitLo = clamp(cappedNoseDown, -1, 1);
+        } else {
+            this.noseUpCapFilt = 1;
+            this.noseDownCapFilt = -1;
         }
         return clamp(elevator, -1, 1);
     }

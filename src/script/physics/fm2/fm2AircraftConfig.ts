@@ -11,15 +11,17 @@
  *   +X = RIGHT, +Y = UP, +Z = FORWARD. Right-handed: RIGHT × UP = FORWARD.
  */
 import {
-    FM2_AILERON, FM2_BODY_CD0, FM2_FCS, FM2_FLAPS, FM2_GEAR_CD, FM2_GEOMETRY,
-    FM2_INERTIA, FM2_SURFACES, FM2_WAVE_DRAG, SurfaceGeometry,
+    FM2_AILERON, FM2_BODY_CD0, FM2_FCS, FM2_FLAPS, FM2_FOREBODY, FM2_GEAR_CD,
+    FM2_GEOMETRY, FM2_INERTIA, FM2_SURFACES, FM2_TRANSONIC_PITCH_DAMP, FM2_WAVE_DRAG,
+    SurfaceGeometry,
 } from './fm2Constants';
+import { Fm2ForebodyAsymmetryConfig } from './forebodyAsymmetry';
 import { F16_PROFILE } from '../f16Profile';
 import { PLANE_DISTANCE_TO_GROUND } from '../../defs';
 
 const DEG = Math.PI / 180;
 
-export type { SurfaceGeometry };
+export type { SurfaceGeometry, Fm2ForebodyAsymmetryConfig };
 
 /** Reference mass / planform geometry (SI). */
 export interface Fm2GeometryConfig {
@@ -51,6 +53,15 @@ export interface Fm2SurfaceSet {
      */
     aileronLeft?: SurfaceGeometry;
     aileronRight?: SurfaceGeometry;
+    /**
+     * Optional forward strake / LERX surface, genuinely positioned ahead of the
+     * CG. Its own lift curve (vortex lift + unsteady separation lag) acting
+     * through this REAL, fixed geometric arm is what can turn a sustained
+     * post-stall pull into a genuine nose-up (destabilizing) pitching moment —
+     * no scripted CG relocation involved. Omitted ⇒ the airframe has no real
+     * source of post-stall pitch-up and stays conventionally stable at all AoA.
+     */
+    foreStrake?: SurfaceGeometry;
 }
 
 export interface Fm2FlapsConfig {
@@ -122,16 +133,6 @@ export interface Fm2FcsConfig {
     maxRudderRad: number;
     /** Fraction of roll command routed to the differential stabilator. */
     taileronRollFraction: number;
-    /** Extra stabilator gain in the low-q / deep-stall aerobatic envelope. */
-    aerobaticStabilatorGain?: number;
-    /**
-     * AoA (deg) above which the aerobatic stabilator gain also engages (in addition
-     * to the low-speed <130 m/s branch). Placed ABOVE the FBW AoA-limiter hold so
-     * it only helps a limiters-OFF pull punch past the airframe's natural high-q
-     * AoA ceiling into the emergent-cobra relaxation band — with the limiters ON the
-     * AoA never reaches it. Omitted ⇒ 35° (no effect inside the normal envelope).
-     */
-    aerobaticStabilatorAoaOnsetDeg?: number;
     /** First-order actuator lag shared by all surfaces (s). */
     actuatorTauS: number;
     pitch: Fm2PitchLawConfig;
@@ -141,65 +142,24 @@ export interface Fm2FcsConfig {
      * Optional high-AoA / post-stall pitch tuning for the limiters-OFF direct
      * pitch path. When the pilot switches the FBW limiters OFF (see
      * {@link FcsInput.limitersEnabled}) the g-command law passes the stick straight
-     * to the stabilator; these values tune the light damping and the AoA above
-     * which nose-up authority fades so the emergent cobra reliably recovers.
-     * Absent ⇒ the limiters-off direct path uses default damping.
+     * to the stabilator; this tunes only the light rate/AoA-rate damping on that
+     * path. Absent ⇒ the limiters-off direct path uses default damping.
      */
     highAoa?: Fm2HighAoaFcsConfig;
 }
 
 /**
- * Tuning for the limiters-OFF direct pitch path. The cobra is emergent: turning
- * the FBW limiters off only removes the AoA limiter and structural g clamp and
- * lets full stick drive the stabilator — the actual nose swing to ~90° comes from
- * the relaxed-stability airframe ({@link Fm2HighAoaAeroConfig}), not an injected
- * moment. There is no automatic trigger; the pilot toggles the limiters.
+ * Tuning for the limiters-OFF direct pitch path. Turning the FBW limiters off
+ * removes the AoA limiter and structural g clamp and lets full stick drive the
+ * stabilator directly; the actual post-stall nose swing (if any) comes purely
+ * from the real airframe aerodynamics (surface geometry / lift curves, e.g. a
+ * `foreStrake` surface on {@link Fm2SurfaceSet}), not from any FCS-side trigger
+ * or cutoff. There is no automatic recovery assist — the pilot's own stick has
+ * to come back for the aircraft to recover, exactly like a real departure.
  */
 export interface Fm2HighAoaFcsConfig {
-    /** Optional AoA (rad) above which nose-up authority fades so recovery is assured. */
-    recoveryAoaRad?: number;
     /** Pitch / AoA-rate damping scale on the limiters-off direct path (default 0.25). */
     directDampScale?: number;
-}
-
-/**
- * Emergent-cobra aerodynamics: a body-frame CG offset that is blended in as the
- * airframe angle of attack rises, walking the static margin from its stable
- * cruise value toward (or past) neutral so the wing / forebody lift becomes a
- * nose-up moment and the nose diverges past stall. The relaxation is ALWAYS
- * active — it never depends on a pilot switch, speed, or throttle. Because it is
- * gated purely on AoA it leaves the normal (low-AoA) envelope — cruise, hard
- * pulls, roll — exactly as before, and with the FBW limiters ON the g-command law
- * holds AoA below the onset so it is never reached. Absent ⇒ a conventionally
- * stable airframe that cannot cobra.
- */
-export interface Fm2HighAoaAeroConfig {
-    /** Aft (z<0) / vertical CG offset, body frame (m), fully applied at high AoA. */
-    cgOffsetBody: [number, number, number];
-    /** AoA (rad) where the offset starts to ramp in. */
-    onsetAoaRad: number;
-    /** AoA (rad) where the offset is fully applied. */
-    fullAoaRad: number;
-    /**
-     * Optional re-stabilization band. Above `restabOnsetAoaRad` the aft offset
-     * fades back out, returning to the stable design CG by `restabFullAoaRad`, so
-     * once the wing is fully separated the airframe re-stabilizes and the nose
-     * arrests near the cobra apex and falls back (instead of tumbling over the
-     * top). Omit for a monotonic (never re-stabilizing) relaxation.
-     */
-    restabOnsetAoaRad?: number;
-    restabFullAoaRad?: number;
-    /**
-     * Optional re-stabilization OVERSHOOT (default 1 = fade back to the design CG
-     * exactly). Values > 1 drive the CG offset PAST design to the opposite sign at
-     * extreme AoA — i.e. a genuine FORWARD CG (nose-down "pitch bucket") — so the
-     * airframe actively pitches the nose back down at the cobra apex instead of
-     * merely going moment-neutral. This is what lets a true DIRECT-law full-aft
-     * stick held through the cobra still arrest below ~120° and fall back cleanly,
-     * rather than coasting over the top on residual pitch rate. Only reached far
-     * above the FBW AoA hold, so limiters-ON flight never sees it.
-     */
-    restabOvershoot?: number;
 }
 
 /** Pitch-axis control law tuning. */
@@ -282,6 +242,23 @@ export interface Fm2PitchLawConfig {
      * wall. Omitted ⇒ a built-in default is used.
      */
     gLimiterSoftMarginG?: number;
+    /**
+     * Back-calculation anti-windup gain applied to the pitch integrator when the
+     * AoA/g deflection cap clips the elevator command. Omitted ⇒ built-in default.
+     */
+    capBackCalcGain?: number;
+    /**
+     * Low-pass time constant (s) on the noseUp/noseDown cap bounds so the clamp
+     * boundary cannot jump frame-to-frame. Omitted ⇒ built-in default.
+     */
+    capRateTauS?: number;
+    /**
+     * Dynamic-pressure band (q/qRef) over which the AoA cap fades out at high q.
+     * Below `aoaCapQFadeStart` the AoA cap is fully active; above `aoaCapQFadeEnd`
+     * it is disabled so the G cap alone governs high-speed pulls. Omitted ⇒ defaults.
+     */
+    aoaCapQFadeStart?: number;
+    aoaCapQFadeEnd?: number;
 }
 
 /**
@@ -346,6 +323,30 @@ export interface Fm2EnvelopeConfig {
     landingMaxRollRad: number;
 }
 
+/**
+ * Transonic pitch-damping augmentation (an added aerodynamic Cmq term).
+ *
+ * The geometric tail damping alone keeps the short period well-damped through the
+ * normal envelope, but as dynamic pressure climbs into the transonic overspeed
+ * regime the short-period frequency rises and the FCS's fixed actuator/sensor lag
+ * (~0.05 s) erodes its phase margin faster than the natural damping grows — the
+ * closed loop goes into a violent load-factor limit cycle (it rings even
+ * hands-off around Mach ~0.98). This adds a pitch-rate damping MOMENT that scales
+ * with q̄ and only ramps in ABOVE `qKnee` (in qNorm = q/qRef units), so the whole
+ * normal maneuvering envelope, the +9.5 g / −3 g structural pulls and the
+ * low-speed / high-AoA (cobra) behaviour are untouched — only transonic overspeed
+ * is damped. Absent ⇒ no augmentation (legacy behaviour).
+ */
+export interface Fm2TransonicPitchDampConfig {
+    /** qNorm (= q/qRef) above which the augmentation ramps in. Keep above ~2.2 so
+     *  the structural-g maneuvering envelope is unaffected. */
+    qKnee: number;
+    /** Damping moment per unit (q̄ · S · c · pitchRate) once fully ramped (s). */
+    gain: number;
+    /** Cap on the linear ramp factor `qNorm/qKnee − 1` (default 2). */
+    maxRamp?: number;
+}
+
 /** Everything the FM2 model needs to fly one specific airframe. */
 export interface Fm2AircraftConfig {
     geometry: Fm2GeometryConfig;
@@ -360,8 +361,15 @@ export interface Fm2AircraftConfig {
     engine: Fm2EngineConfig;
     fcs: Fm2FcsConfig;
     envelope: Fm2EnvelopeConfig;
-    /** Optional AoA-gated static-margin relaxation enabling an emergent cobra. */
-    highAoaAero?: Fm2HighAoaAeroConfig;
+    /**
+     * Optional forebody vortex asymmetry (high-alpha nose slice), after Ericsson
+     * (ICAS-92-4.6R). Only applied in the subscale/laminar Reynolds regime (see
+     * {@link FlightModel.setForebodyLaminar}); at full-scale it is suppressed and
+     * the airframe stays laterally symmetric. Absent ⇒ no forebody asymmetry.
+     */
+    forebodyAsymmetry?: Fm2ForebodyAsymmetryConfig;
+    /** Optional transonic pitch-damping augmentation (see the interface). Absent ⇒ off. */
+    transonicPitchDamp?: Fm2TransonicPitchDampConfig;
 }
 
 /**
@@ -390,6 +398,7 @@ export const defaultFm2Config: Fm2AircraftConfig = {
         vtail: FM2_SURFACES.vtail,
         aileronLeft: FM2_SURFACES.aileronLeft,
         aileronRight: FM2_SURFACES.aileronRight,
+        foreStrake: FM2_SURFACES.foreStrake,
     },
     aileronMaxDeflectionRad: FM2_AILERON.maxDeflectionRad,
     flaps: {
@@ -425,8 +434,6 @@ export const defaultFm2Config: Fm2AircraftConfig = {
         maxStabilatorRad: FM2_FCS.maxStabilatorRad,
         maxRudderRad: 22 * DEG,
         taileronRollFraction: FM2_FCS.taileronRollFraction,
-        aerobaticStabilatorGain: FM2_FCS.aerobaticStabilatorGain,
-        aerobaticStabilatorAoaOnsetDeg: FM2_FCS.aerobaticStabilatorAoaOnsetDeg,
         actuatorTauS: FM2_FCS.actuatorTauS,
         pitch: {
             gCommand: true,
@@ -447,11 +454,16 @@ export const defaultFm2Config: Fm2AircraftConfig = {
             gLimiterLeadS: FM2_FCS.gLimiterLeadS,
             gLimiterNegLeadS: FM2_FCS.gLimiterNegLeadS,
             gLimiterSoftMarginG: FM2_FCS.gLimiterSoftMarginG,
+            capBackCalcGain: FM2_FCS.capBackCalcGain,
+            capRateTauS: FM2_FCS.capRateTauS,
+            aoaCapQFadeStart: FM2_FCS.aoaCapQFadeStart,
+            aoaCapQFadeEnd: FM2_FCS.aoaCapQFadeEnd,
         },
-        // Limiters-off direct pitch tuning (the emergent cobra). No trigger here:
-        // the pilot toggles the FBW limiters; these only tune the direct path.
+        // Limiters-off direct pitch tuning. No trigger here: the pilot toggles
+        // the FBW limiters; this only tunes the direct path's damping. Whether
+        // the airframe actually cobras is decided entirely by its real
+        // aerodynamics (surfaces.foreStrake), not by anything here.
         highAoa: {
-            recoveryAoaRad: FM2_FCS.cobraRecoveryAoaDeg * DEG,
             directDampScale: FM2_FCS.cobraDirectDampScale,
         },
         roll: {
@@ -492,18 +504,28 @@ export const defaultFm2Config: Fm2AircraftConfig = {
         landingMinPitchRad: F16_PROFILE.landingMinPitchDeg * DEG,
         landingMaxRollRad: F16_PROFILE.landingMaxRollDeg * DEG,
     },
-    // Always-active, AoA-gated aft CG shift. Below the onset AoA the airframe keeps
-    // its stable cruise static margin (so cruise / hard-pull / roll are unchanged);
-    // as AoA climbs into the post-stall band the CG walks aft, wing + forebody lift
-    // turn nose-up, and the airframe diverges toward ~90° — the physics behind the
-    // cobra. With the FBW limiters ON the g-command law holds AoA below the onset,
-    // so this is only reached once the pilot switches the limiters off.
-    highAoaAero: {
-        cgOffsetBody: [0, 0, FM2_FCS.cobraCgOffsetZ],
-        onsetAoaRad: FM2_FCS.cobraCgOnsetDeg * DEG,
-        fullAoaRad: FM2_FCS.cobraCgFullDeg * DEG,
-        restabOnsetAoaRad: FM2_FCS.cobraCgRestabOnsetDeg * DEG,
-        restabFullAoaRad: FM2_FCS.cobraCgRestabFullDeg * DEG,
-        restabOvershoot: FM2_FCS.cobraCgRestabOvershoot,
+    // Forebody vortex asymmetry (Ericsson nose slice). Present but inert at
+    // full-scale Reynolds (the default regime); switching the model into the
+    // subscale/laminar regime makes a cobra depart into a nose slice, showing the
+    // Reynolds coupling the paper identifies as the reason the real cobra stays
+    // symmetric.
+    forebodyAsymmetry: {
+        armZ: FM2_FOREBODY.armZ,
+        refAreaM2: FM2_FOREBODY.refAreaM2,
+        onsetAoaRad: FM2_FOREBODY.onsetAoaDeg * DEG,
+        fullAoaRad: FM2_FOREBODY.fullAoaDeg * DEG,
+        maxSideForceCoeff: FM2_FOREBODY.maxSideForceCoeff,
+        lockInRateGain: FM2_FOREBODY.lockInRateGain,
+        seedDrive: FM2_FOREBODY.seedDrive,
+        driveScale: FM2_FOREBODY.driveScale,
+        pitchRateArmRatio: FM2_FOREBODY.pitchRateArmRatio,
+    },
+    // Transonic pitch-damping augmentation: inert through the whole maneuvering
+    // envelope (qNorm ≤ qKnee), ramping in only in transonic overspeed to kill the
+    // short-period limit cycle the fixed FCS lag would otherwise sustain there.
+    transonicPitchDamp: {
+        qKnee: FM2_TRANSONIC_PITCH_DAMP.qKnee,
+        gain: FM2_TRANSONIC_PITCH_DAMP.gain,
+        maxRamp: FM2_TRANSONIC_PITCH_DAMP.maxRamp,
     },
 };

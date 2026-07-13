@@ -92,7 +92,8 @@ export interface SurfaceGeometry {
     flatPlateCd?: number;
     /** ΔAoA (rad) produced per unit control deflection [-1,1] (0 = no control). */
     controlEffectiveness: number;
-    /** Forebody vortex lift scale (0 = off). Used on fuselage/strakes for cobra. */
+    /** Forebody vortex lift scale (0 = off). Used on forward strake/LERX surfaces
+     *  with a real arm ahead of the CG so the growth is a genuine pitching moment. */
     vortexLiftScale?: number;
     /**
      * Scales this surface's ω×r rate-damping contribution once the surface's own
@@ -101,6 +102,17 @@ export interface SurfaceGeometry {
      * without changing normal-envelope damping.
      */
     highAoaDampingScale?: number;
+    /**
+     * Unsteady separation-state time constant (s). Models the finite time for
+     * flow separation and forebody-vortex breakdown to develop, per Ericsson's
+     * cobra analysis (ICAS-92-4.6R): the AoA the SEPARATED flow "sees" lags the
+     * geometric AoA with this first-order constant, so separation is delayed on
+     * a rapid pitch-up (dynamic-lift overshoot) and reattachment is delayed on
+     * the way down (hysteresis). Only the CL/CD separation blend and the vortex
+     * window are lagged; the attached (potential-flow) lift stays instantaneous.
+     * Omitted ⇒ 0 (quasi-steady; the surface tracks geometric AoA exactly).
+     */
+    unsteadyTauS?: number;
 }
 
 /**
@@ -114,23 +126,28 @@ export interface SurfaceGeometry {
  */
 export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
     /**
-     * Blended fuselage / strake lifting body. This airframe is a lifting-body
-     * design: the wide forebody and leading-edge strakes carry a large share of the total
-     * lift. This surface is sized so the fuselage produces ~30% of the aircraft's
-     * lift — its lift-curve contribution (CLα·S = 2.4 × 16.0 ≈ 38.4) is ~3/7 of the
-     * combined wing+aileron contribution (2 × (5.2 × 7.1 + 4.5 × 1.5) ≈ 87.3), so
-     * 38.4 / (38.4 + 87.3) ≈ 0.31 of the wing+body lift throughout the linear
-     * range. It acts at the CG (no trim moment); parasite form drag stays in
-     * FM2_BODY_CD0, so cd0 here is 0 to avoid double-counting.
+     * Main fuselage lifting body. This airframe is a lifting-body design: the
+     * wide forebody carries a large share of the total lift, acting at the CG
+     * (no trim moment). The forward leading-edge strake/LERX portion is broken
+     * out into its own `foreStrake` surface below — genuinely ahead of the CG —
+     * since a real forward arm (not this CG-located main body) is what can turn
+     * a surface's own post-stall vortex lift into a real pitching moment. This
+     * surface is sized (together with `foreStrake`) so the two combined still
+     * produce ~30% of the aircraft's lift — combined lift-curve contribution
+     * (CLα·S = 2.4 × 13.0 + 2.8 × 3.0 ≈ 39.6) is ~3/7 of the combined
+     * wing+aileron contribution (2 × (5.2 × 7.1 + 4.5 × 1.5) ≈ 87.3), so
+     * 39.6 / (39.6 + 87.3) ≈ 0.31 of the wing+body lift throughout the linear
+     * range. Parasite form drag stays in FM2_BODY_CD0, so cd0 here is 0 to avoid
+     * double-counting.
      */
     fuselage: {
         name: 'fuselage',
         position: [0.0, 0.0, 0.0],
         up: [0, 1, 0],
         forward: [0, 0, 1],
-        areaM2: 16.0,
+        areaM2: 13.0,
         liftSlopePerRad: 2.4,
-        // Lifting-body / strake camber (cl0 ≈ 2.4 × 1.9° ≈ 0.08 of the ~0.2 total).
+        // Lifting-body camber (cl0 ≈ 2.4 × 1.9° ≈ 0.08 of the ~0.2 total).
         zeroLiftAoaRad: -1.9 * DEG,
         clMax: 1.5,
         stallAoaRad: 40 * DEG, // a low-aspect body stalls late and gently
@@ -140,7 +157,44 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         // flat plate, so its 90° Cd is well below the thin-surface 2.0.
         flatPlateCd: 1.3,
         controlEffectiveness: 0,
-        vortexLiftScale: 0.55,
+        // At the CG (arm = 0): whatever this surface's lift curve does past
+        // stall produces no pitching moment, so it carries no vortex lift — that
+        // now lives entirely on `foreStrake`, which has a real forward arm.
+    },
+    /**
+     * Forward strake / LERX, genuinely positioned ahead of the CG (unlike the
+     * old scripted CG relocation this replaces, this is real geometry). Below
+     * its own stall it behaves like an ordinary small lifting surface (folded
+     * into the fuselage's ~30% lift share, see above); past stall its vortex
+     * lift keeps growing (the raised-cosine window in `liftCoefficient`,
+     * peaking ~50°) while the wing and tail are losing lift to their own
+     * separation — the real "pitch-up" mechanism behind strake-equipped
+     * fighters' post-stall departure tendency. The unsteady separation lag
+     * (Ericsson, ICAS-92-4.6R) delays that vortex breakdown on a rapid pitch-up
+     * and its reattachment on the way down, giving genuine aerodynamic
+     * hysteresis instead of a scripted one.
+     */
+    foreStrake: {
+        name: 'foreStrake',
+        position: [0.0, 0.0, 3.2],
+        up: [0, 1, 0],
+        forward: [0, 0, 1],
+        areaM2: 5.0,
+        // Deliberately a gentle linear-range lift-curve slope: below stall this
+        // surface must stay aerodynamically inert enough not to relax the
+        // airframe's normal-envelope static margin (real LERX behave this way —
+        // a nearly flat lift curve pre-stall, then a strong vortex kick past it).
+        // `clMax` (the post-stall attached-lift asymptote) and `vortexLiftScale`
+        // are independent of this slope, so the post-stall kick is unaffected.
+        liftSlopePerRad: 0.4,
+        clMax: 1.2,
+        stallAoaRad: 18 * DEG,
+        cd0: 0.006,
+        inducedK: 0.2,
+        flatPlateCd: 1.3, // bluff strake, same character as the main body
+        controlEffectiveness: 0,
+        vortexLiftScale: 2.5,
+        unsteadyTauS: 0.30,
     },
     wingLeft: {
         name: 'wingLeft',
@@ -164,6 +218,9 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         inducedK: 0.118,
         flatPlateCd: 1.9, // thin wing panel broadside to the flow
         controlEffectiveness: 0, // ailerons are their own surfaces below
+        // Wing separation lag (shorter than the forebody's): supports the
+        // dynamic-lift overshoot on the cobra pitch-up (Ericsson, ICAS-92-4.6R).
+        unsteadyTauS: 0.18,
     },
     wingRight: {
         name: 'wingRight',
@@ -179,6 +236,7 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         inducedK: 0.118,
         flatPlateCd: 1.9,
         controlEffectiveness: 0,
+        unsteadyTauS: 0.18,
     },
     /**
      * Ailerons as their own outboard lifting surfaces. Deflection is fed in as a
@@ -194,8 +252,8 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
         areaM2: 1.5,
         liftSlopePerRad: 4.5,
         clMax: 1.5,
-        // Stall margin kept well above the max deflection (~21°) so the loaded
-        // aileron stays attached and delivers full roll control power.
+        // Stall margin well above the small (~2.5°) roll deflection so the loaded
+        // aileron always stays attached and delivers its full (20%) roll share.
         stallAoaRad: 28 * DEG,
         cd0: 0.009,
         inducedK: 0.15,
@@ -261,15 +319,15 @@ export const FM2_SURFACES: Record<string, SurfaceGeometry> = {
 
 /**
  * Aileron (roll) parameters — direct incidence commanded on the dedicated
- * outboard aileron surfaces (aileronLeft/aileronRight above). Because the control
- * power now comes from small outboard panels (~1.2 m² at x ≈ ±3.4 m) instead of
- * the whole wing, full deflection is a realistic ~21° — sized so the FBW roll
- * loop still reaches its commanded-rate cap (~300°/s) with margin, and open-loop
- * roll stays inside the tested 180–380°/s band.
+ * outboard aileron surfaces (aileronLeft/aileronRight above). The differential
+ * stabilator is the primary roll effector (see `taileronRollFraction`); the
+ * ailerons supply only the remaining ~20% of the roll moment, so full deflection
+ * is a modest ~2.5°. Their long outboard arm (±3.4 m) means even this small
+ * deflection is a meaningful share of the roll authority.
  */
 export const FM2_AILERON = {
     /** ΔAoA (rad) at each aileron surface per unit aileron command [-1,1]. */
-    maxDeflectionRad: 21 * DEG,
+    maxDeflectionRad: 2.5 * DEG,
 } as const;
 
 /** Symmetric flap camber increment (rad of effective wing incidence) with flaps down. */
@@ -277,6 +335,35 @@ export const FM2_FLAPS = {
     aoaBiasRad: 8 * DEG,
     stallReductionRad: 1 * DEG,
     extraCd: 0.020,
+} as const;
+
+/**
+ * Forebody vortex asymmetry (high-alpha nose slice) tuning, after Ericsson,
+ * ICAS-92-4.6R. The model only APPLIES this in the subscale/laminar Reynolds
+ * regime; at full-scale (default) it is suppressed and the airframe stays
+ * laterally symmetric through the cobra — exactly the Reynolds coupling the
+ * paper describes. Values are sized so that, once past ~35° AoA, the saturated
+ * side force on the long nose arm overpowers the fin's directional stability and
+ * a cobra departs into a nose slice, while below onset (the whole normal
+ * envelope) it produces nothing.
+ */
+export const FM2_FOREBODY = {
+    /** Nose vortex side-force point ahead of the CG (m, body +Z). */
+    armZ: 3.6,
+    /** Referenced to the wing planform. */
+    refAreaM2: FM2_GEOMETRY.wingAreaM2,
+    onsetAoaDeg: 35,
+    fullAoaDeg: 55,
+    /** Peak asymmetric Cy (wing-area referenced). */
+    maxSideForceCoeff: 0.42,
+    /** Yaw-rate lock-in gain (per rad/s). */
+    lockInRateGain: 6.0,
+    /** Micro-asymmetry seed drive (+ = initial slice to the right). */
+    seedDrive: 0.06,
+    /** tanh saturation scale for the lock-in drive. */
+    driveScale: 0.5,
+    /** Pitch-rate nose-AoA-shift factor (1 + x/X_CG); delays onset on pitch-up. */
+    pitchRateArmRatio: 1.0,
 } as const;
 
 /** Landing gear parasite drag increment (CD referenced to wing area). */
@@ -292,6 +379,19 @@ export const FM2_WAVE_DRAG = {
 } as const;
 
 /**
+ * Transonic pitch-damping augmentation (added aerodynamic Cmq). Inert through the
+ * whole maneuvering envelope (structural-g pulls top out near qNorm ≈ 2.2) and
+ * ramps in only in transonic overspeed to damp the short-period limit cycle the
+ * FCS's fixed actuator/sensor lag would otherwise sustain there (the hands-off
+ * ~Mach 0.98 −4 g ↔ +8 g ring). See {@link Fm2TransonicPitchDampConfig}.
+ */
+export const FM2_TRANSONIC_PITCH_DAMP = {
+    qKnee: 2.0,
+    gain: 0.5,
+    maxRamp: 2.0,
+} as const;
+
+/**
  * Fly-by-wire control-law gains. This airframe is aerodynamically relaxed-stability
  * and only flyable through its FBW system, so these gains are what give the
  * aircraft its handling qualities (crisp ~300°/s roll, g/AoA-limited pitch,
@@ -303,12 +403,14 @@ export const FM2_FCS = {
     minCommandG: -3.0,
     /**
      * Command AoA limiter (deg). With the limiters ON this is what actively holds
-     * the airframe below the emergent-cobra CG-relaxation onset (cobraCgOnsetDeg),
-     * so a hard pull — at ANY speed, including low dynamic pressure — can never
-     * destabilize into a cobra. The g-command law only fades COMMANDED g toward
-     * this limit; the direct AoA cap below (aoaLimiter*) adds the low-q authority
-     * that actually enforces it. A genuine post-stall departure (deep stall / tail
-     * slide) therefore requires the pilot to switch the limiters OFF.
+     * the airframe well inside its normal envelope, so a hard pull — at ANY
+     * speed, including low dynamic pressure — can never reach the AoA where the
+     * real airframe aerodynamics (foreStrake vortex lift, tail stall) could
+     * start a post-stall departure. The g-command law only fades COMMANDED g
+     * toward this limit; the direct AoA cap below (aoaLimiter*) adds the low-q
+     * authority that actually enforces it. A genuine post-stall departure (deep
+     * stall / tail slide / cobra) therefore requires the pilot to switch the
+     * limiters OFF.
      */
     aoaLimitDeg: 22,
     aoaSoftDeg: 17,
@@ -316,9 +418,9 @@ export const FM2_FCS = {
      * Direct AoA-cap authority. `aoaLimiterGain` = elevator per degree of AoA
      * overshoot past `aoaLimitDeg`; ~0.35/deg reaches full nose-down ~3° over the
      * limit. `aoaLimiterLeadS` predicts AoA ahead by the α̇ rate so the cap
-     * arrests the pitch-up before it reaches the limit (and before the emergent
-     * aft-CG relaxation onset just above it). This is what holds AoA at low
-     * dynamic pressure (e.g. 300 km/h) where the g-loop limiter has no authority.
+     * arrests the pitch-up before it reaches the limit. This is what holds AoA
+     * at low dynamic pressure (e.g. 300 km/h) where the g-loop limiter has no
+     * authority.
      */
     aoaLimiterGain: 0.35,
     aoaLimiterLeadS: 0.30,
@@ -334,6 +436,13 @@ export const FM2_FCS = {
     gLimiterLeadS: 0.05,
     gLimiterNegLeadS: 0.5,
     gLimiterSoftMarginG: 1.5,
+    /** Back-calculation anti-windup gain when the deflection cap clips the elevator. */
+    capBackCalcGain: 0.75,
+    /** Low-pass time constant (s) on the noseUp/noseDown cap bounds. */
+    capRateTauS: 0.06,
+    /** Dynamic-pressure band (q/qRef) over which the AoA cap fades out at high q. */
+    aoaCapQFadeStart: 0.3,
+    aoaCapQFadeEnd: 0.7,
 
     /**
      * Pitch loop: stabilator command per unit g error, integral trim, pitch-rate
@@ -354,60 +463,32 @@ export const FM2_FCS = {
     pitchStickExpo: 0.92,
     integralLeakTauS: 0.35,
     maxStabilatorRad: 25 * DEG,
-    /** Extra stabilator authority in the aerobatic (low-q / deep-stall) envelope. */
-    aerobaticStabilatorGain: 1.65,
-    /**
-     * AoA (deg) above which the aerobatic stabilator boost also engages at speed.
-     * Set just below the FBW AoA-limiter hold (~19°) so a limiters-OFF pull gets
-     * the extra authority it needs to punch past the airframe's natural high-q AoA
-     * ceiling (~20° at 220 m/s) into the cobra CG-relaxation band. With the limiters
-     * ON the AoA cap zeroes the stabilator command at the limit, so the boost adds
-     * no AoA — the hold (≈19°) is unchanged — and the normal low-AoA envelope
-     * (cruise, hard pulls at ~12°, roll) never engages it.
-     */
-    aerobaticStabilatorAoaOnsetDeg: 17,
 
-    // --- Emergent Pugachev cobra (no scripted moments, no artificial triggers) ---
-    // The airframe carries an ALWAYS-ACTIVE, AoA-gated aft CG shift that relaxes
-    // the static margin past stall. It never depends on speed, throttle, or a
-    // pilot switch. The cobra only appears when the pilot turns the FBW limiters
-    // OFF: with limiters ON the g-command law actively holds AoA below the CG
-    // onset, so the relaxation is never reached; with limiters OFF full aft stick
-    // drives the stabilator directly, AoA blows past the onset, and the relaxed
-    // airframe pitches the nose to ~90° and back.
-    /** AoA (deg) above which nose-up authority fades (limiters-off) so recovery is assured. */
-    cobraRecoveryAoaDeg: 60,
-    /** Pitch / AoA-rate damping scale on the limiters-off direct path. Tuned on a
-     *  razor edge: much higher kills the pitch-up, much lower tumbles over the top. */
+    // --- Emergent Pugachev cobra: no scripted CG relocation, no automatic
+    // recovery cutoff, no injected moment. Whether the airframe cobras at all
+    // is decided purely by its real aerodynamics — see the `foreStrake` surface
+    // above and the tail's own stall — once the pilot switches the FBW limiters
+    // OFF (limiters ON, the g-command law holds AoA below any of this). Recovery
+    // depends on the pilot releasing the stick, exactly like the real maneuver.
+    /** Pitch / AoA-rate damping scale on the limiters-off direct path. */
     cobraDirectDampScale: 0.19,
-    /** Aft (−Z) CG offset (m) fully blended in at high AoA to relax static margin. */
-    cobraCgOffsetZ: -1.2,
-    /** AoA (deg) where the aft-CG blend starts. Kept ABOVE the 22° hard AoA limit
-     *  (the FBW limiter actually holds ≈19°, so this is ~4° above the real hold) so
-     *  limiters-ON flight never reaches the relaxation regime. A limiters-OFF pull
-     *  uses the high-AoA stabilator boost (aerobaticStabilatorAoaOnsetDeg) to climb
-     *  past the natural ceiling into this band and cobra. */
-    cobraCgOnsetDeg: 23,
-    /** AoA (deg) where the aft-CG blend is fully applied. */
-    cobraCgFullDeg: 31,
-    /** AoA (deg) where the aft-CG blend starts fading back out (re-stabilizing). The
-     *  35–55° band arrests the nose near the ~100° apex so it falls back cleanly
-     *  instead of tumbling over the top. */
-    cobraCgRestabOnsetDeg: 42,
-    /** AoA (deg) where the airframe is back to its stable design CG (arrests nose). */
-    cobraCgRestabFullDeg: 74,
-    /** Re-stabilization overshoot. >1 walks the CG PAST design to a FORWARD offset
-     *  at extreme AoA (a nose-down pitch bucket) so a true DIRECT-law full-aft pull
-     *  held through the cobra still arrests near ~105° and falls back cleanly
-     *  instead of tumbling over the top on residual pitch rate. */
-    cobraCgRestabOvershoot: 1.7,
 
     /** Roll loop: rate command and proportional gain to aileron/taileron. */
     maxRollRateDegS: F16_PROFILE.maxRollRateDegS, // 300
     rollRateGain: 0.8,
     rollDamperGain: 0.06,
-    /** Fraction of roll command routed to the differential stabilator (taileron). */
-    taileronRollFraction: 0.12,
+    /**
+     * Fraction of roll command routed to the differential stabilator (taileron).
+     * The all-moving tail is the PRIMARY roll effector here: at 0.6 (≈15° of
+     * differential stabilator at full roll) the taileron produces ~80% of the
+     * roll moment, with the small outboard ailerons (see FM2_AILERON) supplying
+     * the remaining ~20%. Because the horizontal tails sit close to the
+     * centreline (roll arm ≈ ±1.5 m vs the ailerons' ±3.4 m) a tail-dominant roll
+     * is inherently slower than an aileron-dominant one — peak roll rate is
+     * ~150°/s rather than ~185°/s. Roll is commanded (roll = 0) in the cobra, so
+     * this split does not affect the emergent-cobra tuning.
+     */
+    taileronRollFraction: 0.6,
 
     /** Yaw loop: pedal authority, yaw-rate damper (washed out), aileron-rudder interconnect. */
     maxRudderCmd: 1.0,

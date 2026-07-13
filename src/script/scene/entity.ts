@@ -5,7 +5,8 @@ import { Scene } from './scene';
 
 export enum ENTITY_TAGS {
     TARGET = 'TARGET',
-    GROUND = 'GROUND'
+    GROUND = 'GROUND',
+    AIRCRAFT = 'AIRCRAFT'
 }
 
 export interface Entity {

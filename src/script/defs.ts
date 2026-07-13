@@ -52,3 +52,9 @@ export const APPROACH_FINAL_DISTANCE_M = 5000;
 // -FWD/AFT of the aft throw.
 export const PITCH_STICK_FWD_UNITS = 20;
 export const PITCH_STICK_AFT_UNITS = 80;
+/** Arrows-layout pitch hold: starting stick-units per second. */
+export const PITCH_STICK_BASE_UNIT_RATE = 10;
+/** Arrows-layout pitch hold: maximum stick-units per second while held. */
+export const PITCH_STICK_MAX_UNIT_RATE = 80;
+/** Arrows-layout pitch hold: stick-units/s² added to the step rate over hold time. */
+export const PITCH_STICK_UNIT_ACCEL = 120;

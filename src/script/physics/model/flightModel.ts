@@ -34,6 +34,15 @@ export abstract class FlightModel {
     protected wheelBrakesApplied: boolean = false;
     /** FBW AoA/g limiters. True = normal envelope protection; false = pilot override. */
     protected limitersEnabled: boolean = true;
+    /**
+     * Reynolds-number regime for high-alpha forebody flow (Ericsson, ICAS-92-4.6R).
+     * false = full-scale flight: transition/motion coupling keeps forebody
+     * separation symmetric, so no nose slice (the real-aircraft default).
+     * true  = subscale / laminar: the forebody vortex asymmetry is live, so a
+     * high-alpha maneuver (cobra) departs into a nose slice — the wind-tunnel
+     * behaviour the paper warns does NOT represent full-scale flight.
+     */
+    protected forebodyLaminar: boolean = false;
 
     protected pitch: number = 0; // [-1, 1]
     protected roll: number = 0; // [-1, 1]
@@ -93,6 +102,7 @@ export abstract class FlightModel {
         this.flapsExtended = true;
         this.wheelBrakesApplied = false;
         this.limitersEnabled = true;
+        this.forebodyLaminar = false;
         this.pitch = 0;
         this.roll = 0;
         this.yaw = 0;
@@ -206,6 +216,20 @@ export abstract class FlightModel {
 
     isLimitersEnabled(): boolean {
         return this.limitersEnabled;
+    }
+
+    /**
+     * Select the high-alpha forebody Reynolds regime (Ericsson, ICAS-92-4.6R).
+     * false (default) = full-scale flight, laterally symmetric (no nose slice);
+     * true = subscale / laminar, where the forebody vortex asymmetry departs a
+     * cobra into a nose slice. Only the FM2 model acts on this.
+     */
+    setForebodyLaminar(laminar: boolean) {
+        this.forebodyLaminar = laminar;
+    }
+
+    isForebodyLaminar(): boolean {
+        return this.forebodyLaminar;
     }
 
     setLanded(isLanded: boolean) {

@@ -38,12 +38,12 @@ export function buildF22Def(): FlyableAircraftDef {
             {
                 role: 'elevatorLeft', model: 'assets/f22_elevator_left.glb',
                 pivot: [0, 0, -6], axis: [1, 0, 0],
-                control: 'pitch', sign: 1, rangeRad: HINGE_RANGE,
+                control: 'stabilatorLeft', sign: 1, rangeRad: HINGE_RANGE,
             },
             {
                 role: 'elevatorRight', model: 'assets/f22_elevator_right.glb',
                 pivot: [0, 0, -6], axis: [1, 0, 0],
-                control: 'pitch', sign: 1, rangeRad: HINGE_RANGE,
+                control: 'stabilatorRight', sign: 1, rangeRad: HINGE_RANGE,
             },
             {
                 role: 'rudderLeft', model: 'assets/f22_rudder_left.glb',

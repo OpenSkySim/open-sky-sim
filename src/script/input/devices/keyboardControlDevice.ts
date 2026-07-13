@@ -1,5 +1,8 @@
 import { KernelTask } from "../../core/kernel";
 import {
+    PITCH_STICK_BASE_UNIT_RATE,
+    PITCH_STICK_MAX_UNIT_RATE,
+    PITCH_STICK_UNIT_ACCEL,
     THROTTLE_RATE,
 } from "../../defs";
 import { PlayerEntity } from "../../scene/entities/player";
@@ -107,6 +110,8 @@ export class KeyboardControlDevice implements KernelTask {
 
     private layout: KeyboardControlLayout = ArrowsKeyboardControlLayout;
     private layoutId: KeyboardControlLayoutId = KeyboardControlLayoutId.ARROWS;
+    private pitchHoldSeconds = 0;
+    private pitchUnitAccum = 0;
 
     constructor(private player: PlayerEntity) {
         this.setupInput();
@@ -147,6 +152,25 @@ export class KeyboardControlDevice implements KernelTask {
                     this.player.setPitch(1.0);
                     break;
                 }
+            }
+        } else if (this.usesSteppedPitchStick()) {
+            if (this.pitchState === Stick.POSITIVE || this.pitchState === Stick.NEGATIVE) {
+                this.pitchHoldSeconds += delta;
+                const direction = this.pitchState === Stick.POSITIVE ? 1 : -1;
+                const rate = Math.min(
+                    PITCH_STICK_MAX_UNIT_RATE,
+                    PITCH_STICK_BASE_UNIT_RATE + PITCH_STICK_UNIT_ACCEL * this.pitchHoldSeconds,
+                );
+                this.pitchUnitAccum += rate * delta * direction;
+                const steps = Math.trunc(this.pitchUnitAccum);
+                if (steps !== 0) {
+                    this.player.stepPitchStickUnits(steps);
+                    this.pitchUnitAccum -= steps;
+                }
+            } else if (this.pitchState === Stick.POSITIVE_ENDED || this.pitchState === Stick.NEGATIVE_ENDED) {
+                this.pitchState = Stick.IDLE;
+                this.pitchHoldSeconds = 0;
+                this.pitchUnitAccum = 0;
             }
         }
 
@@ -222,7 +246,12 @@ export class KeyboardControlDevice implements KernelTask {
             switch (key) {
                 case this.layout[KeyboardControlAction.PITCH_POS]: {
                     if (this.usesSteppedPitchStick()) {
-                        this.player.stepPitchStickUnits(1);
+                        this.pitchState = Stick.POSITIVE;
+                        if (!event.repeat) {
+                            this.pitchHoldSeconds = 0;
+                            this.pitchUnitAccum = 0;
+                            this.player.stepPitchStickUnits(1);
+                        }
                     } else {
                         this.pitchState = Stick.POSITIVE;
                     }
@@ -230,7 +259,12 @@ export class KeyboardControlDevice implements KernelTask {
                 }
                 case this.layout[KeyboardControlAction.PITCH_NEG]: {
                     if (this.usesSteppedPitchStick()) {
-                        this.player.stepPitchStickUnits(-1);
+                        this.pitchState = Stick.NEGATIVE;
+                        if (!event.repeat) {
+                            this.pitchHoldSeconds = 0;
+                            this.pitchUnitAccum = 0;
+                            this.player.stepPitchStickUnits(-1);
+                        }
                     } else {
                         this.pitchState = Stick.NEGATIVE;
                     }
@@ -285,13 +319,21 @@ export class KeyboardControlDevice implements KernelTask {
             }
             switch (key) {
                 case this.layout[KeyboardControlAction.PITCH_POS]: {
-                    if (this.pitchState === Stick.POSITIVE) {
+                    if (this.usesSteppedPitchStick()) {
+                        if (this.pitchState === Stick.POSITIVE) {
+                            this.pitchState = Stick.POSITIVE_ENDED;
+                        }
+                    } else if (this.pitchState === Stick.POSITIVE) {
                         this.pitchState = Stick.POSITIVE_ENDED;
                     }
                     break;
                 }
                 case this.layout[KeyboardControlAction.PITCH_NEG]: {
-                    if (this.pitchState === Stick.NEGATIVE) {
+                    if (this.usesSteppedPitchStick()) {
+                        if (this.pitchState === Stick.NEGATIVE) {
+                            this.pitchState = Stick.NEGATIVE_ENDED;
+                        }
+                    } else if (this.pitchState === Stick.NEGATIVE) {
                         this.pitchState = Stick.NEGATIVE_ENDED;
                     }
                     break;
@@ -337,6 +379,8 @@ export class KeyboardControlDevice implements KernelTask {
 
         document.addEventListener('blur', () => {
             this.pitchState = Stick.IDLE;
+            this.pitchHoldSeconds = 0;
+            this.pitchUnitAccum = 0;
             this.rollState = Stick.IDLE;
             this.yawState = Stick.IDLE;
             this.throttleState = Stick.IDLE;

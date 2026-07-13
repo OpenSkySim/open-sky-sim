@@ -4,6 +4,9 @@ import { describe, it } from 'node:test';
 import * as THREE from 'three';
 import { Fm2FlightModel } from './fm2FlightModel';
 import { defaultFm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
+import { AeroSurface, liftCoefficient, SurfaceInput } from '../fm2/aeroSurface';
+import { SurfaceGeometry } from '../fm2/fm2Constants';
+import { forebodyAsymmetryCy, Fm2ForebodyAsymmetryConfig } from '../fm2/forebodyAsymmetry';
 import { PLANE_DISTANCE_TO_GROUND } from '../../defs';
 
 const DEG = 180 / Math.PI;
@@ -45,7 +48,7 @@ describe('FM2 rigid-body flight model', () => {
             `unreasonable trim AoA: ${(model.getAngleOfAttack() * DEG).toFixed(1)}°`);
     });
 
-    it('rolls fast but the FBW caps the rate near ~300°/s', () => {
+    it('rolls at a healthy tail-dominant rate under the FBW cap', () => {
         const model = new Fm2FlightModel();
         airborne(model, 4000, 260, 0.7);
         model.setRoll(1.0);
@@ -59,8 +62,13 @@ describe('FM2 rigid-body flight model', () => {
             prev = now.clone();
         }
 
+        // Roll is tail-dominant (~80% differential stabilator / ~20% aileron).
+        // The horizontal tails sit close to the centreline (roll arm ≈ ±1.5 m vs
+        // the ailerons' ±3.4 m), so a tail-driven roll is inherently slower than
+        // an aileron-driven one — peak ~150°/s rather than ~185°/s — but still a
+        // brisk fighter roll comfortably under the FBW rate cap.
         const peakDegS = peak * DEG;
-        assert.ok(peakDegS > 180, `roll rate too low: ${peakDegS.toFixed(0)}°/s`);
+        assert.ok(peakDegS > 130, `roll rate too low: ${peakDegS.toFixed(0)}°/s`);
         assert.ok(peakDegS < 380, `roll rate exceeds FBW cap: ${peakDegS.toFixed(0)}°/s`);
     });
 
@@ -114,6 +122,71 @@ describe('FM2 rigid-body flight model', () => {
         }
         assert.ok(minG < -2.5, `forward stick did not push into negative g: ${minG.toFixed(2)}g`);
         assert.ok(minG > -3.4, `overshot the -3 g ceiling: ${minG.toFixed(2)}g`);
+    });
+
+    it('does not oscillate on sustained high-speed turn pull (limiters ON)', () => {
+        // Regression for PI ↔ g-cap limit-cycle hunting during coordinated turns
+        // at high dynamic pressure: hard roll + aft stick should load up without
+        // large-amplitude G or elevator chatter, and must stay under +9.5 g.
+        const model = new Fm2FlightModel();
+        airborne(model, 5000, 206, 1.0); // ~400 kt
+
+        const gSamples: number[] = [];
+        const elevSamples: number[] = [];
+        let maxG = 0;
+
+        for (let i = 0; i < 5 * 120; i++) {
+            model.setRoll(1.0);
+            model.setPitch(0.85);
+            model.update(1 / 120);
+            assert.ok(!model.isCrashed(), 'crashed during high-speed turn pull');
+            assert.ok(!Number.isNaN(model.getLoadFactorG()), 'g went NaN');
+            if (i >= 120) {
+                gSamples.push(model.getLoadFactorG());
+                elevSamples.push(model.getCommandedElevator());
+                maxG = Math.max(maxG, model.getLoadFactorG());
+            }
+        }
+
+        const stddev = (arr: number[]): number => {
+            const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+            return Math.sqrt(arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length);
+        };
+
+        const gStd = stddev(gSamples);
+        const elevStd = stddev(elevSamples);
+
+        assert.ok(maxG < 9.8, `overshot the +9.5 g ceiling in turn: ${maxG.toFixed(2)}g`);
+        assert.ok(gStd < 1.5,
+            `G oscillation too large during turn pull: stddev=${gStd.toFixed(2)}g`);
+        assert.ok(elevStd < 0.25,
+            `elevator chatter during turn pull: stddev=${elevStd.toFixed(3)}`);
+    });
+
+    it('stays well-damped in a transonic overspeed (no hands-off load-factor limit cycle)', () => {
+        // Regression for the transonic short-period limit cycle: at ~Mach 0.98 the
+        // fixed FCS actuator/sensor lag erodes the short-period phase margin faster
+        // than the natural (geometric) damping grows, so WITHOUT the transonic
+        // pitch-damping augmentation the load factor rings ~-4 g <-> +8 g even at
+        // NEUTRAL stick. The added Cmq (ramped in above the maneuvering envelope)
+        // must hold it near 1 g here while leaving the normal envelope untouched.
+        const model = new Fm2FlightModel();
+        airborne(model, 1200, 329, 0.95); // ~Mach 0.98 near sea level
+
+        const gSamples: number[] = [];
+        for (let i = 0; i < 4 * 120; i++) {
+            model.setPitch(0);
+            model.setRoll(0);
+            model.update(1 / 120);
+            assert.ok(!Number.isNaN(model.getLoadFactorG()), 'g went NaN');
+            if (i >= 60) {
+                gSamples.push(model.getLoadFactorG());
+            }
+        }
+        const mean = gSamples.reduce((a, b) => a + b, 0) / gSamples.length;
+        const gStd = Math.sqrt(gSamples.reduce((s, v) => s + (v - mean) ** 2, 0) / gSamples.length);
+        assert.ok(gStd < 0.5,
+            `transonic load-factor limit cycle not damped: stddev=${gStd.toFixed(2)}g`);
     });
 
     it('sits stably on the runway with the engine at idle', () => {
@@ -581,8 +654,9 @@ describe('FM2 flight model — comprehensive behavior', () => {
         airborne(off, 3000, 83, 1.0);
         let offCmd = 0;
         // Peak over the pull: full aft stick drives the stabilator to (near-)full
-        // nose-up before the high-AoA recovery fade bleeds it back for the cobra
-        // to fall out of the top.
+        // nose-up and holds it there — there is no automatic fade. Whether the
+        // airframe actually cobras and falls back out of the top is decided
+        // entirely by the real airframe aerodynamics, not by this FCS command.
         for (let i = 0; i < 4 * 120; i++) { off.setLimitersEnabled(false); off.setPitch(1.0); off.update(1 / 120); offCmd = Math.max(offCmd, off.getCommandedElevator()); }
         assert.ok(offCmd > 0.9,
             `limiters OFF should hold full nose-up deflection: ${offCmd.toFixed(2)}`);
@@ -714,5 +788,214 @@ describe('FM2 flight model — comprehensive behavior', () => {
         assert.ok(model.position.y >= PLANE_DISTANCE_TO_GROUND,
             `kinematic mode sank below ground: ${model.position.y.toFixed(0)} m`);
         assert.ok(!model.isCrashed(), 'kinematic mode should not crash in free flight');
+    });
+});
+
+/**
+ * Unsteady high-AoA aerodynamics after Ericsson, "Cobra Maneuver Considerations"
+ * (ICAS-92-4.6R, 1992): dynamic pitching makes flow separation and forebody-
+ * vortex breakdown lag the geometric AoA, so a rapid pitch-up keeps lift attached
+ * past the static stall (dynamic-lift overshoot) and reattachment lags on the way
+ * down (hysteresis) — the mechanism that lets the cobra depart and recover. The
+ * attached (potential-flow) lift stays instantaneous; only the separation blend
+ * and the vortex window are lagged by the per-surface `unsteadyTauS`.
+ */
+describe('FM2 unsteady high-AoA aerodynamics (Ericsson cobra hysteresis)', () => {
+    const RAD = Math.PI / 180;
+
+    it('liftCoefficient shows separation hysteresis: pitch-up holds more lift, pitch-down less', () => {
+        const slope = 5.2, stall = 24 * RAD, alpha0 = -1.3 * RAD, clMax = 1.5;
+        const aoa = 35 * RAD; // post-stall geometric AoA
+        // Quasi-steady: the separated flow sees the geometric AoA (default arg).
+        const clQuasi = liftCoefficient(aoa, slope, stall, 0, alpha0, clMax);
+        // Rapid pitch-up: the separated flow still "sees" a pre-stall angle, so
+        // lift stays attached and higher than the quasi-steady value.
+        const clPitchUp = liftCoefficient(aoa, slope, stall, 0, alpha0, clMax, 17 * RAD);
+        // Pitch-down: separation persists from a higher angle, so lift lags lower.
+        const clPitchDown = liftCoefficient(aoa, slope, stall, 0, alpha0, clMax, 52 * RAD);
+        assert.ok(clPitchUp > clQuasi + 0.1,
+            `pitch-up should hold more lift: up=${clPitchUp.toFixed(3)} quasi=${clQuasi.toFixed(3)}`);
+        assert.ok(clPitchDown < clQuasi - 0.03,
+            `pitch-down should make less lift: down=${clPitchDown.toFixed(3)} quasi=${clQuasi.toFixed(3)}`);
+    });
+
+    it('AeroSurface lift relaxes over time after an AoA step; quasi-steady is instantaneous', () => {
+        function makeGeom(tau?: number): SurfaceGeometry {
+            return {
+                name: 'test', position: [0, 0, 0], up: [0, 1, 0], forward: [0, 0, 1],
+                areaM2: 1, liftSlopePerRad: 5.2, zeroLiftAoaRad: -1.3 * RAD, clMax: 1.5,
+                stallAoaRad: 24 * RAD, cd0: 0.01, inducedK: 0.1, flatPlateCd: 1.9,
+                controlEffectiveness: 0, unsteadyTauS: tau,
+            };
+        }
+        const V = 100, dt = 1 / 120, q = 0.5 * 1.0 * V * V;
+        function input(aoaRad: number): SurfaceInput {
+            return {
+                velocityBody: new THREE.Vector3(0, -Math.sin(aoaRad) * V, Math.cos(aoaRad) * V),
+                angularVelocityBody: new THREE.Vector3(0, 0, 0),
+                airDensity: 1.0, controlDeltaAoaRad: 0, camberBiasRad: 0,
+                stallShiftRad: 0, extraCd: 0, dt,
+            };
+        }
+        // CL (area = 1) after advancing `steps` at a fixed AoA.
+        function clAfterStep(surf: AeroSurface, steps: number, aoaRad: number): number {
+            const f = new THREE.Vector3(), m = new THREE.Vector3();
+            for (let i = 0; i < steps; i++) { f.set(0, 0, 0); m.set(0, 0, 0); surf.accumulate(input(aoaRad), f, m); }
+            return surf.liftForceBody.length() / q;
+        }
+        const hi = 40 * RAD;
+        // Unsteady surface: settle at ~0° AoA, then step to 40°.
+        const uns = new AeroSurface(makeGeom(0.3));
+        clAfterStep(uns, 1, 0);
+        const clFirst = clAfterStep(uns, 1, hi);
+        const clSettled = clAfterStep(uns, 240, hi); // ~2 s → converged
+        assert.ok(clFirst > clSettled + 0.15,
+            `separated lift should overshoot right after the step: first=${clFirst.toFixed(3)} settled=${clSettled.toFixed(3)}`);
+        // Quasi-steady surface (no tau): the high-AoA CL is reached immediately.
+        const qs = new AeroSurface(makeGeom(undefined));
+        clAfterStep(qs, 1, 0);
+        const qsFirst = clAfterStep(qs, 1, hi);
+        const qsSettled = clAfterStep(qs, 240, hi);
+        assert.ok(Math.abs(qsFirst - qsSettled) < 0.02,
+            `quasi-steady CL should not relax: first=${qsFirst.toFixed(3)} settled=${qsSettled.toFixed(3)}`);
+        // The unsteady surface converges to the same steady CL as the quasi-steady one.
+        assert.ok(Math.abs(clSettled - qsSettled) < 0.02,
+            `unsteady should converge to the quasi-steady CL: ${clSettled.toFixed(3)} vs ${qsSettled.toFixed(3)}`);
+    });
+
+    it('cobra stays laterally symmetric (no roll/yaw departure) with limiters OFF', () => {
+        // Ericsson: the cobra requires symmetric separation — no lateral departure.
+        // Our airframe is modelled symmetric, so a pure aft-stick cobra must keep
+        // the velocity in the plane of symmetry (negligible body-frame sideslip).
+        const model = new Fm2FlightModel();
+        airborne(model, 3000, 220, 0.15);
+        model.setLimitersEnabled(false);
+        const inv = new THREE.Quaternion();
+        const velBody = new THREE.Vector3();
+        let maxLateral = 0;
+        for (let i = 0; i < 8 * 120; i++) {
+            const t = i / 120;
+            model.setLimitersEnabled(false);
+            model.setPitch(t < 1.5 ? 1.0 : 0.0);
+            model.update(1 / 120);
+            inv.copy(model.quaternion).invert();
+            velBody.copy(model.velocityVector).applyQuaternion(inv);
+            maxLateral = Math.max(maxLateral, Math.abs(velBody.x));
+        }
+        assert.ok(maxLateral < 2,
+            `cobra developed a lateral (yaw/roll) departure: max |velBody.x|=${maxLateral.toFixed(2)} m/s`);
+    });
+});
+
+/**
+ * Forebody vortex asymmetry — the high-alpha "nose slice" — after Ericsson,
+ * "Cobra Maneuver Considerations" (ICAS-92-4.6R, 1992). The paper's central
+ * finding is LATERAL: a slender forebody sheds an asymmetric vortex pair above a
+ * critical AoA whose side force, on the long nose arm, makes a large yawing
+ * moment the fins cannot counter (a nose slice). Which way it locks in is set by
+ * the coupling between boundary-layer transition and the vehicle's own motion —
+ * a coupling that only develops in LAMINAR / subscale flow. At full-scale
+ * Reynolds numbers it is suppressed, which is why the real Su-27 / MiG-29 cobra
+ * stays symmetric. The model exposes this as a Reynolds "regime" flag: full-scale
+ * (default) is inert and symmetric; subscale/laminar departs into a nose slice.
+ */
+describe('FM2 forebody vortex asymmetry (Ericsson nose slice / Reynolds coupling)', () => {
+    const RAD = Math.PI / 180;
+
+    const cfg: Fm2ForebodyAsymmetryConfig = {
+        armZ: 3.6, refAreaM2: 27.87, onsetAoaRad: 35 * RAD, fullAoaRad: 55 * RAD,
+        maxSideForceCoeff: 0.42, lockInRateGain: 6.0, seedDrive: 0.06,
+        driveScale: 0.5, pitchRateArmRatio: 1.0,
+    };
+
+    it('forebodyAsymmetryCy: inert below onset, develops above, and follows the seed then the motion', () => {
+        // Below the onset AoA (the whole normal envelope) there is no asymmetry.
+        assert.equal(forebodyAsymmetryCy(20 * RAD, 0, 0, 150, cfg), 0,
+            'asymmetry should be zero below the onset AoA');
+        // Above onset with no motion the micro-asymmetry seed sets a definite
+        // (positive = nose-right) direction so the departure is deterministic.
+        const cySeed = forebodyAsymmetryCy(50 * RAD, 0, 0, 150, cfg);
+        assert.ok(cySeed > 0, `seed should bias the asymmetry positive: ${cySeed.toFixed(3)}`);
+        // It grows with AoA across the onset→full band.
+        const cyLow = forebodyAsymmetryCy(40 * RAD, 0, 0, 150, cfg);
+        assert.ok(cySeed > cyLow, `asymmetry should grow with AoA: ${cyLow.toFixed(3)} → ${cySeed.toFixed(3)}`);
+        // The moving-wall lock-in makes the side force follow the yaw (coning)
+        // rate: opposite yaw rates flip its sign (self-reinforcing → departure).
+        const cyYawPos = forebodyAsymmetryCy(50 * RAD, 1.0, 0, 150, cfg);
+        const cyYawNeg = forebodyAsymmetryCy(50 * RAD, -1.0, 0, 150, cfg);
+        assert.ok(cyYawPos > 0 && cyYawNeg < 0,
+            `lock-in should follow yaw-rate sign: +=${cyYawPos.toFixed(3)} −=${cyYawNeg.toFixed(3)}`);
+        // Pitch-rate nose-AoA shift (Ericsson α_n): a rapid nose-up rate lowers the
+        // effective nose AoA, delaying onset — less asymmetry than quasi-steady.
+        const cyPitchUp = forebodyAsymmetryCy(40 * RAD, 0, 2.0, 150, cfg);
+        assert.ok(cyPitchUp < cyLow,
+            `rapid pitch-up should delay onset: ${cyPitchUp.toFixed(3)} < ${cyLow.toFixed(3)}`);
+    });
+
+    /** Run an 8 s limiters-OFF cobra and report the peak lateral (nose-slice) speed. */
+    function cobraLateral(laminar: boolean): { maxLateral: number; crashed: boolean } {
+        const model = new Fm2FlightModel();
+        airborne(model, 3000, 220, 0.15);
+        model.setLimitersEnabled(false);
+        model.setForebodyLaminar(laminar);
+        const inv = new THREE.Quaternion();
+        const velBody = new THREE.Vector3();
+        let maxLateral = 0;
+        for (let i = 0; i < 8 * 120; i++) {
+            const t = i / 120;
+            model.setLimitersEnabled(false);
+            model.setForebodyLaminar(laminar);
+            model.setPitch(t < 1.5 ? 1.0 : 0.0);
+            model.update(1 / 120);
+            assert.ok(!Number.isNaN(model.position.y), 'simulation diverged to NaN');
+            inv.copy(model.quaternion).invert();
+            velBody.copy(model.velocityVector).applyQuaternion(inv);
+            maxLateral = Math.max(maxLateral, Math.abs(velBody.x));
+        }
+        return { maxLateral, crashed: model.isCrashed() };
+    }
+
+    it('defaults to the full-scale regime and reflects the toggle', () => {
+        const model = new Fm2FlightModel();
+        assert.equal(model.isForebodyLaminar(), false, 'should default to full-scale (symmetric)');
+        model.setForebodyLaminar(true);
+        assert.equal(model.isForebodyLaminar(), true, 'toggle to subscale not reflected');
+        model.reset();
+        assert.equal(model.isForebodyLaminar(), false, 'reset should restore full-scale');
+    });
+
+    it('subscale/laminar regime departs a cobra into a nose slice; full-scale stays symmetric', () => {
+        // The identical limiters-OFF cobra: at full-scale (real flight) it stays in
+        // the plane of symmetry; in subscale/laminar flow the forebody asymmetry
+        // locks in and slices the nose off to the side (large body-frame lateral
+        // velocity) — the exact Reynolds coupling the paper identifies.
+        const full = cobraLateral(false);
+        const sub = cobraLateral(true);
+        assert.ok(full.maxLateral < 2,
+            `full-scale cobra should stay symmetric: max |velBody.x|=${full.maxLateral.toFixed(2)} m/s`);
+        assert.ok(sub.maxLateral > 20,
+            `subscale cobra should nose-slice into a lateral departure: max |velBody.x|=${sub.maxLateral.toFixed(2)} m/s`);
+    });
+
+    it('the subscale regime is inert in the normal envelope (limiters ON hold AoA below onset)', () => {
+        // The nose slice only lives above ~35° AoA. With the FBW limiters ON the
+        // AoA is held ~19°, well below onset, so even in the subscale regime a hard
+        // pull stays laterally symmetric — the normal envelope is untouched.
+        const model = new Fm2FlightModel();
+        airborne(model, 6000, 320, 1.0);
+        model.setForebodyLaminar(true);
+        const inv = new THREE.Quaternion();
+        const velBody = new THREE.Vector3();
+        let maxLateral = 0;
+        for (let i = 0; i < 5 * 120; i++) {
+            model.setForebodyLaminar(true);
+            model.setPitch(1.0);
+            model.update(1 / 120);
+            inv.copy(model.quaternion).invert();
+            velBody.copy(model.velocityVector).applyQuaternion(inv);
+            maxLateral = Math.max(maxLateral, Math.abs(velBody.x));
+        }
+        assert.ok(maxLateral < 2,
+            `subscale regime leaked into the normal envelope: max |velBody.x|=${maxLateral.toFixed(2)} m/s`);
     });
 });

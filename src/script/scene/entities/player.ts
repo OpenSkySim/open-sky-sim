@@ -20,6 +20,9 @@ import { AircraftForceVectors } from './aircraftForceVectors';
 import { countBodyMeshVertices, deriveWingtipOriginsFromModel } from './wingtipOrigins';
 import { GroundTargetEntity } from './groundTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
+import { Combatant, Faction } from '../../weapons/combatant';
+import { Gun, GunConfig, ProjectileSink } from '../../weapons/gun';
+import { AiPilot } from '../../ai/aiPilot';
 
 
 const ENGINE_LOWEST_VOLUME = 0.05; // [0,1]
@@ -28,6 +31,16 @@ const LANDING_GEAR_ANIM_DURATION = 3; // Seconds
 
 const FLAPS_ANIM_DURATION = 2; // Seconds
 const FLAPS_EXTENDED_ANGLE = Math.PI / 5; // Radians
+
+/**
+ * Visible roll-deflection gains (fraction of a surface's hinge range at full
+ * roll). Roll is tail-dominant (~80% differential stabilator / ~20% aileron),
+ * so the stabilator shows the large, clearly visible roll deflection and the
+ * flaperon only its small aileron share. Visual only — the physics split lives
+ * in the FM2 config (taileronRollFraction / aileron max deflection).
+ */
+const ROLL_VIS_TAILERON = 0.6;
+const ROLL_VIS_AILERON = 0.15;
 
 /** Slats begin deploying above this absolute AoA (rad). */
 const SLAT_AOA_ONSET_RAD = 10 * Math.PI / 180;
@@ -120,11 +133,20 @@ export class PlayerEntity implements Entity {
     private _nightVision: boolean = false;
     private hudFocus: HUDFocusMode = HUDFocusMode.DISABLED;
     private autopilotEnabled: boolean = false;
+    /** Optional AI brain that flies the player plane when the autopilot is on. */
+    private aiPilot: AiPilot | undefined;
+
+    /** Boresight gun (set once weapons are wired up by the game). */
+    private gun: Gun | undefined;
+    private firing: boolean = false;
+    private readonly maxHealth = 100;
+    private health = this.maxHealth;
+    readonly faction: Faction = Faction.PLAYER;
 
     private _v = new THREE.Vector3();
     private _q = new THREE.Quaternion();
 
-    readonly tags: string[] = [];
+    readonly tags: string[] = [ENTITY_TAGS.AIRCRAFT];
 
     enabled: boolean = true;
     private simulationPaused = false;
@@ -246,17 +268,39 @@ export class PlayerEntity implements Entity {
         // visible on the model. The commanded values are exposed in the same
         // polarity/scale as the raw stick, so the existing per-surface sign/range
         // still render correctly. Flaps/slats are not FCS-mediated (kept as-is).
-        const roll = this.flightModel.getCommandedAileron();
+        //
+        // Roll is a special case: the rate-command loop relaxes the aileron
+        // command back toward neutral once the commanded roll rate is reached, so
+        // in a SUSTAINED roll the surfaces would barely deflect even at full
+        // stick. To keep the roll visible on the model we blend in the pilot's
+        // roll demand and take the larger magnitude (both share +right polarity).
+        const rollCmd = this.flightModel.getCommandedAileron();
+        const rollDemand = this.rollInput;
+        const roll = Math.abs(rollDemand) > Math.abs(rollCmd) ? rollDemand : rollCmd;
+        const pitch = this.flightModel.getCommandedElevator();
         switch (control) {
-            case 'pitch': return sign * this.flightModel.getCommandedElevator();
+            case 'pitch': return sign * pitch;
             case 'roll': return sign * roll;
             case 'yaw': return sign * this.flightModel.getCommandedRudder();
             case 'flaps': return sign * this.flapsProgressUnit;
             case 'slats': return sign * this.slatDeploymentUnit();
+            // Flaperons: flap camber blended with the ailerons' SHARE of the roll.
+            // Roll is tail-dominant (~20% aileron), so the flaperon shows only a
+            // small roll deflection.
             case 'flaperonLeft':
-                return this.flapsProgressUnit * -FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * roll;
+                return this.flapsProgressUnit * -FLAPS_EXTENDED_ANGLE
+                    - (1.0 - this.flapsProgressUnit * 0.5) * ROLL_VIS_AILERON * roll;
             case 'flaperonRight':
-                return this.flapsProgressUnit * FLAPS_EXTENDED_ANGLE - (1.0 - this.flapsProgressUnit * 0.5) * roll;
+                return this.flapsProgressUnit * FLAPS_EXTENDED_ANGLE
+                    - (1.0 - this.flapsProgressUnit * 0.5) * ROLL_VIS_AILERON * roll;
+            // All-moving stabilator: pitch plus the DOMINANT differential
+            // (taileron) roll deflection, so the tail-driven roll is clearly
+            // visible. Left/right take opposite roll signs; a right roll raises
+            // the right stabilator trailing edge (same sense as the right aileron).
+            case 'stabilatorLeft':
+                return sign * (pitch - ROLL_VIS_TAILERON * roll);
+            case 'stabilatorRight':
+                return sign * (pitch + ROLL_VIS_TAILERON * roll);
             default: return 0;
         }
     }
@@ -275,7 +319,11 @@ export class PlayerEntity implements Entity {
         if (this.simulationPaused) {
             return;
         }
-        this.updateAutopilot(delta);
+        if (this.autopilotEnabled && this.aiPilot) {
+            this.aiPilot.update(delta);
+        } else {
+            this.updateAutopilot(delta);
+        }
         this.flightModel.setPitch(this.pitch);
         this.flightModel.setRoll(this.roll);
         this.flightModel.setYaw(this.yaw);
@@ -328,6 +376,18 @@ export class PlayerEntity implements Entity {
         if (!this.isCrashed) {
             this.updateLandingGear(delta);
             this.updateFlaps(delta);
+        }
+
+        this.updateWeapons(delta);
+    }
+
+    private updateWeapons(delta: number): void {
+        if (!this.gun) {
+            return;
+        }
+        this.gun.update(delta);
+        if (this.firing && !this.isCrashed && this.controlsEnabled) {
+            this.gun.tryFire(this.obj.position, this.obj.quaternion, this.velocity);
         }
     }
 
@@ -387,6 +447,9 @@ export class PlayerEntity implements Entity {
 
         this.target = undefined;
         this.targetIndex = undefined;
+
+        this.health = this.maxHealth;
+        this.firing = false;
     }
 
     private updateFlaps(delta: number) {
@@ -907,6 +970,83 @@ export class PlayerEntity implements Entity {
         this.wheelBrakes = applied;
     }
 
+    /** Drive the gear to a target state (used by the AI pilot). */
+    setLandingGearDeployed(deployed: boolean) {
+        const isDeployed = this.landingGearState === AircraftDeviceState.EXTENDED
+            || this.landingGearState === AircraftDeviceState.EXTENDING;
+        if (deployed !== isDeployed) {
+            this.toggleLandingGear();
+        }
+    }
+
+    /** Drive the flaps to a target state (used by the AI pilot). */
+    setFlapsExtended(extended: boolean) {
+        const isExtended = this.flapsState === AircraftDeviceState.EXTENDED
+            || this.flapsState === AircraftDeviceState.EXTENDING;
+        if (extended !== isExtended) {
+            this.toggleFlaps();
+        }
+    }
+
+    /** Attach the AI brain that flies the plane while the autopilot is engaged. */
+    setAiPilot(pilot: AiPilot) {
+        this.aiPilot = pilot;
+    }
+
+    /** Provide the projectile sink and build the boresight gun. */
+    setWeapons(sink: ProjectileSink) {
+        const config: GunConfig = {
+            muzzleVelocity: 1000,
+            roundsPerSecond: 20,
+            damage: 8,
+            ammo: 2400,
+            muzzleOffset: new THREE.Vector3(0, 0, 9),
+            spread: 0.003,
+        };
+        this.gun = new Gun(config, sink, Faction.PLAYER);
+    }
+
+    // --- Combatant ---------------------------------------------------------
+
+    readPosition(target: THREE.Vector3): THREE.Vector3 {
+        return target.copy(this.obj.position);
+    }
+
+    readVelocity(target: THREE.Vector3): THREE.Vector3 {
+        return target.copy(this.velocity);
+    }
+
+    getHitRadius(): number {
+        return 10;
+    }
+
+    isAlive(): boolean {
+        return !this.isCrashed && this.health > 0;
+    }
+
+    applyDamage(amount: number): void {
+        if (this.health <= 0) {
+            return;
+        }
+        this.health -= amount;
+        if (this.health <= 0) {
+            this.health = 0;
+            this.flightModel.setCrashed(true);
+        }
+    }
+
+    get healthFraction(): number {
+        return this.health / this.maxHealth;
+    }
+
+    get gunAmmo(): number {
+        return this.gun?.ammoRemaining ?? 0;
+    }
+
+    get hasGun(): boolean {
+        return this.gun !== undefined;
+    }
+
     setThrottle(throttle: number) {
         this.throttle = throttle;
     }
@@ -1101,6 +1241,23 @@ export class PlayerEntity implements Entity {
     }
 
     private setupInput() {
+        document.addEventListener('keydown', (event: KeyboardEvent) => {
+            if (event.key === ' ' || event.code === 'Space') {
+                if (!this.isCrashed && this.controlsEnabled) {
+                    this.firing = true;
+                    event.preventDefault();
+                }
+            }
+        });
+        document.addEventListener('keyup', (event: KeyboardEvent) => {
+            if (event.key === ' ' || event.code === 'Space') {
+                this.firing = false;
+            }
+        });
+        document.addEventListener('blur', () => {
+            this.firing = false;
+        });
+
         document.addEventListener('keypress', (event: KeyboardEvent) => {
             if (!this.isCrashed && this.controlsEnabled) {
                 switch (event.key) {
