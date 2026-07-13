@@ -7,6 +7,7 @@ import { assertExpr } from '../../utils/asserts';
 import { ConstantFragProgram } from './shaders/constantFP';
 import { DepthFragProgram } from './shaders/depthFP';
 import { FlatVertProgram, HighpFlatVertProgram } from './shaders/flatVP';
+import { ImpostorVertProgram } from './shaders/impostorVP';
 import { LineVertProgram } from './shaders/lineVP';
 import { ParticleMeshFragProgram } from './shaders/particlesMeshFP';
 import { ParticleMeshVertProgram } from './shaders/particlesMeshVP';
@@ -19,13 +20,15 @@ export enum SceneMaterialPrimitiveType {
     LINE,
     POINT,
     PARTICLE_MESH,
+    IMPOSTOR,
 }
 
 export type SceneMaterialProperties = SceneMaterialCommonProperties & (
     SceneMaterialMeshProperties |
     SceneMaterialLineProperties |
     SceneMaterialPointProperties |
-    SceneMaterialParticleMeshProperties
+    SceneMaterialParticleMeshProperties |
+    SceneMaterialImpostorProperties
 );
 
 export interface SceneMaterialCommonProperties {
@@ -65,6 +68,11 @@ export interface SceneMaterialLineProperties {
 
 export interface SceneMaterialParticleMeshProperties {
     type: SceneMaterialPrimitiveType.PARTICLE_MESH;
+}
+
+/** Camera-facing billboard used as a distant vegetation impostor. */
+export interface SceneMaterialImpostorProperties {
+    type: SceneMaterialPrimitiveType.IMPOSTOR;
 }
 
 export type SceneMaterialUniforms = SceneFlatMaterialUniforms | SceneShadedMaterialUniforms;
@@ -130,6 +138,7 @@ export class SceneMaterialManager implements KernelTask {
     private readonly shadedProto: THREE.ShaderMaterial;
     private readonly pointProto: THREE.ShaderMaterial;
     private readonly particleMeshProto: THREE.ShaderMaterial;
+    private readonly impostorProto: THREE.ShaderMaterial;
     private readonly colorCache: ColorCache = new ColorCache();
     private palette: Palette;
     private fog: FogQuality;
@@ -186,6 +195,14 @@ export class SceneMaterialManager implements KernelTask {
             vertexShader: ParticleMeshVertProgram,
             fragmentShader: ParticleMeshFragProgram,
             side: THREE.FrontSide,
+            depthWrite: true,
+            userData: {},
+            uniforms: {}
+        });
+        this.impostorProto = new THREE.ShaderMaterial({
+            vertexShader: ImpostorVertProgram,
+            fragmentShader: DepthFragProgram,
+            side: THREE.DoubleSide,
             depthWrite: true,
             userData: {},
             uniforms: {}
@@ -279,7 +296,14 @@ export class SceneMaterialManager implements KernelTask {
                 },
                 // Fire renders as a steady two-tone ordered dither (orange/yellow)
                 // in every shading mode rather than a temporal colour flip.
-                colorDither: { value: properties.category === PaletteCategory.FX_FIRE ? 1 : 0 },
+                colorDither: {
+                    value: properties.category === PaletteCategory.FX_FIRE
+                        || properties.category === PaletteCategory.SCENERY_TREE_FOLIAGE
+                        || properties.category === PaletteCategory.SCENERY_TREE_SHADOW
+                        || properties.category === PaletteCategory.SCENERY_MOUNTAIN_GRASS
+                        || properties.category === PaletteCategory.SCENERY_MOUNTAIN_BARE
+                        || properties.category === PaletteCategory.SCENERY_WOOD_PATCH ? 1 : 0
+                },
             },
             ...(properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded) ? {
                 distance: { value: 0 },
@@ -319,6 +343,8 @@ export class SceneMaterialManager implements KernelTask {
             }
         } else if (properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH) {
             return this.particleMeshProto.clone();
+        } else if (properties.type === SceneMaterialPrimitiveType.IMPOSTOR) {
+            return this.impostorProto.clone();
         }
         assertExpr(false, 'This should never happen');
     }

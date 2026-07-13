@@ -28,13 +28,17 @@ import { HUDEntity } from '../scene/entities/overlay/hud';
 import { TelemetryGraph } from '../scene/entities/overlay/telemetryGraph';
 import { TelemetryGraphWindow } from '../scene/entities/overlay/telemetryGraphWindow';
 import { PlayerEntity, PlayerSpawnState } from '../scene/entities/player';
+import { createHillCollider, HillCollider } from '../scene/entities/hillCollider';
 import { SceneryField, SceneryFieldSettings } from '../scene/entities/sceneryField';
+import { VegetationField } from '../scene/entities/vegetationField';
+import { VegetationKind } from '../scene/models/lib/vegetationModelBuilder';
 import { SimpleEntity } from '../scene/entities/simpleEntity';
 import { SpecklesEntity } from '../scene/entities/speckles';
 import { StaticSceneryEntity } from '../scene/entities/staticScenery';
 import { Entity } from '../scene/entity';
 import { SceneMaterialManager } from "../scene/materials/materials";
-import { ModelManager } from "../scene/models/models";
+import { Model, ModelManager } from "../scene/models/models";
+import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT } from '../scene/models/lib/mountainModelBuilder';
 import { Scene, SceneLayers } from '../scene/scene';
 import { assertIsDefined } from '../utils/asserts';
 import { clamp, FORWARD, RIGHT, UP, toDegrees } from '../utils/math';
@@ -76,6 +80,23 @@ const MAP_RENDER_TARGET_HD = 'MAP_RENDER_TARGET_HD';
 
 const AIRBASE_RUNWAY = new THREE.Vector3(AIRBASE_RUNWAY_RAW.x, AIRBASE_RUNWAY_RAW.y, AIRBASE_RUNWAY_RAW.z);
 const RUNWAY_SPAWN_INSET_M = 120;
+/** Paved runway strip only — biome patches fill the shoulders beside it. */
+const RUNWAY_STRIP_HALF_WIDTH = 75;
+const RUNWAY_STRIP_HALF_LENGTH = RUNWAY_HALF_LENGTH_M + 150;
+const VEGETATION_FIELD_OPTIONS = {
+    cellSize: 75,
+    fillRatio: 0.68,
+    tilesInView: 250,
+    treesPerCell: 10,
+    maxTreesPerFrame: 14000,
+    outerCellStep: 3,
+    lowDetailRangeM: 100000,
+    // Trees stay full-detail 3D volumes out to this radius (independent of the
+    // density ramp), so detailed trees remain visible well ahead when flying.
+    fullDetailRangeM: 6000,
+    scaleMin: 0.7,
+    scaleMax: 1.35,
+};
 const PLAYER_STARTING_HEADING = 0;
 const PLAYER_STARTING_POSITION = new THREE.Vector3(
     AIRBASE_RUNWAY.x,
@@ -177,6 +198,12 @@ export class Game {
     private state: GameState = GameState.SPAWN_MENU;
 
     private scene: Scene = new Scene();
+    private landTerrainMeshes: THREE.Object3D[] = [];
+    private waterTerrainMeshes: THREE.Object3D[] = [];
+    private readonly terrainCaster = new THREE.Raycaster();
+    private readonly terrainRayOrigin = new THREE.Vector3();
+    private readonly terrainRayDir = new THREE.Vector3(0, -1, 0);
+    private readonly hillColliders: HillCollider[] = [];
 
     private playerCamera: SceneCamera;
     private targetCamera: SceneCamera;
@@ -511,7 +538,7 @@ export class Game {
         this.materials.setPalette(this.getPalette());
         this.setupControls();
         await this.loadPersistedPacks();
-        this.setupScene();
+        await this.setupScene();
         this.refreshAircraftMenu();
         this.selectAircraftById(DEFAULT_START_AIRCRAFT_ID, FALLBACK_START_AIRCRAFT_ID);
         await this.beginFlight('approach');
@@ -1428,7 +1455,7 @@ export class Game {
         this.setCockpitFrontView();
     }
 
-    private setupScene() {
+    private async setupScene() {
         const ground = new SimpleEntity(this.models.getModel('lib:GROUND'), SceneLayers.BackgroundGround, SceneLayers.BackgroundGround);
         this.scene.add(ground);
 
@@ -1448,32 +1475,30 @@ export class Game {
             }
         }
 
-        this.models.getModel('assets/map.gltf', (url, model) => {
-            const grass = model.lod[0].flats.find(mesh => mesh.name === PaletteCategory.TERRAIN_GRASS);
-            assertIsDefined(grass);
-            for (let i = 0; i < 30; i++) {
-                const hill = new StaticSceneryEntity(this.models.getModel('lib:hill'));
-                this.randomPosOver(grass, hill.position, 20000);
-                hill.scale.set(
-                    0.8 + Math.random() / 5.0,
-                    0.5 + Math.random() / 2.0,
-                    0.8 + Math.random() / 5.0);
-                hill.quaternion.setFromAxisAngle(UP, Math.PI / 4 + (Math.random() - 0.5) * Math.PI / 4);
-                this.scene.add(hill);
-            }
+        await this.models.waitForModel('assets/map.gltf');
+        const mapModel = this.models.getModel('assets/map.gltf');
+        this.setupTerrainSampler(mapModel);
+        this.scatterHillsAndMountains(mapModel);
 
-            const bare = model.lod[0].flats.find(mesh => mesh.name === PaletteCategory.TERRAIN_BARE);
-            assertIsDefined(bare);
-            for (let i = 0; i < 20; i++) {
-                const mountain = new StaticSceneryEntity(this.models.getModel('lib:mountain'));
-                this.randomPosOver(bare, mountain.position, 20000);
-                mountain.scale.x = 0.8 + Math.random() / 5.0;
-                mountain.scale.y = 0.5 + Math.random() / 2.0;
-                mountain.scale.z = 0.8 + Math.random() / 5.0;
-                mountain.quaternion.setFromAxisAngle(UP, Math.PI / 4 + (Math.random() - 0.5) * Math.PI / 4);
-                this.scene.add(mountain);
-            }
-        });
+        const treeKinds = [
+            VegetationKind.OAK,
+            VegetationKind.PINE,
+            VegetationKind.BUSH,
+            VegetationKind.BIRCH,
+            VegetationKind.SCRUB,
+        ];
+        const runwayStripExclude = new THREE.Box2().setFromCenterAndSize(
+            new THREE.Vector2(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z),
+            new THREE.Vector2(RUNWAY_STRIP_HALF_WIDTH * 2, RUNWAY_STRIP_HALF_LENGTH * 2),
+        );
+        const terrainSampler = { isLand: (x: number, z: number) => this.isLandAt(x, z) };
+        this.scene.add(new VegetationField(
+            terrainSampler,
+            this.hillColliders,
+            { ...VEGETATION_FIELD_OPTIONS, excludeAreas: [runwayStripExclude] },
+            this.materials,
+            treeKinds,
+        ));
 
         const speckles = new SpecklesEntity(this.materials);
         this.scene.add(speckles);
@@ -1633,6 +1658,72 @@ export class Game {
         tower.position.set(1580, 0, -500);
         tower.quaternion.setFromAxisAngle(UP, -Math.PI / 2);
         scene.add(tower);
+    }
+
+    private setupTerrainSampler(mapModel: Model) {
+        const water = new Set<string>([
+            PaletteCategory.TERRAIN_WATER,
+            PaletteCategory.TERRAIN_SHALLOW_WATER,
+        ]);
+        this.landTerrainMeshes.length = 0;
+        this.waterTerrainMeshes.length = 0;
+        for (const mesh of mapModel.lod[0].flats) {
+            if (water.has(mesh.name)) {
+                this.waterTerrainMeshes.push(mesh);
+            } else {
+                this.landTerrainMeshes.push(mesh);
+            }
+        }
+    }
+
+    private isLandAt(worldX: number, worldZ: number): boolean {
+        this.terrainRayOrigin.set(worldX / TERRAIN_SCALE, 500, worldZ / TERRAIN_SCALE);
+        this.terrainCaster.set(this.terrainRayOrigin, this.terrainRayDir);
+        const landHits = this.terrainCaster.intersectObjects(this.landTerrainMeshes, true);
+        if (landHits.length === 0) {
+            return false;
+        }
+        const waterHits = this.terrainCaster.intersectObjects(this.waterTerrainMeshes, true);
+        if (waterHits.length === 0) {
+            return true;
+        }
+        return landHits[0].distance <= waterHits[0].distance;
+    }
+
+    private scatterHillsAndMountains(mapModel: Model) {
+        this.hillColliders.length = 0;
+        const grass = mapModel.lod[0].flats.find(mesh => mesh.name === PaletteCategory.TERRAIN_GRASS);
+        assertIsDefined(grass);
+        for (let i = 0; i < 30; i++) {
+            const hill = new StaticSceneryEntity(this.models.getModel('lib:hill'));
+            this.randomPosOver(grass, hill.position, 20000);
+            hill.scale.set(
+                0.8 + Math.random() / 5.0,
+                0.5 + Math.random() / 2.0,
+                0.8 + Math.random() / 5.0);
+            hill.quaternion.setFromAxisAngle(UP, Math.PI / 4 + (Math.random() - 0.5) * Math.PI / 4);
+            this.hillColliders.push(createHillCollider(
+                hill.position, hill.quaternion, hill.scale,
+                HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT,
+            ));
+            this.scene.add(hill);
+        }
+
+        const bare = mapModel.lod[0].flats.find(mesh => mesh.name === PaletteCategory.TERRAIN_BARE);
+        assertIsDefined(bare);
+        for (let i = 0; i < 20; i++) {
+            const mountain = new StaticSceneryEntity(this.models.getModel('lib:mountain'));
+            this.randomPosOver(bare, mountain.position, 20000);
+            mountain.scale.x = 0.8 + Math.random() / 5.0;
+            mountain.scale.y = 0.5 + Math.random() / 2.0;
+            mountain.scale.z = 0.8 + Math.random() / 5.0;
+            mountain.quaternion.setFromAxisAngle(UP, Math.PI / 4 + (Math.random() - 0.5) * Math.PI / 4);
+            this.hillColliders.push(createHillCollider(
+                mountain.position, mountain.quaternion, mountain.scale,
+                MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT,
+            ));
+            this.scene.add(mountain);
+        }
     }
 
     private randomPosOver(surface: THREE.Object3D, position: THREE.Vector3, spread: number): THREE.Vector3 {
