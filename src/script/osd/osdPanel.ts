@@ -87,12 +87,17 @@ function setupFlightModel(config: ConfigService) {
     assertIsDefined(fm2FlightModel);
     const debugFlightModel = document.getElementById('flightmodel-debug');
     assertIsDefined(debugFlightModel);
+    const jsbsimFlightModel = document.getElementById('flightmodel-jsbsim');
+    assertIsDefined(jsbsimFlightModel);
 
     fm2FlightModel.addEventListener('change', () => {
         config.flightModels.setActive(FlightModels.FM2);
     });
     debugFlightModel.addEventListener('change', () => {
         config.flightModels.setActive(FlightModels.DEBUG);
+    });
+    jsbsimFlightModel.addEventListener('change', () => {
+        config.flightModels.setActive(FlightModels.JSBSIM);
     });
 }
 

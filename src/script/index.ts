@@ -15,6 +15,7 @@ import { JoystickControlDevice } from './input/devices/joystickControlDevice';
 import { KeyboardControlDevice, KeyboardControlLayoutId } from './input/devices/keyboardControlDevice';
 import { setupOSD } from './osd/osdPanel';
 import { WorkerFlightModel } from './physics/model/workerFlightModel';
+import { WorkerJsbsimFlightModel } from './physics/model/workerJsbsimFlightModel';
 import { Renderer } from './render/renderer';
 import { SceneMaterialManager } from './scene/materials/materials';
 import { BackgroundModelLibBuilder } from './scene/models/lib/backgroundModelBuilder';
@@ -30,7 +31,11 @@ import { FlightModels, TechProfiles } from './state/gameDefs';
 async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice]> {
     const config = new ConfigService(
         { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
-        { [FlightModels.FM2]: new WorkerFlightModel(), [FlightModels.DEBUG]: new WorkerFlightModel(true) }
+        {
+            [FlightModels.FM2]: new WorkerFlightModel(),
+            [FlightModels.DEBUG]: new WorkerFlightModel(true),
+            [FlightModels.JSBSIM]: new WorkerJsbsimFlightModel(),
+        }
     );
     config.flightModels.setActive(FlightModels.FM2);
     const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
