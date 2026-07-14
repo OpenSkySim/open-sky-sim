@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { UP } from '../../utils/math';
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
+import { FcsPitchLimiter } from '../fm2/fcs';
 
 export const SIM_FPS = 120;
 const SIM_DELTA = 1.0 / SIM_FPS;
@@ -32,8 +33,6 @@ export abstract class FlightModel {
     protected landingGearDeployed: boolean = true;
     protected flapsExtended: boolean = true;
     protected wheelBrakesApplied: boolean = false;
-    /** FBW AoA/g limiters. True = normal envelope protection; false = pilot override. */
-    protected limitersEnabled: boolean = true;
     /**
      * Reynolds-number regime for high-alpha forebody flow (Ericsson, ICAS-92-4.6R).
      * false = full-scale flight: transition/motion coupling keeps forebody
@@ -43,6 +42,9 @@ export abstract class FlightModel {
      * behaviour the paper warns does NOT represent full-scale flight.
      */
     protected forebodyLaminar: boolean = false;
+
+    /** Active pitch AoA/g limiter strategy (keys 1/2/3). FM2 only. */
+    protected pitchLimiterMode: FcsPitchLimiter = FcsPitchLimiter.SOFT;
 
     protected pitch: number = 0; // [-1, 1]
     protected roll: number = 0; // [-1, 1]
@@ -58,27 +60,12 @@ export abstract class FlightModel {
      * expressed in the SAME polarity as the raw pilot stick they animate from
      * (positive elevator = nose-up / aft stick, positive aileron = right roll
      * stick, positive rudder = right pedal). These drive the VISIBLE control
-     * surfaces so the fly-by-wire shaping (AoA limiter, roll/yaw laws) is
+     * surfaces so the fly-by-wire shaping (roll/yaw laws) is
      * visible on the model. They default to 0 until the first physics state.
      */
     protected commandedElevator: number = 0;
     protected commandedAileron: number = 0;
     protected commandedRudder: number = 0;
-    /**
-     * Upper / lower clamp bounds the FCS applies to the normalized elevator
-     * command this step, in the SAME polarity as {@link commandedElevator}
-     * (positive = nose-up / aft stick). With the limiters ON these are the
-     * combined AoA/g deflection caps; with the limiters OFF (direct law) they are
-     * +1 / -1. Used by the HUD to mark the pitch-input limits. Default ±1.
-     */
-    protected elevatorCommandLimitHigh: number = 1;
-    protected elevatorCommandLimitLow: number = -1;
-    /**
-     * FCS-governed pitch stick in [-1, 1] (same polarity as {@link pitch}).
-     * With limiters ON this reflects envelope protection; with limiters OFF it
-     * matches raw pilot demand. Used by the HUD stick indicator.
-     */
-    protected governedPitchStick: number = 0;
     /** World-frame linear acceleration from the last physics step (m/s²). */
     protected readonly accelWorld = new THREE.Vector3();
 
@@ -107,8 +94,8 @@ export abstract class FlightModel {
         this.landingGearDeployed = true;
         this.flapsExtended = true;
         this.wheelBrakesApplied = false;
-        this.limitersEnabled = true;
         this.forebodyLaminar = false;
+        this.pitchLimiterMode = FcsPitchLimiter.SOFT;
         this.pitch = 0;
         this.roll = 0;
         this.yaw = 0;
@@ -120,9 +107,6 @@ export abstract class FlightModel {
         this.commandedElevator = 0;
         this.commandedAileron = 0;
         this.commandedRudder = 0;
-        this.elevatorCommandLimitHigh = 1;
-        this.elevatorCommandLimitLow = -1;
-        this.governedPitchStick = 0;
         this.accelWorld.set(0, 0, 0);
         this.deltaRemainder = 0;
         this.syncPreviousState();
@@ -216,15 +200,6 @@ export abstract class FlightModel {
         return this.wheelBrakesApplied;
     }
 
-    /** Enable/disable the FBW AoA/g limiters (false = pilot limiter override). */
-    setLimitersEnabled(enabled: boolean) {
-        this.limitersEnabled = enabled;
-    }
-
-    isLimitersEnabled(): boolean {
-        return this.limitersEnabled;
-    }
-
     /**
      * Select the high-alpha forebody Reynolds regime (Ericsson, ICAS-92-4.6R).
      * false (default) = full-scale flight, laterally symmetric (no nose slice);
@@ -237,6 +212,15 @@ export abstract class FlightModel {
 
     isForebodyLaminar(): boolean {
         return this.forebodyLaminar;
+    }
+
+    /** Select the pitch AoA/g limiter strategy (keys 1/2/3). Only FM2 acts on it. */
+    setPitchLimiterMode(mode: FcsPitchLimiter) {
+        this.pitchLimiterMode = mode;
+    }
+
+    getPitchLimiterMode(): FcsPitchLimiter {
+        return this.pitchLimiterMode;
     }
 
     setLanded(isLanded: boolean) {
@@ -297,7 +281,7 @@ export abstract class FlightModel {
     /**
      * FCS-commanded visible surface deflections in [-1, 1], in raw-stick polarity
      * (see {@link commandedElevator}). Used to animate the control surfaces so the
-     * fly-by-wire shaping (incl. the AoA limiter) is visible on the model.
+     * fly-by-wire shaping is visible on the model.
      */
     getCommandedElevator(): number {
         return this.commandedElevator;
@@ -309,24 +293,6 @@ export abstract class FlightModel {
 
     getCommandedRudder(): number {
         return this.commandedRudder;
-    }
-
-    /**
-     * Upper / lower clamp bounds on the normalized elevator command (same
-     * +nose-up polarity as {@link getCommandedElevator}). The HUD draws these as
-     * the max/min pitch-input limit lines. Default ±1 (no clamp / direct law).
-     */
-    getElevatorCommandLimitHigh(): number {
-        return this.elevatorCommandLimitHigh;
-    }
-
-    getElevatorCommandLimitLow(): number {
-        return this.elevatorCommandLimitLow;
-    }
-
-    /** Effective pitch stick after FBW envelope protection (HUD stick dot). */
-    getGovernedPitchStick(): number {
-        return this.governedPitchStick;
     }
 
     getAccelerationWorld(target: THREE.Vector3 = this.accelWorld): THREE.Vector3 {

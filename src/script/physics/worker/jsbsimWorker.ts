@@ -47,7 +47,6 @@ function handleMessage(data: any) {
             flightModel.setLandingGearDeployed(data.inputs.landingGearDeployed);
             flightModel.setFlapsExtended(data.inputs.flapsExtended);
             flightModel.setWheelBrakes(data.inputs.wheelBrakesApplied);
-            flightModel.setLimitersEnabled(data.inputs.limitersEnabled);
             flightModel.setForceVectorsRequested(!!data.inputs.wantForceVectors);
 
             flightModel.update(data.delta);
@@ -118,11 +117,6 @@ function sendState() {
         commandedElevator: flightModel.getCommandedElevator(),
         commandedAileron: flightModel.getCommandedAileron(),
         commandedRudder: flightModel.getCommandedRudder(),
-        elevatorLimitHigh: flightModel.getElevatorCommandLimitHigh(),
-        elevatorLimitLow: flightModel.getElevatorCommandLimitLow(),
-        // Non-FM2 models have no envelope governor; raw pilot pitch is the stick position.
-        // @ts-ignore
-        governedPitchStick: flightModel.pitch,
         accelWorld: flightModel.getAccelerationWorld().toArray(),
         engineThrustN: flightModel.getEngineThrustKn() * 1000,
         effectiveThrottle: flightModel.getEffectiveThrottle(),

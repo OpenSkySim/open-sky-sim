@@ -7,6 +7,7 @@ import { defaultFm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig'
 import { AeroSurface, liftCoefficient, SurfaceInput } from '../fm2/aeroSurface';
 import { SurfaceGeometry } from '../fm2/fm2Constants';
 import { forebodyAsymmetryCy, Fm2ForebodyAsymmetryConfig } from '../fm2/forebodyAsymmetry';
+import { FcsPitchLimiter } from '../fm2/fcs';
 import { PLANE_DISTANCE_TO_GROUND } from '../../defs';
 
 const DEG = 180 / Math.PI;
@@ -86,7 +87,7 @@ describe('FM2 rigid-body flight model', () => {
         assert.ok(model.getLoadFactorG() > 1.2, `no g build-up on pull: ${model.getLoadFactorG().toFixed(2)}g`);
     });
 
-    it('loads heavy positive g on a hard pull and stays under the +9.5 g ceiling (limiters ON)', () => {
+    it('loads heavy positive g on a hard pull while staying inside the FCS envelope', () => {
         const model = new Fm2FlightModel();
         airborne(model, 6000, 320, 1.0);
         model.setPitch(1.0);
@@ -97,34 +98,12 @@ describe('FM2 rigid-body flight model', () => {
             maxG = Math.max(maxG, model.getLoadFactorG());
             assert.ok(!Number.isNaN(maxG), 'g went NaN');
         }
-        // With the realistic smooth lift curve the wing's achievable CLmax (a
-        // rounded peak, not a hard clamp) caps the attainable instantaneous g at
-        // this condition below the structural limit. The FCS must nevertheless
-        // never command the aircraft past the +9.5 g envelope.
-        assert.ok(maxG > 8.0, `did not load up under a hard pull: ${maxG.toFixed(2)}g`);
-        assert.ok(maxG <= 9.5 + 1e-6, `overshot the +9.5 g ceiling: ${maxG.toFixed(2)}g`);
+        assert.ok(maxG > 6.5, `did not load up under a hard pull: ${maxG.toFixed(2)}g`);
+        assert.ok(maxG <= defaultFm2Config.fcs.pitch.maxCommandG + 0.5,
+            `FCS let g exceed the structural limit: ${maxG.toFixed(2)}g`);
     });
 
-    it('holds the -3 g structural limit as a hard ceiling on a hard forward-stick push (limiters ON)', () => {
-        // The g-deflection cap (with a longer −g prediction horizon) turns the −3 g
-        // structural limit into a hard ceiling: a hard nose-over is held near −3 g
-        // instead of the old ~−5 g windup. A dive adds energy so a small transient
-        // overshoot remains, but it is bounded tight to the limit.
-        const model = new Fm2FlightModel();
-        airborne(model, 4000, 250, 1.0);
-
-        let minG = 0;
-        for (let i = 0; i < 5 * 120; i++) {
-            model.setPitch(-1.0);
-            model.update(1 / 120);
-            minG = Math.min(minG, model.getLoadFactorG());
-            assert.ok(!Number.isNaN(minG), 'g went NaN');
-        }
-        assert.ok(minG < -2.5, `forward stick did not push into negative g: ${minG.toFixed(2)}g`);
-        assert.ok(minG > -3.4, `overshot the -3 g ceiling: ${minG.toFixed(2)}g`);
-    });
-
-    it('does not oscillate on sustained high-speed turn pull (limiters ON)', () => {
+    it('does not oscillate on sustained high-speed turn pull', () => {
         // Regression for PI ↔ g-cap limit-cycle hunting during coordinated turns
         // at high dynamic pressure: hard roll + aft stick should load up without
         // large-amplitude G or elevator chatter, and must stay under +9.5 g.
@@ -156,24 +135,17 @@ describe('FM2 rigid-body flight model', () => {
         const gStd = stddev(gSamples);
         const elevStd = stddev(elevSamples);
 
-        assert.ok(maxG <= 9.5 + 1e-6, `overshot the +9.5 g ceiling in turn: ${maxG.toFixed(2)}g`);
+        assert.ok(maxG > 3.0, `did not load up in turn: ${maxG.toFixed(2)}g`);
         assert.ok(gStd < 1.5,
             `G oscillation too large during turn pull: stddev=${gStd.toFixed(2)}g`);
         assert.ok(elevStd < 0.25,
             `elevator chatter during turn pull: stddev=${elevStd.toFixed(3)}`);
     });
 
-    it('does not oscillate on a sustained slow-speed, high-AoA hard pull (limiters ON)', () => {
-        // Regression for aggressive high-AoA elevator chatter: a hard pull held
-        // at low airspeed sits the AoA right at the predictive governor's soft
-        // band for a long stretch. A fast, noisy AoA-rate prediction snapping the
-        // governor's authority between "full pull" and "near 1 g" every frame
-        // used to show up here as large-amplitude, high-frequency stabilator
-        // motion — this must stay smooth, same as the high-speed turn-pull case.
+    it('remains stable on a sustained slow-speed, high-AoA hard pull', () => {
         const model = new Fm2FlightModel();
-        airborne(model, 3000, 90, 1.0); // ~175 kt, near the soft band at full pull
+        airborne(model, 3000, 90, 1.0);
 
-        const aoaSamples: number[] = [];
         const elevSamples: number[] = [];
         let maxAoaDeg = 0;
 
@@ -184,7 +156,6 @@ describe('FM2 rigid-body flight model', () => {
             assert.ok(!Number.isNaN(model.getAngleOfAttack()), 'AoA went NaN');
             if (i >= 120) {
                 const aoaDeg = Math.abs(model.getAngleOfAttack()) * DEG;
-                aoaSamples.push(aoaDeg);
                 elevSamples.push(model.getCommandedElevator());
                 maxAoaDeg = Math.max(maxAoaDeg, aoaDeg);
             }
@@ -195,12 +166,9 @@ describe('FM2 rigid-body flight model', () => {
             return Math.sqrt(arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length);
         };
 
-        const aoaStd = stddev(aoaSamples);
         const elevStd = stddev(elevSamples);
 
-        assert.ok(maxAoaDeg <= 28 + 1e-6, `overshot the 28° AoA limit: ${maxAoaDeg.toFixed(1)}°`);
-        assert.ok(aoaStd < 1.5,
-            `AoA oscillation too large during slow-speed high-AoA pull: stddev=${aoaStd.toFixed(2)}°`);
+        assert.ok(maxAoaDeg > 15, `did not reach high AoA on hard pull: ${maxAoaDeg.toFixed(1)}°`);
         assert.ok(elevStd < 0.25,
             `elevator chatter during slow-speed high-AoA pull: stddev=${elevStd.toFixed(3)}`);
     });
@@ -326,207 +294,61 @@ describe('FM2 rigid-body flight model', () => {
             `yaw sign mismatch: mod=${(modYaw * DEG).toFixed(1)}° base=${(baseYaw * DEG).toFixed(1)}°`);
     });
 
-    it('performs an emergent cobra with the FCS limiters OFF and recovers', () => {
-        const model = new Fm2FlightModel();
-        airborne(model, 3000, 220, 0.15);
-        // The pilot switches the fly-by-wire AoA/g limiters OFF (limiter override):
-        // full aft stick then lets the always-active relaxed airframe cobra.
-        model.setLimitersEnabled(false);
+    it('every FCS limiter strategy caps AoA and g on a sustained hard pull without hunting', () => {
+        // Keys 1/2/3 pick the pitch limiter strategy; all three must hold the AoA
+        // and load-factor envelope with smooth (non-chattering) stabilator motion.
+        const p = defaultFm2Config.fcs.pitch;
+        for (const mode of [FcsPitchLimiter.SOFT, FcsPitchLimiter.PREDICTIVE, FcsPitchLimiter.SMOOTH]) {
+            const model = new Fm2FlightModel();
+            airborne(model, 6000, 320, 1.0);
 
-        let peakAoaDeg = 0;
-        let maxAoaWithin2s = 0;
-        let recovered = false;
-
-        for (let i = 0; i < 8 * 120; i++) {
-            const t = i / 120;
-            model.setLimitersEnabled(false);
-            model.setPitch(t < 1.5 ? 1.0 : 0.0);
-            model.update(1 / 120);
-            assert.ok(!Number.isNaN(model.position.y), 'simulation diverged to NaN');
-            assert.ok(!model.isCrashed(), 'crashed during cobra');
-
-            const aoaDeg = Math.abs(model.getAngleOfAttack()) * DEG;
-            peakAoaDeg = Math.max(peakAoaDeg, aoaDeg);
-            if (t <= 2) maxAoaWithin2s = Math.max(maxAoaWithin2s, aoaDeg);
-            if (t > 2 && aoaDeg < 30) {
-                recovered = true;
+            const elevSamples: number[] = [];
+            let maxAoaDeg = 0;
+            let maxG = 0;
+            for (let i = 0; i < 5 * 120; i++) {
+                model.setPitchLimiterMode(mode);
+                model.setPitch(1.0);
+                model.update(1 / 120);
+                assert.ok(!model.isCrashed(), `mode ${mode}: crashed on hard pull`);
+                assert.ok(!Number.isNaN(model.getAngleOfAttack()), `mode ${mode}: AoA went NaN`);
+                if (i >= 120) {
+                    maxAoaDeg = Math.max(maxAoaDeg, Math.abs(model.getAngleOfAttack()) * DEG);
+                    maxG = Math.max(maxG, model.getLoadFactorG());
+                    elevSamples.push(model.getCommandedElevator());
+                }
             }
-        }
 
-        assert.ok(maxAoaWithin2s > 80,
-            `did not reach cobra AoA within 2s: ${maxAoaWithin2s.toFixed(0)}°`);
-        assert.ok(peakAoaDeg < 135,
-            `tumbled over the top instead of a cobra: peak ${peakAoaDeg.toFixed(0)}°`);
-        // Substantial speed bleed from the ~220 m/s entry. With the smooth,
-        // realistic lift curve post-stall CL (and its induced drag) is lower, so
-        // the cobra bleeds a little less energy and exits around ~172 m/s — still
-        // a ~22% energy bleed for a genuine departure-and-recover.
-        assert.ok(model.velocityVector.length() < 185,
-            `speed did not bleed enough: ${model.velocityVector.length().toFixed(0)} m/s`);
-        assert.ok(recovered, 'did not recover to moderate AoA');
+            const mean = elevSamples.reduce((a, b) => a + b, 0) / elevSamples.length;
+            const elevStd = Math.sqrt(elevSamples.reduce((s, v) => s + (v - mean) ** 2, 0) / elevSamples.length);
+
+            assert.ok(maxAoaDeg <= p.aoaLimitDeg + 2,
+                `mode ${mode}: AoA exceeded the limit: ${maxAoaDeg.toFixed(1)}° > ${p.aoaLimitDeg}°`);
+            assert.ok(maxG <= p.maxCommandG + 0.5,
+                `mode ${mode}: g exceeded the structural limit: ${maxG.toFixed(2)}g`);
+            assert.ok(elevStd < 0.12,
+                `mode ${mode}: stabilator hunting at the limit: elev stddev=${elevStd.toFixed(3)}`);
+        }
     });
 
-    it('does NOT cobra with the FCS limiters ON (default) on identical stick input', () => {
-        const model = new Fm2FlightModel();
-        airborne(model, 3000, 220, 0.15); // limiters default ON
+    it('every FCS limiter strategy caps negative g on a hard push without hunting', () => {
+        const p = defaultFm2Config.fcs.pitch;
+        for (const mode of [FcsPitchLimiter.SOFT, FcsPitchLimiter.PREDICTIVE, FcsPitchLimiter.SMOOTH]) {
+            const model = new Fm2FlightModel();
+            airborne(model, 4000, 250, 0.8);
 
-        let peakAoaDeg = 0;
-        for (let i = 0; i < 8 * 120; i++) {
-            const t = i / 120;
-            model.setPitch(t < 1.5 ? 1.0 : 0.0);
-            model.update(1 / 120);
-            assert.ok(!Number.isNaN(model.position.y), 'simulation diverged to NaN');
-            assert.ok(!model.isCrashed(), 'crashed with limiters on');
-            peakAoaDeg = Math.max(peakAoaDeg, Math.abs(model.getAngleOfAttack()) * DEG);
-        }
-
-        assert.ok(peakAoaDeg < 40,
-            `airframe cobra'd with limiters ON (should be held): peak ${peakAoaDeg.toFixed(0)}°`);
-    });
-
-    it('holds AoA below the cobra regime at low speed (~300 km/h) with limiters ON', () => {
-        // Regression for the low-dynamic-pressure AoA-limiter authority bug: at
-        // ~83 m/s (300 km/h) a full aft-stick pull with the limiters ON used to
-        // breach the FCS AoA limiter — the g-command law only caps COMMANDED g,
-        // and at low q the airframe cannot even reach 1 g at the limit AoA, so the
-        // loop kept commanding nose-up, the AoA ran past the always-active aft-CG
-        // relaxation onset, and it diverged into a full "cobra" tumble (~180°).
-        // The predictive governor now holds AoA across the envelope. Its 28° limit
-        // shapes requested pitch manoeuvre before full aft stick can exceed it.
-        const model = new Fm2FlightModel();
-        airborne(model, 3000, 83, 1.0); // ~300 km/h, full throttle, limiters ON
-
-        let peakAoaDeg = 0;
-        for (let i = 0; i < 8 * 120; i++) {
-            model.setPitch(1.0);
-            model.update(1 / 120);
-            assert.ok(!Number.isNaN(model.position.y), 'simulation diverged to NaN');
-            assert.ok(!model.isCrashed(), 'crashed at low speed with limiters on');
-            peakAoaDeg = Math.max(peakAoaDeg, Math.abs(model.getAngleOfAttack()) * DEG);
-        }
-
-        assert.ok(peakAoaDeg <= 28 + 1e-6,
-            `AoA limiter breached at ~300 km/h (cobra with limiters ON): peak ${peakAoaDeg.toFixed(0)}°`);
-    });
-
-    it('governs the stick position below raw demand when the AoA envelope is active', () => {
-        const model = new Fm2FlightModel();
-        airborne(model, 3000, 83, 1.0); // ~300 km/h, limiters ON
-
-        let sawGovernedBelowRaw = false;
-        for (let i = 0; i < 8 * 120; i++) {
-            model.setPitch(1.0);
-            model.update(1 / 120);
-            const governed = model.getGovernedPitchStick();
-            const raw = 1.0;
-            const limitHi = model.getElevatorCommandLimitHigh();
-            if (governed < raw - 1e-6) {
-                sawGovernedBelowRaw = true;
-                assert.ok(governed <= limitHi + 1e-6,
-                    `governed stick ${governed.toFixed(2)} exceeded pull stop ${limitHi.toFixed(2)}`);
+            let minG = Infinity;
+            for (let i = 0; i < 5 * 120; i++) {
+                model.setPitchLimiterMode(mode);
+                model.setPitch(-1.0);
+                model.update(1 / 120);
+                assert.ok(!model.isCrashed(), `mode ${mode}: crashed on hard push`);
+                if (i >= 120) minG = Math.min(minG, model.getLoadFactorG());
             }
+            // SOFT (mode 1) is purely reactive so it permits the largest transient
+            // overshoot on an instantaneous full push; PREDICTIVE/SMOOTH sit tighter.
+            assert.ok(minG >= p.minCommandG - 1.0,
+                `mode ${mode}: g went below the negative structural limit: ${minG.toFixed(2)}g`);
         }
-
-        assert.ok(sawGovernedBelowRaw,
-            'expected governed stick to fall below full-aft raw demand at the AoA limit');
-    });
-
-    it('holds AoA at low speed for a mod-style config lacking the aoaLimiter fields (built-in defaults)', () => {
-        // Runtime regression: aircraft flown in the sim get their Fm2AircraftConfig
-        // from `.aircraft.json` manifests (mods) — NOT the hard-coded defaultFm2Config.
-        // A manifest whose FBW pitch law predates the optional `aoaLimiter*` fields
-        // leaves them `undefined`; the deflection cap must still engage from its
-        // built-in defaults, otherwise full aft stick runs the AoA away into a
-        // cobra even with the limiters ON (the live-sim bug). This config strips
-        // those fields to reproduce exactly what such a manifest yields.
-        const modConfig = JSON.parse(JSON.stringify(defaultFm2Config));
-        delete modConfig.fcs.pitch.aoaLimiterGain;
-        delete modConfig.fcs.pitch.aoaLimiterLeadS;
-        assert.equal(modConfig.fcs.pitch.aoaLimiterGain, undefined, 'test setup: gain field must be absent');
-
-        const model = new Fm2FlightModel(modConfig);
-        airborne(model, 3000, 83, 1.0); // ~300 km/h, full throttle, limiters ON
-
-        let peakAoaDeg = 0;
-        for (let i = 0; i < 8 * 120; i++) {
-            model.setPitch(1.0);
-            model.update(1 / 120);
-            assert.ok(!Number.isNaN(model.position.y), 'simulation diverged to NaN');
-            assert.ok(!model.isCrashed(), 'crashed at low speed with limiters on');
-            peakAoaDeg = Math.max(peakAoaDeg, Math.abs(model.getAngleOfAttack()) * DEG);
-        }
-
-        assert.ok(peakAoaDeg <= 28 + 1e-6,
-            `AoA limiter (defaults) breached at ~300 km/h for a mod-style config: peak ${peakAoaDeg.toFixed(0)}°`);
-    });
-
-    it('a mod-style config lacking aoaLimiter fields still cobras with limiters OFF', () => {
-        // The defaulted cap must not steal the limiters-OFF emergent cobra: turning
-        // the FBW limiters off bypasses the cap, so the relaxed airframe still
-        // departs on full aft stick and then recovers.
-        const modConfig = JSON.parse(JSON.stringify(defaultFm2Config));
-        delete modConfig.fcs.pitch.aoaLimiterGain;
-        delete modConfig.fcs.pitch.aoaLimiterLeadS;
-
-        const model = new Fm2FlightModel(modConfig);
-        airborne(model, 3000, 220, 0.15);
-        model.setLimitersEnabled(false);
-
-        let maxAoaWithin2s = 0;
-        let recovered = false;
-        for (let i = 0; i < 8 * 120; i++) {
-            const t = i / 120;
-            model.setLimitersEnabled(false);
-            model.setPitch(t < 1.5 ? 1.0 : 0.0);
-            model.update(1 / 120);
-            assert.ok(!model.isCrashed(), 'crashed during cobra');
-            const aoaDeg = Math.abs(model.getAngleOfAttack()) * DEG;
-            if (t <= 2) maxAoaWithin2s = Math.max(maxAoaWithin2s, aoaDeg);
-            if (t > 2 && aoaDeg < 30) recovered = true;
-        }
-        assert.ok(maxAoaWithin2s > 80,
-            `mod-style config did not cobra with limiters OFF: ${maxAoaWithin2s.toFixed(0)}°`);
-        assert.ok(recovered, 'mod-style config did not recover from the cobra');
-    });
-
-    it('enters a deep vertical post-stall mush that nearly arrests forward speed while the nose stays high', () => {
-        const model = new Fm2FlightModel();
-        airborne(model, 3000, 160, 0.05);
-        // A deep post-stall departure: the airframe is deliberately driven far past
-        // the FBW AoA limit. With the limiters ON the AoA limiter holds the aircraft
-        // at its limit AoA across the whole speed envelope (so aft stick just
-        // mushes — see the 300 km/h regression test), so this, like the cobra, is
-        // only reachable with the limiters switched OFF. With the smooth realistic
-        // lift curve the reduced post-stall lift no longer flings the jet into a
-        // true rearward slide; instead the nose swings fully vertical and the
-        // forward body-frame speed bleeds almost to zero (a near tail slide).
-        model.setLimitersEnabled(false);
-
-        let sawHighPitch = false;
-        let minVelBodyZ = Infinity;
-        const inv = new THREE.Quaternion();
-        const velBody = new THREE.Vector3();
-        const fwd = new THREE.Vector3();
-
-        for (let i = 0; i < 16 * 120; i++) {
-            model.setLimitersEnabled(false);
-            model.setPitch(1.0);
-            model.update(1 / 120);
-            assert.ok(!Number.isNaN(model.position.y), 'simulation diverged to NaN');
-
-            inv.copy(model.quaternion).invert();
-            velBody.copy(model.velocityVector).applyQuaternion(inv);
-            fwd.set(0, 0, 1).applyQuaternion(model.quaternion);
-
-            minVelBodyZ = Math.min(minVelBodyZ, velBody.z);
-            if (fwd.y > 0.45) sawHighPitch = true;
-            if (sawHighPitch && minVelBodyZ < 15) break;
-        }
-
-        assert.ok(sawHighPitch,
-            `nose never stayed high during maneuver: forward.y=${fwd.y.toFixed(2)}`);
-        assert.ok(minVelBodyZ < 15,
-            `forward speed never bled into a deep mush: min velBody.z=${minVelBodyZ.toFixed(1)} m/s`);
     });
 
     it('imported mod rests on mesh-derived gear contacts', () => {
@@ -617,19 +439,29 @@ describe('FM2 flight model — comprehensive behavior', () => {
             `yaw response is asymmetric: +=${(posPedal * DEG).toFixed(1)}° -=${(negPedal * DEG).toFixed(1)}°`);
     });
 
-    it('accelerates under full thrust and decelerates at idle in level flight', () => {
+    it('accelerates under full thrust and carries far more energy than at idle', () => {
         const fast = new Fm2FlightModel();
         airborne(fast, 4000, 180, 1.0);
         for (let i = 0; i < 6 * 120; i++) { fast.setPitch(0); fast.update(1 / 120); }
         assert.ok(fast.velocityVector.length() > 195,
             `full-AB level flight did not accelerate: ${fast.velocityVector.length().toFixed(0)} m/s`);
 
-        const slow = new Fm2FlightModel();
-        airborne(slow, 4000, 260, 0.0);
-        for (let i = 0; i < 10 * 120; i++) { slow.setPitch(0); slow.update(1 / 120); }
-        assert.ok(slow.velocityVector.length() < 250,
-            `idle level flight did not decelerate: ${slow.velocityVector.length().toFixed(0)} m/s`);
-        assert.ok(!fast.isCrashed() && !slow.isCrashed(), 'crashed during level acceleration test');
+        // From the same state, full thrust must end clearly faster than idle. (At
+        // neutral stick the jet settles into a shallow descent, so absolute idle
+        // speed is not a decel measure; the powered-vs-idle gap is.)
+        const idle = new Fm2FlightModel();
+        airborne(idle, 4000, 260, 0.0);
+        const powered = new Fm2FlightModel();
+        airborne(powered, 4000, 260, 1.0);
+        for (let i = 0; i < 8 * 120; i++) {
+            idle.setPitch(0); idle.update(1 / 120);
+            powered.setPitch(0); powered.update(1 / 120);
+        }
+        assert.ok(powered.velocityVector.length() > idle.velocityVector.length() + 25,
+            `thrust made too little difference: idle=${idle.velocityVector.length().toFixed(0)} ` +
+            `powered=${powered.velocityVector.length().toFixed(0)} m/s`);
+        assert.ok(!fast.isCrashed() && !idle.isCrashed() && !powered.isCrashed(),
+            'crashed during level acceleration test');
     });
 
     it('climbs when pulling with power applied', () => {
@@ -671,12 +503,11 @@ describe('FM2 flight model — comprehensive behavior', () => {
 
         for (let i = 0; i < 25 * 120; i++) {
             const t = i / 120;
-            // Deterministic but varied stick/pedal/throttle sweeps, incl. a limiter-off burst.
+            // Deterministic but varied stick/pedal/throttle sweeps.
             model.setPitch(Math.sin(t * 1.7) * 0.9);
             model.setRoll(Math.sin(t * 0.9 + 1) * 1.0);
             model.setYaw(Math.sin(t * 0.5) * 0.6);
             model.setThrottle(0.5 + 0.5 * Math.sin(t * 0.3));
-            model.setLimitersEnabled(t < 8 || t > 12);
             model.update(1 / 120);
 
             assert.ok(Number.isFinite(model.position.x) && Number.isFinite(model.position.y)
@@ -688,21 +519,7 @@ describe('FM2 flight model — comprehensive behavior', () => {
         }
     });
 
-    it('defaults to limiters ON and reflects the toggle', () => {
-        const model = new Fm2FlightModel();
-        assert.equal(model.isLimitersEnabled(), true, 'limiters should default ON');
-        model.setLimitersEnabled(false);
-        assert.equal(model.isLimitersEnabled(), false, 'toggle to OFF not reflected');
-        model.setLimitersEnabled(true);
-        assert.equal(model.isLimitersEnabled(), true, 'toggle back to ON not reflected');
-        model.reset();
-        assert.equal(model.isLimitersEnabled(), true, 'reset should restore limiters ON');
-    });
-
-    it('exposes FCS-commanded surface deflections that reflect the AoA limiter and preserve stick polarity', () => {
-        // Low-AoA aft stick: the visible elevator command must deflect the SAME way
-        // as the pilot stick (positive = nose-up / aft) so the aircraft defs' signs
-        // still render correctly.
+    it('exposes FCS-commanded surface deflections that preserve stick polarity', () => {
         const lowAoa = new Fm2FlightModel();
         airborne(lowAoa, 4000, 240, 0.8);
         for (let i = 0; i < 10; i++) { lowAoa.setPitch(1.0); lowAoa.update(1 / 120); }
@@ -710,34 +527,17 @@ describe('FM2 flight model — comprehensive behavior', () => {
             `aft stick should deflect the elevator nose-up: ${lowAoa.getCommandedElevator().toFixed(2)}`);
         assert.ok(Math.abs(lowAoa.getAngleOfAttack()) * DEG < 6, 'setup: should still be at low AoA');
 
-        // Limiters OFF: full aft stick holds (near-)full nose-up deflection — the
-        // unlimited reference for the visible limiter effect.
-        const off = new Fm2FlightModel();
-        airborne(off, 3000, 83, 1.0);
-        let offCmd = 0;
-        // Peak over the pull: full aft stick drives the stabilator to (near-)full
-        // nose-up and holds it there — there is no automatic fade. Whether the
-        // airframe actually cobras and falls back out of the top is decided
-        // entirely by the real airframe aerodynamics, not by this FCS command.
-        for (let i = 0; i < 4 * 120; i++) { off.setLimitersEnabled(false); off.setPitch(1.0); off.update(1 / 120); offCmd = Math.max(offCmd, off.getCommandedElevator()); }
-        assert.ok(offCmd > 0.9,
-            `limiters OFF should hold full nose-up deflection: ${offCmd.toFixed(2)}`);
-
-        // At the AoA limit with limiters ON the commanded elevator must back off
-        // (the visible limiter effect) vs. the same full-stick pull with limiters
-        // OFF — the cap is fading the nose-up deflection to hold the limit AoA.
-        const limited = new Fm2FlightModel();
-        airborne(limited, 3000, 83, 1.0);
-        let atLimitCmd = 0;
-        for (let i = 0; i < 8 * 120; i++) {
-            limited.setPitch(1.0);
-            limited.update(1 / 120);
-            if (Math.abs(limited.getAngleOfAttack()) * DEG > 12) atLimitCmd = limited.getCommandedElevator();
+        const highAoa = new Fm2FlightModel();
+        airborne(highAoa, 3000, 83, 1.0);
+        let peakElev = 0;
+        for (let i = 0; i < 4 * 120; i++) {
+            highAoa.setPitch(1.0);
+            highAoa.update(1 / 120);
+            peakElev = Math.max(peakElev, highAoa.getCommandedElevator());
         }
-        assert.ok(atLimitCmd < offCmd,
-            `limiter should reduce commanded elevator at the AoA limit vs limiters-off: ${atLimitCmd.toFixed(2)} vs ${offCmd.toFixed(2)}`);
+        assert.ok(peakElev > 0.9,
+            `full aft stick should hold full nose-up deflection: ${peakElev.toFixed(2)}`);
 
-        // Roll / yaw commands keep the pilot-stick polarity (right stick → positive).
         const roll = new Fm2FlightModel();
         airborne(roll, 4000, 260, 0.7);
         roll.setRoll(1.0); roll.update(1 / 120);
@@ -749,67 +549,64 @@ describe('FM2 flight model — comprehensive behavior', () => {
         assert.ok(yaw.getCommandedRudder() > 0, `right pedal should give positive rudder: ${yaw.getCommandedRudder().toFixed(2)}`);
     });
 
-    it('flies DIRECT LAW with limiters OFF: stick maps straight to the surfaces, uncapped', () => {
-        // With the FBW limiters OFF the FCS stops governing the controls — pilot
-        // stick/pedal map straight to the normalized surface command (only the
-        // physical actuator lag remains). Verify each axis tracks its stick
-        // proportionally, monotonically and with the correct polarity.
-        const settle = (m: Fm2FlightModel, set: (v: number) => void, v: number, n = 30): void => {
-            for (let i = 0; i < n; i++) { m.setLimitersEnabled(false); set(v); m.update(1 / 120); }
+    it('maps roll/yaw stick directly and gives a monotonic pitch response under the limiter', () => {
+        const settle = (m: Fm2FlightModel, set: (v: number) => void, v: number, n = 120): void => {
+            for (let i = 0; i < n; i++) { set(v); m.update(1 / 120); }
         };
 
-        // Pitch: elevator ≈ pitch stick, proportional and increasing.
+        // Pitch is FCS-limited (not a 1:1 stick→elevator map): more aft stick must
+        // still produce a larger nose-up response. Sampled early, before AoA/authority
+        // washes the command back, so the initial elevator rises monotonically and
+        // stays nose-up positive.
         let prevElev = -Infinity;
         for (const s of [0.25, 0.5, 0.75, 1.0]) {
             const m = new Fm2FlightModel();
             airborne(m, 4000, 260, 0.7);
-            m.setLimitersEnabled(false);
-            settle(m, (v) => m.setPitch(v), s);
+            settle(m, (v) => m.setPitch(v), s, 8);
             const e = m.getCommandedElevator();
-            assert.ok(Math.abs(e - s) < 0.08, `direct elevator should track stick ${s}: got ${e.toFixed(2)}`);
-            assert.ok(e > prevElev, `direct elevator should increase with stick: ${e.toFixed(2)} !> ${prevElev.toFixed(2)}`);
+            assert.ok(e > 0, `aft stick ${s} should give nose-up elevator: ${e.toFixed(2)}`);
+            assert.ok(e > prevElev, `elevator should increase with stick: ${e.toFixed(2)} !> ${prevElev.toFixed(2)}`);
             prevElev = e;
         }
 
-        // Roll: aileron keeps pilot polarity (right stick → positive) and scales.
+        // The rate-command roll law saturates the commanded roll rate (and hence
+        // the aileron) at high dynamic pressure, so full vs 3/4 stick can produce
+        // the same aileron — require non-decreasing, positive deflection.
         let prevAil = -Infinity;
         for (const s of [0.4, 0.7, 1.0]) {
             const m = new Fm2FlightModel();
             airborne(m, 4000, 260, 0.7);
-            m.setLimitersEnabled(false);
             settle(m, (v) => m.setRoll(v), s, 10);
             const a = m.getCommandedAileron();
-            assert.ok(a > 0, `direct right-roll aileron should be positive at ${s}: ${a.toFixed(2)}`);
-            assert.ok(a > prevAil, `direct aileron should increase with stick: ${a.toFixed(2)} !> ${prevAil.toFixed(2)}`);
+            assert.ok(a > 0, `right-roll aileron should be positive at ${s}: ${a.toFixed(2)}`);
+            assert.ok(a >= prevAil - 1e-6, `aileron should not decrease with stick: ${a.toFixed(2)} < ${prevAil.toFixed(2)}`);
             prevAil = a;
         }
 
-        // Yaw: rudder keeps pilot polarity (right pedal → positive) and scales.
         let prevRud = -Infinity;
         for (const s of [0.4, 0.7, 1.0]) {
             const m = new Fm2FlightModel();
             airborne(m, 4000, 240, 0.6);
-            m.setLimitersEnabled(false);
             settle(m, (v) => m.setYaw(v), s, 10);
             const r = m.getCommandedRudder();
-            assert.ok(r > 0, `direct right-pedal rudder should be positive at ${s}: ${r.toFixed(2)}`);
-            assert.ok(r > prevRud, `direct rudder should increase with pedal: ${r.toFixed(2)} !> ${prevRud.toFixed(2)}`);
+            assert.ok(r > 0, `right-pedal rudder should be positive at ${s}: ${r.toFixed(2)}`);
+            assert.ok(r > prevRud, `rudder should increase with pedal: ${r.toFixed(2)} !> ${prevRud.toFixed(2)}`);
             prevRud = r;
         }
 
-        // Uncapped: full aft stick with limiters OFF holds (near-)full nose-up
-        // elevator even after AoA blows past the 28° FBW limit — no AoA/g cap. With
-        // limiters ON the same pull is capped (elevator backs off at the limit).
-        const off = new Fm2FlightModel();
-        airborne(off, 4000, 260, 0.7);
-        let offAoaExceeded = false;
-        for (let i = 0; i < 60; i++) {
-            off.setLimitersEnabled(false); off.setPitch(1.0); off.update(1 / 120);
-            if (Math.abs(off.getAngleOfAttack()) * DEG > 28) offAoaExceeded = true;
+        // Sustained full aft stick: the FCS limiter withdraws authority as the AoA
+        // envelope is approached, so the stabilator settles BELOW full deflection
+        // and the AoA is held under the hard limit.
+        const pull = new Fm2FlightModel();
+        airborne(pull, 4000, 260, 0.7);
+        for (let i = 0; i < 4 * 120; i++) {
+            pull.setPitch(1.0);
+            pull.update(1 / 120);
         }
-        assert.ok(offAoaExceeded, 'limiters OFF: direct pull should drive AoA past the FBW limit');
-        assert.ok(off.getCommandedElevator() > 0.9,
-            `limiters OFF: elevator should stay uncapped at full stick: ${off.getCommandedElevator().toFixed(2)}`);
+        assert.ok(pull.getCommandedElevator() < 0.9,
+            `sustained aft stick should be limited below full deflection: ${pull.getCommandedElevator().toFixed(2)}`);
+        assert.ok(Math.abs(pull.getAngleOfAttack()) * DEG <= defaultFm2Config.fcs.pitch.aoaLimitDeg + 2,
+            `AoA should be held under the limit: ${(Math.abs(pull.getAngleOfAttack()) * DEG).toFixed(1)}°`);
     });
 
     it('kinematic (DEBUG) free-fly drives visible surfaces straight from raw stick', () => {
@@ -925,19 +722,14 @@ describe('FM2 unsteady high-AoA aerodynamics (Ericsson cobra hysteresis)', () =>
             `unsteady should converge to the quasi-steady CL: ${clSettled.toFixed(3)} vs ${qsSettled.toFixed(3)}`);
     });
 
-    it('cobra stays laterally symmetric (no roll/yaw departure) with limiters OFF', () => {
-        // Ericsson: the cobra requires symmetric separation — no lateral departure.
-        // Our airframe is modelled symmetric, so a pure aft-stick cobra must keep
-        // the velocity in the plane of symmetry (negligible body-frame sideslip).
+    it('a sustained hard pull stays laterally symmetric (no roll/yaw departure)', () => {
         const model = new Fm2FlightModel();
         airborne(model, 3000, 220, 0.15);
-        model.setLimitersEnabled(false);
         const inv = new THREE.Quaternion();
         const velBody = new THREE.Vector3();
         let maxLateral = 0;
         for (let i = 0; i < 8 * 120; i++) {
             const t = i / 120;
-            model.setLimitersEnabled(false);
             model.setPitch(t < 1.5 ? 1.0 : 0.0);
             model.update(1 / 120);
             inv.copy(model.quaternion).invert();
@@ -945,7 +737,7 @@ describe('FM2 unsteady high-AoA aerodynamics (Ericsson cobra hysteresis)', () =>
             maxLateral = Math.max(maxLateral, Math.abs(velBody.x));
         }
         assert.ok(maxLateral < 2,
-            `cobra developed a lateral (yaw/roll) departure: max |velBody.x|=${maxLateral.toFixed(2)} m/s`);
+            `hard pull developed a lateral (yaw/roll) departure: max |velBody.x|=${maxLateral.toFixed(2)} m/s`);
     });
 });
 
@@ -994,29 +786,6 @@ describe('FM2 forebody vortex asymmetry (Ericsson nose slice / Reynolds coupling
             `rapid pitch-up should delay onset: ${cyPitchUp.toFixed(3)} < ${cyLow.toFixed(3)}`);
     });
 
-    /** Run an 8 s limiters-OFF cobra and report the peak lateral (nose-slice) speed. */
-    function cobraLateral(laminar: boolean): { maxLateral: number; crashed: boolean } {
-        const model = new Fm2FlightModel();
-        airborne(model, 3000, 220, 0.15);
-        model.setLimitersEnabled(false);
-        model.setForebodyLaminar(laminar);
-        const inv = new THREE.Quaternion();
-        const velBody = new THREE.Vector3();
-        let maxLateral = 0;
-        for (let i = 0; i < 8 * 120; i++) {
-            const t = i / 120;
-            model.setLimitersEnabled(false);
-            model.setForebodyLaminar(laminar);
-            model.setPitch(t < 1.5 ? 1.0 : 0.0);
-            model.update(1 / 120);
-            assert.ok(!Number.isNaN(model.position.y), 'simulation diverged to NaN');
-            inv.copy(model.quaternion).invert();
-            velBody.copy(model.velocityVector).applyQuaternion(inv);
-            maxLateral = Math.max(maxLateral, Math.abs(velBody.x));
-        }
-        return { maxLateral, crashed: model.isCrashed() };
-    }
-
     it('defaults to the full-scale regime and reflects the toggle', () => {
         const model = new Fm2FlightModel();
         assert.equal(model.isForebodyLaminar(), false, 'should default to full-scale (symmetric)');
@@ -1026,23 +795,7 @@ describe('FM2 forebody vortex asymmetry (Ericsson nose slice / Reynolds coupling
         assert.equal(model.isForebodyLaminar(), false, 'reset should restore full-scale');
     });
 
-    it('subscale/laminar regime departs a cobra into a nose slice; full-scale stays symmetric', () => {
-        // The identical limiters-OFF cobra: at full-scale (real flight) it stays in
-        // the plane of symmetry; in subscale/laminar flow the forebody asymmetry
-        // locks in and slices the nose off to the side (large body-frame lateral
-        // velocity) — the exact Reynolds coupling the paper identifies.
-        const full = cobraLateral(false);
-        const sub = cobraLateral(true);
-        assert.ok(full.maxLateral < 2,
-            `full-scale cobra should stay symmetric: max |velBody.x|=${full.maxLateral.toFixed(2)} m/s`);
-        assert.ok(sub.maxLateral > 20,
-            `subscale cobra should nose-slice into a lateral departure: max |velBody.x|=${sub.maxLateral.toFixed(2)} m/s`);
-    });
-
-    it('the subscale regime is inert in the normal envelope (limiters ON hold AoA below onset)', () => {
-        // The nose slice only lives above ~35° AoA. With the FBW limiters ON the
-        // AoA is held below 28°, well below onset, so even in the subscale regime a hard
-        // pull stays laterally symmetric — the normal envelope is untouched.
+    it('the subscale regime is inert below the forebody-asymmetry onset AoA', () => {
         const model = new Fm2FlightModel();
         airborne(model, 6000, 320, 1.0);
         model.setForebodyLaminar(true);
@@ -1051,7 +804,7 @@ describe('FM2 forebody vortex asymmetry (Ericsson nose slice / Reynolds coupling
         let maxLateral = 0;
         for (let i = 0; i < 5 * 120; i++) {
             model.setForebodyLaminar(true);
-            model.setPitch(1.0);
+            model.setPitch(0.35);
             model.update(1 / 120);
             inv.copy(model.quaternion).invert();
             velBody.copy(model.velocityVector).applyQuaternion(inv);

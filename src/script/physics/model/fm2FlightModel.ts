@@ -212,9 +212,9 @@ export class Fm2FlightModel extends FlightModel {
             qRef: this.qRef,
             speed,
             altitudeM: altitude,
-            limitersEnabled: this.limitersEnabled,
             flapsExtended: this.flapsExtended,
             landed: this.landed,
+            pitchLimiterMode: this.pitchLimiterMode,
         }, delta);
 
         const controls = this.mapControls(fcsOut.elevator, fcsOut.aileron, fcsOut.rudder);
@@ -231,11 +231,6 @@ export class Fm2FlightModel extends FlightModel {
         this.commandedElevator = fcsOut.elevator;
         this.commandedAileron = -fcsOut.aileron;
         this.commandedRudder = -fcsOut.rudder;
-        // Elevator clamp bounds already share the +nose-up (aft-stick) polarity of
-        // the exposed elevator command, so they pass through unchanged.
-        this.elevatorCommandLimitHigh = fcsOut.elevatorLimitHi;
-        this.elevatorCommandLimitLow = fcsOut.elevatorLimitLo;
-        this.governedPitchStick = fcsOut.governedPitchStick;
 
         // ---- Aerodynamic force & moment build-up from the rigid parts. ----
         this.forceBody.set(0, 0, 0);
@@ -446,10 +441,6 @@ export class Fm2FlightModel extends FlightModel {
         this.commandedElevator = this.pitch;
         this.commandedAileron = this.roll;
         this.commandedRudder = this.yaw;
-        // Kinematic free-fly bypasses the FCS clamp, so the pitch input is unbounded.
-        this.elevatorCommandLimitHigh = 1;
-        this.elevatorCommandLimitLow = -1;
-        this.governedPitchStick = this.pitch;
 
         if (!isZero(this.roll)) this.obj.rotateZ(this.roll * ROLL_RATE * delta);
         if (!isZero(this.pitch)) this.obj.rotateX(-this.pitch * PITCH_RATE * delta);

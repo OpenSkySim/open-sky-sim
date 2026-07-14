@@ -4,6 +4,7 @@ import { AudioClip } from '../../audio/audioSystem';
 import { Palette, PaletteCategory } from "../../config/palettes/palette";
 import { AIRBASE_RUNWAY, PITCH_STICK_AFT_UNITS, PITCH_STICK_FWD_UNITS, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
+import { FcsPitchLimiter } from '../../physics/fm2/fcs';
 import { FlightSample } from '../../physics/flightRecorder';
 import { LODHelper, getLodLevel } from '../../render/helpers';
 import { CanvasPainter } from "../../render/screen/canvasPainter";
@@ -122,12 +123,8 @@ export class PlayerEntity implements Entity {
     private yaw: number = 0; // [-1, 1]
     private throttle: number = 0; // [0, 1]
     private wheelBrakes: boolean = false;
-    /** FBW AoA/g limiters on (true) or overridden off by the pilot (false). */
-    private limitersEnabled: boolean = true;
-    /** HUD aft-stick display latch: holds position once FCS pull authority cuts in. */
-    private hudPitchAftLatch: number | null = null;
-    /** HUD forward-stick display latch: holds position once FCS push authority cuts in. */
-    private hudPitchFwdLatch: number | null = null;
+    /** Active pitch AoA/g limiter strategy (keys 1/2/3). */
+    private pitchLimiterMode: FcsPitchLimiter = FcsPitchLimiter.SOFT;
 
     private velocity: THREE.Vector3 = new THREE.Vector3(); // m/s
 
@@ -268,7 +265,7 @@ export class PlayerEntity implements Entity {
     /** Map a surface's control binding to a normalized deflection value. */
     private surfaceValue(control: ControlAxis, sign: number): number {
         // FCS-mediated axes are driven by the FCS-commanded (limited) deflection —
-        // NOT raw stick — so fly-by-wire shaping (AoA limiter, roll/yaw laws) is
+        // NOT raw stick — so fly-by-wire shaping (roll/yaw laws) is
         // visible on the model. The commanded values are exposed in the same
         // polarity/scale as the raw stick, so the existing per-surface sign/range
         // still render correctly. Flaps/slats are not FCS-mediated (kept as-is).
@@ -335,7 +332,7 @@ export class PlayerEntity implements Entity {
         this.flightModel.setLandingGearDeployed(this.landingGearState === AircraftDeviceState.EXTENDED);
         this.flightModel.setFlapsExtended(this.flapsState === AircraftDeviceState.EXTENDED);
         this.flightModel.setWheelBrakes(this.wheelBrakes);
-        this.flightModel.setLimitersEnabled(this.limitersEnabled);
+        this.flightModel.setPitchLimiterMode(this.pitchLimiterMode);
         this.flightModel.update(delta);
         this.obj.position.copy(this.flightModel.position);
         this.obj.quaternion.copy(this.flightModel.quaternion);
@@ -425,12 +422,11 @@ export class PlayerEntity implements Entity {
 
         this.pitch = 0;
         this.pitchStickUnits = 0;
-        this.resetHudPitchStickLatch();
         this.roll = 0;
         this.yaw = 0;
         this.throttle = spawn?.throttle ?? 0;
         this.wheelBrakes = false;
-        this.limitersEnabled = true;
+        this.pitchLimiterMode = FcsPitchLimiter.SOFT;
         this.flightModel.setThrottle(this.throttle);
         if (airborne) {
             this.flightModel.syncEffectiveThrottle();
@@ -1140,99 +1136,12 @@ export class PlayerEntity implements Entity {
         return this.pitch;
     }
 
-    /** HUD stick-marker pitch: FCS-governed when limiters are active. */
-    get governedPitchInput(): number {
-        return this.hudPitchStick(this.flightModel.getElevatorCommandLimitHigh(), this.flightModel.getElevatorCommandLimitLow());
-    }
-
-    /**
-     * Pitch stick position for the HUD marker, clamped to the same pull/push
-     * authority values used to draw the limit lines. Once the FCS cuts in and
-     * moves the marker toward neutral, it stays there even if authority keeps
-     * reducing — until the pilot eases off or limiters disengage.
-     */
-    hudPitchStick(limitHi: number, limitLo: number): number {
-        const raw = this.pitch;
-        const limitsActive = limitHi < 0.999 || limitLo > -0.999;
-        if (!this.limitersEnabled && !limitsActive) {
-            this.resetHudPitchStickLatch();
-            return raw;
-        }
-        if (Math.abs(raw) < 0.01) {
-            this.resetHudPitchStickLatch();
-            return raw;
-        }
-        const governed = this.flightModel.getGovernedPitchStick();
-        // Recovery: FCS commands opposite stick to aerodynamic recovery.
-        if (raw > 0.01 && governed < -0.01) {
-            this.resetHudPitchStickLatch();
-            return governed;
-        }
-        if (raw < -0.01 && governed > 0.01) {
-            this.resetHudPitchStickLatch();
-            return governed;
-        }
-        if (raw >= 0) {
-            this.hudPitchFwdLatch = null;
-            if (limitHi >= 0.999) {
-                this.hudPitchAftLatch = null;
-                return raw;
-            }
-            const target = Math.min(raw, limitHi);
-            const fcsLimiting = raw > limitHi + 1e-6;
-            if (!fcsLimiting) {
-                this.hudPitchAftLatch = null;
-                return target;
-            }
-            if (this.hudPitchAftLatch === null) {
-                this.hudPitchAftLatch = target;
-            } else {
-                // Stay at the most-aft position shown; do not creep toward neutral
-                // as pull authority keeps reducing while the pilot holds in.
-                this.hudPitchAftLatch = Math.max(this.hudPitchAftLatch, target);
-            }
-            return this.hudPitchAftLatch;
-        }
-        this.hudPitchAftLatch = null;
-        if (limitLo <= -0.999) {
-            this.hudPitchFwdLatch = null;
-            return raw;
-        }
-        const target = Math.max(raw, limitLo);
-        const fcsLimiting = raw < limitLo - 1e-6;
-        if (!fcsLimiting) {
-            this.hudPitchFwdLatch = null;
-            return target;
-        }
-        if (this.hudPitchFwdLatch === null) {
-            this.hudPitchFwdLatch = target;
-        } else {
-            this.hudPitchFwdLatch = Math.min(this.hudPitchFwdLatch, target);
-        }
-        return this.hudPitchFwdLatch;
-    }
-
-    private resetHudPitchStickLatch(): void {
-        this.hudPitchAftLatch = null;
-        this.hudPitchFwdLatch = null;
-    }
-
     get pitchStickUnitsValue(): number {
         return this.pitchStickUnits;
     }
 
     get commandedElevator(): number {
         return this.flightModel.getCommandedElevator();
-    }
-
-    /** Max nose-up / nose-down elevator-command clamp bounds (same +nose-up
-     *  polarity as the pitch input), ±1 with the FBW limiters OFF. */
-    get elevatorLimitHigh(): number {
-        return this.flightModel.getElevatorCommandLimitHigh();
-    }
-
-    get elevatorLimitLow(): number {
-        return this.flightModel.getElevatorCommandLimitLow();
     }
 
     get rollInput(): number {
@@ -1321,8 +1230,9 @@ export class PlayerEntity implements Entity {
         return this.wheelBrakes;
     }
 
-    get fcsLimitersEnabled(): boolean {
-        return this.limitersEnabled;
+    /** Active pitch AoA/g limiter strategy (keys 1/2/3). */
+    get fcsPitchLimiterMode(): FcsPitchLimiter {
+        return this.pitchLimiterMode;
     }
 
     private setupInput() {
@@ -1367,12 +1277,20 @@ export class PlayerEntity implements Entity {
                         this.toggleLandingGear();
                         break;
                     }
-                    case 'l': {
-                        this.toggleLimiters();
-                        break;
-                    }
                     case 'a': {
                         this.toggleAutopilot();
+                        break;
+                    }
+                    case '1': {
+                        this.pitchLimiterMode = FcsPitchLimiter.SOFT;
+                        break;
+                    }
+                    case '2': {
+                        this.pitchLimiterMode = FcsPitchLimiter.PREDICTIVE;
+                        break;
+                    }
+                    case '3': {
+                        this.pitchLimiterMode = FcsPitchLimiter.SMOOTH;
                         break;
                     }
                 }
@@ -1389,13 +1307,6 @@ export class PlayerEntity implements Entity {
         } else {
             this.target = this.scene?.entityAtByTag(ENTITY_TAGS.TARGET, index) as GroundTargetEntity | undefined;
             this.targetIndex = this.target !== undefined ? index : undefined;
-        }
-    }
-
-    private toggleLimiters() {
-        this.limitersEnabled = !this.limitersEnabled;
-        if (!this.limitersEnabled) {
-            this.resetHudPitchStickLatch();
         }
     }
 

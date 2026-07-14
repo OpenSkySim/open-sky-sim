@@ -7,6 +7,7 @@ import { Font, TextAlignment } from "../../../render/screen/text";
 import { HUDFocusMode, UnitSystems } from '../../../state/gameDefs';
 import { calculatePitchRoll, clamp, FORWARD, toDegrees, toRadians, UP, vectorHeading } from '../../../utils/math';
 import { computeMachNumber } from '../../../physics/aeroUtils';
+import { FcsPitchLimiter } from '../../../physics/fm2/fcs';
 import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { GroundTargetEntity } from '../groundTarget';
@@ -41,6 +42,13 @@ const LADDER_HALF_HEIGHT = Math.floor(LADDER_HEIGHT / 2);
 
 const TARGET_HALF_WIDTH = 8; // Pixels
 const TARGET_WIDTH = TARGET_HALF_WIDTH * 2 + 1;
+
+/** Short HUD tag for each pitch AoA/g limiter strategy (keys 1/2/3). */
+const FCS_MODE_LABELS: Record<number, string> = {
+    [FcsPitchLimiter.SOFT]: 'FCS1 SOFT',
+    [FcsPitchLimiter.PREDICTIVE]: 'FCS2 PRED',
+    [FcsPitchLimiter.SMOOTH]: 'FCS3 SMTH',
+};
 
 //const HALF_CHAR = Math.floor(CHAR_HEIGHT / 2);
 
@@ -79,11 +87,8 @@ export class HUDEntity implements Entity {
     private pitch: number = 0; // radians
     private roll: number = 0; // radians
     private pitchInput: number = 0; // [-1, 1] raw pilot demand
-    private governedPitchInput: number = 0; // [-1, 1] FCS-governed stick position
     private rollInput: number = 0; // [-1, 1]
     private yawInput: number = 0; // [-1, 1]
-    private elevatorLimitHigh: number = 1; // [-1, 1] nose-up elevator-command clamp
-    private elevatorLimitLow: number = -1; // [-1, 1] nose-down elevator-command clamp
     private elapsed: number = 0; // Seconds
     private lastRenderTime: number = 0;
 
@@ -112,11 +117,8 @@ export class HUDEntity implements Entity {
         this.healthFraction = this.actor.healthFraction;
 
         this.pitchInput = this.actor.pitchInput;
-        this.governedPitchInput = this.actor.governedPitchInput;
         this.rollInput = this.actor.rollInput;
         this.yawInput = this.actor.yawInput;
-        this.elevatorLimitHigh = this.actor.elevatorLimitHigh;
-        this.elevatorLimitLow = this.actor.elevatorLimitLow;
 
         this.elapsed += delta;
     }
@@ -169,11 +171,9 @@ export class HUDEntity implements Entity {
 
         this.refreshVisualState();
         this.throttle = this.actor.throttleUnit;
-        this.governedPitchInput = this.actor.governedPitchInput;
+        this.pitchInput = this.actor.pitchInput;
         this.rollInput = this.actor.rollInput;
         this.yawInput = this.actor.yawInput;
-        this.elevatorLimitHigh = this.actor.elevatorLimitHigh;
-        this.elevatorLimitLow = this.actor.elevatorLimitLow;
 
         const layout = getOverlayLayout(targetWidth, targetHeight);
         const { detailScale, layoutScale } = layout;
@@ -184,7 +184,6 @@ export class HUDEntity implements Entity {
         const hudColor = PaletteColor(palette, PaletteCategory.HUD_TEXT);
         const hudSecondaryColor = PaletteColor(palette, PaletteCategory.HUD_TEXT_SECONDARY);
         const hudWarnColor = PaletteColor(palette, PaletteCategory.HUD_TEXT_WARN);
-        const hudLimitColor = PaletteColor(palette, PaletteCategory.LIGHT_RED);
         painter.setColor(hudColor);
 
         const halfWidth = targetWidth / 2;
@@ -237,7 +236,7 @@ export class HUDEntity implements Entity {
             targetWidth - stickArm - 2,
         );
         const stickCenterY = halfHeight;
-        this.renderStickIndicator(stickCenterX, stickCenterY, stickArm, geomScale, painter, hudColor, hudSecondaryColor, hudLimitColor);
+        this.renderStickIndicator(stickCenterX, stickCenterY, stickArm, geomScale, painter, hudColor, hudSecondaryColor, fontSmall);
 
         this.renderTarget(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale);
         this.renderBoresight(halfWidth, halfHeight, painter, geomScale);
@@ -476,16 +475,14 @@ export class HUDEntity implements Entity {
         painter.text(font, x, y, this.actor.throttleHudText, hudColor);
     }
 
-    private renderStickIndicator(centerX: number, centerY: number, arm: number, geomScale: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, hudLimitColor: string) {
+    private renderStickIndicator(centerX: number, centerY: number, arm: number, geomScale: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, font: Font) {
         const rollTravel = arm - Math.max(2, Math.round(2 * geomScale));
         const pitchTotalUnits = PITCH_STICK_FWD_UNITS + PITCH_STICK_AFT_UNITS;
         const pitchTotalSpan = Math.max(arm * 2, Math.round(40 * geomScale));
         const pitchFwdTravel = Math.round(pitchTotalSpan * PITCH_STICK_FWD_UNITS / pitchTotalUnits);
         const pitchAftTravel = pitchTotalSpan - pitchFwdTravel;
-        const limitHi = this.actor.elevatorLimitHigh;
-        const limitLo = this.actor.elevatorLimitLow;
-        const pitch = this.actor.hudPitchStick(limitHi, limitLo);
-        const roll = this.actor.rollInput;
+        const pitch = this.pitchInput;
+        const roll = this.rollInput;
         const yaw = this.yawInput;
         const throttle = this.actor.throttleUnit;
         const crossArm = Math.max(2, Math.round(2 * geomScale));
@@ -497,23 +494,12 @@ export class HUDEntity implements Entity {
             .vLine(centerX, centerY - pitchFwdTravel, centerY + pitchAftTravel)
             .commit();
 
-        // Max/min elevator-command clamp lines (where the FCS limits the pitch
-        // input). Cross span and stick marker both follow PITCH_STICK_FWD/AFT_UNITS.
         const pitchCmdYOffset = (v: number) => v >= 0 ? v * pitchAftTravel : v * pitchFwdTravel;
-        const limitY = (v: number) => Math.max(
+        const stickY = Math.max(
             centerY - pitchFwdTravel,
-            Math.min(centerY + pitchAftTravel, Math.round(centerY + pitchCmdYOffset(v))),
+            Math.min(centerY + pitchAftTravel, Math.round(centerY + pitchCmdYOffset(pitch))),
         );
-        const limitHiY = limitY(limitHi);
-        const limitLoY = limitY(limitLo);
-        painter.setColor(hudLimitColor);
-        painter.batch()
-            .hLine(centerX - arm, centerX + arm, limitHiY)
-            .hLine(centerX - arm, centerX + arm, limitLoY)
-            .commit();
-
         const stickX = centerX + roll * rollTravel;
-        const stickY = centerY + pitchCmdYOffset(pitch);
         painter.setColor(hudColor);
         painter.circle(Math.round(stickX), Math.round(stickY), crossArm);
 
@@ -529,6 +515,10 @@ export class HUDEntity implements Entity {
         painter.setColor(hudColor);
         const throttleY = centerY + arm - 1 - throttle * (arm * 2 - 1);
         painter.hLine(throttleX - 1, throttleX + 1, throttleY);
+
+        const label = FCS_MODE_LABELS[this.actor.fcsPitchLimiterMode] ?? '';
+        const labelY = rudderY + gap + 2;
+        painter.text(font, centerX, labelY, label, hudColor, TextAlignment.CENTER);
     }
 
     private renderPitchLadder(layout: OverlayLayout, x: number, y: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, font: Font) {

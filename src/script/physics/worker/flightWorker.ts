@@ -57,7 +57,9 @@ function handleMessage(data: any) {
             flightModel.setLandingGearDeployed(data.inputs.landingGearDeployed);
             flightModel.setFlapsExtended(data.inputs.flapsExtended);
             flightModel.setWheelBrakes(data.inputs.wheelBrakesApplied);
-            flightModel.setLimitersEnabled(data.inputs.limitersEnabled);
+            if (data.inputs.pitchLimiterMode !== undefined) {
+                flightModel.setPitchLimiterMode(data.inputs.pitchLimiterMode);
+            }
             flightModel.setForceVectorsRequested(!!data.inputs.wantForceVectors);
             
             flightModel.update(data.delta);
@@ -128,9 +130,6 @@ function sendState() {
         commandedElevator: flightModel.getCommandedElevator(),
         commandedAileron: flightModel.getCommandedAileron(),
         commandedRudder: flightModel.getCommandedRudder(),
-        elevatorLimitHigh: flightModel.getElevatorCommandLimitHigh(),
-        elevatorLimitLow: flightModel.getElevatorCommandLimitLow(),
-        governedPitchStick: flightModel.getGovernedPitchStick(),
         accelWorld: flightModel.getAccelerationWorld().toArray(),
         engineThrustN: flightModel.getEngineThrustKn() * 1000,
         effectiveThrottle: flightModel.getEffectiveThrottle(),

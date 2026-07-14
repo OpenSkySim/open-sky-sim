@@ -40,9 +40,6 @@ export class WorkerJsbsimFlightModel extends FlightModel {
         this.commandedElevator = state.commandedElevator ?? 0;
         this.commandedAileron = state.commandedAileron ?? 0;
         this.commandedRudder = state.commandedRudder ?? 0;
-        this.elevatorCommandLimitHigh = state.elevatorLimitHigh ?? 1;
-        this.elevatorCommandLimitLow = state.elevatorLimitLow ?? -1;
-        this.governedPitchStick = state.governedPitchStick ?? this.pitch;
         this.engineThrustN = state.engineThrustN;
         this.effectiveThrottle = state.effectiveThrottle;
         if (state.accelWorld) {
@@ -72,7 +69,6 @@ export class WorkerJsbsimFlightModel extends FlightModel {
                 landingGearDeployed: this.landingGearDeployed,
                 flapsExtended: this.flapsExtended,
                 wheelBrakesApplied: this.wheelBrakesApplied,
-                limitersEnabled: this.limitersEnabled,
                 wantForceVectors: this.forceVectorsRequested
             }
         });

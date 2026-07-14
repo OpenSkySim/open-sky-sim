@@ -139,26 +139,19 @@ export interface Fm2FcsConfig {
     roll: Fm2RollLawConfig;
     yaw: Fm2YawLawConfig;
     /**
-     * Optional high-AoA / post-stall pitch tuning for the limiters-OFF direct
-     * pitch path. When the pilot switches the FBW limiters OFF (see
-     * {@link FcsInput.limitersEnabled}) the g-command law passes the stick straight
-     * to the stabilator; this tunes only the light rate/AoA-rate damping on that
-     * path. Absent ⇒ the limiters-off direct path uses default damping.
+     * @deprecated Legacy high-AoA tuning for the removed limiters-OFF direct
+     * pitch path. Retained only for aircraft-manifest compatibility; the pitch
+     * axis now always runs one of the {@link FcsPitchLimiter} strategies.
      */
     highAoa?: Fm2HighAoaFcsConfig;
 }
 
 /**
- * Tuning for the limiters-OFF direct pitch path. Turning the FBW limiters off
- * removes the AoA limiter and structural g clamp and lets full stick drive the
- * stabilator directly; the actual post-stall nose swing (if any) comes purely
- * from the real airframe aerodynamics (surface geometry / lift curves, e.g. a
- * `foreStrake` surface on {@link Fm2SurfaceSet}), not from any FCS-side trigger
- * or cutoff. There is no automatic recovery assist — the pilot's own stick has
- * to come back for the aircraft to recover, exactly like a real departure.
+ * @deprecated Legacy tuning for the removed limiters-OFF direct pitch path.
+ * Retained for aircraft-manifest compatibility only.
  */
 export interface Fm2HighAoaFcsConfig {
-    /** Pitch / AoA-rate damping scale on the limiters-off direct path (default 0.25). */
+    /** Pitch / AoA-rate damping scale (legacy; unused by the limiter strategies). */
     directDampScale?: number;
 }
 
