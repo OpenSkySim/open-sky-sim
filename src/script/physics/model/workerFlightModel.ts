@@ -8,10 +8,27 @@ import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
  * Web Worker. Every aircraft uses this one model; per-aircraft handling comes
  * from the {@link Fm2AircraftConfig} sent over via {@link setAircraft}.
  */
+interface WorkerFlightInputs {
+    pitch: number;
+    roll: number;
+    yaw: number;
+    throttle: number;
+    landingGearDeployed: boolean;
+    flapsExtended: boolean;
+    wheelBrakesApplied: boolean;
+    limitersEnabled: boolean;
+    wantForceVectors: boolean;
+}
+
 export class WorkerFlightModel extends FlightModel {
     private worker: Worker;
     private lastState: any = null;
     private aircraftConfig: Fm2AircraftConfig | undefined;
+    /** True while a physics step is in flight; avoids queueing stale frames. */
+    private workerBusy = false;
+    /** Delta accumulated while the worker is busy — flushed as one step with latest inputs. */
+    private pendingDelta = 0;
+    private pendingInputs: WorkerFlightInputs | null = null;
     // Afterburner-equipped aircraft use the MIL/AB detented throttle quadrant;
     // others (e.g. imported mods) use a plain linear lever. Defaults true until
     // an aircraft is selected so the afterburner quadrant is the default.
@@ -28,9 +45,13 @@ export class WorkerFlightModel extends FlightModel {
         this.worker.postMessage({ type: 'init', kinematic });
         this.worker.onmessage = (event) => {
             if (event.data.type === 'state') {
+                this.workerBusy = false;
                 this.applyState(event.data.state);
+                this.flushWorkerUpdate();
             } else if (event.data.type === 'error') {
+                this.workerBusy = false;
                 console.error('[flightWorker]', event.data.message, event.data.stack);
+                this.flushWorkerUpdate();
             }
         };
         this.worker.onerror = (event) => {
@@ -72,21 +93,41 @@ export class WorkerFlightModel extends FlightModel {
     }
 
     update(delta: number): void {
-        this.worker.postMessage({
-            type: 'update',
-            delta,
-            inputs: {
-                pitch: this.pitch,
-                roll: this.roll,
-                yaw: this.yaw,
-                throttle: this.throttle,
-                landingGearDeployed: this.landingGearDeployed,
-                flapsExtended: this.flapsExtended,
-                wheelBrakesApplied: this.wheelBrakesApplied,
-                limitersEnabled: this.limitersEnabled,
-                wantForceVectors: this.forceVectorsRequested
-            }
-        });
+        this.pendingDelta += delta;
+        this.capturePendingInputs();
+        this.flushWorkerUpdate();
+    }
+
+    private capturePendingInputs(): void {
+        this.pendingInputs = {
+            pitch: this.pitch,
+            roll: this.roll,
+            yaw: this.yaw,
+            throttle: this.throttle,
+            landingGearDeployed: this.landingGearDeployed,
+            flapsExtended: this.flapsExtended,
+            wheelBrakesApplied: this.wheelBrakesApplied,
+            limitersEnabled: this.limitersEnabled,
+            wantForceVectors: this.forceVectorsRequested,
+        };
+    }
+
+    /** Send at most one update to the worker; coalesce frames that arrive while it is busy. */
+    private flushWorkerUpdate(): void {
+        if (this.workerBusy || this.pendingDelta <= 0 || !this.pendingInputs) {
+            return;
+        }
+        const delta = this.pendingDelta;
+        const inputs = this.pendingInputs;
+        this.pendingDelta = 0;
+        this.pendingInputs = null;
+        this.workerBusy = true;
+        this.worker.postMessage({ type: 'update', delta, inputs });
+    }
+
+    private clearPendingWorkerUpdate(): void {
+        this.pendingDelta = 0;
+        this.pendingInputs = null;
     }
 
     step(delta: number): void {
@@ -99,6 +140,8 @@ export class WorkerFlightModel extends FlightModel {
 
     reset() {
         super.reset();
+        this.clearPendingWorkerUpdate();
+        this.workerBusy = false;
         this.worker.postMessage({
             type: 'reset',
             position: this.obj.position.toArray(),

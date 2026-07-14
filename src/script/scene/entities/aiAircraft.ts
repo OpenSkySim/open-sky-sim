@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { Palette } from '../../config/palettes/palette';
 import { CanvasPainter } from '../../render/screen/canvasPainter';
 import { LODHelper, getLodLevel } from '../../render/helpers';
-import { Fm2FlightModel } from '../../physics/model/fm2FlightModel';
+import { FlightModel } from '../../physics/model/flightModel';
+import { WorkerFlightModel } from '../../physics/model/workerFlightModel';
 import { FlightSample } from '../../physics/flightRecorder';
 import { defaultFm2Config } from '../../physics/fm2/fm2AircraftConfig';
 import { clamp, FORWARD, RIGHT, UP } from '../../utils/math';
@@ -45,8 +46,8 @@ export interface AiAircraftSpawn {
 }
 
 /**
- * An AI-flown opponent aircraft. It owns a direct (synchronous) FM2 flight model
- * and is flown entirely through the normalized {@link PilotableAircraft} control
+ * An AI-flown opponent aircraft. Its FM2 flight model runs in a dedicated physics
+ * worker and is flown entirely through the normalized {@link PilotableAircraft} control
  * channel by an {@link AiPilot}, exactly as a human drives the player plane. It
  * is also a {@link Combatant} — targetable and damageable by gun fire.
  */
@@ -57,7 +58,7 @@ export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant {
 
     readonly faction: Faction;
 
-    private readonly flightModel: Fm2FlightModel;
+    private readonly flightModel: FlightModel;
     private readonly pilot: AiPilot;
     private readonly gun: Gun;
 
@@ -98,7 +99,8 @@ export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant {
         pilotOptions: AiPilotOptions = {},
     ) {
         this.faction = faction;
-        this.flightModel = new Fm2FlightModel(def.flight ?? defaultFm2Config);
+        this.flightModel = new WorkerFlightModel();
+        this.flightModel.setAircraft(def.flight ?? defaultFm2Config);
         this.modelBody = new LODHelper(models.getModel(def.body));
         this.modelShadow = new LODHelper(models.getModel(def.shadow), 5);
         this.modelLandingGear = def.gear ? new LODHelper(models.getModel(def.gear)) : undefined;
