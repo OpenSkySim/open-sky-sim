@@ -40,6 +40,7 @@ import { SceneMaterialManager } from "../scene/materials/materials";
 import { Model, ModelManager } from "../scene/models/models";
 import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT } from '../scene/models/lib/mountainModelBuilder';
 import { Scene, SceneLayers } from '../scene/scene';
+import { updateTargetCamera } from '../scene/utils';
 import { assertIsDefined } from '../utils/asserts';
 import { clamp, FORWARD, RIGHT, UP, toDegrees } from '../utils/math';
 import { CameraUpdater } from './cameraUpdaters/cameraUpdater';
@@ -967,6 +968,12 @@ export class Game {
                 this.orbitCameraAroundAircraft();
             }
             this.playerCamera.update();
+            // Aim the target-window camera before the MFD's 3D layer is drawn (and
+            // before its orientation is copied to the background cameras), so a
+            // moving target stays centred instead of lagging a frame and stuttering.
+            if (this.player.weaponsTarget) {
+                updateTargetCamera(this.player, this.playerCamera.main, this.targetCamera.main);
+            }
             this.targetCamera.update();
         }
         const resolution = this.configService.techProfiles.getActive().resolution;

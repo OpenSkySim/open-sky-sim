@@ -6,7 +6,7 @@ import { Font, TextAlignment } from "../../../render/screen/text";
 import { FORWARD, vectorHeading } from '../../../utils/math';
 import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
-import { GroundTargetEntity } from '../groundTarget';
+import { WeaponsTarget } from '../weaponsTarget';
 import { UnitSystems } from '../../../state/gameDefs';
 import { PlayerEntity } from "../player";
 import { DisplayUnits } from './displayUnits';
@@ -28,7 +28,7 @@ export class ExteriorDataEntity implements Entity {
     private heading: number = 0; // degrees, 0 is North, increases CW
     private altitude: number = 0; // display units
     private speed: number = 0; // display units
-    private weaponsTarget: GroundTargetEntity | undefined;
+    private weaponsTarget: WeaponsTarget | undefined;
 
     private tmpVector = new THREE.Vector3();
 

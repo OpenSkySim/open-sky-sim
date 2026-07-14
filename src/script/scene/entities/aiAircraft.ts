@@ -16,8 +16,12 @@ import { Entity, ENTITY_TAGS } from '../entity';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { ModelManager } from '../models/models';
 import { Scene, SceneLayers } from '../scene';
+import { WeaponsTarget } from './weaponsTarget';
 
 const DEFAULT_HIT_RADIUS = 10;
+
+// Enemy aircraft are centred on their own origin when framed by the target camera.
+const AI_TARGET_LOCAL_CENTER = new THREE.Vector3(0, 0, 0);
 
 // Visual control-surface animation constants — mirror PlayerEntity so the AI
 // aircraft's flaperons / stabilators / rudders deflect identically.
@@ -51,7 +55,7 @@ export interface AiAircraftSpawn {
  * channel by an {@link AiPilot}, exactly as a human drives the player plane. It
  * is also a {@link Combatant} — targetable and damageable by gun fire.
  */
-export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant {
+export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant, WeaponsTarget {
 
     readonly tags: string[] = [ENTITY_TAGS.AIRCRAFT];
     enabled = true;
@@ -299,6 +303,33 @@ export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant {
             landed: this.flightModel.isLanded(),
             crashed: this.flightModel.isCrashed(),
         };
+    }
+
+    // --- WeaponsTarget: designation from the player's target MFD --------------
+
+    /** Render-space position, so the target camera tracks what is actually drawn. */
+    get position(): THREE.Vector3 {
+        return this.getDisplayPosition();
+    }
+
+    get localCenter(): THREE.Vector3 {
+        return AI_TARGET_LOCAL_CENTER;
+    }
+
+    get maxSize(): number {
+        return this.modelBody.model.maxSize;
+    }
+
+    get targetType(): string {
+        return 'Enemy plane';
+    }
+
+    get targetLocation(): string {
+        return 'Airborne';
+    }
+
+    get airborne(): boolean {
+        return true;
     }
 
     // --- Render transform (for chase cameras) --------------------------------

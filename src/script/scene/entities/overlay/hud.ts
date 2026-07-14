@@ -10,7 +10,7 @@ import { computeMachNumber } from '../../../physics/aeroUtils';
 import { FcsPitchLimiter } from '../../../physics/fm2/fcs';
 import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
-import { GroundTargetEntity } from '../groundTarget';
+import { WeaponsTarget } from '../weaponsTarget';
 import { PlayerEntity } from "../player";
 import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout, toFeet } from './overlayUtils';
 import { DisplayUnits } from './displayUnits';
@@ -74,7 +74,7 @@ export class HUDEntity implements Entity {
     private speed: number = 0; // display units (km/h or kt)
     private verticalSpeed: number = 0; // m/s or ft/min
     private velocityDirection: THREE.Vector3 = new THREE.Vector3();
-    private weaponsTarget: GroundTargetEntity | undefined;
+    private weaponsTarget: WeaponsTarget | undefined;
     private stallStatus: number = -1; // [-1,1]. Values >= 0 indicate stall
     private angleOfAttack: number = 0; // radians
     private loadFactorG: number = 1;

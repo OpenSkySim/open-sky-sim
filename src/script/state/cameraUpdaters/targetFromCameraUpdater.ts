@@ -20,7 +20,7 @@ export class TargetFromCameraUpdater extends CameraUpdater {
         const actorPosition = this.actor.getDisplayPosition();
         this.camera.position
             .copy(target.position)
-            .add(target.center);
+            .add(target.localCenter);
         this._v
             .subVectors(this.camera.position, actorPosition)
             .normalize();

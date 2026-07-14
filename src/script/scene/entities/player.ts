@@ -19,7 +19,7 @@ import { AfterburnerCones } from './afterburnerCones';
 import { WingtipTrails } from './wingtipTrails';
 import { AircraftForceVectors } from './aircraftForceVectors';
 import { countBodyMeshVertices, deriveWingtipOriginsFromModel } from './wingtipOrigins';
-import { GroundTargetEntity } from './groundTarget';
+import { WeaponsTarget } from './weaponsTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { Combatant, Faction } from '../../weapons/combatant';
 import { Gun, GunConfig, ProjectileSink } from '../../weapons/gun';
@@ -130,8 +130,7 @@ export class PlayerEntity implements Entity {
 
     private velocity: THREE.Vector3 = new THREE.Vector3(); // m/s
 
-    private target: GroundTargetEntity | undefined;
-    private targetIndex: number | undefined
+    private target: WeaponsTarget | undefined;
 
     private _nightVision: boolean = false;
     private hudFocus: HUDFocusMode = HUDFocusMode.DISABLED;
@@ -451,7 +450,6 @@ export class PlayerEntity implements Entity {
         this.wingtipTrails.reset();
 
         this.target = undefined;
-        this.targetIndex = undefined;
 
         this.health = this.maxHealth;
         this.firing = false;
@@ -1178,7 +1176,7 @@ export class PlayerEntity implements Entity {
         return this.velocity;
     }
 
-    get weaponsTarget(): GroundTargetEntity | undefined {
+    get weaponsTarget(): WeaponsTarget | undefined {
         return this.target;
     }
 
@@ -1325,15 +1323,38 @@ export class PlayerEntity implements Entity {
     }
 
     private pickTarget() {
-        let index = this.targetIndex !== undefined ? this.targetIndex : -1;
-        index++;
-        if (index >= (this.scene?.countByTag(ENTITY_TAGS.TARGET) || 0)) {
+        const candidates = this.collectTargets();
+        if (candidates.length === 0) {
             this.target = undefined;
-            this.targetIndex = undefined;
-        } else {
-            this.target = this.scene?.entityAtByTag(ENTITY_TAGS.TARGET, index) as GroundTargetEntity | undefined;
-            this.targetIndex = this.target !== undefined ? index : undefined;
+            return;
         }
+        const current = this.target !== undefined ? candidates.indexOf(this.target) : -1;
+        const next = current + 1;
+        this.target = next >= candidates.length ? undefined : candidates[next];
+    }
+
+    /**
+     * The designatable weapons targets, in cycling order: the fixed ground
+     * installations followed by any live airborne enemy aircraft.
+     */
+    private collectTargets(): WeaponsTarget[] {
+        const result: WeaponsTarget[] = [];
+        if (!this.scene) {
+            return result;
+        }
+        for (const entity of this.scene.listByTag(ENTITY_TAGS.TARGET)) {
+            result.push(entity as unknown as WeaponsTarget);
+        }
+        for (const entity of this.scene.listByTag(ENTITY_TAGS.AIRCRAFT)) {
+            if (entity === this) {
+                continue;
+            }
+            const combatant = entity as unknown as Combatant;
+            if (combatant.faction === Faction.ENEMY && combatant.isAlive()) {
+                result.push(entity as unknown as WeaponsTarget);
+            }
+        }
+        return result;
     }
 
     private toggleLimiters() {

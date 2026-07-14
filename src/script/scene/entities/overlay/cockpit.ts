@@ -6,7 +6,7 @@ import { calculatePitchRoll, FORWARD, UP, vectorHeading } from '../../../utils/m
 import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { updateTargetCamera } from '../../utils';
-import { GroundTargetEntity } from '../groundTarget';
+import { WeaponsTarget } from '../weaponsTarget';
 import { AircraftDeviceState, PlayerEntity } from "../player";
 import { formatHeading, getAircraftDeviceStatusPosition, getOverlayLayout, renderAircraftDeviceStatus } from './overlayUtils';
 
@@ -55,13 +55,20 @@ export class CockpitEntity implements Entity {
     private landingGear: AircraftDeviceState = AircraftDeviceState.EXTENDED;
     private flaps: AircraftDeviceState = AircraftDeviceState.EXTENDED;
     private mapPlaneMarkerHeading: number = 0;
-    private weaponsTarget: GroundTargetEntity | undefined;
+    private weaponsTarget: WeaponsTarget | undefined;
     private weaponsTargetRange: number = 0; // Km
     private weaponsTargetBearing: number = 0; // degrees, 0 is North, increases CW
     private weaponsTargetZoomFactor: number = 1; // Times standard FOV
+    private weaponsTargetAirborne: boolean = false;
+    // Enemy direction as seen down the aircraft's longitudinal axis (cockpit
+    // frame): a unit screen vector plus an off-boresight amount in [0, 1].
+    private weaponsTargetDirX: number = 0;
+    private weaponsTargetDirY: number = 0;
+    private weaponsTargetOffAxis: number = 0;
 
     private _v = new THREE.Vector3();
     private _w = new THREE.Vector3();
+    private _q = new THREE.Quaternion();
 
     readonly tags: string[] = [];
 
@@ -95,6 +102,8 @@ export class CockpitEntity implements Entity {
         this.mapCamera.position.copy(displayPos).setY(500);
 
         if (this.weaponsTarget !== undefined) {
+            this.weaponsTargetAirborne = this.weaponsTarget.airborne;
+
             this._v
                 .copy(this.weaponsTarget.position)
                 .sub(displayPos);
@@ -104,6 +113,23 @@ export class CockpitEntity implements Entity {
                 .setY(0)
                 .normalize();
             this.weaponsTargetBearing = vectorHeading(this._v);
+
+            // Enemy direction rotated into the aircraft body frame so the pointer
+            // reflects the cockpit view down the longitudinal axis: +X is right,
+            // +Y is up, +Z is forward (nose).
+            this._w
+                .copy(this.weaponsTarget.position)
+                .sub(displayPos)
+                .applyQuaternion(this._q.copy(displayQuat).invert());
+            const perp = Math.hypot(this._w.x, this._w.y);
+            if (perp > 1e-3) {
+                this.weaponsTargetDirX = -this._w.x / perp;
+                this.weaponsTargetDirY = -this._w.y / perp;
+            } else {
+                this.weaponsTargetDirX = 0;
+                this.weaponsTargetDirY = 0;
+            }
+            this.weaponsTargetOffAxis = Math.min(1, Math.atan2(perp, this._w.z) / (Math.PI / 2));
 
             this.weaponsTargetZoomFactor = updateTargetCamera(this.actor, this.camera, this.targetCamera);
         }
@@ -326,7 +352,10 @@ export class CockpitEntity implements Entity {
             painter.text(font, x + font.charSpacing, y + font.charSpacing,
                 this.weaponsTarget.targetType, hudColor);
             painter.text(font, x + font.charSpacing, y + font.charSpacing * 2 + font.charHeight,
-                `at ${this.weaponsTarget.targetLocation}`, hudColor);
+                this.weaponsTargetAirborne ? this.weaponsTarget.targetLocation : `at ${this.weaponsTarget.targetLocation}`, hudColor);
+            if (this.weaponsTargetAirborne) {
+                this.renderTargetDirectionMarker(x, y, size, painter, hudColor);
+            }
             painter.text(font, x + font.charSpacing, y + size - 2 * (font.charHeight + font.charSpacing),
                 `BRG ${formatHeading(this.weaponsTargetBearing)}`, hudColor);
             painter.text(font, x + size - font.charSpacing, y + size - 2 * (font.charHeight + font.charSpacing),
@@ -334,5 +363,27 @@ export class CockpitEntity implements Entity {
             painter.text(font, x + font.charSpacing, y + size - font.charHeight - font.charSpacing,
                 `Range ${this.weaponsTargetRange.toFixed(1)} KM`, hudColor);
         }
+    }
+
+    /**
+     * Off-boresight cue in the target MFD: a needle from the MFD centre with a
+     * small rectangle at its tip, pointing toward the enemy as seen down the
+     * aircraft's longitudinal axis (the cockpit view). The needle grows from the
+     * centre (enemy dead ahead) out to the rim (enemy 90° or more off-boresight).
+     */
+    private renderTargetDirectionMarker(x: number, y: number, size: number, painter: CanvasPainter, hudColor: string) {
+        if (this.weaponsTargetOffAxis <= 0) {
+            return;
+        }
+        const centerX = Math.round(x + size / 2);
+        const centerY = Math.round(y + size / 2);
+        const tipRadius = size * 0.42 * this.weaponsTargetOffAxis;
+        const tipX = Math.round(centerX + this.weaponsTargetDirX * tipRadius);
+        const tipY = Math.round(centerY + this.weaponsTargetDirY * tipRadius);
+        const markerSize = Math.max(3, Math.round(size * 0.1));
+        const half = Math.floor(markerSize / 2);
+        painter.setColor(hudColor);
+        painter.line(centerX, centerY, tipX, tipY);
+        painter.rectangle(tipX - half, tipY - half, markerSize, markerSize);
     }
 }
