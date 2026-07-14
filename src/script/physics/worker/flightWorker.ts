@@ -60,6 +60,9 @@ function handleMessage(data: any) {
             if (data.inputs.pitchLimiterMode !== undefined) {
                 flightModel.setPitchLimiterMode(data.inputs.pitchLimiterMode);
             }
+            if (data.inputs.limitersEnabled !== undefined) {
+                flightModel.setLimitersEnabled(data.inputs.limitersEnabled);
+            }
             flightModel.setForceVectorsRequested(!!data.inputs.wantForceVectors);
             
             flightModel.update(data.delta);

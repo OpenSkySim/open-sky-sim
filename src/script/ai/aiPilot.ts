@@ -44,6 +44,8 @@ export interface AiPilotOptions {
     pitchSlew?: number;
     /** Dogfight skill tier: reaction time, energy discipline, firing accuracy. Defaults to ACE. */
     skill?: AiSkillLevel;
+    /** When true, the AI never disengages to rebuild energy (no EXTEND): it stays relentlessly on the attack. */
+    alwaysEngage?: boolean;
 }
 
 /**
@@ -195,6 +197,8 @@ export class AiPilot {
     private readonly pitchSlew: number;
     private readonly skill: AiSkillLevel;
     private readonly skillTuning: SkillTuning;
+    /** When true, the AI never enters EXTEND (never turns tail to rebuild energy). */
+    private readonly alwaysEngage: boolean;
     /** Base gun cone, widened for lower skill tiers (sloppier gunnery). */
     private readonly gunConeRad: number;
 
@@ -252,6 +256,7 @@ export class AiPilot {
         this.pitchSlew = options.pitchSlew ?? PITCH_CMD_SLEW;
         this.skill = options.skill ?? AiSkillLevel.ACE;
         this.skillTuning = SKILL_TUNING[this.skill];
+        this.alwaysEngage = options.alwaysEngage ?? false;
         this.gunConeRad = GUN_CONE_RAD * this.skillTuning.gunConeToleranceMult;
     }
 
@@ -697,16 +702,20 @@ export class AiPilot {
             return;
         }
 
-        if (this.dogfightMode === DogfightMode.EXTEND) {
-            this.maneuverTimer += delta;
-            if (this.maneuverTimer >= EXTEND_MIN_DURATION && energyDeficit <= EXTEND_RECOVER_MARGIN) {
-                this.setDogfightMode(DogfightMode.PURSUE);
+        // Energy-deficit disengage: skipped for an always-engage opponent so it
+        // never turns tail to rebuild energy.
+        if (!this.alwaysEngage) {
+            if (this.dogfightMode === DogfightMode.EXTEND) {
+                this.maneuverTimer += delta;
+                if (this.maneuverTimer >= EXTEND_MIN_DURATION && energyDeficit <= EXTEND_RECOVER_MARGIN) {
+                    this.setDogfightMode(DogfightMode.PURSUE);
+                }
+                return;
             }
-            return;
-        }
-        if (energyDeficit >= this.skillTuning.extendEnergyDeficit) {
-            this.setDogfightMode(DogfightMode.EXTEND);
-            return;
+            if (energyDeficit >= this.skillTuning.extendEnergyDeficit) {
+                this.setDogfightMode(DogfightMode.EXTEND);
+                return;
+            }
         }
 
         if (this.dogfightMode === DogfightMode.HIGH_YOYO || this.dogfightMode === DogfightMode.LOW_YOYO) {

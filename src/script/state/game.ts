@@ -53,7 +53,7 @@ import { TargetFromCameraUpdater } from './cameraUpdaters/targetFromCameraUpdate
 import { TargetToCameraUpdater } from './cameraUpdaters/targetToCameraUpdater';
 import { StaticModelCameraUpdater } from './cameraUpdaters/staticModelCameraUpdater';
 import { ShowcaseCameraUpdater } from './cameraUpdaters/showcaseCameraUpdater';
-import { applyAiChaseCameraParameters, restoreMainCameraParameters } from './stateUtils';
+import { restoreMainCameraParameters } from './stateUtils';
 import { forEachStaticAircraftSlot, STATIC_MODEL_VIEWS } from './staticModelViews';
 import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 import { SpawnPanel } from '../osd/spawnPanel';
@@ -258,6 +258,7 @@ export class Game {
     private viewZoom: number = 1;
     /** F2 exterior view: numpad * toggles the camera to track the AI opponent. */
     private exteriorEnemyLock = false;
+    private aiChaseHeading = ExteriorViewHeading.BACK;
     private heldOrbitKeys = new Set<string>();
     private _orbitPivot = new THREE.Vector3();
     private _orbitOffset = new THREE.Vector3();
@@ -964,7 +965,9 @@ export class Game {
             this.cameraUpdater.update(0);
             if (this.view !== PlayerViewState.AI_CHASE
                 && (this.exteriorEnemyLock && this.isF2ExteriorView()
-                    || this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)) {
+                    || this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)
+                || this.view === PlayerViewState.AI_CHASE
+                    && (this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)) {
                 this.orbitCameraAroundAircraft();
             }
             this.playerCamera.update();
@@ -1054,7 +1057,7 @@ export class Game {
 
     // Accumulates the orbit yaw/pitch/zoom from any held numpad keys.
     private updateOrbitFromKeys(delta: number) {
-        if (this.view === PlayerViewState.AI_CHASE || this.heldOrbitKeys.size === 0) {
+        if (this.heldOrbitKeys.size === 0) {
             return;
         }
         let yawDir = 0;
@@ -1107,7 +1110,9 @@ export class Game {
             .copy(this._orbitPivot)
             .add(this._orbitOffset);
         this.playerCamera.main.up.copy(UP);
-        if (this.exteriorEnemyLock && this.isF2ExteriorView() && this.aiOpponent?.enabled) {
+        if (this.view === PlayerViewState.AI_CHASE && this.aiOpponent?.enabled) {
+            this.playerCamera.main.lookAt(this.player.getDisplayPosition());
+        } else if (this.exteriorEnemyLock && this.isF2ExteriorView() && this.aiOpponent?.enabled) {
             this.playerCamera.main.lookAt(this.aiOpponent.getDisplayPosition());
         } else {
             this.playerCamera.main.lookAt(this._orbitPivot);
@@ -1239,9 +1244,6 @@ export class Game {
             } else if (event.code === 'NumpadMultiply' && this.isF2ExteriorView()) {
                 event.preventDefault();
                 this.toggleExteriorEnemyLock();
-            } else if (event.code === 'NumpadMultiply' && this.view === PlayerViewState.AI_CHASE) {
-                event.preventDefault();
-                this.resetOrbit();
             } else if (event.code in NUMPAD_ORBIT_DIR || event.code in NUMPAD_ZOOM_DIR) {
                 event.preventDefault();
                 this.heldOrbitKeys.add(event.code);
@@ -1437,7 +1439,16 @@ export class Game {
         if (!this.aiOpponent || !this.aiOpponent.enabled || !this.cameraUpdaters.has(PlayerViewState.AI_CHASE)) {
             return;
         }
-        applyAiChaseCameraParameters(this.playerCamera.main);
+        restoreMainCameraParameters(this.playerCamera.main);
+        if (this.view !== PlayerViewState.AI_CHASE) {
+            this.aiChaseHeading = ExteriorViewHeading.BACK;
+        } else {
+            this.aiChaseHeading = this.aiChaseHeading === ExteriorViewHeading.BACK
+                ? ExteriorViewHeading.FRONT
+                : ExteriorViewHeading.BACK;
+        }
+        (this.cameraUpdaters.get(PlayerViewState.AI_CHASE) as AiExteriorCameraUpdater)
+            .setHeading(this.aiChaseHeading);
         this.setExteriorView(PlayerViewState.AI_CHASE);
     }
 
@@ -1602,7 +1613,7 @@ export class Game {
                 throttle: 0.85,
                 velocity: FORWARD.clone().applyAxisAngle(UP, Math.PI).multiplyScalar(250),
             },
-            { cruiseAltitude: 3000, cruiseSpeed: 260, combatSpeed: 330, gunRange: 900, hardDeck: 200 },
+            { cruiseAltitude: 3000, cruiseSpeed: 260, combatSpeed: 330, gunRange: 900, hardDeck: 200, alwaysEngage: true },
         );
         this.aiOpponent.enabled = false;
         this.scene.add(this.aiOpponent);

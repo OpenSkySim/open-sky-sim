@@ -17,6 +17,7 @@ interface WorkerFlightInputs {
     flapsExtended: boolean;
     wheelBrakesApplied: boolean;
     pitchLimiterMode: number;
+    limitersEnabled: boolean;
     wantForceVectors: boolean;
 }
 
@@ -105,6 +106,7 @@ export class WorkerFlightModel extends FlightModel {
             flapsExtended: this.flapsExtended,
             wheelBrakesApplied: this.wheelBrakesApplied,
             pitchLimiterMode: this.pitchLimiterMode,
+            limitersEnabled: this.limitersEnabled,
             wantForceVectors: this.forceVectorsRequested,
         };
     }
