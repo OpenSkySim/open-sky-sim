@@ -529,9 +529,13 @@ export class HUDEntity implements Entity {
         const throttleY = centerY + arm - 1 - throttle * (arm * 2 - 1);
         painter.hLine(throttleX - 1, throttleX + 1, throttleY);
 
-        const label = FCS_MODE_LABELS[this.actor.fcsPitchLimiterMode] ?? '';
+        const limitersOn = this.actor.fcsLimitersEnabled;
+        const label = limitersOn
+            ? (FCS_MODE_LABELS[this.actor.fcsPitchLimiterMode] ?? '')
+            : 'FCS OFF';
+        const labelColor = limitersOn ? hudColor : hudLimitColor;
         const labelY = rudderY + gap + 2;
-        painter.text(font, centerX, labelY, label, hudColor, TextAlignment.CENTER);
+        painter.text(font, centerX, labelY, label, labelColor, TextAlignment.CENTER);
     }
 
     private renderPitchLadder(layout: OverlayLayout, x: number, y: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, font: Font) {
