@@ -2,10 +2,6 @@ import * as THREE from 'three';
 import { PaletteCategory } from '../../../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from "../../materials/materials";
 
-const SHADOW_Y = 0.2;
-const SHADOW_RADIUS_FACTOR = 1.25;
-const SHADOW_ALPHA_DITHER = 0.35;
-
 export enum VegetationKind {
     OAK,
     PINE,
@@ -106,19 +102,19 @@ export function buildVegetationInstance(kind: VegetationKind): VegetationInstanc
 
 /**
  * Per-species render parts for GPU-instanced vegetation: one merged canopy
- * geometry + material, an optional trunk, and a ground shadow. All parts use the
- * flat (unshaded) material so per-fragment fog stays correct once the vertex
- * shader applies each instance's transform.
+ * geometry + material, an optional trunk, and a distant billboard impostor. All
+ * parts use the flat (unshaded) material so per-fragment fog stays correct once
+ * the vertex shader applies each instance's transform.
  */
 export interface VegetationParts {
     foliageGeometry: THREE.BufferGeometry;
     foliageMaterial: THREE.Material;
     trunkGeometry?: THREE.BufferGeometry;
     trunkMaterial?: THREE.Material;
-    shadowGeometry: THREE.BufferGeometry;
-    shadowMaterial: THREE.Material;
     impostorGeometry: THREE.BufferGeometry;
     impostorMaterial: THREE.Material;
+    /** Lowest LOD: a single 1px point per plant, coloured like the foliage. */
+    pixelMaterial: THREE.Material;
     maxRadius: number;
     maxHeight: number;
 }
@@ -181,18 +177,6 @@ export function buildVegetationParts(materials: SceneMaterialManager, kind: Vege
         });
     }
 
-    const shadowRadius = inst.maxRadius * SHADOW_RADIUS_FACTOR;
-    const shadowGeometry = new THREE.CircleGeometry(shadowRadius, 7).toNonIndexed();
-    shadowGeometry.rotateX(-Math.PI / 2);
-    shadowGeometry.translate(0, SHADOW_Y, 0);
-    const shadowMaterial = materials.build({
-        type: SceneMaterialPrimitiveType.MESH,
-        category: PaletteCategory.SCENERY_TREE_SHADOW,
-        depthWrite: false,
-        shaded: false,
-        alphaDither: SHADOW_ALPHA_DITHER,
-    });
-
     const spec = VEGETATION_SPECS[kind];
     const impostorGeometry = buildImpostorGeometry(spec.impostor, inst.maxRadius, inst.maxHeight);
     const impostorMaterial = materials.build({
@@ -201,15 +185,20 @@ export function buildVegetationParts(materials: SceneMaterialManager, kind: Vege
         depthWrite: true,
     });
 
+    const pixelMaterial = materials.build({
+        type: SceneMaterialPrimitiveType.POINT,
+        category: inst.foliageCategory,
+        depthWrite: false,
+    });
+
     return {
         foliageGeometry,
         foliageMaterial,
         trunkGeometry,
         trunkMaterial,
-        shadowGeometry,
-        shadowMaterial,
         impostorGeometry,
         impostorMaterial,
+        pixelMaterial,
         maxRadius: inst.maxRadius,
         maxHeight: inst.maxHeight,
     };

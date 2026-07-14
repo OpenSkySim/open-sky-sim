@@ -21,7 +21,7 @@
  * into physical surface incidence for the aero parts. First-order actuator lag
  * is applied so surfaces cannot snap instantaneously.
  */
-import { clamp } from '../../utils/math';
+import { clamp, lerp } from '../../utils/math';
 import { computeMachNumber } from '../aeroUtils';
 import { Fm2FcsConfig, Fm2PitchLawConfig, Fm2RollLawConfig } from './fm2AircraftConfig';
 
@@ -35,42 +35,46 @@ const DEG = Math.PI / 180;
  * those omitted fields read as `undefined`, the limit is skipped, and full stick
  * runs the AoA / g away even with the limiters ON. These are the canonical
  * relaxed-stability fighter values; any config may override them (set
- * `aoaLimiterGain: 0` to opt out of the AoA deflection cap entirely).
+ * `aoaLimiterGain: 0` to disable predicted-AoA recovery).
  */
-const DEFAULT_AOA_LIMIT_DEG = 22;
-const DEFAULT_AOA_SOFT_DEG = 17;
+const DEFAULT_AOA_LIMIT_DEG = 28;
+const DEFAULT_AOA_SOFT_DEG = 24;
 const DEFAULT_AOA_LIMITER_GAIN = 0.35;
-const DEFAULT_AOA_LIMITER_LEAD_S = 0.30;
+const DEFAULT_AOA_LIMITER_LEAD_S = 0.08;
 /** Positive / negative structural g command limits (limiters ON). */
 const DEFAULT_MAX_COMMAND_G = 9.5;
 const DEFAULT_MIN_COMMAND_G = -3.0;
 /**
- * Direct structural-g deflection cap defaults (analogous to the AoA cap). The g
- * cap turns the +g/−g limits into HARD ceilings by shaping the stabilator
- * deflection command: `gLimiterGain` is the nose-down (nose-up on the −g side)
- * command per g of overshoot past the limit, `gLimiterLeadS` predicts the load
- * factor ahead by ġ so the cap arrests it before it overshoots, and
- * `gLimiterSoftMarginG` is how far below the limit the fade begins.
+ * Predictive structural-G governor defaults. It converts predicted overshoot into
+ * a recovery G reference and reduces pitch demand through the soft margin, before
+ * the PI loop and actuator produce a stabilator command.
  */
 const DEFAULT_G_LIMITER_GAIN = 0.9;
 const DEFAULT_G_LIMITER_LEAD_S = 0.05;
-const DEFAULT_G_LIMITER_NEG_LEAD_S = 0.5;
-const DEFAULT_G_LIMITER_SOFT_MARGIN_G = 1.5;
-const DEFAULT_CAP_BACK_CALC_GAIN = 0.75;
-const DEFAULT_CAP_RATE_TAU_S = 0.06;
-const DEFAULT_AOA_CAP_Q_FADE_START = 0.3;
-const DEFAULT_AOA_CAP_Q_FADE_END = 0.7;
-
-/** Hermite smoothstep for regime fades (0 at edge0, 1 at edge1). */
-function smoothstep(edge0: number, edge1: number, x: number): number {
-    const t = clamp((x - edge0) / Math.max(edge1 - edge0, 1e-6), 0, 1);
-    return t * t * (3 - 2 * t);
-}
-
-/** Blend `a` toward `b` by weight in [0, 1]. */
-function lerp(a: number, b: number, w: number): number {
-    return a + (b - a) * w;
-}
+const DEFAULT_G_LIMITER_NEG_LEAD_S = 0.02;
+const DEFAULT_G_LIMITER_SOFT_MARGIN_G = 1.0;
+/**
+ * Time constant (s) for the low-pass filter Fm2Fcs applies to the governor's
+ * raw pull/push SOFT-BAND AUTHORITY fraction before it is turned into a G
+ * reference / stick stop. The soft band's authority is a function of a
+ * *predicted* AoA/G that includes short-period rate noise; without this filter
+ * a small wobble near the soft-band edge snaps authority between 0 and 1 every
+ * frame, which shows up as aggressive, high-frequency stabilator chatter at
+ * high AoA. Recovery (past the HARD boundary) is a separate, unfiltered signal
+ * — see `computeRawPitchEnvelopeAuthority` — so this filter's lag can never
+ * delay the actual envelope-protection cutoff, only smooth the "stick stop"
+ * feel below it.
+ */
+const DEFAULT_ENVELOPE_AUTHORITY_TAU_S = 0.15;
+/**
+ * Extra lookahead (s), on top of the recovery lead, used ONLY for the soft-band
+ * authority prediction. Looking further ahead here spreads the pull/push
+ * authority reduction over more time (and more of the soft band), so the
+ * governed G reference — and the stabilator command it drives — eases in
+ * smoothly instead of reacting sharply once the (shorter-lead) recovery
+ * boundary is already close.
+ */
+const DEFAULT_ENVELOPE_AUTHORITY_LEAD_S = 0.2;
 
 /**
  * Stick [-1, 1] → commanded body roll rate (rad/s) for the rate-command roll
@@ -129,50 +133,244 @@ function rollAoaLimiter(aoaRad: number, roll: Fm2RollLawConfig): number {
 }
 
 /**
- * Nose-up stabilator-DEFLECTION ceiling for the AoA limiter on the POSITIVE-AoA
- * side.
- *
- * Returns the maximum allowed nose-up elevator (stabilator) DEFLECTION command
- * — the same normalized [-1, 1] surface command that stick input produces — for
- * the given AoA, using a rate-led prediction so the cap engages before the
- * limit: full nose-up authority (1) below the soft point, fading linearly to 0
- * at the hard limit, then going NEGATIVE past it to command a genuine nose-DOWN
- * deflection in proportion to the overshoot. The airframe's real aero response
- * to that deflection is what holds the AoA; nothing here touches the airframe
- * state directly. Call with negated arguments to get the (mirrored) nose-down
- * ceiling for the negative-AoA side.
+ * A predictive reference governor, expressed in the pilot's pitch-command
+ * domain. It never clamps the final stabilator command: it reduces the requested
+ * manoeuvre before the predicted AoA / G reaches the envelope, and requests an
+ * aerodynamic recovery manoeuvre once prediction is outside it.
  */
-function aoaLimitDeflectionCeiling(aoaDeg: number, aoaRateDegS: number, p: Fm2PitchLawConfig): number {
-    const soft = p.aoaSoftDeg ?? DEFAULT_AOA_SOFT_DEG;
-    const hard = p.aoaLimitDeg ?? DEFAULT_AOA_LIMIT_DEG;
-    const gain = p.aoaLimiterGain ?? DEFAULT_AOA_LIMITER_GAIN;
-    const lead = aoaDeg + aoaRateDegS * (p.aoaLimiterLeadS ?? DEFAULT_AOA_LIMITER_LEAD_S);
-    if (lead <= soft) return 1;
-    if (lead <= hard) return (hard - lead) / Math.max(hard - soft, 1e-3);
-    return -clamp((lead - hard) * gain, 0, 1);
+export interface PredictivePitchEnvelope {
+    /** Governed load-factor reference for the PI pitch loop. */
+    commandedG: number;
+    /** Governed stick used by the low-energy direct-stick blend. */
+    pitchStick: number;
+    /** Pilot-facing available pull / push authority for the HUD. */
+    pitchLimitHi: number;
+    pitchLimitLo: number;
+    /** True while the governor is reducing demand or commanding recovery. */
+    active: boolean;
+}
+
+/** Cubic Hermite smoothstep, 0 below `edge0`, 1 above `edge1`, eased between. */
+function smoothstep01(edge0: number, edge1: number, value: number): number {
+    const t = clamp((value - edge0) / Math.max(edge1 - edge0, 1e-3), 0, 1);
+    return t * t * (3 - 2 * t);
+}
+
+/** Smoothly reduce authority across an envelope soft band. */
+function envelopeAuthority(soft: number, hard: number, value: number): number {
+    return 1 - smoothstep01(soft, hard, value);
+}
+
+const DEFAULT_AOA_RATE_DAMP_Q_FADE_START_NORM = 1.3;
+const DEFAULT_AOA_RATE_DAMP_Q_FADE_END_NORM = 1.9;
+const DEFAULT_AOA_RATE_DAMP_Q_FADE_FLOOR = 0.55;
+const DEFAULT_AOA_RATE_DAMP_Q_FADE_TAU_S = 2.0;
+
+/**
+ * Fade multiplier ([0, 1]) applied to `aoaRateDampGain` above a normalized
+ * dynamic pressure (qNorm) threshold. See {@link Fm2PitchLawConfig.aoaRateDampQFadeStartNorm}.
+ * Takes the (separately time-filtered — see `Fm2Fcs.qNormFilt`) qNorm so a
+ * fast-changing q from a maneuver does not itself trigger the fade; only
+ * dynamic pressure that has been sustained long enough for the resonance this
+ * targets to actually build does.
+ */
+function aoaRateDampQFade(qNorm: number, p: Fm2PitchLawConfig): number {
+    const start = p.aoaRateDampQFadeStartNorm ?? DEFAULT_AOA_RATE_DAMP_Q_FADE_START_NORM;
+    const end = p.aoaRateDampQFadeEndNorm ?? DEFAULT_AOA_RATE_DAMP_Q_FADE_END_NORM;
+    const floor = p.aoaRateDampQFadeFloor ?? DEFAULT_AOA_RATE_DAMP_Q_FADE_FLOOR;
+    return 1 - smoothstep01(start, end, qNorm) * (1 - floor);
+}
+
+/** Invert the configured cubic stick curve to expose an effective stick stop. */
+function stickForCommandG(targetG: number, p: Fm2PitchLawConfig): number {
+    const maxG = p.maxCommandG ?? DEFAULT_MAX_COMMAND_G;
+    const minG = p.minCommandG ?? DEFAULT_MIN_COMMAND_G;
+    const positive = targetG >= 1;
+    const targetShape = positive
+        ? clamp((targetG - 1) / Math.max(maxG - 1, 1e-3), 0, 1)
+        : clamp((1 - targetG) / Math.max(1 - minG, 1e-3), 0, 1);
+    const expo = p.stickExpo;
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 16; i++) {
+        const mid = (lo + hi) * 0.5;
+        const shaped = (1 - expo) * mid + expo * mid ** 3;
+        if (shaped < targetShape) lo = mid;
+        else hi = mid;
+    }
+    return positive ? hi : -hi;
 }
 
 /**
- * Nose-up stabilator-DEFLECTION ceiling for the STRUCTURAL-G limiter, built the
- * same way as {@link aoaLimitDeflectionCeiling} but on load factor.
- *
- * Given the current load factor `g`, its filtered rate `gRatePerS`, the hard
- * structural limit `hardG` and the soft (fade-start) point `softG`, returns the
- * maximum allowed nose-up deflection command: full authority (1) below the soft
- * point, fading linearly to 0 at the hard limit (using a rate-led prediction so
- * it arrests the load factor before it overshoots), then going NEGATIVE past the
- * limit to command a genuine nose-DOWN deflection proportional to the overshoot.
- * The airframe's real aero response to that deflection is what holds the g;
- * nothing here touches the state. Call with negated arguments and the mirrored
- * (negative) limits to get the nose-down floor for the −g side.
+ * Raw (unfiltered, per-frame) pull/push authority and recovery fractions from
+ * the predicted AoA/G boundaries. `Fm2Fcs` low-pass filters only the AUTHORITY
+ * fraction before it is turned into a G reference / stick stop (see
+ * `DEFAULT_ENVELOPE_AUTHORITY_TAU_S`); RECOVERY is the hard-limit safety cutoff
+ * and is always applied unfiltered. Kept as a separate, pure step so the raw
+ * math stays simple to unit test.
  */
-function gLimitDeflectionCeiling(
-    g: number, gRatePerS: number, hardG: number, softG: number, gain: number, leadS: number,
-): number {
-    const lead = g + gRatePerS * leadS;
-    if (lead <= softG) return 1;
-    if (lead <= hardG) return (hardG - lead) / Math.max(hardG - softG, 1e-3);
-    return -clamp((lead - hardG) * gain, 0, 1);
+export interface RawPitchEnvelopeAuthority {
+    /** [0, 1] fraction of pull authority still available (1 = fully available). */
+    pullAuthority: number;
+    /** [0, 1] fraction of push authority still available (1 = fully available). */
+    pushAuthority: number;
+    /** [0, 1] pull recovery demand once the predicted boundary is exceeded. */
+    pullRecovery: number;
+    /** [0, 1] push recovery demand once the predicted boundary is exceeded. */
+    pushRecovery: number;
+}
+
+/**
+ * Compute the raw, per-frame pull/push authority and recovery fractions from
+ * the predicted AoA / load factor. Pure function of the current state (no
+ * filtering) — see {@link RawPitchEnvelopeAuthority}.
+ */
+export function computeRawPitchEnvelopeAuthority(
+    input: Pick<FcsInput, 'aoaRad' | 'loadFactorG' | 'dynamicPressure' | 'qRef'>,
+    aoaRateRadS: number,
+    gRatePerS: number,
+    actuatorTauS: number,
+    p: Fm2PitchLawConfig,
+): RawPitchEnvelopeAuthority {
+    const maxG = p.maxCommandG ?? DEFAULT_MAX_COMMAND_G;
+    const minG = p.minCommandG ?? DEFAULT_MIN_COMMAND_G;
+    const aoaHard = p.aoaLimitDeg ?? DEFAULT_AOA_LIMIT_DEG;
+    const aoaSoft = p.aoaSoftDeg ?? DEFAULT_AOA_SOFT_DEG;
+    const gSoftMargin = p.gLimiterSoftMarginG ?? DEFAULT_G_LIMITER_SOFT_MARGIN_G;
+    // The command must traverse the servo after the governor. Include that delay
+    // in prediction so the reference starts backing off before the current
+    // stabilator deflection can produce an overshoot. This lead protects the
+    // RECOVERY boundary (the hard AoA/G ceiling) — it stays unfiltered and
+    // reacts every frame, so it is not stretched by the authority filter's own
+    // time constant (that would just inflate the prediction and cut pull
+    // authority off far too early during a normal, fast-building hard pull).
+    // Low dynamic pressure gives the stabilator less moment to arrest a pitch-up.
+    // Use the q schedule only to lengthen prediction in that regime; it never
+    // disables either envelope boundary.
+    const qNorm = clamp(input.dynamicPressure / Math.max(input.qRef, 1), 0, 1);
+    const lowQLeadS = (1 - qNorm) * 0.22;
+    const aoaLeadS = (p.aoaLimiterLeadS ?? DEFAULT_AOA_LIMITER_LEAD_S) + actuatorTauS + lowQLeadS;
+    const gLeadS = (p.gLimiterLeadS ?? DEFAULT_G_LIMITER_LEAD_S) + actuatorTauS;
+    const gNegLeadS = (p.gLimiterNegLeadS ?? DEFAULT_G_LIMITER_NEG_LEAD_S) + actuatorTauS;
+    const aoaPred = input.aoaRad / DEG + (aoaRateRadS / DEG) * aoaLeadS;
+    const gPred = input.loadFactorG + gRatePerS * gLeadS;
+    const gNegPred = -input.loadFactorG - gRatePerS * gNegLeadS;
+
+    // The soft-band AoA AUTHORITY looks further ahead than the recovery
+    // boundary above: a longer lookahead starts easing pull/push authority
+    // earlier and over more of the soft band, so the stabilator eases in
+    // smoothly well before the hard limit instead of reacting sharply once it
+    // is already close. This extra lookahead is independent of the (short,
+    // unfiltered) recovery lead so the hard-limit safety cutoff timing is
+    // unaffected. It is NOT applied to the G authority: the g loop is already
+    // a PI regulator whose rate naturally decelerates as it nears its
+    // setpoint, so extending its lookahead just makes the (fast) transient
+    // rate spike at the START of a hard pull look like a bigger overshoot than
+    // it is, cutting pull/push authority off far too early.
+    const authorityLeadExtraS = p.envelopeAuthorityLeadS ?? DEFAULT_ENVELOPE_AUTHORITY_LEAD_S;
+    const aoaAuthorityPred = input.aoaRad / DEG + (aoaRateRadS / DEG) * (aoaLeadS + authorityLeadExtraS);
+    const gAuthorityPred = gPred;
+    const gNegAuthorityPred = gNegPred;
+
+    const pullAoaAuthority = envelopeAuthority(aoaSoft, aoaHard, aoaAuthorityPred);
+    const pushAoaAuthority = envelopeAuthority(aoaSoft, aoaHard, -aoaAuthorityPred);
+    const pullGAuthority = envelopeAuthority(maxG - gSoftMargin, maxG, gAuthorityPred);
+    // A push has less available envelope between 1 g and −3 g. Keep its soft
+    // band narrow so normal forward-stick authority remains available until the
+    // longer negative-G prediction calls for recovery.
+    const pushGAuthority = envelopeAuthority(
+        -minG - Math.min(gSoftMargin, 0.05), -minG, gNegAuthorityPred,
+    );
+    const pullAuthority = Math.min(pullAoaAuthority, pullGAuthority);
+    const pushAuthority = Math.min(pushAoaAuthority, pushGAuthority);
+
+    const aoaRecovery = Math.max(0, aoaPred - aoaHard) * (p.aoaLimiterGain ?? DEFAULT_AOA_LIMITER_GAIN);
+    const gRecovery = Math.max(0, gPred - maxG) * (p.gLimiterGain ?? DEFAULT_G_LIMITER_GAIN);
+    const negAoaRecovery = Math.max(0, -aoaPred - aoaHard) * (p.aoaLimiterGain ?? DEFAULT_AOA_LIMITER_GAIN);
+    const negGRecovery = Math.max(0, gNegPred + minG) * (p.gLimiterGain ?? DEFAULT_G_LIMITER_GAIN);
+    const pullRecovery = clamp(Math.max(aoaRecovery, gRecovery), 0, 1);
+    const pushRecovery = clamp(Math.max(negAoaRecovery, negGRecovery), 0, 1);
+
+    return { pullAuthority, pushAuthority, pullRecovery, pushRecovery };
+}
+
+/**
+ * Turn a (possibly time-filtered) {@link RawPitchEnvelopeAuthority} into the
+ * governed G reference / stick stop. Pure function — the filtering itself
+ * lives in `Fm2Fcs.update`, which owns the per-step filter state.
+ */
+export function applyPitchEnvelopeAuthority(
+    input: Pick<FcsInput, 'pitchStick' | 'loadFactorG'>,
+    commandedG: number,
+    authority: RawPitchEnvelopeAuthority,
+    p: Fm2PitchLawConfig,
+): PredictivePitchEnvelope {
+    const maxG = p.maxCommandG ?? DEFAULT_MAX_COMMAND_G;
+    const minG = p.minCommandG ?? DEFAULT_MIN_COMMAND_G;
+    const { pullAuthority, pushAuthority, pullRecovery, pushRecovery } = authority;
+
+    // Limit the requested turn rate to what the current envelope state can still
+    // achieve. Once a further pull cannot create more turn, this becomes a smooth
+    // stick stop instead of continually increasing then abruptly cancelling the
+    // elevator command.
+    const pullGStop = maxG + (clamp(input.loadFactorG, 1, maxG) - maxG) * (1 - pullAuthority);
+    const pushGStop = minG + (clamp(input.loadFactorG, minG, 1) - minG) * (1 - pushAuthority);
+    const pitchLimitHi = stickForCommandG(pullGStop, p);
+    const pitchLimitLo = stickForCommandG(pushGStop, p);
+    let governedG = commandedG;
+    if (commandedG >= 1) {
+        governedG = Math.min(commandedG, pullGStop);
+    } else {
+        governedG = Math.max(commandedG, pushGStop);
+    }
+    // Recovery is a load-factor REFERENCE, not an elevator reversal. The existing
+    // PI loop and the aircraft's real aero produce the nose-down/up response.
+    if (pullRecovery > 0) {
+        governedG = Math.min(governedG, 1 - pullRecovery * (1 - minG));
+    }
+    if (pushRecovery > 0) {
+        governedG = Math.max(governedG, 1 + pushRecovery * (maxG - 1));
+    }
+    governedG = clamp(governedG, minG, maxG);
+
+    let pitchStick = input.pitchStick >= 0
+        ? Math.min(input.pitchStick, pitchLimitHi)
+        : Math.max(input.pitchStick, pitchLimitLo);
+    // The low-energy direct-stick blend must obey the same governed reference,
+    // otherwise it can bypass the PI loop exactly where AoA protection is needed.
+    if (pullRecovery > 0) {
+        pitchStick = Math.min(pitchStick, -pullRecovery);
+    }
+    if (pushRecovery > 0) {
+        pitchStick = Math.max(pitchStick, pushRecovery);
+    }
+    return {
+        commandedG: governedG,
+        pitchStick: clamp(pitchStick, -1, 1),
+        pitchLimitHi,
+        pitchLimitLo,
+        active: pitchLimitHi < 0.999 || pitchLimitLo > -0.999 || pullRecovery > 1e-6 || pushRecovery > 1e-6,
+    };
+}
+
+/**
+ * Convenience wrapper combining the raw authority computation and its
+ * application with NO time filtering — used by callers (and unit tests) that
+ * want the instantaneous governor response. `Fm2Fcs.update` calls the two
+ * steps separately so it can low-pass filter the authority in between (see
+ * `DEFAULT_ENVELOPE_AUTHORITY_TAU_S`), which is what removes the high-AoA
+ * elevator chatter.
+ */
+export function governPredictivePitchEnvelope(
+    input: Pick<FcsInput, 'pitchStick' | 'aoaRad' | 'loadFactorG' | 'dynamicPressure' | 'qRef'>,
+    commandedG: number,
+    aoaRateRadS: number,
+    gRatePerS: number,
+    actuatorTauS: number,
+    p: Fm2PitchLawConfig,
+): PredictivePitchEnvelope {
+    const raw = computeRawPitchEnvelopeAuthority(input, aoaRateRadS, gRatePerS, actuatorTauS, p);
+    return applyPitchEnvelopeAuthority(input, commandedG, raw, p);
 }
 
 export interface FcsInput {
@@ -209,14 +407,18 @@ export interface FcsOutput {
     /** Rudder command, positive = nose right. */
     rudder: number;
     /**
-     * Upper / lower clamp bounds actually applied to the normalized elevator
-     * command this step, in the SAME polarity as {@link elevator} (positive =
-     * nose-up / aft-stick). With the FBW limiters ON these are the combined
-     * AoA-limit and g-limit deflection caps (the noseUp/noseDown min/max
-     * composition); with the limiters OFF (direct law, no clamp) they are +1 / -1.
+     * Available pull / push authority in the same polarity as {@link elevator}
+     * (positive = nose-up / aft-stick). With the FBW limiters ON these come from
+     * the predictive pitch governor; with the limiters OFF they are +1 / -1.
      */
     elevatorLimitHi: number;
     elevatorLimitLo: number;
+    /**
+     * Effective pitch stick after the envelope governor (limiters ON) or the raw
+     * pilot stick (limiters OFF / mechanical direct pitch). Same [-1, 1] polarity
+     * as {@link FcsInput.pitchStick}; drives the HUD stick indicator.
+     */
+    governedPitchStick: number;
 }
 
 export class Fm2Fcs {
@@ -231,11 +433,22 @@ export class Fm2Fcs {
     private prevG = 0;
     private gRateFilt = 0;
     private prevGValid = false;
+    // Slowly time-filtered qNorm, used ONLY to gate the aoaRateDampGain high-q
+    // fade (see `aoaRateDampQFade`). A slow tau means a fast-changing q from a
+    // maneuver (e.g. a hard push/pull) does not itself de-rate the damping —
+    // only dynamic pressure sustained long enough for the targeted resonance to
+    // actually build does.
+    private qNormFilt = 0;
     private elevatorLimitHi = 1;
     private elevatorLimitLo = -1;
-    /** Rate-limited nose-up / nose-down deflection cap bounds. */
-    private noseUpCapFilt = 1;
-    private noseDownCapFilt = -1;
+    private governedPitchStick = 0;
+    // Low-pass filtered predictive-envelope soft-band authority (see
+    // DEFAULT_ENVELOPE_AUTHORITY_TAU_S). Starts fully available, same as the
+    // instantaneous governor at 1 g / low AoA. Recovery (past the hard
+    // boundary) is NOT filtered — it is the safety cutoff and must react
+    // every frame.
+    private pullAuthorityFilt = 1;
+    private pushAuthorityFilt = 1;
 
     constructor(private readonly cfg: Fm2FcsConfig) { }
 
@@ -251,10 +464,12 @@ export class Fm2Fcs {
         this.prevG = 0;
         this.gRateFilt = 0;
         this.prevGValid = false;
+        this.qNormFilt = 0;
         this.elevatorLimitHi = 1;
         this.elevatorLimitLo = -1;
-        this.noseUpCapFilt = 1;
-        this.noseDownCapFilt = -1;
+        this.governedPitchStick = 0;
+        this.pullAuthorityFilt = 1;
+        this.pushAuthorityFilt = 1;
     }
 
     getState(): FcsOutput {
@@ -264,6 +479,7 @@ export class Fm2Fcs {
             rudder: this.rudder,
             elevatorLimitHi: this.elevatorLimitHi,
             elevatorLimitLo: this.elevatorLimitLo,
+            governedPitchStick: this.governedPitchStick,
         };
     }
 
@@ -297,15 +513,19 @@ export class Fm2Fcs {
             // Direct law: no elevator clamp, so the bounds are the full ±1 travel.
             this.elevatorLimitHi = 1;
             this.elevatorLimitLo = -1;
+            this.governedPitchStick = clamp(input.pitchStick, -1, 1);
         } else {
             // Default to the full ±1 travel; the g-command law overwrites these with
             // the actual AoA/g deflection caps it applies (the direct pitch law
             // applies no clamp, so ±1 stands).
             this.elevatorLimitHi = 1;
             this.elevatorLimitLo = -1;
-            elevatorTarget = this.cfg.pitch.gCommand
-                ? this.gCommandPitchLaw(input, dt)
-                : this.directPitchLaw(input);
+            if (this.cfg.pitch.gCommand) {
+                elevatorTarget = this.gCommandPitchLaw(input, dt);
+            } else {
+                this.governedPitchStick = clamp(input.pitchStick, -1, 1);
+                elevatorTarget = this.directPitchLaw(input);
+            }
             aileronTarget = this.cfg.roll.rateCommand
                 ? this.rateCommandRollLaw(input)
                 : this.directRollLaw(input);
@@ -353,18 +573,12 @@ export class Fm2Fcs {
 
         const aoaDeg = input.aoaRad / DEG;
         const absAoaDeg = Math.abs(aoaDeg);
-        const aerobatic = input.speed < 130 || absAoaDeg > 35;
         // Limiters-off direct path: the pilot has overridden the FBW AoA/g limiter
         // (like a real limiter-off switch). The stick goes straight to the
         // stabilator; the nose swing to ~90° comes purely from the relaxed
         // airframe (AoA-gated CG shift), not from any injected moment or trigger.
         const limitersOff = input.limitersEnabled === false;
         const directHigh = limitersOff;
-        const directBlend = directHigh ? 1
-            : aerobatic
-                ? clamp(Math.abs(input.pitchStick) * (absAoaDeg > 50 ? 1 : (130 - input.speed) / 90), 0, 1)
-                : 0;
-        const directFlight = directHigh || aerobatic;
 
         // Stick shaping: a cubic "expo" (logarithmic-style) curve. Near neutral the
         // response is dominated by the small (1-e) linear term so a light pull barely
@@ -409,27 +623,62 @@ export class Fm2Fcs {
         this.prevGValid = true;
         this.gRateFilt += (gRate - this.gRateFilt) * fAoa;
 
-        // AoA limiter: fade the nose-up authority as AoA approaches the limit.
-        const aoaLimiter = directFlight ? 1 : clamp(
-            (p.aoaLimitDeg - aoaDeg) / (p.aoaLimitDeg - p.aoaSoftDeg),
-            0, 1,
+        // Predictive reference governor: shapes the requested manoeuvre before it
+        // reaches either boundary. Unlike the former post-PI deflection clamps,
+        // both the G-loop reference and the low-energy direct-stick blend consume
+        // the same available-pitch budget. Only the soft-band AUTHORITY fraction
+        // is low-pass filtered (see DEFAULT_ENVELOPE_AUTHORITY_TAU_S) before it is
+        // turned into a G reference / stick stop: the predicted AoA/G includes
+        // short-period rate noise, and without this filter a small wobble right
+        // at the soft-band edge snapped authority between 0 and 1 every frame —
+        // the source of the aggressive high-AoA elevator chatter. RECOVERY (past
+        // the HARD boundary) stays unfiltered and reacts every frame — it is the
+        // safety cutoff, so it must not inherit the authority filter's lag.
+        const rawAuthority = computeRawPitchEnvelopeAuthority(
+            input, this.aoaRateFilt, this.gRateFilt, this.cfg.actuatorTauS, p,
         );
-        if (commandedG > 1) {
-            commandedG = 1 + (commandedG - 1) * aoaLimiter;
-        }
-
+        const authorityTauS = p.envelopeAuthorityTauS ?? DEFAULT_ENVELOPE_AUTHORITY_TAU_S;
+        const fAuthority = dt <= 0 ? 1 : 1 - Math.exp(-dt / Math.max(authorityTauS, 1e-3));
+        this.pullAuthorityFilt += (rawAuthority.pullAuthority - this.pullAuthorityFilt) * fAuthority;
+        this.pushAuthorityFilt += (rawAuthority.pushAuthority - this.pushAuthorityFilt) * fAuthority;
+        const envelope = applyPitchEnvelopeAuthority(input, commandedG, {
+            pullAuthority: this.pullAuthorityFilt,
+            pushAuthority: this.pushAuthorityFilt,
+            pullRecovery: rawAuthority.pullRecovery,
+            pushRecovery: rawAuthority.pushRecovery,
+        }, p);
+        commandedG = envelope.commandedG;
         const gError = commandedG - input.loadFactorG;
+        // Continuous fade into the aerobatic/low-energy regime instead of a hard
+        // boolean threshold: a hard flip instantaneously changed pitch/AoA-rate
+        // damping by ~8x and switched the direct-stick blend on/off whenever AoA
+        // or speed hovered right at the boundary — a second source of high-AoA
+        // elevator chatter, compounding the governor's own soft band above.
+        const aoaAerobaticWeight = smoothstep01(30, 40, absAoaDeg);
+        const speedAerobaticWeight = 1 - smoothstep01(100, 160, input.speed);
+        const aerobaticWeight = clamp(Math.max(aoaAerobaticWeight, speedAerobaticWeight), 0, 1);
         const dampScale = directHigh ? (hi?.directDampScale ?? 0.25)
-            : aerobatic ? 0.12 : 1;
-        const aoaRateDamp = p.aoaRateDampGain * dampScale;
+            : lerp(aerobaticWeight, 1, 0.12);
+        // Only the g-command path's α̇ damping fades with q (see
+        // `aoaRateDampQFade`); the limiters-off direct path already uses its own
+        // fixed, low damping scale and must stay untouched by this schedule.
+        // qNorm itself is slowly time-filtered (see `qNormFilt`) so a fast
+        // maneuver's momentary q swing cannot trigger the fade — only dynamic
+        // pressure sustained long enough for the targeted resonance to build.
+        const qNormRaw = input.dynamicPressure / Math.max(input.qRef, 1);
+        const qFadeTauS = p.aoaRateDampQFadeTauS ?? DEFAULT_AOA_RATE_DAMP_Q_FADE_TAU_S;
+        const fQ = dt <= 0 ? 1 : 1 - Math.exp(-dt / Math.max(qFadeTauS, 1e-3));
+        this.qNormFilt += (qNormRaw - this.qNormFilt) * fQ;
+        const qFade = directHigh ? 1 : aoaRateDampQFade(this.qNormFilt, p);
+        const aoaRateDamp = p.aoaRateDampGain * dampScale * qFade;
         // pitchRate about +X is nose-down-positive, so +pitchRate damps a nose-up
         // command; -α̇ term adds dedicated short-period damping.
         const proportional = gGain * gError
             + rateDampGain * dampScale * input.pitchRate
             - aoaRateDamp * this.aoaRateFilt;
 
-        // Integral trim with anti-windup. Bleed the accumulator down when the AoA
-        // limiter is active (either direction), OR when the stabilator command is
+        // Integral trim with anti-windup. Bleed the accumulator down whenever the
+        // predictive governor is reducing manoeuvre demand, OR when the stabilator command is
         // saturated AND the integrator is FIGHTING the current g error (opposite
         // signs) — i.e. it wound up holding the surface hard over while the loop now
         // needs to recover the other way. Leaking only in that windup-stick case
@@ -437,7 +686,7 @@ export class Fm2Fcs {
         // toward the commanded g (same sign), so a hard pull still reaches +9.5 g,
         // yet a hard forward-stick push can no longer pin the elevator nose-down and
         // sustain far past the -3 g structural command (the negative-g windup).
-        const limiterActive = !directFlight && aoaLimiter < 0.999;
+        const limiterActive = envelope.active;
         const raw = proportional + iGain * (this.pitchIntegral + gError * dt);
         const outputSaturated = raw <= -1 || raw >= 1;
         const windupStick = outputSaturated && this.pitchIntegral * gError < 0;
@@ -459,129 +708,17 @@ export class Fm2Fcs {
             const dampTerm = rateDampGain * damp * input.pitchRate - p.aoaRateDampGain * damp * this.aoaRateFilt;
             directElevator = clamp(input.pitchStick + dampTerm, -1, 1);
         } else {
-            directElevator = clamp(input.pitchStick + rateDampGain * 0.35 * input.pitchRate, -1, 1);
+            directElevator = clamp(envelope.pitchStick + rateDampGain * 0.35 * input.pitchRate, -1, 1);
         }
+        const directBlend = directHigh ? 1
+            : aerobaticWeight * clamp(Math.abs(envelope.pitchStick) * (absAoaDeg > 50 ? 1 : (130 - input.speed) / 90), 0, 1);
         let elevator = gCommandElevator * (1 - directBlend) + directElevator * directBlend;
-
-        // AoA limiter via stabilator-DEFLECTION authority only (limiters ON).
-        //
-        // The g-command AoA limiter above only fades the COMMANDED g toward 1 g,
-        // and it is bypassed entirely in the low-speed `aerobatic` regime. At low
-        // dynamic pressure the airframe cannot even reach 1 g at the limit AoA, so
-        // the g loop keeps commanding nose-up and the AoA runs past the limit into
-        // the always-active aft-CG relaxation — the low-speed "cobra with limiters
-        // ON" bug.
-        //
-        // The fix shapes ONLY the elevator (stabilator) deflection COMMAND: as AoA
-        // nears the limit the max nose-up deflection is faded to zero, and past the
-        // limit a genuine nose-DOWN deflection is commanded (with an α̇ lead so the
-        // approach is damped). This is the identical normalized surface command
-        // that stick input produces — it flows through the same actuator lag,
-        // `mapControls` stabilator incidence and `AeroSurface` build-up as any
-        // other command. The AoA is then held by the airframe's REAL aerodynamic
-        // response to that real deflection; the limiter injects no moment/force,
-        // clamps no AoA/pitch-rate state and never bypasses the aero. Because
-        // arresting the aft-CG (static) divergence is a MOMENT balance — the
-        // destabilizing wing/forebody moment and the stabilator counter-moment
-        // both scale with the same q — bounding the deflection command holds AoA
-        // across the whole speed/altitude envelope, not just at high q.
-        // Defaulted so the cap protects EVERY g-command aircraft, including mod /
-        // manifest configs that omit the optional `aoaLimiter*` fields; a config
-        // can still opt out explicitly with `aoaLimiterGain: 0`.
-        //
-        // The structural-g DEFLECTION cap (below) is built identically but on load
-        // factor, turning the +g/−g limits into hard ceilings. The two caps compose
-        // by taking the MOST RESTRICTIVE bound on each side (nose-up = min of the
-        // ceilings, nose-down = max of the floors). They act in different regimes —
-        // at high q a hard pull hits +9.5 g near ~12° AoA (g cap dominates, AoA cap
-        // idle); at low q (300 km/h) g stays low and the AoA cap holds ~19° — so the
-        // min/max composition is smooth and does not chatter.
-        if (!limitersOff) {
-            let noseUp = 1;
-            let noseDown = -1;
-
-            // High q: fade the AoA cap out so the G cap alone governs hard pulls.
-            // During aggressive roll, fade both caps so turn entry does not excite
-            // short-period limit cycles from roll-coupled AoA changes.
-            const qNorm = clamp(input.dynamicPressure / Math.max(input.qRef, 1), 0, 1);
-            const qFadeStart = p.aoaCapQFadeStart ?? DEFAULT_AOA_CAP_Q_FADE_START;
-            const qFadeEnd = p.aoaCapQFadeEnd ?? DEFAULT_AOA_CAP_Q_FADE_END;
-            const aoaCapQWeight = 1 - smoothstep(qFadeStart, qFadeEnd, qNorm);
-            const maxRollRadS = (this.cfg.roll.maxRollRateDegS ?? 300) * DEG;
-            const rollFade = clamp(1 - Math.abs(input.rollRate) / Math.max(maxRollRadS, 1e-3), 0, 1);
-            const aoaCapWeight = aoaCapQWeight * (0.25 + 0.75 * rollFade);
-            const gCapRollScale = 0.5 + 0.5 * rollFade;
-
-            const aoaLimiterGain = p.aoaLimiterGain ?? DEFAULT_AOA_LIMITER_GAIN;
-            if (aoaLimiterGain > 0 && aoaCapWeight > 1e-3) {
-                const aoaRateDegS = this.aoaRateFilt / DEG;
-                const aoaUpCeiling = aoaLimitDeflectionCeiling(aoaDeg, aoaRateDegS, p);
-                const aoaDownCeiling = aoaLimitDeflectionCeiling(-aoaDeg, -aoaRateDegS, p);
-                noseUp = Math.min(noseUp, lerp(1, aoaUpCeiling, aoaCapWeight));
-                noseDown = Math.max(noseDown, -lerp(1, aoaDownCeiling, aoaCapWeight));
-            }
-
-            const gLimiterGain = (p.gLimiterGain ?? DEFAULT_G_LIMITER_GAIN) * gCapRollScale;
-            if (gLimiterGain > 0) {
-                const g = input.loadFactorG;
-                const gr = this.gRateFilt;
-                const soft = p.gLimiterSoftMarginG ?? DEFAULT_G_LIMITER_SOFT_MARGIN_G;
-                const lead = p.gLimiterLeadS ?? DEFAULT_G_LIMITER_LEAD_S;
-                // The −g side uses a longer prediction horizon: the −3 g limit sits
-                // much closer to 1-g cruise than +9.5 g and a nose-over builds g
-                // fast, so the same lead that keeps the +g side from clipping short
-                // of 9.5 g would let the −g transient blow past −3 g.
-                const negLead = p.gLimiterNegLeadS ?? DEFAULT_G_LIMITER_NEG_LEAD_S;
-                // Nose-up ceiling from the +g limit; nose-down floor from the −g
-                // limit (mirrored via negated arguments, like the AoA cap).
-                noseUp = Math.min(noseUp,
-                    gLimitDeflectionCeiling(g, gr, maxCommandG, maxCommandG - soft, gLimiterGain, lead));
-                noseDown = Math.max(noseDown,
-                    -gLimitDeflectionCeiling(-g, -gr, -minCommandG, -minCommandG - soft, gLimiterGain, negLead));
-            }
-
-            // Rate-limit the nose-up ceiling only (turn/+g chatter source). The
-            // nose-down floor snaps instantly so the −g cap can arrest a push
-            // without lag-induced overshoot past −3 g.
-            const capTau = p.capRateTauS ?? DEFAULT_CAP_RATE_TAU_S;
-            const capAlpha = dt <= 0 ? 1 : 1 - Math.exp(-dt / Math.max(capTau, 1e-3));
-            if (noseUp >= this.noseUpCapFilt) {
-                this.noseUpCapFilt = noseUp;
-            } else {
-                this.noseUpCapFilt += (noseUp - this.noseUpCapFilt) * capAlpha;
-            }
-            this.noseDownCapFilt = noseDown;
-            const cappedNoseUp = this.noseUpCapFilt;
-            const cappedNoseDown = this.noseDownCapFilt;
-
-            const elevatorUncapped = elevator;
-            elevator = clamp(elevator, cappedNoseDown, cappedNoseUp);
-            const capError = elevator - elevatorUncapped;
-            const softG = p.gLimiterSoftMarginG ?? DEFAULT_G_LIMITER_SOFT_MARGIN_G;
-            const gNow = input.loadFactorG;
-            const gNearLimit = gNow >= maxCommandG - softG || gNow <= minCommandG + softG;
-            const aoaNearLimit = absAoaDeg >= (p.aoaSoftDeg ?? DEFAULT_AOA_SOFT_DEG);
-            if (Math.abs(capError) > 1e-6 && (gNearLimit || aoaNearLimit)) {
-                const backCalc = p.capBackCalcGain ?? DEFAULT_CAP_BACK_CALC_GAIN;
-                // Back-calculate only when the cap is restricting nose-up (positive
-                // uncapped command clipped down). On the −g side the cap restricts
-                // nose-down by raising the floor; feeding that clip back into the
-                // integrator fights the push and prevents reaching −3 g.
-                if (elevatorUncapped > 0 && capError < 0) {
-                    this.pitchIntegral += capError * backCalc / Math.max(iGain, 1e-3);
-                    this.pitchIntegral = clamp(this.pitchIntegral, -3, 3);
-                }
-            }
-
-            // Surface the applied clamp bounds (same +nose-up polarity as the
-            // exposed elevator command) so the HUD can mark where the pitch input
-            // is being limited.
-            this.elevatorLimitHi = clamp(cappedNoseUp, -1, 1);
-            this.elevatorLimitLo = clamp(cappedNoseDown, -1, 1);
-        } else {
-            this.noseUpCapFilt = 1;
-            this.noseDownCapFilt = -1;
-        }
+        // The HUD shows available stick authority, not a synthetic elevator clamp.
+        this.elevatorLimitHi = envelope.pitchLimitHi;
+        this.elevatorLimitLo = envelope.pitchLimitLo;
+        this.governedPitchStick = directHigh
+            ? clamp(input.pitchStick, -1, 1)
+            : envelope.pitchStick;
         return clamp(elevator, -1, 1);
     }
 

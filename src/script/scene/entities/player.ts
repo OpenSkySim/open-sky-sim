@@ -124,6 +124,10 @@ export class PlayerEntity implements Entity {
     private wheelBrakes: boolean = false;
     /** FBW AoA/g limiters on (true) or overridden off by the pilot (false). */
     private limitersEnabled: boolean = true;
+    /** HUD aft-stick display latch: holds position once FCS pull authority cuts in. */
+    private hudPitchAftLatch: number | null = null;
+    /** HUD forward-stick display latch: holds position once FCS push authority cuts in. */
+    private hudPitchFwdLatch: number | null = null;
 
     private velocity: THREE.Vector3 = new THREE.Vector3(); // m/s
 
@@ -421,6 +425,7 @@ export class PlayerEntity implements Entity {
 
         this.pitch = 0;
         this.pitchStickUnits = 0;
+        this.resetHudPitchStickLatch();
         this.roll = 0;
         this.yaw = 0;
         this.throttle = spawn?.throttle ?? 0;
@@ -1135,6 +1140,83 @@ export class PlayerEntity implements Entity {
         return this.pitch;
     }
 
+    /** HUD stick-marker pitch: FCS-governed when limiters are active. */
+    get governedPitchInput(): number {
+        return this.hudPitchStick(this.flightModel.getElevatorCommandLimitHigh(), this.flightModel.getElevatorCommandLimitLow());
+    }
+
+    /**
+     * Pitch stick position for the HUD marker, clamped to the same pull/push
+     * authority values used to draw the limit lines. Once the FCS cuts in and
+     * moves the marker toward neutral, it stays there even if authority keeps
+     * reducing — until the pilot eases off or limiters disengage.
+     */
+    hudPitchStick(limitHi: number, limitLo: number): number {
+        const raw = this.pitch;
+        const limitsActive = limitHi < 0.999 || limitLo > -0.999;
+        if (!this.limitersEnabled && !limitsActive) {
+            this.resetHudPitchStickLatch();
+            return raw;
+        }
+        if (Math.abs(raw) < 0.01) {
+            this.resetHudPitchStickLatch();
+            return raw;
+        }
+        const governed = this.flightModel.getGovernedPitchStick();
+        // Recovery: FCS commands opposite stick to aerodynamic recovery.
+        if (raw > 0.01 && governed < -0.01) {
+            this.resetHudPitchStickLatch();
+            return governed;
+        }
+        if (raw < -0.01 && governed > 0.01) {
+            this.resetHudPitchStickLatch();
+            return governed;
+        }
+        if (raw >= 0) {
+            this.hudPitchFwdLatch = null;
+            if (limitHi >= 0.999) {
+                this.hudPitchAftLatch = null;
+                return raw;
+            }
+            const target = Math.min(raw, limitHi);
+            const fcsLimiting = raw > limitHi + 1e-6;
+            if (!fcsLimiting) {
+                this.hudPitchAftLatch = null;
+                return target;
+            }
+            if (this.hudPitchAftLatch === null) {
+                this.hudPitchAftLatch = target;
+            } else {
+                // Stay at the most-aft position shown; do not creep toward neutral
+                // as pull authority keeps reducing while the pilot holds in.
+                this.hudPitchAftLatch = Math.max(this.hudPitchAftLatch, target);
+            }
+            return this.hudPitchAftLatch;
+        }
+        this.hudPitchAftLatch = null;
+        if (limitLo <= -0.999) {
+            this.hudPitchFwdLatch = null;
+            return raw;
+        }
+        const target = Math.max(raw, limitLo);
+        const fcsLimiting = raw < limitLo - 1e-6;
+        if (!fcsLimiting) {
+            this.hudPitchFwdLatch = null;
+            return target;
+        }
+        if (this.hudPitchFwdLatch === null) {
+            this.hudPitchFwdLatch = target;
+        } else {
+            this.hudPitchFwdLatch = Math.min(this.hudPitchFwdLatch, target);
+        }
+        return this.hudPitchFwdLatch;
+    }
+
+    private resetHudPitchStickLatch(): void {
+        this.hudPitchAftLatch = null;
+        this.hudPitchFwdLatch = null;
+    }
+
     get pitchStickUnitsValue(): number {
         return this.pitchStickUnits;
     }
@@ -1203,6 +1285,9 @@ export class PlayerEntity implements Entity {
             gear: this.landingGearState === AircraftDeviceState.EXTENDED,
             flaps: this.flapsState === AircraftDeviceState.EXTENDED,
             brake: this.wheelBrakes,
+            stabilizer: this.flightModel.getCommandedElevator(),
+            aileron: this.flightModel.getCommandedAileron(),
+            rudder: this.flightModel.getCommandedRudder(),
             effThr: this.flightModel.getEffectiveThrottle(),
             thrustKn: this.flightModel.getEngineThrustKn(),
             position: this.flightModel.position,
@@ -1309,6 +1394,9 @@ export class PlayerEntity implements Entity {
 
     private toggleLimiters() {
         this.limitersEnabled = !this.limitersEnabled;
+        if (!this.limitersEnabled) {
+            this.resetHudPitchStickLatch();
+        }
     }
 
     private toggleFlaps() {

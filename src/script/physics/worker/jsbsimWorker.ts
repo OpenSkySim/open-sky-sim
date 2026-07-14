@@ -120,6 +120,9 @@ function sendState() {
         commandedRudder: flightModel.getCommandedRudder(),
         elevatorLimitHigh: flightModel.getElevatorCommandLimitHigh(),
         elevatorLimitLow: flightModel.getElevatorCommandLimitLow(),
+        // Non-FM2 models have no envelope governor; raw pilot pitch is the stick position.
+        // @ts-ignore
+        governedPitchStick: flightModel.pitch,
         accelWorld: flightModel.getAccelerationWorld().toArray(),
         engineThrustN: flightModel.getEngineThrustKn() * 1000,
         effectiveThrottle: flightModel.getEffectiveThrottle(),

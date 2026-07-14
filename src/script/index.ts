@@ -29,7 +29,7 @@ import { Game, GameRenderTask, GameUpdateTask } from './state/game';
 import { FlightModels, TechProfiles } from './state/gameDefs';
 
 
-async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice]> {
+async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice, Game]> {
     const config = new ConfigService(
         { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
         {
@@ -49,8 +49,8 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         new FieldModelLibBuilder('cropYellow', FieldModelType.SQUARE, PaletteCategory.SCENERY_FIELD_YELLOW, 200),
         new FieldModelLibBuilder('cropOchre', FieldModelType.HEXAGON, PaletteCategory.SCENERY_FIELD_OCHRE, 400),
         new FieldModelLibBuilder('cropRed', FieldModelType.TRIANGLE, PaletteCategory.SCENERY_FIELD_RED, 400),
-        new MountainModelLibBuilder('hill', HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false),
-        new MountainModelLibBuilder('mountain', MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false),
+        new MountainModelLibBuilder('hill', HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
+        new MountainModelLibBuilder('mountain', MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
         new FireModelLibBuilder('smallFire', 7),
         new ParticleMeshModelLibBuilder('groundSmoke', GROUND_SMOKE_PARTICLE_COUNT, new THREE.CircleGeometry(1, 5), 100),
         new TracerModelLibBuilder('tracer'),
@@ -74,12 +74,12 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
 
     config.techProfiles.addChangeListener(profile => kernel.setTargetFPS(profile.fpsCap ? FPS_CAP : undefined));
 
-    return [kernel, config, keyboardInput, joystickInput];
+    return [kernel, config, keyboardInput, joystickInput, game];
 }
 
 window.addEventListener("load", () => {
-    void setup().then(([kernel, config, keyboardInput, joystickInput]) => {
+    void setup().then(([kernel, config, keyboardInput, joystickInput, game]) => {
         kernel.start();
-        setupOSD(config, keyboardInput, joystickInput);
+        setupOSD(config, keyboardInput, joystickInput, game);
     });
 });

@@ -24,6 +24,7 @@ export class MountainModelLibBuilder implements ModelLibBuilder {
         private height: number,
         private color: PaletteCategory,
         private shaded: boolean = true,
+        private dithered: boolean = true,
     ) {
         this.type = type;
     }
@@ -38,6 +39,7 @@ export class MountainModelLibBuilder implements ModelLibBuilder {
             category: this.color,
             depthWrite: true,
             shaded: this.shaded,
+            colorDither: this.dithered,
         }));
         mesh.onBeforeRender = updateUniforms;
 

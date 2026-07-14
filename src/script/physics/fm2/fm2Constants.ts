@@ -402,45 +402,49 @@ export const FM2_FCS = {
     maxCommandG: F16_PROFILE.maxLoadFactorG, // 9.5
     minCommandG: -3.0,
     /**
-     * Command AoA limiter (deg). With the limiters ON this is what actively holds
-     * the airframe well inside its normal envelope, so a hard pull — at ANY
-     * speed, including low dynamic pressure — can never reach the AoA where the
-     * real airframe aerodynamics (foreStrake vortex lift, tail stall) could
-     * start a post-stall departure. The g-command law only fades COMMANDED g
-     * toward this limit; the direct AoA cap below (aoaLimiter*) adds the low-q
-     * authority that actually enforces it. A genuine post-stall departure (deep
-     * stall / tail slide / cobra) therefore requires the pilot to switch the
-     * limiters OFF.
+     * Predictive-governor AoA envelope (deg). With limiters ON, the governor
+     * reduces requested pitch manoeuvre before predicted AoA reaches this value,
+     * including at low dynamic pressure. A genuine post-stall departure therefore
+     * requires the pilot to switch the limiters OFF.
      */
-    aoaLimitDeg: 22,
-    aoaSoftDeg: 17,
+    aoaLimitDeg: 28,
+    aoaSoftDeg: 24,
     /**
-     * Direct AoA-cap authority. `aoaLimiterGain` = elevator per degree of AoA
-     * overshoot past `aoaLimitDeg`; ~0.35/deg reaches full nose-down ~3° over the
-     * limit. `aoaLimiterLeadS` predicts AoA ahead by the α̇ rate so the cap
-     * arrests the pitch-up before it reaches the limit. This is what holds AoA
-     * at low dynamic pressure (e.g. 300 km/h) where the g-loop limiter has no
-     * authority.
+     * Predictive AoA recovery tuning. The lead is augmented at low dynamic
+     * pressure and by actuator lag; the gain converts predicted overshoot into a
+     * lower-G recovery reference for the normal pitch PI loop.
      */
     aoaLimiterGain: 0.35,
-    aoaLimiterLeadS: 0.30,
+    aoaLimiterLeadS: 0.08,
     /**
-     * Direct structural-g cap authority. Built like the AoA cap but on load
-     * factor: `gLimiterGain` = nose-down (nose-up on the −g side) command per g of
-     * overshoot past the structural limit, `gLimiterLeadS` predicts the load factor
-     * ahead by ġ so it arrests before overshoot, and `gLimiterSoftMarginG` is the
-     * band below each limit where authority fades in. This holds a hard pull at
-     * ~+9.5 g and a hard push at ~−3 g instead of the transient +10 g / −5 g.
+     * Predictive structural-G recovery tuning. Leads predict load factor through
+     * servo lag and the soft margin progressively removes pitch demand near the
+     * boundary. Recovery remains a G reference, never a direct elevator clamp.
      */
     gLimiterGain: 0.9,
     gLimiterLeadS: 0.05,
-    gLimiterNegLeadS: 0.5,
-    gLimiterSoftMarginG: 1.5,
-    /** Back-calculation anti-windup gain when the deflection cap clips the elevator. */
+    gLimiterNegLeadS: 0.02,
+    gLimiterSoftMarginG: 1.0,
+    /**
+     * Low-pass filter on the governor's raw pull/push soft-band authority before
+     * it becomes a G reference / stick stop — removes high-AoA elevator chatter
+     * caused by short-period AoA-rate noise snapping authority near the soft
+     * band edge (see fcs.ts `DEFAULT_ENVELOPE_AUTHORITY_TAU_S`). The hard-limit
+     * recovery cutoff stays unfiltered.
+     */
+    envelopeAuthorityTauS: 0.15,
+    /**
+     * Extra lookahead (s) for the soft-band authority prediction only (not the
+     * hard-limit recovery cutoff, which keeps its own short, unfiltered lead).
+     * Looking further ahead here spreads the pull/push authority reduction
+     * over more time so the stabilator eases in smoothly.
+     */
+    envelopeAuthorityLeadS: 0.2,
+    /** @deprecated Retained for aircraft-manifest compatibility. */
     capBackCalcGain: 0.75,
-    /** Low-pass time constant (s) on the noseUp/noseDown cap bounds. */
+    /** @deprecated Retained for aircraft-manifest compatibility. */
     capRateTauS: 0.06,
-    /** Dynamic-pressure band (q/qRef) over which the AoA cap fades out at high q. */
+    /** @deprecated Retained for aircraft-manifest compatibility. */
     aoaCapQFadeStart: 0.3,
     aoaCapQFadeEnd: 0.7,
 
@@ -452,7 +456,7 @@ export const FM2_FCS = {
      * cubic) so small deflections are very gentle — a logarithmic-style feel where a
      * light pull near centre barely moves the g command — while full stick still
      * reaches the structural limit.
-     * `integralLeakTauS` bleeds the trim integrator down while the AoA limiter is
+     * `integralLeakTauS` bleeds the trim integrator down while the governor is
      * active, preventing wind-up against the limit (the cause of the pitch hunting).
      */
     pitchGGain: 0.14,
@@ -460,6 +464,25 @@ export const FM2_FCS = {
     pitchRateDampGain: 1.1,
     pitchAoaRateDampGain: 4.5,
     aoaRateFilterTauS: 0.05,
+    /**
+     * See {@link Fm2PitchLawConfig.aoaRateDampQFadeStartNorm}: fades
+     * `pitchAoaRateDampGain` from qNorm 1.3 down to 55% of its value by qNorm
+     * 1.9, covering the short-period ring the fixed α̇ filter + actuator lag
+     * would otherwise sustain in that band (below the transonic Cmq knee).
+     */
+    aoaRateDampQFadeStartNorm: 1.3,
+    aoaRateDampQFadeEndNorm: 1.9,
+    aoaRateDampQFadeFloor: 0.55,
+    /**
+     * Filter on the qNorm that feeds the fade above, so a fast push/pull's
+     * momentary q swing cannot itself de-rate the damping — only dynamic
+     * pressure sustained long enough for the resonance to build does (the
+     * resonance itself takes several seconds to grow; half a second of filter
+     * lag is enough to shield a hard transient stick input, tested against the
+     * structural -3g push, while still letting the fade fully engage well
+     * within the time the resonance needs to become noticeable).
+     */
+    aoaRateDampQFadeTauS: 0.5,
     pitchStickExpo: 0.92,
     integralLeakTauS: 0.35,
     maxStabilatorRad: 25 * DEG,

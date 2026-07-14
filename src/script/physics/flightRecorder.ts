@@ -17,6 +17,10 @@ export interface FlightSample {
     gear: boolean;
     flaps: boolean;
     brake: boolean;
+    // FCS-commanded surface deflections (post-actuator lag, [-1, 1])
+    stabilizer: number; // +nose-up
+    aileron: number;    // +right roll
+    rudder: number;     // +right pedal
     // Engine
     effThr: number;     // [0, 1] spooled/effective throttle
     thrustKn: number;
@@ -36,6 +40,7 @@ export interface FlightSample {
 const FIELDS = [
     't', 'dt',
     'pitchCmd', 'rollCmd', 'yawCmd', 'thrLever', 'gear', 'flaps', 'brake',
+    'stabilizer', 'aileron', 'rudder',
     'effThr', 'thrustKn',
     'px', 'py', 'pz',
     'vx', 'vy', 'vz',
@@ -140,6 +145,7 @@ export class FlightRecorder {
             round(t, 3), round(delta, 4),
             round(sample.pitchCmd, 3), round(sample.rollCmd, 3), round(sample.yawCmd, 3), round(sample.thrLever, 3),
             sample.gear ? 1 : 0, sample.flaps ? 1 : 0, sample.brake ? 1 : 0,
+            round(sample.stabilizer, 3), round(sample.aileron, 3), round(sample.rudder, 3),
             round(sample.effThr, 3), round(sample.thrustKn, 2),
             round(sample.position.x, 2), round(sample.position.y, 2), round(sample.position.z, 2),
             round(vel.x, 3), round(vel.y, 3), round(vel.z, 3),
@@ -171,6 +177,9 @@ export class FlightRecorder {
                 fieldDocs: {
                     pitchCmd: 'aft-positive stick [-1,1]', rollCmd: 'right-positive stick [-1,1]',
                     yawCmd: 'right-positive pedal [-1,1]', thrLever: 'throttle lever [0,1]',
+                    stabilizer: 'FCS-commanded stabilator deflection, +nose-up [-1,1]',
+                    aileron: 'FCS-commanded aileron deflection, +right roll [-1,1]',
+                    rudder: 'FCS-commanded rudder deflection, +right pedal [-1,1]',
                     effThr: 'spooled engine throttle [0,1]', stall: '>=0 means stalling',
                 },
             },

@@ -235,6 +235,7 @@ export class Fm2FlightModel extends FlightModel {
         // the exposed elevator command, so they pass through unchanged.
         this.elevatorCommandLimitHigh = fcsOut.elevatorLimitHi;
         this.elevatorCommandLimitLow = fcsOut.elevatorLimitLo;
+        this.governedPitchStick = fcsOut.governedPitchStick;
 
         // ---- Aerodynamic force & moment build-up from the rigid parts. ----
         this.forceBody.set(0, 0, 0);
@@ -448,6 +449,7 @@ export class Fm2FlightModel extends FlightModel {
         // Kinematic free-fly bypasses the FCS clamp, so the pitch input is unbounded.
         this.elevatorCommandLimitHigh = 1;
         this.elevatorCommandLimitLow = -1;
+        this.governedPitchStick = this.pitch;
 
         if (!isZero(this.roll)) this.obj.rotateZ(this.roll * ROLL_RATE * delta);
         if (!isZero(this.pitch)) this.obj.rotateX(-this.pitch * PITCH_RATE * delta);

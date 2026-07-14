@@ -73,6 +73,12 @@ export abstract class FlightModel {
      */
     protected elevatorCommandLimitHigh: number = 1;
     protected elevatorCommandLimitLow: number = -1;
+    /**
+     * FCS-governed pitch stick in [-1, 1] (same polarity as {@link pitch}).
+     * With limiters ON this reflects envelope protection; with limiters OFF it
+     * matches raw pilot demand. Used by the HUD stick indicator.
+     */
+    protected governedPitchStick: number = 0;
     /** World-frame linear acceleration from the last physics step (m/s²). */
     protected readonly accelWorld = new THREE.Vector3();
 
@@ -116,6 +122,7 @@ export abstract class FlightModel {
         this.commandedRudder = 0;
         this.elevatorCommandLimitHigh = 1;
         this.elevatorCommandLimitLow = -1;
+        this.governedPitchStick = 0;
         this.accelWorld.set(0, 0, 0);
         this.deltaRemainder = 0;
         this.syncPreviousState();
@@ -315,6 +322,11 @@ export abstract class FlightModel {
 
     getElevatorCommandLimitLow(): number {
         return this.elevatorCommandLimitLow;
+    }
+
+    /** Effective pitch stick after FBW envelope protection (HUD stick dot). */
+    getGovernedPitchStick(): number {
+        return this.governedPitchStick;
     }
 
     getAccelerationWorld(target: THREE.Vector3 = this.accelWorld): THREE.Vector3 {

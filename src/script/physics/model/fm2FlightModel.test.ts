@@ -99,10 +99,10 @@ describe('FM2 rigid-body flight model', () => {
         }
         // With the realistic smooth lift curve the wing's achievable CLmax (a
         // rounded peak, not a hard clamp) caps the attainable instantaneous g at
-        // this condition BELOW the 9.5 g structural cap: a hard pull loads up to
-        // ~8.6 g and is lift/AoA-limited, never breaching the +9.5 g ceiling.
+        // this condition below the structural limit. The FCS must nevertheless
+        // never command the aircraft past the +9.5 g envelope.
         assert.ok(maxG > 8.0, `did not load up under a hard pull: ${maxG.toFixed(2)}g`);
-        assert.ok(maxG < 9.8, `overshot the +9.5 g ceiling: ${maxG.toFixed(2)}g`);
+        assert.ok(maxG <= 9.5 + 1e-6, `overshot the +9.5 g ceiling: ${maxG.toFixed(2)}g`);
     });
 
     it('holds the -3 g structural limit as a hard ceiling on a hard forward-stick push (limiters ON)', () => {
@@ -156,11 +156,53 @@ describe('FM2 rigid-body flight model', () => {
         const gStd = stddev(gSamples);
         const elevStd = stddev(elevSamples);
 
-        assert.ok(maxG < 9.8, `overshot the +9.5 g ceiling in turn: ${maxG.toFixed(2)}g`);
+        assert.ok(maxG <= 9.5 + 1e-6, `overshot the +9.5 g ceiling in turn: ${maxG.toFixed(2)}g`);
         assert.ok(gStd < 1.5,
             `G oscillation too large during turn pull: stddev=${gStd.toFixed(2)}g`);
         assert.ok(elevStd < 0.25,
             `elevator chatter during turn pull: stddev=${elevStd.toFixed(3)}`);
+    });
+
+    it('does not oscillate on a sustained slow-speed, high-AoA hard pull (limiters ON)', () => {
+        // Regression for aggressive high-AoA elevator chatter: a hard pull held
+        // at low airspeed sits the AoA right at the predictive governor's soft
+        // band for a long stretch. A fast, noisy AoA-rate prediction snapping the
+        // governor's authority between "full pull" and "near 1 g" every frame
+        // used to show up here as large-amplitude, high-frequency stabilator
+        // motion — this must stay smooth, same as the high-speed turn-pull case.
+        const model = new Fm2FlightModel();
+        airborne(model, 3000, 90, 1.0); // ~175 kt, near the soft band at full pull
+
+        const aoaSamples: number[] = [];
+        const elevSamples: number[] = [];
+        let maxAoaDeg = 0;
+
+        for (let i = 0; i < 6 * 120; i++) {
+            model.setPitch(1.0);
+            model.update(1 / 120);
+            assert.ok(!model.isCrashed(), 'crashed during slow-speed high-AoA pull');
+            assert.ok(!Number.isNaN(model.getAngleOfAttack()), 'AoA went NaN');
+            if (i >= 120) {
+                const aoaDeg = Math.abs(model.getAngleOfAttack()) * DEG;
+                aoaSamples.push(aoaDeg);
+                elevSamples.push(model.getCommandedElevator());
+                maxAoaDeg = Math.max(maxAoaDeg, aoaDeg);
+            }
+        }
+
+        const stddev = (arr: number[]): number => {
+            const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+            return Math.sqrt(arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length);
+        };
+
+        const aoaStd = stddev(aoaSamples);
+        const elevStd = stddev(elevSamples);
+
+        assert.ok(maxAoaDeg <= 28 + 1e-6, `overshot the 28° AoA limit: ${maxAoaDeg.toFixed(1)}°`);
+        assert.ok(aoaStd < 1.5,
+            `AoA oscillation too large during slow-speed high-AoA pull: stddev=${aoaStd.toFixed(2)}°`);
+        assert.ok(elevStd < 0.25,
+            `elevator chatter during slow-speed high-AoA pull: stddev=${elevStd.toFixed(3)}`);
     });
 
     it('stays well-damped in a transonic overspeed (no hands-off load-factor limit cycle)', () => {
@@ -349,10 +391,8 @@ describe('FM2 rigid-body flight model', () => {
         // and at low q the airframe cannot even reach 1 g at the limit AoA, so the
         // loop kept commanding nose-up, the AoA ran past the always-active aft-CG
         // relaxation onset, and it diverged into a full "cobra" tumble (~180°).
-        // With the direct AoA cap the limiter now holds AoA across the envelope.
-        // The FBW AoA limit is 22°; the cap's rate lead settles the hold a few
-        // degrees under it (~19°), comfortably below the 23° cobra CG-relaxation
-        // onset, so it never departs.
+        // The predictive governor now holds AoA across the envelope. Its 28° limit
+        // shapes requested pitch manoeuvre before full aft stick can exceed it.
         const model = new Fm2FlightModel();
         airborne(model, 3000, 83, 1.0); // ~300 km/h, full throttle, limiters ON
 
@@ -365,8 +405,30 @@ describe('FM2 rigid-body flight model', () => {
             peakAoaDeg = Math.max(peakAoaDeg, Math.abs(model.getAngleOfAttack()) * DEG);
         }
 
-        assert.ok(peakAoaDeg < 28,
+        assert.ok(peakAoaDeg <= 28 + 1e-6,
             `AoA limiter breached at ~300 km/h (cobra with limiters ON): peak ${peakAoaDeg.toFixed(0)}°`);
+    });
+
+    it('governs the stick position below raw demand when the AoA envelope is active', () => {
+        const model = new Fm2FlightModel();
+        airborne(model, 3000, 83, 1.0); // ~300 km/h, limiters ON
+
+        let sawGovernedBelowRaw = false;
+        for (let i = 0; i < 8 * 120; i++) {
+            model.setPitch(1.0);
+            model.update(1 / 120);
+            const governed = model.getGovernedPitchStick();
+            const raw = 1.0;
+            const limitHi = model.getElevatorCommandLimitHigh();
+            if (governed < raw - 1e-6) {
+                sawGovernedBelowRaw = true;
+                assert.ok(governed <= limitHi + 1e-6,
+                    `governed stick ${governed.toFixed(2)} exceeded pull stop ${limitHi.toFixed(2)}`);
+            }
+        }
+
+        assert.ok(sawGovernedBelowRaw,
+            'expected governed stick to fall below full-aft raw demand at the AoA limit');
     });
 
     it('holds AoA at low speed for a mod-style config lacking the aoaLimiter fields (built-in defaults)', () => {
@@ -394,7 +456,7 @@ describe('FM2 rigid-body flight model', () => {
             peakAoaDeg = Math.max(peakAoaDeg, Math.abs(model.getAngleOfAttack()) * DEG);
         }
 
-        assert.ok(peakAoaDeg < 28,
+        assert.ok(peakAoaDeg <= 28 + 1e-6,
             `AoA limiter (defaults) breached at ~300 km/h for a mod-style config: peak ${peakAoaDeg.toFixed(0)}°`);
     });
 
@@ -736,14 +798,14 @@ describe('FM2 flight model — comprehensive behavior', () => {
         }
 
         // Uncapped: full aft stick with limiters OFF holds (near-)full nose-up
-        // elevator even after AoA blows PAST the 22° FBW limit — no AoA/g cap. With
+        // elevator even after AoA blows past the 28° FBW limit — no AoA/g cap. With
         // limiters ON the same pull is capped (elevator backs off at the limit).
         const off = new Fm2FlightModel();
         airborne(off, 4000, 260, 0.7);
         let offAoaExceeded = false;
         for (let i = 0; i < 60; i++) {
             off.setLimitersEnabled(false); off.setPitch(1.0); off.update(1 / 120);
-            if (Math.abs(off.getAngleOfAttack()) * DEG > 25) offAoaExceeded = true;
+            if (Math.abs(off.getAngleOfAttack()) * DEG > 28) offAoaExceeded = true;
         }
         assert.ok(offAoaExceeded, 'limiters OFF: direct pull should drive AoA past the FBW limit');
         assert.ok(off.getCommandedElevator() > 0.9,
@@ -979,7 +1041,7 @@ describe('FM2 forebody vortex asymmetry (Ericsson nose slice / Reynolds coupling
 
     it('the subscale regime is inert in the normal envelope (limiters ON hold AoA below onset)', () => {
         // The nose slice only lives above ~35° AoA. With the FBW limiters ON the
-        // AoA is held ~19°, well below onset, so even in the subscale regime a hard
+        // AoA is held below 28°, well below onset, so even in the subscale regime a hard
         // pull stays laterally symmetric — the normal envelope is untouched.
         const model = new Fm2FlightModel();
         airborne(model, 6000, 320, 1.0);

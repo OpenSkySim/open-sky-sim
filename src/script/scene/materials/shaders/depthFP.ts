@@ -58,10 +58,8 @@ export const DepthFragProgram: string = `
     }
 
     vec3 diffuse;
-    // shadingType 0 (duotone) dithers every surface; colorDither forces the same
-    // two-tone stipple for specific materials (e.g. fire) in all shading modes so
-    // they read as a steady dither instead of a temporal colour flicker.
-    if (shadingType == 0 || colorDither > 0.5) {
+    // colorDither: 1 = force two-tone stipple, 0 = duotone-only, -1 = solid primary.
+    if (colorDither > 0.5 || (shadingType == 0 && colorDither > -0.5)) {
       bool dithering = mod(floor(screen.x + screen.y), 2.0) > 0.5;
       diffuse = dithering ? color : colorSecondary;
     } else {

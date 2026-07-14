@@ -78,7 +78,8 @@ export class HUDEntity implements Entity {
     private healthFraction: number = 1;
     private pitch: number = 0; // radians
     private roll: number = 0; // radians
-    private pitchInput: number = 0; // [-1, 1]
+    private pitchInput: number = 0; // [-1, 1] raw pilot demand
+    private governedPitchInput: number = 0; // [-1, 1] FCS-governed stick position
     private rollInput: number = 0; // [-1, 1]
     private yawInput: number = 0; // [-1, 1]
     private elevatorLimitHigh: number = 1; // [-1, 1] nose-up elevator-command clamp
@@ -111,6 +112,7 @@ export class HUDEntity implements Entity {
         this.healthFraction = this.actor.healthFraction;
 
         this.pitchInput = this.actor.pitchInput;
+        this.governedPitchInput = this.actor.governedPitchInput;
         this.rollInput = this.actor.rollInput;
         this.yawInput = this.actor.yawInput;
         this.elevatorLimitHigh = this.actor.elevatorLimitHigh;
@@ -167,6 +169,11 @@ export class HUDEntity implements Entity {
 
         this.refreshVisualState();
         this.throttle = this.actor.throttleUnit;
+        this.governedPitchInput = this.actor.governedPitchInput;
+        this.rollInput = this.actor.rollInput;
+        this.yawInput = this.actor.yawInput;
+        this.elevatorLimitHigh = this.actor.elevatorLimitHigh;
+        this.elevatorLimitLow = this.actor.elevatorLimitLow;
 
         const layout = getOverlayLayout(targetWidth, targetHeight);
         const { detailScale, layoutScale } = layout;
@@ -475,8 +482,10 @@ export class HUDEntity implements Entity {
         const pitchTotalSpan = Math.max(arm * 2, Math.round(40 * geomScale));
         const pitchFwdTravel = Math.round(pitchTotalSpan * PITCH_STICK_FWD_UNITS / pitchTotalUnits);
         const pitchAftTravel = pitchTotalSpan - pitchFwdTravel;
-        const pitch = this.pitchInput;
-        const roll = this.rollInput;
+        const limitHi = this.actor.elevatorLimitHigh;
+        const limitLo = this.actor.elevatorLimitLow;
+        const pitch = this.actor.hudPitchStick(limitHi, limitLo);
+        const roll = this.actor.rollInput;
         const yaw = this.yawInput;
         const throttle = this.actor.throttleUnit;
         const crossArm = Math.max(2, Math.round(2 * geomScale));
@@ -495,8 +504,8 @@ export class HUDEntity implements Entity {
             centerY - pitchFwdTravel,
             Math.min(centerY + pitchAftTravel, Math.round(centerY + pitchCmdYOffset(v))),
         );
-        const limitHiY = limitY(this.elevatorLimitHigh);
-        const limitLoY = limitY(this.elevatorLimitLow);
+        const limitHiY = limitY(limitHi);
+        const limitLoY = limitY(limitLo);
         painter.setColor(hudLimitColor);
         painter.batch()
             .hLine(centerX - arm, centerX + arm, limitHiY)

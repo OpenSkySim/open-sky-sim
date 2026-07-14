@@ -41,6 +41,8 @@ export interface SceneMaterialCommonProperties {
      * instead of mapping to a PaletteCategory. `category` is still used for fog.
      */
     rawColor?: string;
+    /** true = force dither, false = solid primary, undefined = category default. */
+    colorDither?: boolean;
 }
 
 export type SceneMaterialMeshProperties = {
@@ -278,6 +280,23 @@ export class SceneMaterialManager implements KernelTask {
         };
     }
 
+    private categoryUsesColorDither(category: PaletteCategory): boolean {
+        return category === PaletteCategory.FX_FIRE
+            || category === PaletteCategory.SCENERY_TREE_FOLIAGE
+            || category === PaletteCategory.SCENERY_TREE_SHADOW
+            || category === PaletteCategory.SCENERY_WOOD_PATCH;
+    }
+
+    private colorDitherUniform(properties: SceneMaterialProperties): number {
+        if (properties.colorDither === true) {
+            return 1;
+        }
+        if (properties.colorDither === false) {
+            return -1;
+        }
+        return this.categoryUsesColorDither(properties.category) ? 1 : 0;
+    }
+
     private buildUniforms(properties: SceneMaterialProperties): SceneMaterialUniforms {
         return {
             ...{
@@ -297,12 +316,7 @@ export class SceneMaterialManager implements KernelTask {
                 // Fire renders as a steady two-tone ordered dither (orange/yellow)
                 // in every shading mode rather than a temporal colour flip.
                 colorDither: {
-                    value: properties.category === PaletteCategory.FX_FIRE
-                        || properties.category === PaletteCategory.SCENERY_TREE_FOLIAGE
-                        || properties.category === PaletteCategory.SCENERY_TREE_SHADOW
-                        || properties.category === PaletteCategory.SCENERY_MOUNTAIN_GRASS
-                        || properties.category === PaletteCategory.SCENERY_MOUNTAIN_BARE
-                        || properties.category === PaletteCategory.SCENERY_WOOD_PATCH ? 1 : 0
+                    value: this.colorDitherUniform(properties)
                 },
             },
             ...(properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded) ? {

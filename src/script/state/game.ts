@@ -97,10 +97,24 @@ const VEGETATION_FIELD_OPTIONS = {
     treesPerCell: 10,
     maxTreesPerFrame: 14000,
     outerCellStep: 3,
-    lowDetailRangeM: 100000,
-    // Trees stay full-detail 3D volumes out to this radius (independent of the
-    // density ramp), so detailed trees remain visible well ahead when flying.
-    fullDetailRangeM: 6000,
+    // Field-wide LOD fallback for any species not listed in speciesLod below.
+    // lowDetailRangeM is the outer impostor draw distance; keep it modest since
+    // it sets how many grid rings the field scans each frame.
+    lowDetailRangeM: 10000,
+    fullDetailRangeM: 4000,
+    // Per-species LOD view distances (metres). Tall trees stay detailed and
+    // visible far; small plants cull much sooner (they're invisible at range
+    // anyway and would otherwise waste the tree budget on distant specks). Three
+    // bands per species: full-detail 3D volume (LOD0) out to fullDetailRangeM,
+    // billboard impostor (LOD1) out to impostorRangeM, then a single 1px point
+    // (LOD2) out to lowDetailRangeM.
+    speciesLod: {
+        [VegetationKind.OAK]: { fullDetailRangeM: 4000, impostorRangeM: 6700, lowDetailRangeM: 10000 },
+        [VegetationKind.PINE]: { fullDetailRangeM: 4000, impostorRangeM: 6700, lowDetailRangeM: 10000 },
+        [VegetationKind.BIRCH]: { fullDetailRangeM: 2700, impostorRangeM: 4700, lowDetailRangeM: 6700 },
+        [VegetationKind.BUSH]: { fullDetailRangeM: 1000, impostorRangeM: 1700, lowDetailRangeM: 2700 },
+        [VegetationKind.SCRUB]: { fullDetailRangeM: 1000, impostorRangeM: 1700, lowDetailRangeM: 2700 },
+    },
     scaleMin: 0.7,
     scaleMax: 1.35,
 };
@@ -215,6 +229,7 @@ export class Game {
     private readonly obstacles: Obstacle[] = [];
     private worldQuery: SceneWorldQuery | undefined;
     private weaponsField: WeaponsField | undefined;
+    private vegetationField: VegetationField | undefined;
     private aiOpponent: AiAircraftEntity | undefined;
     private playerPilot: AiPilot | undefined;
 
@@ -1035,6 +1050,13 @@ export class Game {
         return this.player;
     }
 
+    /** Show/hide all instanced vegetation (trees, bushes, scrub). */
+    setVegetationEnabled(enabled: boolean) {
+        if (this.vegetationField) {
+            this.vegetationField.enabled = enabled;
+        }
+    }
+
     private resetOrbit() {
         this.viewYaw = 0;
         this.viewPitch = 0;
@@ -1625,13 +1647,14 @@ export class Game {
             new THREE.Vector2(RUNWAY_STRIP_HALF_WIDTH * 2, RUNWAY_STRIP_HALF_LENGTH * 2),
         );
         const terrainSampler = { isLand: (x: number, z: number) => this.isLandAt(x, z) };
-        this.scene.add(new VegetationField(
+        this.vegetationField = new VegetationField(
             terrainSampler,
             this.hillColliders,
             { ...VEGETATION_FIELD_OPTIONS, excludeAreas: [runwayStripExclude] },
             this.materials,
             treeKinds,
-        ));
+        );
+        this.scene.add(this.vegetationField);
 
         const speckles = new SpecklesEntity(this.materials);
         this.scene.add(speckles);

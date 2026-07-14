@@ -1,17 +1,29 @@
 import { ConfigService } from "../config/configService";
 import { JoystickControlDevice } from "../input/devices/joystickControlDevice";
 import { KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts } from "../input/devices/keyboardControlDevice";
+import { Game } from "../state/game";
 import { FlightModels, TechProfiles, UnitSystems } from "../state/gameDefs";
 import { assertIsDefined } from "../utils/asserts";
 
 
-export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDevice, joystickInput: JoystickControlDevice) {
+export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDevice, joystickInput: JoystickControlDevice, game: Game) {
     setupButtons();
     setupGenerationOptions(config);
+    setupSceneryOptions(game);
     setupFlightModel(config);
     setupUnitSystem(config);
     setupKeyboardHelp(keyboardInput);
     setupJoystickHelp(joystickInput);
+}
+
+function setupSceneryOptions(game: Game) {
+    const treesToggle = document.getElementById('scenery-trees') as HTMLInputElement | null;
+    assertIsDefined(treesToggle);
+
+    game.setVegetationEnabled(treesToggle.checked);
+    treesToggle.addEventListener('change', () => {
+        game.setVegetationEnabled(treesToggle.checked);
+    });
 }
 
 function setupButtons() {

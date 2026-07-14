@@ -13,6 +13,27 @@ export interface TerrainSampler {
     isLand(worldX: number, worldZ: number): boolean;
 }
 
+/** Per-species LOD view distances. All fall back to the field-wide defaults. */
+export interface SpeciesLodSettings {
+    /**
+     * Radius (m) within which this species renders as a full-detail 3D volume
+     * (LOD0). Beyond it the species switches to a billboard impostor.
+     */
+    fullDetailRangeM?: number;
+    /**
+     * Radius (m) out to which this species renders as a billboard impostor
+     * (LOD1). Between this and lowDetailRangeM it renders as a single 1px point
+     * (LOD2). Clamped to at least fullDetailRangeM. Defaults to lowDetailRangeM
+     * (i.e. no pixel band unless configured).
+     */
+    impostorRangeM?: number;
+    /**
+     * Outer radius (m) beyond which this species is not drawn at all. Between
+     * impostorRangeM and this it renders as a single 1px point (LOD2).
+     */
+    lowDetailRangeM?: number;
+}
+
 export interface VegetationFieldSettings {
     cellSize: number;
     fillRatio: number;
@@ -36,6 +57,13 @@ export interface VegetationFieldSettings {
      * near field denser. Defaults to the density inner radius (densitySpan / 5).
      */
     fullDetailRangeM?: number;
+    /**
+     * Per-species overrides for the LOD view distances. Any species not listed
+     * (or any field left undefined) uses the field-wide fullDetailRangeM /
+     * lowDetailRangeM above. Lets small plants (bushes, scrub) cull much sooner
+     * than tall trees, which stay full-detail and visible far longer.
+     */
+    speciesLod?: Partial<Record<VegetationKind, SpeciesLodSettings>>;
     excludeAreas?: THREE.Box2[];
     hashSeed?: number;
 }
@@ -51,6 +79,23 @@ function landCacheKey(col: number, row: number): number {
 
 /** Grid resolution (m) for the per-tree land/water lookup cache. */
 const TREE_LAND_SAMPLE = 12.5;
+
+/**
+ * Hard ceiling on the number of "working" cells (those that pass the coarse
+ * outer-step filter and do a land lookup) processed per frame. Rings are walked
+ * nearest-first, so hitting this only thins the most distant impostors. Without
+ * it, a large draw range over water/off-map would scan millions of cells and
+ * collapse the frame rate.
+ */
+const MAX_WORKING_CELLS_PER_FRAME = 60000;
+
+/**
+ * Coarse per-cell land cache size before a full reset. Terrain is static, so
+ * this is really just a memory bound; it MUST stay well above
+ * {@link MAX_WORKING_CELLS_PER_FRAME} so the cache can never clear mid-frame
+ * (which would re-issue the same terrain raycasts thousands of times per frame).
+ */
+const LAND_CACHE_MAX = 400000;
 
 function treesForCellDistance(dist: number, innerHalfSpan: number, maxPerCell: number): number {
     if (dist <= innerHalfSpan) {
@@ -90,14 +135,25 @@ interface SpeciesBatch {
     foliage: THREE.InstancedMesh;
     trunk?: THREE.InstancedMesh;
     impostor: THREE.InstancedMesh;
-    shadow: THREE.InstancedMesh;
+    /** Point cloud (LOD2): one 1px dot per distant plant. */
+    pixel: THREE.Points;
+    /** Backing xyz buffer for {@link pixel} (length capacity * 3). */
+    pixelPositions: Float32Array;
     /** Instances written this frame that carry full volumes (near zone). */
     volumeCount: number;
-    /** Instances written this frame that carry a billboard impostor (far zone). */
+    /** Instances written this frame that carry a billboard impostor (mid zone). */
     impostorCount: number;
-    /** Instances written this frame that carry a shadow (near + far). */
-    shadowCount: number;
+    /** Points written this frame that render as a 1px dot (far zone). */
+    pixelCount: number;
     capacity: number;
+    /** Distance (m) within which this species is a full-detail volume. */
+    fullDetailRange: number;
+    /** Distance (m) out to which this species is a billboard impostor. */
+    impostorRange: number;
+    /** Distance (m) beyond which this species is not drawn. */
+    lowDetailRange: number;
+    /** Height offset (m) at which the pixel dot sits (approx canopy centre). */
+    pixelY: number;
 }
 
 export class VegetationField implements Entity {
@@ -111,6 +167,8 @@ export class VegetationField implements Entity {
     private readonly innerHalfSpan: number;
     private readonly maxTreesPerFrame: number;
     private readonly outerCellStep: number;
+    /** Working cells processed in the current frame (bounded by MAX_WORKING_CELLS_PER_FRAME). */
+    private cellsVisited = 0;
     private readonly persistentLandCache = new Map<number, boolean>();
     private readonly treeLandCache = new Map<number, boolean>();
     private readonly tmpVector2 = new THREE.Vector2();
@@ -132,12 +190,28 @@ export class VegetationField implements Entity {
     ) {
         this.maxTreesPerFrame = options.maxTreesPerFrame ?? 6000;
         this.outerCellStep = options.outerCellStep ?? 2;
-        // densityHalfSpan drives the near/mid density ramp; halfSpan is how far
-        // the lowest-detail impostors are actually drawn (extended independently).
+        // densityHalfSpan drives the near/mid density ramp; it is independent of
+        // the LOD view distances (which are per-species, see below).
         this.densityHalfSpan = (options.tilesInView * options.cellSize) / 2;
-        this.halfSpan = Math.max(this.densityHalfSpan, options.lowDetailRangeM ?? this.densityHalfSpan);
         this.densityInnerSpan = this.densityHalfSpan / 5;
-        this.innerHalfSpan = Math.max(this.densityInnerSpan, options.fullDetailRangeM ?? this.densityInnerSpan);
+
+        // Field-wide LOD defaults used for any species without an override.
+        const defaultFullDetail = Math.max(this.densityInnerSpan, options.fullDetailRangeM ?? this.densityInnerSpan);
+        const defaultLowDetail = Math.max(this.densityHalfSpan, options.lowDetailRangeM ?? this.densityHalfSpan);
+        const resolveLod = (kind: VegetationKind) => {
+            const s = options.speciesLod?.[kind];
+            const fullDetailRange = Math.max(1, s?.fullDetailRangeM ?? defaultFullDetail);
+            // An impostor range shorter than the full-detail range makes no sense;
+            // clamp so a species is never culled while still "near".
+            const lowDetailRange = Math.max(fullDetailRange, s?.lowDetailRangeM ?? defaultLowDetail);
+            // Pixel (LOD2) band lives between impostorRange and lowDetailRange.
+            // Default: no pixel band (impostor all the way out).
+            const impostorRange = Math.min(
+                lowDetailRange,
+                Math.max(fullDetailRange, s?.impostorRangeM ?? lowDetailRange),
+            );
+            return { fullDetailRange, impostorRange, lowDetailRange };
+        };
 
         // Trees are distributed roughly evenly across species, but allow generous
         // headroom so a locally dense species never overflows its instance buffer.
@@ -148,6 +222,7 @@ export class VegetationField implements Entity {
 
         this.batches = kinds.map(kind => {
             const parts = buildVegetationParts(materials, kind);
+            const { fullDetailRange, impostorRange, lowDetailRange } = resolveLod(kind);
 
             const foliage = new THREE.InstancedMesh(parts.foliageGeometry, parts.foliageMaterial, capacity);
             foliage.frustumCulled = false;
@@ -167,13 +242,29 @@ export class VegetationField implements Entity {
             impostor.onBeforeRender = updateUniforms;
             impostor.count = 0;
 
-            const shadow = new THREE.InstancedMesh(parts.shadowGeometry, parts.shadowMaterial, capacity);
-            shadow.frustumCulled = false;
-            shadow.onBeforeRender = updateUniforms;
-            shadow.count = 0;
+            // LOD2: a dynamic point cloud. Positions hold absolute world coords,
+            // so the object stays at the origin (like SpecklesEntity).
+            const pixelPositions = new Float32Array(capacity * 3);
+            const pixelGeometry = new THREE.BufferGeometry();
+            pixelGeometry.setAttribute('position', new THREE.BufferAttribute(pixelPositions, 3));
+            pixelGeometry.setDrawRange(0, 0);
+            const pixel = new THREE.Points(pixelGeometry, parts.pixelMaterial);
+            pixel.frustumCulled = false;
+            pixel.onBeforeRender = updateUniforms;
 
-            return { foliage, trunk, impostor, shadow, volumeCount: 0, impostorCount: 0, shadowCount: 0, capacity };
+            return {
+                foliage, trunk, impostor, pixel, pixelPositions,
+                volumeCount: 0, impostorCount: 0, pixelCount: 0, capacity,
+                fullDetailRange, impostorRange, lowDetailRange,
+                pixelY: parts.maxHeight * 0.6,
+            };
         });
+
+        // Global iteration bounds derived from the per-species ranges: iterate
+        // out to the farthest species' outer (pixel) range, and treat cells beyond
+        // the largest full-detail range as "far" (coarser sampling).
+        this.innerHalfSpan = Math.max(this.densityInnerSpan, ...this.batches.map(b => b.fullDetailRange));
+        this.halfSpan = Math.max(this.densityHalfSpan, ...this.batches.map(b => b.lowDetailRange));
     }
 
     init(_scene: Scene): void {
@@ -185,14 +276,13 @@ export class VegetationField implements Entity {
     }
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, layers: Map<string, THREE.Scene>, palette: Palette): void {
-        const flatsLayer = layers.get(SceneLayers.EntityFlats);
         const volumesLayer = layers.get(SceneLayers.EntityVolumes);
-        if (!flatsLayer && !volumesLayer) return;
+        if (!volumesLayer) return;
 
         for (let i = 0; i < this.batches.length; i++) {
             this.batches[i].volumeCount = 0;
             this.batches[i].impostorCount = 0;
-            this.batches[i].shadowCount = 0;
+            this.batches[i].pixelCount = 0;
         }
 
         const cell = this.options.cellSize;
@@ -215,15 +305,16 @@ export class VegetationField implements Entity {
         );
 
         this.treesRendered = 0;
+        this.cellsVisited = 0;
 
-        for (let ring = 0; ring <= maxRing && this.treesRendered < this.maxTreesPerFrame; ring++) {
-            for (let dc = -ring; dc <= ring && this.treesRendered < this.maxTreesPerFrame; dc++) {
+        for (let ring = 0; ring <= maxRing && this.withinFrameBudget(); ring++) {
+            for (let dc = -ring; dc <= ring && this.withinFrameBudget(); dc++) {
                 this.processCell(camCol + dc, camRow - ring, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
                 if (ring === 0) continue;
                 this.processCell(camCol + dc, camRow + ring, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
             }
             if (ring === 0) continue;
-            for (let dr = -ring + 1; dr < ring && this.treesRendered < this.maxTreesPerFrame; dr++) {
+            for (let dr = -ring + 1; dr < ring && this.withinFrameBudget(); dr++) {
                 this.processCell(camCol - ring, camRow + dr, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
                 this.processCell(camCol + ring, camRow + dr, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
             }
@@ -231,12 +322,6 @@ export class VegetationField implements Entity {
 
         for (let i = 0; i < this.batches.length; i++) {
             const batch = this.batches[i];
-
-            batch.shadow.count = batch.shadowCount;
-            if (batch.shadowCount > 0) {
-                batch.shadow.instanceMatrix.needsUpdate = true;
-                flatsLayer?.add(batch.shadow);
-            }
 
             batch.foliage.count = batch.volumeCount;
             if (batch.volumeCount > 0) {
@@ -254,10 +339,22 @@ export class VegetationField implements Entity {
                 batch.impostor.instanceMatrix.needsUpdate = true;
                 volumesLayer?.add(batch.impostor);
             }
+
+            batch.pixel.geometry.setDrawRange(0, batch.pixelCount);
+            if (batch.pixelCount > 0) {
+                (batch.pixel.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+                volumesLayer?.add(batch.pixel);
+            }
         }
     }
 
     private treesRendered = 0;
+
+    /** True while the frame still has room for more trees and more scanned cells. */
+    private withinFrameBudget(): boolean {
+        return this.treesRendered < this.maxTreesPerFrame
+            && this.cellsVisited < MAX_WORKING_CELLS_PER_FRAME;
+    }
 
     private processCell(
         col: number,
@@ -284,11 +381,15 @@ export class VegetationField implements Entity {
         const isFar = cellDist > this.innerHalfSpan;
         if (isFar && (col % this.outerCellStep !== 0 || row % this.outerCellStep !== 0)) return;
 
+        // Count only cells that reach the land lookup; this is the work the
+        // per-frame ceiling is meant to bound.
+        this.cellsVisited++;
+
         const cacheKey = landCacheKey(col, row);
         let isLand = this.persistentLandCache.get(cacheKey);
         if (isLand === undefined) {
             isLand = this.terrain.isLand(centerX, centerZ);
-            if (this.persistentLandCache.size > 50000) {
+            if (this.persistentLandCache.size > LAND_CACHE_MAX) {
                 this.persistentLandCache.clear();
             }
             this.persistentLandCache.set(cacheKey, isLand);
@@ -303,7 +404,6 @@ export class VegetationField implements Entity {
         // independently without changing how dense the field is.
         const spawnChance = this.options.fillRatio * effectiveFillForDistance(cellDist, this.densityInnerSpan, this.densityHalfSpan);
         const sampleHills = anyHillNear(centerX, centerZ, this.hills);
-        const withVolumes = !isFar;
 
         for (let slot = 0; slot < slotsForCell && this.treesRendered < this.maxTreesPerFrame; slot++) {
             const slotSeed = cellSeed + slot * 48271;
@@ -318,9 +418,28 @@ export class VegetationField implements Entity {
 
             const batchIndex = Math.floor(hash2D(wx, wz, hashSeed + slot + 1) * this.batches.length);
             const batch = this.batches[batchIndex];
-            if (batch.shadowCount >= batch.capacity) continue;
+            // Per-species LOD, nearest-first: full-detail volume (LOD0), billboard
+            // impostor (LOD1), single 1px point (LOD2), then cull.
+            if (cellDist > batch.lowDetailRange) continue;
 
             const surfaceY = sampleHills ? sampleHillSurfaceY(wx, wz, this.hills) : 0;
+
+            if (cellDist > batch.impostorRange) {
+                // LOD2: a bare point. No scale/rotation/matrix needed.
+                if (batch.pixelCount >= batch.capacity) continue;
+                const base = batch.pixelCount * 3;
+                batch.pixelPositions[base + 0] = wx;
+                batch.pixelPositions[base + 1] = surfaceY + batch.pixelY;
+                batch.pixelPositions[base + 2] = wz;
+                batch.pixelCount++;
+                this.treesRendered++;
+                continue;
+            }
+
+            const withVolumes = cellDist <= batch.fullDetailRange;
+            const targetCount = withVolumes ? batch.volumeCount : batch.impostorCount;
+            if (targetCount >= batch.capacity) continue;
+
             const scale = this.options.scaleMin + hash2D(wx, wz, hashSeed + slot + 2) * (this.options.scaleMax - this.options.scaleMin);
             const rotation = hash2D(wx, wz, hashSeed + slot + 3) * Math.PI * 2;
 
@@ -329,16 +448,13 @@ export class VegetationField implements Entity {
             this.tmpScale.set(scale, scale, scale);
             this.tmpMatrix.compose(this.tmpPos, this.tmpQuat, this.tmpScale);
 
-            batch.shadow.setMatrixAt(batch.shadowCount++, this.tmpMatrix);
             if (withVolumes) {
-                if (batch.volumeCount < batch.capacity) {
-                    batch.foliage.setMatrixAt(batch.volumeCount, this.tmpMatrix);
-                    if (batch.trunk) {
-                        batch.trunk.setMatrixAt(batch.volumeCount, this.tmpMatrix);
-                    }
-                    batch.volumeCount++;
+                batch.foliage.setMatrixAt(batch.volumeCount, this.tmpMatrix);
+                if (batch.trunk) {
+                    batch.trunk.setMatrixAt(batch.volumeCount, this.tmpMatrix);
                 }
-            } else if (batch.impostorCount < batch.capacity) {
+                batch.volumeCount++;
+            } else {
                 batch.impostor.setMatrixAt(batch.impostorCount++, this.tmpMatrix);
             }
 
