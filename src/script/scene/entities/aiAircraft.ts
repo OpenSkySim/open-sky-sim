@@ -2,16 +2,14 @@ import * as THREE from 'three';
 import { Palette } from '../../config/palettes/palette';
 import { CanvasPainter } from '../../render/screen/canvasPainter';
 import { LODHelper, getLodLevel } from '../../render/helpers';
-import { FlightModel } from '../../physics/model/flightModel';
-import { WorkerFlightModel } from '../../physics/model/workerFlightModel';
+import { SimProxyFlightModel } from '../../physics/model/simProxyFlightModel';
+import { CombatSimClient } from '../../physics/sim/combatSimClient';
+import { SimAircraftSpawn, SimGunConfig } from '../../physics/sim/simTypes';
 import { FlightSample } from '../../physics/flightRecorder';
 import { defaultFm2Config } from '../../physics/fm2/fm2AircraftConfig';
-import { clamp, FORWARD, RIGHT, UP } from '../../utils/math';
-import { AiPilot, AiPilotOptions } from '../../ai/aiPilot';
-import { PilotableAircraft } from '../../ai/aircraftControls';
-import { WorldQuery } from '../../ai/worldQuery';
+import { clamp, FORWARD, UP } from '../../utils/math';
+import { AiPilotOptions } from '../../ai/aiPilot';
 import { Combatant, Faction } from '../../weapons/combatant';
-import { Gun, GunConfig, ProjectileSink } from '../../weapons/gun';
 import { Entity, ENTITY_TAGS } from '../entity';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { ModelManager } from '../models/models';
@@ -50,21 +48,21 @@ export interface AiAircraftSpawn {
 }
 
 /**
- * An AI-flown opponent aircraft. Its FM2 flight model runs in a dedicated physics
- * worker and is flown entirely through the normalized {@link PilotableAircraft} control
- * channel by an {@link AiPilot}, exactly as a human drives the player plane. It
- * is also a {@link Combatant} — targetable and damageable by gun fire.
+ * An AI-flown opponent aircraft. Its FM2 flight model, {@link AiPilot} and gun
+ * all live in the shared combat sim worker (keyed by {@link simId}); this entity
+ * is a snapshot-driven render proxy plus a {@link Combatant}/{@link WeaponsTarget}
+ * for the main thread's targeting and cameras.
  */
-export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant, WeaponsTarget {
+export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
 
     readonly tags: string[] = [ENTITY_TAGS.AIRCRAFT];
     enabled = true;
 
     readonly faction: Faction;
+    readonly simId: string;
 
-    private readonly flightModel: FlightModel;
-    private readonly pilot: AiPilot;
-    private readonly gun: Gun;
+    private readonly combatSim: CombatSimClient;
+    private readonly flightModel: SimProxyFlightModel;
 
     private readonly modelBody: LODHelper;
     private readonly modelShadow: LODHelper;
@@ -81,30 +79,25 @@ export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant, W
     private readonly _v = new THREE.Vector3();
     private readonly _q = new THREE.Quaternion();
 
-    // Normalized command state written by the pilot each frame.
-    private pitch = 0;
-    private roll = 0;
-    private yaw = 0;
-    private throttle = 0;
-    private brakes = false;
+    // Mirrored render/animation state (authoritative values live in the worker).
     private gearDeployed = true;
     private flapsExtended = true;
-
     private health = 100;
     private readonly maxHealth = 100;
 
     constructor(
         models: ModelManager,
         def: FlyableAircraftDef,
-        world: WorldQuery,
-        weapons: ProjectileSink,
+        combatSim: CombatSimClient,
+        simId: string,
         faction: Faction,
         spawn: AiAircraftSpawn,
         pilotOptions: AiPilotOptions = {},
     ) {
         this.faction = faction;
-        this.flightModel = new WorkerFlightModel();
-        this.flightModel.setAircraft(def.flight ?? defaultFm2Config);
+        this.simId = simId;
+        this.combatSim = combatSim;
+        this.flightModel = new SimProxyFlightModel(combatSim, simId, false);
         this.modelBody = new LODHelper(models.getModel(def.body));
         this.modelShadow = new LODHelper(models.getModel(def.shadow), 5);
         this.modelLandingGear = def.gear ? new LODHelper(models.getModel(def.gear)) : undefined;
@@ -117,52 +110,67 @@ export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant, W
             range: s.rangeRad,
         }));
 
-        this.pilot = new AiPilot(this, world, pilotOptions);
-        const gunConfig: GunConfig = {
+        const gun: SimGunConfig = {
             muzzleVelocity: pilotOptions.bulletSpeed ?? 1000,
             roundsPerSecond: 20,
             damage: 8,
             ammo: 2400,
-            muzzleOffset: new THREE.Vector3(0, 0, 9),
+            muzzleOffset: [0, 0, 9],
             spread: 0.004,
         };
-        this.gun = new Gun(gunConfig, weapons, faction);
-
-        this.applySpawn(spawn);
-    }
-
-    getPilot(): AiPilot {
-        return this.pilot;
+        // Register this aircraft with the worker before pushing its spawn state.
+        this.combatSim.addAircraft({
+            id: simId,
+            faction,
+            control: 'ai',
+            kinematic: false,
+            aircraftConfig: def.flight ?? defaultFm2Config,
+            pilotOptions,
+            hitRadius: DEFAULT_HIT_RADIUS,
+            maxHealth: this.maxHealth,
+            gun,
+            spawn: this.toSimSpawn(spawn),
+            enabled: true,
+        });
+        this.applyRenderSpawn(spawn);
     }
 
     respawn(spawn: AiAircraftSpawn): void {
-        this.flightModel.reset();
         this.health = this.maxHealth;
-        this.pitch = this.roll = this.yaw = 0;
-        this.throttle = spawn.throttle ?? 0;
-        this.brakes = false;
         this.gearDeployed = !(spawn.airborne ?? false);
         this.flapsExtended = !(spawn.airborne ?? false);
-        this.applySpawn(spawn);
+        this.combatSim.respawn(this.simId, this.toSimSpawn(spawn));
+        this.applyRenderSpawn(spawn);
         this.enabled = true;
     }
 
-    private applySpawn(spawn: AiAircraftSpawn): void {
+    private toSimSpawn(spawn: AiAircraftSpawn): SimAircraftSpawn {
         const airborne = spawn.airborne ?? false;
+        this._q.setFromAxisAngle(UP, spawn.heading);
+        return {
+            position: spawn.position.toArray() as [number, number, number],
+            quaternion: this._q.toArray() as [number, number, number, number],
+            velocity: spawn.velocity ? (spawn.velocity.toArray() as [number, number, number]) : undefined,
+            landed: !airborne,
+            throttle: spawn.throttle ?? 0,
+            airborne,
+        };
+    }
+
+    /** Prime the render proxy so cameras don't jump before the first snapshot. */
+    private applyRenderSpawn(spawn: AiAircraftSpawn): void {
+        const airborne = spawn.airborne ?? false;
+        this._q.setFromAxisAngle(UP, spawn.heading);
         this.flightModel.position = spawn.position;
-        this.flightModel.quaternion = this._q.setFromAxisAngle(UP, spawn.heading);
+        this.flightModel.quaternion = this._q;
         this.obj.position.copy(spawn.position);
         this.obj.quaternion.copy(this._q);
         if (spawn.velocity) {
             this.flightModel.velocityVector = spawn.velocity;
         }
-        this.throttle = spawn.throttle ?? this.throttle;
-        this.flightModel.setThrottle(this.throttle);
         this.flightModel.setLanded(!airborne);
-        if (airborne) {
-            this.flightModel.syncEffectiveThrottle();
-            this.flightModel.snapPhysicsState();
-        }
+        this.gearDeployed = !airborne;
+        this.flapsExtended = !airborne;
     }
 
     init(scene: Scene): void {
@@ -170,55 +178,22 @@ export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant, W
     }
 
     update(delta: number): void {
-        if (!this.isCrashed()) {
-            this.pilot.update(delta);
-        } else {
-            this.throttle = 0;
-            this.brakes = true;
+        // Physics + AI run in the worker; mirror authoritative state for rendering.
+        const gear = this.flightModel.getSimGearDeployed();
+        if (gear !== null) {
+            this.gearDeployed = gear;
         }
-
-        this.flightModel.setPitch(this.pitch);
-        this.flightModel.setRoll(this.roll);
-        this.flightModel.setYaw(this.yaw);
-        this.flightModel.setThrottle(this.throttle);
-        this.flightModel.setLandingGearDeployed(this.gearDeployed);
-        this.flightModel.setFlapsExtended(this.flapsExtended);
-        this.flightModel.setWheelBrakes(this.brakes);
-        this.flightModel.update(delta);
-
+        const flaps = this.flightModel.getSimFlapsExtended();
+        if (flaps !== null) {
+            this.flapsExtended = flaps;
+        }
+        const health = this.flightModel.getSimHealth();
+        if (health >= 0) {
+            this.health = health;
+        }
         this.obj.position.copy(this.flightModel.position);
         this.obj.quaternion.copy(this.flightModel.quaternion);
-
-        this.gun.update(delta);
-        if (!this.isCrashed() && this.pilot.isFiring) {
-            this.gun.tryFire(this.flightModel.position, this.flightModel.quaternion, this.flightModel.velocityVector);
-        }
     }
-
-    // --- PilotableAircraft: control channel ----------------------------------
-
-    setPitch(pitch: number): void { this.pitch = pitch; }
-    setRoll(roll: number): void { this.roll = roll; }
-    setYaw(yaw: number): void { this.yaw = yaw; }
-    setThrottle(throttle: number): void { this.throttle = throttle; }
-    setWheelBrakes(applied: boolean): void { this.brakes = applied; }
-    setLandingGearDeployed(deployed: boolean): void { this.gearDeployed = deployed; }
-    setFlapsExtended(extended: boolean): void { this.flapsExtended = extended; }
-
-    // --- PilotableAircraft: observation --------------------------------------
-
-    getPosition(): THREE.Vector3 { return this.flightModel.position; }
-    getVelocity(): THREE.Vector3 { return this.flightModel.velocityVector; }
-    getQuaternion(): THREE.Quaternion { return this.flightModel.quaternion; }
-    getAirspeed(): number { return this.flightModel.velocityVector.length(); }
-    getAltitude(): number { return this.flightModel.position.y; }
-    getAngleOfAttack(): number { return this.flightModel.getAngleOfAttack(); }
-    getLoadFactorG(): number { return this.flightModel.getLoadFactorG(); }
-    getStallStatus(): number { return this.flightModel.getStallStatus(); }
-    isLanded(): boolean { return this.flightModel.isLanded(); }
-    isCrashed(): boolean { return this.flightModel.isCrashed(); }
-    isGearDeployed(): boolean { return this.gearDeployed; }
-    isFlapsExtended(): boolean { return this.flapsExtended; }
 
     // --- Combatant -----------------------------------------------------------
 
@@ -226,19 +201,17 @@ export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant, W
     readVelocity(target: THREE.Vector3): THREE.Vector3 { return target.copy(this.flightModel.velocityVector); }
     getHitRadius(): number { return DEFAULT_HIT_RADIUS; }
 
+    isCrashed(): boolean {
+        return this.flightModel.isCrashed();
+    }
+
     isAlive(): boolean {
         return this.enabled && this.health > 0 && !this.isCrashed();
     }
 
-    applyDamage(amount: number): void {
-        if (this.health <= 0) {
-            return;
-        }
-        this.health -= amount;
-        if (this.health <= 0) {
-            this.health = 0;
-            this.flightModel.setCrashed(true);
-        }
+    /** Damage is applied inside the worker; this is a no-op for the render proxy. */
+    applyDamage(_amount: number): void {
+        // No-op: authoritative health lives in the combat sim worker.
     }
 
     private get flapsProgressUnit(): number {
@@ -256,8 +229,7 @@ export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant, W
 
     /** Map a surface's control binding to a normalized deflection value (see PlayerEntity). */
     private surfaceValue(control: ControlAxis, sign: number): number {
-        const rollCmd = this.flightModel.getCommandedAileron();
-        const roll = Math.abs(this.roll) > Math.abs(rollCmd) ? this.roll : rollCmd;
+        const roll = this.flightModel.getCommandedAileron();
         const pitch = this.flightModel.getCommandedElevator();
         switch (control) {
             case 'pitch': return sign * pitch;
@@ -282,13 +254,13 @@ export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant, W
     /** Telemetry snapshot in the same shape the flight recorder consumes for the player. */
     captureFlightSample(): FlightSample {
         return {
-            pitchCmd: this.pitch,
-            rollCmd: this.roll,
-            yawCmd: this.yaw,
-            thrLever: this.throttle,
+            pitchCmd: this.flightModel.getCommandedElevator(),
+            rollCmd: this.flightModel.getCommandedAileron(),
+            yawCmd: this.flightModel.getCommandedRudder(),
+            thrLever: this.flightModel.getEffectiveThrottle(),
             gear: this.gearDeployed,
             flaps: this.flapsExtended,
-            brake: this.brakes,
+            brake: false,
             stabilizer: this.flightModel.getCommandedElevator(),
             aileron: this.flightModel.getCommandedAileron(),
             rudder: this.flightModel.getCommandedRudder(),

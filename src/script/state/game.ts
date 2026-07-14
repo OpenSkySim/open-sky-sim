@@ -59,12 +59,32 @@ import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
-import { Obstacle, Runway, SceneWorldQuery } from '../ai/worldQuery';
-import { AiPilot, AiFlightPhase } from '../ai/aiPilot';
-import { PlayerPilotAdapter } from '../ai/playerPilotAdapter';
+import { Obstacle, Runway } from '../ai/worldQuery';
+import { AiFlightPhase } from '../ai/aiPilot';
 import { AiAircraftEntity } from '../scene/entities/aiAircraft';
 import { WeaponsField } from '../scene/entities/weaponsField';
-import { Combatant, Faction } from '../weapons/combatant';
+import { Faction } from '../weapons/combatant';
+import { CombatSimClient } from '../physics/sim/combatSimClient';
+import { SimProxyFlightModel } from '../physics/model/simProxyFlightModel';
+import { serializeWorld } from '../physics/sim/serializedWorld';
+import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/simTypes';
+import { PLAYER_SIM_ID, aiSimId } from '../physics/sim/simIds';
+import { defaultFm2Config } from '../physics/fm2/fm2AircraftConfig';
+
+/** How many AI opponents the combat sim spawns. */
+const AI_OPPONENT_COUNT = 1;
+
+/** Player hit-sphere radius (m) used by the combat sim's hit detection. */
+const PLAYER_HIT_RADIUS_M = 10;
+/** Player boresight gun, simulated in the combat worker. */
+const PLAYER_GUN: SimGunConfig = {
+    muzzleVelocity: 1000,
+    roundsPerSecond: 20,
+    damage: 8,
+    ammo: 2400,
+    muzzleOffset: [0, 0, 9],
+    spread: 0.003,
+};
 
 const DEFAULT_START_AIRCRAFT_ID = 'cold_war_planes_f_15c_32nd';
 /** Built-in aircraft to spawn when the preferred default pack isn't available. */
@@ -214,10 +234,10 @@ export class Game {
     private readonly terrainRayDir = new THREE.Vector3(0, -1, 0);
     private readonly hillColliders: HillCollider[] = [];
     private readonly obstacles: Obstacle[] = [];
-    private worldQuery: SceneWorldQuery | undefined;
     private weaponsField: WeaponsField | undefined;
+    /** All AI opponents; `aiOpponent` is the first, used by chase cam / targeting. */
+    private readonly aiOpponents: AiAircraftEntity[] = [];
     private aiOpponent: AiAircraftEntity | undefined;
-    private playerPilot: AiPilot | undefined;
 
     private playerCamera: SceneCamera;
     private targetCamera: SceneCamera;
@@ -290,7 +310,7 @@ export class Game {
     private flightRecorder = new FlightRecorder();
 
     constructor(private configService: ConfigService, private models: ModelManager, private materials: SceneMaterialManager, private renderer: Renderer,
-        private audio: AudioSystem) {
+        private audio: AudioSystem, private combatSim: CombatSimClient) {
 
         this.playerCamera = new SceneCamera(new THREE.PerspectiveCamera(COCKPIT_FOV, H_RES / V_RES, PLANE_DISTANCE_TO_GROUND, COCKPIT_FAR));
         this.targetCamera = new SceneCamera(new THREE.PerspectiveCamera(COCKPIT_FOV, 1, PLANE_DISTANCE_TO_GROUND, COCKPIT_FAR));
@@ -352,6 +372,14 @@ export class Game {
             this.player.setFlightModel(flightModel);
             if (this.currentDef.flight) {
                 flightModel.setAircraft(this.currentDef.flight);
+            }
+            // FM2/DEBUG are simulated in the combat worker; JSBSim runs in its own
+            // worker, so the sim-owned player aircraft is disabled and its state is
+            // injected as an external combatant (see update) for AI targeting.
+            const simOwned = flightModel instanceof SimProxyFlightModel;
+            this.combatSim.setEnabled(PLAYER_SIM_ID, simOwned);
+            if (simOwned) {
+                this.combatSim.clearExternalState(PLAYER_SIM_ID);
             }
         })
 
@@ -945,6 +973,7 @@ export class Game {
             this.updateOrbitFromKeys(delta);
             this.recordTelemetry(delta);
             this.scene.update(delta);
+            this.pumpCombatSim(delta);
 
             if (this.flightRecorder.isRecording()) {
                 this.flightRecorder.record(this.getShownAircraft().captureFlightSample(), delta);
@@ -955,7 +984,22 @@ export class Game {
             }
         } else if (this.state === GameState.SPAWN_MENU) {
             this.scene.update(delta);
+            this.pumpCombatSim(delta);
         }
+    }
+
+    /**
+     * Pump one frame into the combat sim worker after entities have latched their
+     * inputs. When the player is flying the separate JSBSim worker (not sim-owned),
+     * inject its live state so in-worker AI pilots can still target it.
+     */
+    private pumpCombatSim(delta: number): void {
+        if (!(this.configService.flightModels.getActive() instanceof SimProxyFlightModel)) {
+            this.combatSim.setExternalState(
+                PLAYER_SIM_ID, Faction.PLAYER,
+                this.player.position, this.player.velocityVector, this.player.isAlive());
+        }
+        this.combatSim.tick(delta);
     }
 
     render() {
@@ -1582,58 +1626,78 @@ export class Game {
             halfLength: RUNWAY_HALF_LENGTH_M,
             halfWidth: RUNWAY_STRIP_HALF_WIDTH,
         };
-        this.worldQuery = new SceneWorldQuery(
-            this.hillColliders,
-            (x, z) => this.isLandAt(x, z),
-            this.obstacles,
-            runway,
-        );
 
-        this.weaponsField = new WeaponsField(this.models, () => this.getCombatants());
+        // Hand the static world (terrain hills, obstacles, runway) to the sim
+        // worker so its AI pilots can navigate; then register the player as a
+        // sim-owned aircraft (its physics + gun + autopilot all live there).
+        this.combatSim.setWorld(serializeWorld(this.hillColliders, this.obstacles, runway));
+        this.combatSim.addAircraft({
+            id: PLAYER_SIM_ID,
+            faction: Faction.PLAYER,
+            control: 'external',
+            kinematic: false,
+            aircraftConfig: this.currentDef.flight ?? defaultFm2Config,
+            pilotOptions: { cruiseAltitude: 3000, cruiseSpeed: 220, hardDeck: 150 },
+            hitRadius: PLAYER_HIT_RADIUS_M,
+            maxHealth: 100,
+            gun: PLAYER_GUN,
+            spawn: this.playerSimSpawn(),
+            enabled: true,
+        });
+        this.player.setCombatSimClient(this.combatSim);
+        this.player.setHasGun(true);
+
+        // The weapons field is now a pure renderer of the worker's projectile pool.
+        this.weaponsField = new WeaponsField(this.models, this.combatSim);
         this.scene.add(this.weaponsField);
 
-        this.player.setWeapons(this.weaponsField);
-        this.playerPilot = new AiPilot(new PlayerPilotAdapter(this.player), this.worldQuery, {
-            cruiseAltitude: 3000,
-            cruiseSpeed: 220,
-            hardDeck: 150,
-        });
-        this.player.setAiPilot(this.playerPilot);
-
-        this.aiOpponent = new AiAircraftEntity(
-            this.models,
-            buildF22Def(),
-            this.worldQuery,
-            this.weaponsField,
-            Faction.ENEMY,
-            {
-                position: new THREE.Vector3(3000, 3000, 4000),
-                heading: Math.PI,
-                airborne: true,
-                throttle: 0.85,
-                velocity: FORWARD.clone().applyAxisAngle(UP, Math.PI).multiplyScalar(250),
-            },
-            { cruiseAltitude: 3000, cruiseSpeed: 260, combatSpeed: 330, gunRange: 900, hardDeck: 200, alwaysEngage: true },
-        );
-        this.aiOpponent.enabled = false;
-        this.scene.add(this.aiOpponent);
+        // Spawn N AI opponents (the snapshot + worker are already multi-aircraft;
+        // each gets a distinct sim id ai0..aiN-1). They start disabled until the
+        // player triggers a merge (see spawnOpponent).
+        this.aiOpponents.length = 0;
+        for (let i = 0; i < AI_OPPONENT_COUNT; i++) {
+            const ai = new AiAircraftEntity(
+                this.models,
+                buildF22Def(),
+                this.combatSim,
+                aiSimId(i),
+                Faction.ENEMY,
+                {
+                    position: new THREE.Vector3(3000 + i * 300, 3000, 4000),
+                    heading: Math.PI,
+                    airborne: true,
+                    throttle: 0.85,
+                    velocity: FORWARD.clone().applyAxisAngle(UP, Math.PI).multiplyScalar(250),
+                },
+                { cruiseAltitude: 3000, cruiseSpeed: 260, combatSpeed: 330, gunRange: 900, hardDeck: 200, alwaysEngage: true },
+            );
+            ai.enabled = false;
+            this.combatSim.setEnabled(ai.simId, false);
+            this.scene.add(ai);
+            this.aiOpponents.push(ai);
+        }
+        this.aiOpponent = this.aiOpponents[0];
 
         this.cameraUpdaters.set(
             PlayerViewState.AI_CHASE,
-            new AiExteriorCameraUpdater(this.player, this.playerCamera.main, this.aiOpponent));
+            new AiExteriorCameraUpdater(this.player, this.playerCamera.main, this.aiOpponent!));
     }
 
-    private getCombatants(): Combatant[] {
-        const list: Combatant[] = [this.player];
-        if (this.aiOpponent && this.aiOpponent.enabled) {
-            list.push(this.aiOpponent);
-        }
-        return list;
+    /** Current player transform as a combat-sim spawn descriptor. */
+    private playerSimSpawn(): SimAircraftSpawn {
+        return {
+            position: this.player.position.toArray() as [number, number, number],
+            quaternion: this.player.quaternion.toArray() as [number, number, number, number],
+            velocity: this.player.velocityVector.toArray() as [number, number, number],
+            landed: this.player.isLanded,
+            throttle: this.player.throttleUnit,
+            airborne: !this.player.isLanded,
+        };
     }
 
-    /** Spawn/enable the AI opponent airborne near the player and engage. */
+    /** Spawn/enable the AI opponents airborne near the player and engage. */
     private spawnOpponent() {
-        if (!this.aiOpponent) {
+        if (this.aiOpponents.length === 0) {
             return;
         }
         const p = this.player.position;
@@ -1647,24 +1711,29 @@ export class Game {
 
         const MERGE_DISTANCE_M = AI_CHASE_MERGE_DISTANCE_M;
         const MERGE_LATERAL_OFFSET_M = 200;
-        const position = new THREE.Vector3(p.x, p.y, p.z)
-            .addScaledVector(playerForward, MERGE_DISTANCE_M)
-            .addScaledVector(right, MERGE_LATERAL_OFFSET_M);
+        for (let i = 0; i < this.aiOpponents.length; i++) {
+            const ai = this.aiOpponents[i];
+            // Fan multiple opponents out laterally so they don't spawn on top of each other.
+            const lateral = MERGE_LATERAL_OFFSET_M + i * 300;
+            const position = new THREE.Vector3(p.x, p.y, p.z)
+                .addScaledVector(playerForward, MERGE_DISTANCE_M)
+                .addScaledVector(right, lateral);
 
-        this.aiOpponent.respawn({
-            position,
-            heading,
-            airborne: true,
-            throttle: 0.85,
-            velocity: FORWARD.clone().applyAxisAngle(UP, heading).multiplyScalar(260),
-        });
-        this.aiOpponent.getPilot().setTarget(this.player);
-        this.aiOpponent.getPilot().setPhase(AiFlightPhase.ENGAGE);
+            ai.respawn({
+                position,
+                heading,
+                airborne: true,
+                throttle: 0.85,
+                velocity: FORWARD.clone().applyAxisAngle(UP, heading).multiplyScalar(260),
+            });
+            this.combatSim.setTarget(ai.simId, PLAYER_SIM_ID);
+            this.combatSim.setPhase(ai.simId, AiFlightPhase.ENGAGE);
+        }
 
-        // The player's autopilot flies home and lands (RTB); it also knows about
-        // the opponent should combat logic be enabled for it later.
-        this.playerPilot?.setTarget(this.aiOpponent);
-        this.playerPilot?.setPhase(AiFlightPhase.RTB);
+        // The player's in-worker autopilot flies home and lands (RTB); it also
+        // knows about the primary opponent should combat logic be enabled for it later.
+        this.combatSim.setTarget(PLAYER_SIM_ID, this.aiOpponents[0].simId);
+        this.combatSim.setPhase(PLAYER_SIM_ID, AiFlightPhase.RTB);
     }
 
     private async setupScene() {

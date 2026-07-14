@@ -46,6 +46,12 @@ export class Gun {
         return this.ammo;
     }
 
+    /** Restore full ammo and clear the cooldown (used on respawn). */
+    reset(): void {
+        this.ammo = this.config.ammo;
+        this.cooldown = 0;
+    }
+
     update(delta: number): void {
         if (this.cooldown > 0) {
             this.cooldown -= delta;

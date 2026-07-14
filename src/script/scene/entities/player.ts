@@ -22,8 +22,8 @@ import { countBodyMeshVertices, deriveWingtipOriginsFromModel } from './wingtipO
 import { WeaponsTarget } from './weaponsTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { Combatant, Faction } from '../../weapons/combatant';
-import { Gun, GunConfig, ProjectileSink } from '../../weapons/gun';
-import { AiPilot } from '../../ai/aiPilot';
+import { CombatSimClient } from '../../physics/sim/combatSimClient';
+import { PLAYER_SIM_ID } from '../../physics/sim/simIds';
 
 
 const ENGINE_LOWEST_VOLUME = 0.05; // [0,1]
@@ -135,11 +135,15 @@ export class PlayerEntity implements Entity {
     private _nightVision: boolean = false;
     private hudFocus: HUDFocusMode = HUDFocusMode.DISABLED;
     private autopilotEnabled: boolean = false;
-    /** Optional AI brain that flies the player plane when the autopilot is on. */
-    private aiPilot: AiPilot | undefined;
 
-    /** Boresight gun (set once weapons are wired up by the game). */
-    private gun: Gun | undefined;
+    /**
+     * Shared combat sim client. The player's physics, gun and autopilot all run
+     * inside its worker (id {@link PLAYER_SIM_ID}); this entity is a render proxy
+     * plus input source. Undefined until the game wires combat up.
+     */
+    private combatSim: CombatSimClient | undefined;
+    /** True once the sim has been told this aircraft carries a gun. */
+    private hasGunFlag = false;
     private firing: boolean = false;
     private readonly maxHealth = 100;
     private health = this.maxHealth;
@@ -321,11 +325,10 @@ export class PlayerEntity implements Entity {
         if (this.simulationPaused) {
             return;
         }
-        if (this.autopilotEnabled && this.aiPilot) {
-            this.aiPilot.update(delta);
-        } else {
-            this.updateAutopilot(delta);
-        }
+        // Physics + autopilot now run in the shared combat sim worker. For manual
+        // flight we latch our control inputs onto the (proxy) flight model so the
+        // client can pump them into the worker; the worker ignores them while its
+        // in-worker autopilot is flying (control mode is flipped in toggleAutopilot).
         this.flightModel.setPitch(this.pitch);
         this.flightModel.setRoll(this.roll);
         this.flightModel.setYaw(this.yaw);
@@ -336,6 +339,24 @@ export class PlayerEntity implements Entity {
         this.flightModel.setLimitersEnabled(this.limitersEnabled);
         this.flightModel.setPitchLimiterMode(this.pitchLimiterMode);
         this.flightModel.update(delta);
+
+        // Mirror sim-authoritative health; while the in-worker autopilot flies,
+        // mirror its gear/flaps commands so the airframe animates correctly.
+        const simHealth = this.flightModel.getSimHealth();
+        if (simHealth >= 0) {
+            this.health = simHealth;
+        }
+        if (this.autopilotEnabled) {
+            const gear = this.flightModel.getSimGearDeployed();
+            if (gear !== null) {
+                this.setLandingGearDeployed(gear);
+            }
+            const flaps = this.flightModel.getSimFlapsExtended();
+            if (flaps !== null) {
+                this.setFlapsExtended(flaps);
+            }
+        }
+
         this.obj.position.copy(this.flightModel.position);
         this.obj.quaternion.copy(this.flightModel.quaternion);
         this.velocity.copy(this.flightModel.velocityVector);
@@ -384,14 +405,9 @@ export class PlayerEntity implements Entity {
         this.updateWeapons(delta);
     }
 
-    private updateWeapons(delta: number): void {
-        if (!this.gun) {
-            return;
-        }
-        this.gun.update(delta);
-        if (this.firing && !this.isCrashed && this.controlsEnabled) {
-            this.gun.tryFire(this.obj.position, this.obj.quaternion, this.velocity);
-        }
+    private updateWeapons(_delta: number): void {
+        // The gun is simulated in the combat worker; just latch the trigger.
+        this.combatSim?.setFiring(PLAYER_SIM_ID, this.firing && !this.isCrashed && this.controlsEnabled);
     }
 
     updateDisplayTransform(): void {
@@ -576,80 +592,8 @@ export class PlayerEntity implements Entity {
 
     private toggleAutopilot() {
         this.autopilotEnabled = !this.autopilotEnabled;
-    }
-
-    private updateAutopilot(delta: number) {
-        if (!this.autopilotEnabled) {
-            return;
-        }
-
-        const pos = this.flightModel.position;
-        const vel = this.flightModel.velocityVector;
-        const runwayPos = new THREE.Vector3(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.y, AIRBASE_RUNWAY.z);
-
-        // 1. Alignment (X and Yaw)
-        const xDist = pos.x - runwayPos.x;
-        // Simple P-controller for roll to correct X-offset
-        let targetRoll = -xDist * 0.005;
-        targetRoll = THREE.MathUtils.clamp(targetRoll, -Math.PI / 6, Math.PI / 6);
-        this.roll = targetRoll;
-
-        // 2. Glideslope (Y)
-        // We are approaching from -Z towards +Z. Runway center is at runwayPos.z.
-        // Runway start is at runwayPos.z - RUNWAY_HALF_LENGTH_M.
-        const touchdownZ = runwayPos.z - RUNWAY_HALF_LENGTH_M + 300;
-        const distToTouchdown = touchdownZ - pos.z;
-
-        if (this.isLanded) {
-            // We are on the ground, just brake and keep straight
-            this.throttle = 0;
-            this.wheelBrakes = true;
-            this.pitch = 0;
-            this.roll = 0;
-            this.yaw = 0;
-            return;
-        }
-
-        if (distToTouchdown < -500) {
-            // We missed the runway or finished landing
-            this.autopilotEnabled = false;
-            return;
-        }
-
-        // Target altitude based on 3 degree glideslope (tan(3deg) approx 0.05)
-        const targetAlt = Math.max(PLANE_DISTANCE_TO_GROUND + 1.0, distToTouchdown * 0.052);
-        const altErr = pos.y - targetAlt;
-
-        // 3. Pitch control
-        // Simple PD-like controller for pitch
-        let targetPitch = -altErr * 0.05 - vel.y * 0.1;
-        
-        // Flare logic
-        if (pos.y < 15 && distToTouchdown < 400) {
-            targetPitch = 0.15; // Nose up for flare
-        }
-        
-        this.pitch = THREE.MathUtils.clamp(targetPitch, -0.3, 0.4);
-
-        // 4. Throttle control
-        const targetSpeed = 85; // m/s (approx 300 km/h)
-        const speedErr = vel.length() - targetSpeed;
-        this.throttle = THREE.MathUtils.clamp(this.throttle - speedErr * 0.05 * delta, 0, 1);
-
-        // 5. Gear and Flaps
-        if (pos.y < 400) {
-            if (this.landingGearState === AircraftDeviceState.RETRACTED) {
-                this.toggleLandingGear();
-            }
-            if (this.flapsState === AircraftDeviceState.RETRACTED) {
-                this.toggleFlaps();
-            }
-        }
-        
-        // 6. Yaw control (keep heading 0)
-        const worldDir = this.getDisplayWorldDirection(this._v);
-        const heading = Math.atan2(worldDir.x, worldDir.z);
-        this.yaw = THREE.MathUtils.clamp(-heading * 2.0, -0.5, 0.5);
+        // Hand flying control to (or take it back from) the in-worker autopilot.
+        this.combatSim?.setControlMode(PLAYER_SIM_ID, this.autopilotEnabled ? 'ai' : 'external');
     }
 
     private updateAudio() {
@@ -995,22 +939,14 @@ export class PlayerEntity implements Entity {
         }
     }
 
-    /** Attach the AI brain that flies the plane while the autopilot is engaged. */
-    setAiPilot(pilot: AiPilot) {
-        this.aiPilot = pilot;
+    /** Wire the shared combat sim client (physics/gun/autopilot run in its worker). */
+    setCombatSimClient(client: CombatSimClient) {
+        this.combatSim = client;
     }
 
-    /** Provide the projectile sink and build the boresight gun. */
-    setWeapons(sink: ProjectileSink) {
-        const config: GunConfig = {
-            muzzleVelocity: 1000,
-            roundsPerSecond: 20,
-            damage: 8,
-            ammo: 2400,
-            muzzleOffset: new THREE.Vector3(0, 0, 9),
-            spread: 0.003,
-        };
-        this.gun = new Gun(config, sink, Faction.PLAYER);
+    /** Mark that this aircraft carries a gun (config lives in the sim descriptor). */
+    setHasGun(hasGun: boolean) {
+        this.hasGunFlag = hasGun;
     }
 
     // --- Combatant ---------------------------------------------------------
@@ -1047,11 +983,12 @@ export class PlayerEntity implements Entity {
     }
 
     get gunAmmo(): number {
-        return this.gun?.ammoRemaining ?? 0;
+        const ammo = this.flightModel.getSimAmmo();
+        return ammo >= 0 ? ammo : 0;
     }
 
     get hasGun(): boolean {
-        return this.gun !== undefined;
+        return this.hasGunFlag;
     }
 
     setThrottle(throttle: number) {

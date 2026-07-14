@@ -14,8 +14,10 @@ import { FPS_CAP, GROUND_SMOKE_PARTICLE_COUNT, H_RES, V_RES } from './defs';
 import { JoystickControlDevice } from './input/devices/joystickControlDevice';
 import { KeyboardControlDevice, KeyboardControlLayoutId } from './input/devices/keyboardControlDevice';
 import { setupOSD } from './osd/osdPanel';
-import { WorkerFlightModel } from './physics/model/workerFlightModel';
 import { WorkerJsbsimFlightModel } from './physics/model/workerJsbsimFlightModel';
+import { CombatSimClient } from './physics/sim/combatSimClient';
+import { SimProxyFlightModel } from './physics/model/simProxyFlightModel';
+import { PLAYER_SIM_ID } from './physics/sim/simIds';
 import { Renderer } from './render/renderer';
 import { SceneMaterialManager } from './scene/materials/materials';
 import { BackgroundModelLibBuilder } from './scene/models/lib/backgroundModelBuilder';
@@ -30,15 +32,20 @@ import { FlightModels, TechProfiles } from './state/gameDefs';
 
 
 async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice, Game]> {
+    // Single authoritative combat sim worker. The player's FM2/DEBUG models are
+    // render-side proxies bound to it (id PLAYER_SIM_ID); JSBSim keeps its own
+    // worker. AI opponents register with the same client (see Game.setupCombat).
+    const combatSim = new CombatSimClient();
     const config = new ConfigService(
         { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
         {
-            [FlightModels.FM2]: new WorkerFlightModel(),
-            [FlightModels.DEBUG]: new WorkerFlightModel(true),
+            [FlightModels.FM2]: new SimProxyFlightModel(combatSim, PLAYER_SIM_ID, false),
+            [FlightModels.DEBUG]: new SimProxyFlightModel(combatSim, PLAYER_SIM_ID, true),
             [FlightModels.JSBSIM]: new WorkerJsbsimFlightModel(),
         }
     );
     config.flightModels.setActive(FlightModels.FM2);
+    config.flightModels.getActive().activate();
     const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
     const renderer = new Renderer(materials, H_RES, V_RES, HDNoonPalette);
     const models = new ModelManager(materials, [
@@ -56,7 +63,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         new TracerModelLibBuilder('tracer'),
     ]);
     const audio = new AudioSystem();
-    const game = new Game(config, models, materials, renderer, audio);
+    const game = new Game(config, models, materials, renderer, audio, combatSim);
     config.techProfiles.setActive(TechProfiles.HD);
     await game.setup();
 

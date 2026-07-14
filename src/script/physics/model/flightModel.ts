@@ -95,6 +95,34 @@ export abstract class FlightModel {
 
     abstract step(delta: number): void;
 
+    /**
+     * Called when this model becomes the active model for its entity (on
+     * construction of the entity and on every runtime model swap). Lets a
+     * shared-worker proxy claim ownership of its slot. No-op by default.
+     */
+    activate(): void {
+        // No-op by default.
+    }
+
+    // --- Combat-sim mirror -------------------------------------------------
+    // Populated only by the shared combat-sim proxy (see SimProxyFlightModel);
+    // the defaults below mean "not simulated in the combat worker".
+
+    /** Health in [0, maxHealth], or -1 when this model is not sim-owned. */
+    getSimHealth(): number { return -1; }
+
+    /** Remaining gun rounds, or -1 when this model is not sim-owned. */
+    getSimAmmo(): number { return -1; }
+
+    /** Whether the in-worker pilot/trigger produced a firing solution this frame. */
+    getSimFiring(): boolean { return false; }
+
+    /** Sim-owned gear state, or null when this model is not sim-owned. */
+    getSimGearDeployed(): boolean | null { return null; }
+
+    /** Sim-owned flaps state, or null when this model is not sim-owned. */
+    getSimFlapsExtended(): boolean | null { return null; }
+
     reset() {
         this.obj.position.set(0, 0, 0);
         this.obj.quaternion.setFromAxisAngle(UP, 0);
