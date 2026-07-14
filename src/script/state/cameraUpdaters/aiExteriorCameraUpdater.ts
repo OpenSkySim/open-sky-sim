@@ -11,13 +11,16 @@ export interface ChaseTarget {
 }
 
 /**
- * Exterior "behind" chase camera aimed at an arbitrary {@link ChaseTarget}
- * (e.g. the AI opponent), mirroring the player's F2 behind view.
+ * Exterior "behind" chase camera positioned off the {@link ChaseTarget}'s tail
+ * (e.g. the AI opponent), mirroring the player's F2 behind view, but aimed at
+ * the player rather than the target's own flight path — so the F6 view shows
+ * the dogfight from behind the AI while keeping the player in frame. Numpad
+ * orbit (see {@link import('../game').Game.orbitCameraAroundAircraft}) can
+ * move the camera off this pose; pressing Numpad `*` refocuses back onto it.
  */
 export class AiExteriorCameraUpdater extends CameraUpdater {
 
     private _v = new THREE.Vector3();
-    private _p = new THREE.Vector3();
 
     constructor(actor: PlayerEntity, camera: THREE.PerspectiveCamera, private target: ChaseTarget) {
         super(actor, camera);
@@ -30,13 +33,10 @@ export class AiExteriorCameraUpdater extends CameraUpdater {
             .applyQuaternion(this.target.getDisplayQuaternion())
             .setY(0)
             .normalize();
-        this._p
-            .copy(pos)
-            .addScaledVector(this._v, 1);
-        this.camera.position.copy(pos);
-        this.camera.lookAt(this._p);
         this.camera.position
+            .copy(pos)
             .addScaledVector(UP, 5)
             .addScaledVector(this._v, -40.0);
+        this.camera.lookAt(this.actor.getDisplayPosition());
     }
 }

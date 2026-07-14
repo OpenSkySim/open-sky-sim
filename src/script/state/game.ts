@@ -59,7 +59,7 @@ import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 import { Obstacle, Runway, SceneWorldQuery } from '../ai/worldQuery';
-import { AiPilot, AiFlightPhase } from '../ai/aiPilot';
+import { AiPilot, AiFlightPhase, AiSkillLevel } from '../ai/aiPilot';
 import { PlayerPilotAdapter } from '../ai/playerPilotAdapter';
 import { AiAircraftEntity } from '../scene/entities/aiAircraft';
 import { WeaponsField } from '../scene/entities/weaponsField';
@@ -1211,6 +1211,14 @@ export class Game {
             } else if (event.code === 'Numpad5') {
                 event.preventDefault();
                 this.resetOrbit();
+            } else if (event.code === 'NumpadMultiply' && this.view === PlayerViewState.AI_CHASE) {
+                // In the AI chase view, `*` refocuses the camera back onto the
+                // player instead of zooming: numpad orbit re-targets the look-at
+                // point at the AI (see orbitCameraAroundAircraft), so orbiting
+                // away loses the player from frame; this snaps back to the base
+                // pose, which looks at the player (see AiExteriorCameraUpdater).
+                event.preventDefault();
+                this.resetOrbit();
             } else if (event.code in NUMPAD_ORBIT_DIR || event.code in NUMPAD_ZOOM_DIR) {
                 event.preventDefault();
                 this.heldOrbitKeys.add(event.code);
@@ -1568,7 +1576,10 @@ export class Game {
                 throttle: 0.85,
                 velocity: FORWARD.clone().applyAxisAngle(UP, Math.PI).multiplyScalar(250),
             },
-            { cruiseAltitude: 3000, cruiseSpeed: 260, combatSpeed: 330, gunRange: 900, hardDeck: 200 },
+            // Both speeds must stay under AiPilot's default maxSpeed (240 m/s) or
+            // commandSpeed() silently clamps them there anyway — see the transonic
+            // ring note on MAX_SPEED in aiPilot.ts.
+            { cruiseAltitude: 3000, cruiseSpeed: 220, combatSpeed: 230, gunRange: 900, hardDeck: 200, skill: AiSkillLevel.ACE },
         );
         this.aiOpponent.enabled = false;
         this.scene.add(this.aiOpponent);
@@ -1593,9 +1604,27 @@ export class Game {
         }
         const p = this.player.position;
         const altitude = Math.max(2500, p.y);
-        const heading = Math.PI; // face back toward the player merge
+
+        // Merge head-on: spawn the opponent ahead of the player on its current
+        // heading, flying the reciprocal course, so the two aircraft close
+        // nose-to-nose rather than one chasing the other from behind. A small
+        // lateral offset keeps the merge a pass rather than a head-on collision.
+        const playerForward = FORWARD.clone().applyQuaternion(this.player.quaternion);
+        const playerHeading = Math.atan2(playerForward.x, playerForward.z);
+        const heading = playerHeading + Math.PI;
+        const right = RIGHT.clone().applyAxisAngle(UP, playerHeading);
+
+        // Close enough that the merge reads as an immediate engagement rather
+        // than a minute-plus crawl to close distance, but still far enough to
+        // see the opponent coming and for its FSM to settle into PURSUE first.
+        const MERGE_DISTANCE = 3500;
+        const MERGE_LATERAL_OFFSET = 300;
+        const position = new THREE.Vector3(p.x, altitude, p.z)
+            .addScaledVector(playerForward, MERGE_DISTANCE)
+            .addScaledVector(right, MERGE_LATERAL_OFFSET);
+
         this.aiOpponent.respawn({
-            position: new THREE.Vector3(p.x + 1500, altitude, p.z + 6000),
+            position,
             heading,
             airborne: true,
             throttle: 0.85,
