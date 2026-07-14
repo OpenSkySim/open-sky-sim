@@ -46,20 +46,20 @@ import { CameraUpdater } from './cameraUpdaters/cameraUpdater';
 import { CockpitFrontCameraUpdater } from './cameraUpdaters/cockpitFrontCameraUpdater';
 import { CrashedCameraUpdater } from './cameraUpdaters/crashedCameraUpdater';
 import { ExteriorFrontBehindCameraUpdater, ExteriorViewHeading } from './cameraUpdaters/exteriorFrontBehindCameraUpdater';
-import { AiExteriorCameraUpdater } from './cameraUpdaters/aiExteriorCameraUpdater';
+import { AiExteriorCameraUpdater, AI_CHASE_MERGE_DISTANCE_M } from './cameraUpdaters/aiExteriorCameraUpdater';
 import { ExteriorSideCameraUpdater, ExteriorViewSide } from './cameraUpdaters/exteriorSideCameraUpdater';
 import { TargetFromCameraUpdater } from './cameraUpdaters/targetFromCameraUpdater';
 import { TargetToCameraUpdater } from './cameraUpdaters/targetToCameraUpdater';
 import { StaticModelCameraUpdater } from './cameraUpdaters/staticModelCameraUpdater';
 import { ShowcaseCameraUpdater } from './cameraUpdaters/showcaseCameraUpdater';
-import { restoreMainCameraParameters } from './stateUtils';
+import { applyAiChaseCameraParameters, restoreMainCameraParameters } from './stateUtils';
 import { forEachStaticAircraftSlot, STATIC_MODEL_VIEWS } from './staticModelViews';
 import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 import { Obstacle, Runway, SceneWorldQuery } from '../ai/worldQuery';
-import { AiPilot, AiFlightPhase, AiSkillLevel } from '../ai/aiPilot';
+import { AiPilot, AiFlightPhase } from '../ai/aiPilot';
 import { PlayerPilotAdapter } from '../ai/playerPilotAdapter';
 import { AiAircraftEntity } from '../scene/entities/aiAircraft';
 import { WeaponsField } from '../scene/entities/weaponsField';
@@ -97,24 +97,10 @@ const VEGETATION_FIELD_OPTIONS = {
     treesPerCell: 10,
     maxTreesPerFrame: 14000,
     outerCellStep: 3,
-    // Field-wide LOD fallback for any species not listed in speciesLod below.
-    // lowDetailRangeM is the outer impostor draw distance; keep it modest since
-    // it sets how many grid rings the field scans each frame.
-    lowDetailRangeM: 10000,
-    fullDetailRangeM: 4000,
-    // Per-species LOD view distances (metres). Tall trees stay detailed and
-    // visible far; small plants cull much sooner (they're invisible at range
-    // anyway and would otherwise waste the tree budget on distant specks). Three
-    // bands per species: full-detail 3D volume (LOD0) out to fullDetailRangeM,
-    // billboard impostor (LOD1) out to impostorRangeM, then a single 1px point
-    // (LOD2) out to lowDetailRangeM.
-    speciesLod: {
-        [VegetationKind.OAK]: { fullDetailRangeM: 4000, impostorRangeM: 6700, lowDetailRangeM: 10000 },
-        [VegetationKind.PINE]: { fullDetailRangeM: 4000, impostorRangeM: 6700, lowDetailRangeM: 10000 },
-        [VegetationKind.BIRCH]: { fullDetailRangeM: 2700, impostorRangeM: 4700, lowDetailRangeM: 6700 },
-        [VegetationKind.BUSH]: { fullDetailRangeM: 1000, impostorRangeM: 1700, lowDetailRangeM: 2700 },
-        [VegetationKind.SCRUB]: { fullDetailRangeM: 1000, impostorRangeM: 1700, lowDetailRangeM: 2700 },
-    },
+    lowDetailRangeM: 100000,
+    // Trees stay full-detail 3D volumes out to this radius (independent of the
+    // density ramp), so detailed trees remain visible well ahead when flying.
+    fullDetailRangeM: 6000,
     scaleMin: 0.7,
     scaleMax: 1.35,
 };
@@ -229,7 +215,6 @@ export class Game {
     private readonly obstacles: Obstacle[] = [];
     private worldQuery: SceneWorldQuery | undefined;
     private weaponsField: WeaponsField | undefined;
-    private vegetationField: VegetationField | undefined;
     private aiOpponent: AiAircraftEntity | undefined;
     private playerPilot: AiPilot | undefined;
 
@@ -270,6 +255,8 @@ export class Game {
     private viewYaw: number = 0;
     private viewPitch: number = 0;
     private viewZoom: number = 1;
+    /** F2 exterior view: numpad * toggles the camera to track the AI opponent. */
+    private exteriorEnemyLock = false;
     private heldOrbitKeys = new Set<string>();
     private _orbitPivot = new THREE.Vector3();
     private _orbitOffset = new THREE.Vector3();
@@ -974,7 +961,9 @@ export class Game {
 
         if (this.state === GameState.PLAYER || this.state === GameState.SPAWN_MENU) {
             this.cameraUpdater.update(0);
-            if (this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1) {
+            if (this.view !== PlayerViewState.AI_CHASE
+                && (this.exteriorEnemyLock && this.isF2ExteriorView()
+                    || this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)) {
                 this.orbitCameraAroundAircraft();
             }
             this.playerCamera.update();
@@ -1050,13 +1039,6 @@ export class Game {
         return this.player;
     }
 
-    /** Show/hide all instanced vegetation (trees, bushes, scrub). */
-    setVegetationEnabled(enabled: boolean) {
-        if (this.vegetationField) {
-            this.vegetationField.enabled = enabled;
-        }
-    }
-
     private resetOrbit() {
         this.viewYaw = 0;
         this.viewPitch = 0;
@@ -1065,7 +1047,7 @@ export class Game {
 
     // Accumulates the orbit yaw/pitch/zoom from any held numpad keys.
     private updateOrbitFromKeys(delta: number) {
-        if (this.heldOrbitKeys.size === 0) {
+        if (this.view === PlayerViewState.AI_CHASE || this.heldOrbitKeys.size === 0) {
             return;
         }
         let yawDir = 0;
@@ -1118,7 +1100,43 @@ export class Game {
             .copy(this._orbitPivot)
             .add(this._orbitOffset);
         this.playerCamera.main.up.copy(UP);
-        this.playerCamera.main.lookAt(this._orbitPivot);
+        if (this.exteriorEnemyLock && this.isF2ExteriorView() && this.aiOpponent?.enabled) {
+            this.playerCamera.main.lookAt(this.aiOpponent.getDisplayPosition());
+        } else {
+            this.playerCamera.main.lookAt(this._orbitPivot);
+        }
+    }
+
+    private isF2ExteriorView(): boolean {
+        return this.view === PlayerViewState.EXTERIOR_BEHIND
+            || this.view === PlayerViewState.EXTERIOR_FRONT;
+    }
+
+    private toggleExteriorEnemyLock(): void {
+        if (!this.aiOpponent?.enabled) {
+            return;
+        }
+        this.exteriorEnemyLock = !this.exteriorEnemyLock;
+        this.resetOrbit();
+        this.syncExteriorEnemyLockTarget();
+    }
+
+    private syncExteriorEnemyLockTarget(): void {
+        const target = this.exteriorEnemyLock && this.aiOpponent?.enabled
+            ? this.aiOpponent
+            : undefined;
+        (this.cameraUpdaters.get(PlayerViewState.EXTERIOR_BEHIND) as ExteriorFrontBehindCameraUpdater)
+            .setLookAtTarget(target);
+        (this.cameraUpdaters.get(PlayerViewState.EXTERIOR_FRONT) as ExteriorFrontBehindCameraUpdater)
+            .setLookAtTarget(target);
+    }
+
+    private clearExteriorEnemyLock(): void {
+        if (!this.exteriorEnemyLock) {
+            return;
+        }
+        this.exteriorEnemyLock = false;
+        this.syncExteriorEnemyLockTarget();
     }
 
     private openTelemetryGraphWindow(): void {
@@ -1211,12 +1229,10 @@ export class Game {
             } else if (event.code === 'Numpad5') {
                 event.preventDefault();
                 this.resetOrbit();
+            } else if (event.code === 'NumpadMultiply' && this.isF2ExteriorView()) {
+                event.preventDefault();
+                this.toggleExteriorEnemyLock();
             } else if (event.code === 'NumpadMultiply' && this.view === PlayerViewState.AI_CHASE) {
-                // In the AI chase view, `*` refocuses the camera back onto the
-                // player instead of zooming: numpad orbit re-targets the look-at
-                // point at the AI (see orbitCameraAroundAircraft), so orbiting
-                // away loses the player from frame; this snaps back to the base
-                // pose, which looks at the player (see AiExteriorCameraUpdater).
                 event.preventDefault();
                 this.resetOrbit();
             } else if (event.code in NUMPAD_ORBIT_DIR || event.code in NUMPAD_ZOOM_DIR) {
@@ -1414,7 +1430,7 @@ export class Game {
         if (!this.aiOpponent || !this.aiOpponent.enabled || !this.cameraUpdaters.has(PlayerViewState.AI_CHASE)) {
             return;
         }
-        restoreMainCameraParameters(this.playerCamera.main);
+        applyAiChaseCameraParameters(this.playerCamera.main);
         this.setExteriorView(PlayerViewState.AI_CHASE);
     }
 
@@ -1436,6 +1452,9 @@ export class Game {
 
     private setExteriorView(view: PlayerViewState) {
         this.leaveShowcaseIfActive();
+        if (view !== PlayerViewState.EXTERIOR_BEHIND && view !== PlayerViewState.EXTERIOR_FRONT) {
+            this.clearExteriorEnemyLock();
+        }
         this.view = view;
         this.player.exteriorView = true;
         this.cameraUpdater = this.getCameraUpdater(this.view);
@@ -1576,10 +1595,7 @@ export class Game {
                 throttle: 0.85,
                 velocity: FORWARD.clone().applyAxisAngle(UP, Math.PI).multiplyScalar(250),
             },
-            // Both speeds must stay under AiPilot's default maxSpeed (240 m/s) or
-            // commandSpeed() silently clamps them there anyway — see the transonic
-            // ring note on MAX_SPEED in aiPilot.ts.
-            { cruiseAltitude: 3000, cruiseSpeed: 220, combatSpeed: 230, gunRange: 900, hardDeck: 200, skill: AiSkillLevel.ACE },
+            { cruiseAltitude: 3000, cruiseSpeed: 260, combatSpeed: 330, gunRange: 900, hardDeck: 200 },
         );
         this.aiOpponent.enabled = false;
         this.scene.add(this.aiOpponent);
@@ -1603,25 +1619,19 @@ export class Game {
             return;
         }
         const p = this.player.position;
-        const altitude = Math.max(2500, p.y);
-
-        // Merge head-on: spawn the opponent ahead of the player on its current
-        // heading, flying the reciprocal course, so the two aircraft close
-        // nose-to-nose rather than one chasing the other from behind. A small
-        // lateral offset keeps the merge a pass rather than a head-on collision.
-        const playerForward = FORWARD.clone().applyQuaternion(this.player.quaternion);
+        const playerForward = FORWARD.clone()
+            .applyQuaternion(this.player.quaternion)
+            .setY(0)
+            .normalize();
         const playerHeading = Math.atan2(playerForward.x, playerForward.z);
         const heading = playerHeading + Math.PI;
         const right = RIGHT.clone().applyAxisAngle(UP, playerHeading);
 
-        // Close enough that the merge reads as an immediate engagement rather
-        // than a minute-plus crawl to close distance, but still far enough to
-        // see the opponent coming and for its FSM to settle into PURSUE first.
-        const MERGE_DISTANCE = 3500;
-        const MERGE_LATERAL_OFFSET = 300;
-        const position = new THREE.Vector3(p.x, altitude, p.z)
-            .addScaledVector(playerForward, MERGE_DISTANCE)
-            .addScaledVector(right, MERGE_LATERAL_OFFSET);
+        const MERGE_DISTANCE_M = AI_CHASE_MERGE_DISTANCE_M;
+        const MERGE_LATERAL_OFFSET_M = 200;
+        const position = new THREE.Vector3(p.x, p.y, p.z)
+            .addScaledVector(playerForward, MERGE_DISTANCE_M)
+            .addScaledVector(right, MERGE_LATERAL_OFFSET_M);
 
         this.aiOpponent.respawn({
             position,
@@ -1676,14 +1686,13 @@ export class Game {
             new THREE.Vector2(RUNWAY_STRIP_HALF_WIDTH * 2, RUNWAY_STRIP_HALF_LENGTH * 2),
         );
         const terrainSampler = { isLand: (x: number, z: number) => this.isLandAt(x, z) };
-        this.vegetationField = new VegetationField(
+        this.scene.add(new VegetationField(
             terrainSampler,
             this.hillColliders,
             { ...VEGETATION_FIELD_OPTIONS, excludeAreas: [runwayStripExclude] },
             this.materials,
             treeKinds,
-        );
-        this.scene.add(this.vegetationField);
+        ));
 
         const speckles = new SpecklesEntity(this.materials);
         this.scene.add(speckles);

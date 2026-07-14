@@ -123,6 +123,8 @@ export class PlayerEntity implements Entity {
     private yaw: number = 0; // [-1, 1]
     private throttle: number = 0; // [0, 1]
     private wheelBrakes: boolean = false;
+    /** FBW AoA/g limiters on (true) or overridden off by the pilot (false). */
+    private limitersEnabled: boolean = true;
     /** Active pitch AoA/g limiter strategy (keys 1/2/3). */
     private pitchLimiterMode: FcsPitchLimiter = FcsPitchLimiter.SOFT;
 
@@ -265,7 +267,7 @@ export class PlayerEntity implements Entity {
     /** Map a surface's control binding to a normalized deflection value. */
     private surfaceValue(control: ControlAxis, sign: number): number {
         // FCS-mediated axes are driven by the FCS-commanded (limited) deflection —
-        // NOT raw stick — so fly-by-wire shaping (roll/yaw laws) is
+        // NOT raw stick — so fly-by-wire shaping (AoA limiter, roll/yaw laws) is
         // visible on the model. The commanded values are exposed in the same
         // polarity/scale as the raw stick, so the existing per-surface sign/range
         // still render correctly. Flaps/slats are not FCS-mediated (kept as-is).
@@ -332,6 +334,7 @@ export class PlayerEntity implements Entity {
         this.flightModel.setLandingGearDeployed(this.landingGearState === AircraftDeviceState.EXTENDED);
         this.flightModel.setFlapsExtended(this.flapsState === AircraftDeviceState.EXTENDED);
         this.flightModel.setWheelBrakes(this.wheelBrakes);
+        this.flightModel.setLimitersEnabled(this.limitersEnabled);
         this.flightModel.setPitchLimiterMode(this.pitchLimiterMode);
         this.flightModel.update(delta);
         this.obj.position.copy(this.flightModel.position);
@@ -426,6 +429,7 @@ export class PlayerEntity implements Entity {
         this.yaw = 0;
         this.throttle = spawn?.throttle ?? 0;
         this.wheelBrakes = false;
+        this.limitersEnabled = true;
         this.pitchLimiterMode = FcsPitchLimiter.SOFT;
         this.flightModel.setThrottle(this.throttle);
         if (airborne) {
@@ -760,7 +764,11 @@ export class PlayerEntity implements Entity {
         if (this._exteriorView) {
             this.updateDisplayTransform();
             this.updateAfterburnerPaneColors();
-            const lod = getLodLevel(this.displayPosition, this.obj.scale, targetWidth, camera, this.modelBody.model.maxSize);
+            const lodCount = this.modelBody.model.lod.length;
+            const lod = lodCount === 0 ? 0 : Math.min(
+                getLodLevel(this.displayPosition, this.obj.scale, targetWidth, camera, this.modelBody.model.maxSize),
+                lodCount - 1,
+            );
 
             this.modelBody.addToRenderList(
                 this.displayPosition, this.displayQuaternion, this.obj.scale,
@@ -1144,6 +1152,16 @@ export class PlayerEntity implements Entity {
         return this.flightModel.getCommandedElevator();
     }
 
+    /** Max nose-up / nose-down elevator-command clamp bounds (same +nose-up
+     *  polarity as the pitch input), ±1 with the FBW limiters OFF. */
+    get elevatorLimitHigh(): number {
+        return this.flightModel.getElevatorCommandLimitHigh();
+    }
+
+    get elevatorLimitLow(): number {
+        return this.flightModel.getElevatorCommandLimitLow();
+    }
+
     get rollInput(): number {
         return this.roll;
     }
@@ -1230,6 +1248,10 @@ export class PlayerEntity implements Entity {
         return this.wheelBrakes;
     }
 
+    get fcsLimitersEnabled(): boolean {
+        return this.limitersEnabled;
+    }
+
     /** Active pitch AoA/g limiter strategy (keys 1/2/3). */
     get fcsPitchLimiterMode(): FcsPitchLimiter {
         return this.pitchLimiterMode;
@@ -1277,6 +1299,10 @@ export class PlayerEntity implements Entity {
                         this.toggleLandingGear();
                         break;
                     }
+                    case 'l': {
+                        this.toggleLimiters();
+                        break;
+                    }
                     case 'a': {
                         this.toggleAutopilot();
                         break;
@@ -1308,6 +1334,10 @@ export class PlayerEntity implements Entity {
             this.target = this.scene?.entityAtByTag(ENTITY_TAGS.TARGET, index) as GroundTargetEntity | undefined;
             this.targetIndex = this.target !== undefined ? index : undefined;
         }
+    }
+
+    private toggleLimiters() {
+        this.limitersEnabled = !this.limitersEnabled;
     }
 
     private toggleFlaps() {

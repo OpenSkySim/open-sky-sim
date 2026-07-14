@@ -329,7 +329,11 @@ export class AiAircraftEntity implements Entity, PilotableAircraft, Combatant {
                 SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
         }
 
-        const lod = getLodLevel(this.displayPosition, this.scale, targetWidth, camera, this.modelBody.model.maxSize);
+        const lodCount = this.modelBody.model.lod.length;
+        const lod = lodCount === 0 ? 0 : Math.min(
+            getLodLevel(this.displayPosition, this.scale, targetWidth, camera, this.modelBody.model.maxSize),
+            lodCount - 1,
+        );
         this.modelBody.addToRenderList(
             this.displayPosition, this.displayQuaternion, this.scale,
             targetWidth, camera, palette,

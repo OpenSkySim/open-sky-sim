@@ -142,12 +142,18 @@ export interface FcsInput {
     landed: boolean;
     /** Active pitch AoA/g limiter strategy (keys 1/2/3). */
     pitchLimiterMode: FcsPitchLimiter;
+    /** When false, pilot stick maps straight to the surfaces (no envelope protection). */
+    limitersEnabled: boolean;
 }
 
 export interface FcsOutput {
     elevator: number;
     aileron: number;
     rudder: number;
+    /** Max nose-up elevator command available this frame (HUD clamp line). */
+    elevatorLimitHi: number;
+    /** Max nose-down elevator command available this frame (HUD clamp line). */
+    elevatorLimitLo: number;
 }
 
 export class Fm2Fcs {
@@ -155,6 +161,8 @@ export class Fm2Fcs {
     private aileron = 0;
     private rudder = 0;
     private yawRateLowPass = 0;
+    private elevatorLimitHi = 1;
+    private elevatorLimitLo = -1;
 
     // Pitch-limiter filter / derivative state.
     private prevAoaRad = 0;
@@ -177,6 +185,8 @@ export class Fm2Fcs {
         this.gRateLowPass = 0;
         this.authLowPass = 1;
         this.pitchTarget = 0;
+        this.elevatorLimitHi = 1;
+        this.elevatorLimitLo = -1;
     }
 
     getState(): FcsOutput {
@@ -184,17 +194,32 @@ export class Fm2Fcs {
             elevator: this.elevator,
             aileron: this.aileron,
             rudder: this.rudder,
+            elevatorLimitHi: this.elevatorLimitHi,
+            elevatorLimitLo: this.elevatorLimitLo,
         };
     }
 
     update(input: FcsInput, dt: number): FcsOutput {
         this.trackPitchRates(input, dt);
 
-        const elevatorTarget = this.pitchLaw(input, dt);
-        const aileronTarget = this.cfg.roll.rateCommand
-            ? this.rateCommandRollLaw(input)
-            : this.directRollLaw(input);
-        const rudderTarget = this.yawLaw(input, aileronTarget, dt);
+        let elevatorTarget: number;
+        let aileronTarget: number;
+        let rudderTarget: number;
+
+        if (input.limitersEnabled === false) {
+            elevatorTarget = clamp(input.pitchStick, -1, 1);
+            aileronTarget = clamp(-input.rollStick, -1, 1);
+            rudderTarget = clamp(input.yawPedal, -1, 1);
+            this.elevatorLimitHi = 1;
+            this.elevatorLimitLo = -1;
+        } else {
+            elevatorTarget = this.pitchLaw(input, dt);
+            this.updateElevatorLimits(input, dt);
+            aileronTarget = this.cfg.roll.rateCommand
+                ? this.rateCommandRollLaw(input)
+                : this.directRollLaw(input);
+            rudderTarget = this.yawLaw(input, aileronTarget, dt);
+        }
 
         const a = dt <= 0 ? 1 : 1 - Math.exp(-dt / Math.max(this.cfg.actuatorTauS, 1e-3));
         this.elevator += (elevatorTarget - this.elevator) * a;
@@ -202,6 +227,16 @@ export class Fm2Fcs {
         this.rudder += (rudderTarget - this.rudder) * a;
 
         return this.getState();
+    }
+
+    /** Publish the current AoA/g envelope caps for the HUD stick box. */
+    private updateElevatorLimits(input: FcsInput, dt: number): void {
+        const pullAuth = this.filterAuthority(
+            this.pitchAuthority(input.aoaRad, input.loadFactorG, true), dt);
+        const pushAuth = this.filterAuthority(
+            this.pitchAuthority(input.aoaRad, input.loadFactorG, false), dt);
+        this.elevatorLimitHi = pullAuth;
+        this.elevatorLimitLo = -pushAuth;
     }
 
     /** Maintain filtered AoA-rate and g-rate estimates for the limiter laws. */

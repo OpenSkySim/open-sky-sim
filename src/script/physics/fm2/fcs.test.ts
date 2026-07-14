@@ -24,6 +24,7 @@ describe('Fm2Fcs pitch limiter strategies', () => {
         flapsExtended: false,
         landed: false,
         pitchLimiterMode: mode,
+        limitersEnabled: true,
     });
 
     for (const mode of [FcsPitchLimiter.SOFT, FcsPitchLimiter.PREDICTIVE, FcsPitchLimiter.SMOOTH]) {

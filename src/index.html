@@ -61,7 +61,8 @@
             <ul>
                 <li><span>G</span>: Landing gear</li>
                 <li><span>F</span>: Flaps</li>
-                <li><span>1/2/3</span>: FCS limiter (soft / predictive / smooth)</li>
+                <li><span>L</span>: FCS limiters (AoA/g) on/off</li>
+                <li><span>1/2/3</span>: FCS limiter strategy (soft / predictive / smooth)</li>
                 <li><span>T</span>: Select target</li>
                 <li><span>I</span>: Target night view</li>
                 <li><span>H</span>: Cycle HUD focus</li>
@@ -83,12 +84,12 @@
                 <li><span>F1</span>: Cockpit</li>
                 <li><span>F2</span>: Exterior back/front</li>
                 <li><span>F3</span>: Exterior left/right</li>
-                <li><span>F6</span>: Exterior chase view of AI plane (looks at the player)</li>
+                <li><span>F6</span>: Exterior chase view of AI plane</li>
                 <li><span>F12</span>: Aircraft showcase (black background, orbit with numpad)</li>
                 <li><span>4</span>: To/from target</li>
                 <li><span>Numpad 4/6/8/2</span>: Move camera around aircraft</li>
                 <li><span>Numpad 5</span>: Recenter camera</li>
-                <li><span>Numpad * / /</span>: Zoom in / out (in F6, `*` refocuses on the player)</li>
+                <li><span>Numpad * / /</span>: Zoom in / out (F2: lock/unlock on enemy)</li>
             </ul>
         </section>
         <section id="settings">
@@ -115,14 +116,6 @@
                 <li>
                     <input type="radio" id="gen-hd" name="gen" value="HD" checked>
                     <label for="gen-hd">HD</label>
-                </li>
-            </ul>
-
-            <h2>Scenery</h2>
-            <ul>
-                <li>
-                    <input type="checkbox" id="scenery-trees" checked>
-                    <label for="scenery-trees">Trees</label>
                 </li>
             </ul>
 

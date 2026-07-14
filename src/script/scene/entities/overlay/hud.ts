@@ -86,9 +86,11 @@ export class HUDEntity implements Entity {
     private healthFraction: number = 1;
     private pitch: number = 0; // radians
     private roll: number = 0; // radians
-    private pitchInput: number = 0; // [-1, 1] raw pilot demand
+    private pitchInput: number = 0; // [-1, 1]
     private rollInput: number = 0; // [-1, 1]
     private yawInput: number = 0; // [-1, 1]
+    private elevatorLimitHigh: number = 1; // [-1, 1] nose-up elevator-command clamp
+    private elevatorLimitLow: number = -1; // [-1, 1] nose-down elevator-command clamp
     private elapsed: number = 0; // Seconds
     private lastRenderTime: number = 0;
 
@@ -119,6 +121,8 @@ export class HUDEntity implements Entity {
         this.pitchInput = this.actor.pitchInput;
         this.rollInput = this.actor.rollInput;
         this.yawInput = this.actor.yawInput;
+        this.elevatorLimitHigh = this.actor.elevatorLimitHigh;
+        this.elevatorLimitLow = this.actor.elevatorLimitLow;
 
         this.elapsed += delta;
     }
@@ -171,9 +175,6 @@ export class HUDEntity implements Entity {
 
         this.refreshVisualState();
         this.throttle = this.actor.throttleUnit;
-        this.pitchInput = this.actor.pitchInput;
-        this.rollInput = this.actor.rollInput;
-        this.yawInput = this.actor.yawInput;
 
         const layout = getOverlayLayout(targetWidth, targetHeight);
         const { detailScale, layoutScale } = layout;
@@ -184,6 +185,7 @@ export class HUDEntity implements Entity {
         const hudColor = PaletteColor(palette, PaletteCategory.HUD_TEXT);
         const hudSecondaryColor = PaletteColor(palette, PaletteCategory.HUD_TEXT_SECONDARY);
         const hudWarnColor = PaletteColor(palette, PaletteCategory.HUD_TEXT_WARN);
+        const hudLimitColor = PaletteColor(palette, PaletteCategory.LIGHT_RED);
         painter.setColor(hudColor);
 
         const halfWidth = targetWidth / 2;
@@ -236,7 +238,7 @@ export class HUDEntity implements Entity {
             targetWidth - stickArm - 2,
         );
         const stickCenterY = halfHeight;
-        this.renderStickIndicator(stickCenterX, stickCenterY, stickArm, geomScale, painter, hudColor, hudSecondaryColor, fontSmall);
+        this.renderStickIndicator(stickCenterX, stickCenterY, stickArm, geomScale, painter, hudColor, hudSecondaryColor, hudLimitColor, fontSmall);
 
         this.renderTarget(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale);
         this.renderBoresight(halfWidth, halfHeight, painter, geomScale);
@@ -475,7 +477,7 @@ export class HUDEntity implements Entity {
         painter.text(font, x, y, this.actor.throttleHudText, hudColor);
     }
 
-    private renderStickIndicator(centerX: number, centerY: number, arm: number, geomScale: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, font: Font) {
+    private renderStickIndicator(centerX: number, centerY: number, arm: number, geomScale: number, painter: CanvasPainter, hudColor: string, hudSecondaryColor: string, hudLimitColor: string, font: Font) {
         const rollTravel = arm - Math.max(2, Math.round(2 * geomScale));
         const pitchTotalUnits = PITCH_STICK_FWD_UNITS + PITCH_STICK_AFT_UNITS;
         const pitchTotalSpan = Math.max(arm * 2, Math.round(40 * geomScale));
@@ -494,12 +496,23 @@ export class HUDEntity implements Entity {
             .vLine(centerX, centerY - pitchFwdTravel, centerY + pitchAftTravel)
             .commit();
 
+        // Max/min elevator-command clamp lines (where the FCS limits the pitch
+        // input). Cross span and stick marker both follow PITCH_STICK_FWD/AFT_UNITS.
         const pitchCmdYOffset = (v: number) => v >= 0 ? v * pitchAftTravel : v * pitchFwdTravel;
-        const stickY = Math.max(
+        const limitY = (v: number) => Math.max(
             centerY - pitchFwdTravel,
-            Math.min(centerY + pitchAftTravel, Math.round(centerY + pitchCmdYOffset(pitch))),
+            Math.min(centerY + pitchAftTravel, Math.round(centerY + pitchCmdYOffset(v))),
         );
+        const limitHiY = limitY(this.elevatorLimitHigh);
+        const limitLoY = limitY(this.elevatorLimitLow);
+        painter.setColor(hudLimitColor);
+        painter.batch()
+            .hLine(centerX - arm, centerX + arm, limitHiY)
+            .hLine(centerX - arm, centerX + arm, limitLoY)
+            .commit();
+
         const stickX = centerX + roll * rollTravel;
+        const stickY = centerY + pitchCmdYOffset(pitch);
         painter.setColor(hudColor);
         painter.circle(Math.round(stickX), Math.round(stickY), crossArm);
 

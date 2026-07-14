@@ -46,6 +46,16 @@ export abstract class FlightModel {
     /** Active pitch AoA/g limiter strategy (keys 1/2/3). FM2 only. */
     protected pitchLimiterMode: FcsPitchLimiter = FcsPitchLimiter.SOFT;
 
+    /** FBW AoA/g limiters. True = normal envelope protection; false = pilot override. */
+    protected limitersEnabled: boolean = true;
+    /**
+     * Current elevator-command clamp bounds in [-1, 1] (positive = nose-up / aft
+     * stick). With limiters ON these reflect the combined AoA/g caps; with
+     * limiters OFF they are ±1. Used by the HUD stick box.
+     */
+    protected elevatorCommandLimitHigh: number = 1;
+    protected elevatorCommandLimitLow: number = -1;
+
     protected pitch: number = 0; // [-1, 1]
     protected roll: number = 0; // [-1, 1]
     protected yaw: number = 0; // [-1, 1]
@@ -96,6 +106,9 @@ export abstract class FlightModel {
         this.wheelBrakesApplied = false;
         this.forebodyLaminar = false;
         this.pitchLimiterMode = FcsPitchLimiter.SOFT;
+        this.limitersEnabled = true;
+        this.elevatorCommandLimitHigh = 1;
+        this.elevatorCommandLimitLow = -1;
         this.pitch = 0;
         this.roll = 0;
         this.yaw = 0;
@@ -221,6 +234,23 @@ export abstract class FlightModel {
 
     getPitchLimiterMode(): FcsPitchLimiter {
         return this.pitchLimiterMode;
+    }
+
+    /** Enable/disable the FBW AoA/g limiters (false = pilot limiter override). */
+    setLimitersEnabled(enabled: boolean) {
+        this.limitersEnabled = enabled;
+    }
+
+    isLimitersEnabled(): boolean {
+        return this.limitersEnabled;
+    }
+
+    getElevatorCommandLimitHigh(): number {
+        return this.elevatorCommandLimitHigh;
+    }
+
+    getElevatorCommandLimitLow(): number {
+        return this.elevatorCommandLimitLow;
     }
 
     setLanded(isLanded: boolean) {

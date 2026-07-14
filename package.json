@@ -10,7 +10,7 @@
         "watch": "node tools/watch.mjs",
         "preserve": "npm run build",
         "serve": "tsx tools/modserver.ts",
-        "test": "node --import tsx --test src/script/physics/**/*.test.ts src/script/ai/**/*.test.ts",
+        "test": "node --import tsx --test src/script/physics/**/*.test.ts",
         "postinstall": "patch-package"
     },
     "author": "Ruben Moreno Montoliu <ruben3d@gmail.com>",

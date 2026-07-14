@@ -80,6 +80,6 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
 window.addEventListener("load", () => {
     void setup().then(([kernel, config, keyboardInput, joystickInput, game]) => {
         kernel.start();
-        setupOSD(config, keyboardInput, joystickInput, game);
+        setupOSD(config, keyboardInput, joystickInput);
     });
 });
