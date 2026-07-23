@@ -65,6 +65,9 @@ export class CockpitEntity implements Entity {
     private weaponsTargetDirX: number = 0;
     private weaponsTargetDirY: number = 0;
     private weaponsTargetOffAxis: number = 0;
+    private weaponsTargetSpeedMps: number = 0;
+    private weaponsTargetLoadG: number = 1;
+    private weaponsTargetHealth: number = 1;
 
     private _v = new THREE.Vector3();
     private _w = new THREE.Vector3();
@@ -132,6 +135,10 @@ export class CockpitEntity implements Entity {
             this.weaponsTargetOffAxis = Math.min(1, Math.atan2(perp, this._w.z) / (Math.PI / 2));
 
             this.weaponsTargetZoomFactor = updateTargetCamera(this.actor, this.camera, this.targetCamera);
+
+            this.weaponsTargetSpeedMps = this.weaponsTarget.targetSpeedMps ?? 0;
+            this.weaponsTargetLoadG = this.weaponsTarget.targetLoadFactorG ?? 1;
+            this.weaponsTargetHealth = this.weaponsTarget.targetHealthFraction ?? 1;
         }
     }
 
@@ -349,19 +356,56 @@ export class CockpitEntity implements Entity {
             painter.text(font, x + font.charSpacing, y + size - font.charHeight - font.charSpacing, 'No target', hudColor);
         } else {
             painter.clear(x, y, size, size);
-            painter.text(font, x + font.charSpacing, y + font.charSpacing,
+            const pad = font.charSpacing;
+            const line = font.charHeight + font.charSpacing;
+            painter.text(font, x + pad, y + pad,
                 this.weaponsTarget.targetType, hudColor);
-            painter.text(font, x + font.charSpacing, y + font.charSpacing * 2 + font.charHeight,
+            painter.text(font, x + pad, y + pad + line,
                 this.weaponsTargetAirborne ? this.weaponsTarget.targetLocation : `at ${this.weaponsTarget.targetLocation}`, hudColor);
             if (this.weaponsTargetAirborne) {
                 this.renderTargetDirectionMarker(x, y, size, painter, hudColor);
+                this.renderTargetTelemetry(x, y, size, painter, palette, font, hudColor);
             }
-            painter.text(font, x + font.charSpacing, y + size - 2 * (font.charHeight + font.charSpacing),
+            painter.text(font, x + pad, y + size - 2 * line,
                 `BRG ${formatHeading(this.weaponsTargetBearing)}`, hudColor);
-            painter.text(font, x + size - font.charSpacing, y + size - 2 * (font.charHeight + font.charSpacing),
+            painter.text(font, x + size - pad, y + size - 2 * line,
                 `${this.weaponsTargetZoomFactor.toFixed(0)}x`, hudColor, TextAlignment.RIGHT);
-            painter.text(font, x + font.charSpacing, y + size - font.charHeight - font.charSpacing,
+            painter.text(font, x + pad, y + size - font.charHeight - pad,
                 `Range ${this.weaponsTargetRange.toFixed(1)} KM`, hudColor);
+        }
+    }
+
+    /** Speed, G, and hull bar for airborne weapons targets. */
+    private renderTargetTelemetry(
+        x: number, y: number, size: number,
+        painter: CanvasPainter, palette: Palette, font: Font, hudColor: string,
+    ): void {
+        const pad = font.charSpacing;
+        const line = font.charHeight + font.charSpacing;
+        const warnColor = PaletteColor(palette, PaletteCategory.HUD_TEXT_WARN);
+        // Below type/location; leave room for the off-boresight needle.
+        let ty = y + pad + line * 2;
+        const speedKmh = Math.round(this.weaponsTargetSpeedMps * 3.6);
+        painter.text(font, x + pad, ty, `SPD ${speedKmh}`, hudColor);
+        ty += line;
+        const gColor = this.weaponsTargetLoadG >= 4 || this.weaponsTargetLoadG < 0 ? warnColor : hudColor;
+        painter.text(font, x + pad, ty, `G ${this.weaponsTargetLoadG.toFixed(1)}`, gColor);
+        ty += line;
+
+        const barX = x + pad;
+        const barY = ty + Math.floor(font.charHeight / 2) - 2;
+        const barH = Math.max(3, Math.floor(font.charHeight * 0.55));
+        const label = 'HP';
+        const labelW = label.length * font.charWidth + Math.max(0, label.length - 1) * font.charSpacing;
+        painter.text(font, barX, ty, label, this.weaponsTargetHealth <= 0.3 ? warnColor : hudColor);
+        const trackX = barX + labelW + pad;
+        const trackW = Math.max(8, size - (trackX - x) - pad);
+        painter.setColor(hudColor);
+        painter.rectangle(trackX, barY, trackW, barH);
+        const fillW = Math.max(0, Math.round(trackW * Math.max(0, Math.min(1, this.weaponsTargetHealth))));
+        if (fillW > 0) {
+            painter.setBackground(this.weaponsTargetHealth <= 0.3 ? warnColor : hudColor);
+            painter.rectangle(trackX, barY, fillW, barH, true);
         }
     }
 

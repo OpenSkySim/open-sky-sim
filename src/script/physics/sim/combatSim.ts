@@ -158,9 +158,12 @@ class SimAircraft implements PilotableAircraft, Combatant {
     }
 
     applyInputsToModel(): void {
-        // Dead airframes keep control surfaces but produce no thrust.
+        // Dead airframes: no thrust, no stick — wreck coasts ballistically.
         if (this.health <= 0) {
             this.inThrottle = 0;
+            this.inPitch = 0;
+            this.inRoll = 0;
+            this.inYaw = 0;
         }
         this.model.setPitch(this.inPitch);
         this.model.setRoll(this.inRoll);
@@ -487,9 +490,16 @@ export class CombatSim implements ProjectileSink {
         }
         // 2. Run AI pilots, reading the previous step's world positions.
         for (const a of this.aircraft.values()) {
-            if (a.enabled && a.control === 'ai' && a.pilot) {
-                a.pilot.update(delta);
+            if (!a.enabled || a.control !== 'ai' || !a.pilot) continue;
+            if (a.health <= 0) {
+                // Kill stick so the wreck is not flown by the AI.
+                a.setPitch(0);
+                a.setRoll(0);
+                a.setYaw(0);
+                a.setThrottle(0);
+                continue;
             }
+            a.pilot.update(delta);
         }
         // 3. Advance every model from the now-consistent command buffers.
         for (const a of this.aircraft.values()) {

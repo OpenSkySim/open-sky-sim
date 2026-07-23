@@ -325,6 +325,19 @@ export class PlayerEntity implements Entity {
         if (this.simulationPaused) {
             return;
         }
+        // Mirror sim-authoritative health before latching controls.
+        const simHealth = this.flightModel.getSimHealth();
+        if (simHealth >= 0) {
+            this.health = simHealth;
+        }
+        if (this.health <= 0) {
+            // Dead: no stick / throttle — wreck coasts ballistically.
+            this.pitch = 0;
+            this.pitchStickUnits = 0;
+            this.roll = 0;
+            this.yaw = 0;
+            this.throttle = 0;
+        }
         // Physics + autopilot now run in the shared combat sim worker. For manual
         // flight we latch our control inputs onto the (proxy) flight model so the
         // client can pump them into the worker; the worker ignores them while its
@@ -340,12 +353,8 @@ export class PlayerEntity implements Entity {
         this.flightModel.setPitchLimiterMode(this.pitchLimiterMode);
         this.flightModel.update(delta);
 
-        // Mirror sim-authoritative health; while the in-worker autopilot flies,
-        // mirror its gear/flaps commands so the airframe animates correctly.
-        const simHealth = this.flightModel.getSimHealth();
-        if (simHealth >= 0) {
-            this.health = simHealth;
-        }
+        // While the in-worker autopilot flies, mirror its gear/flaps commands so
+        // the airframe animates correctly.
         if (this.autopilotEnabled) {
             const gear = this.flightModel.getSimGearDeployed();
             if (gear !== null) {

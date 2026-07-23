@@ -304,6 +304,18 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         return true;
     }
 
+    get targetSpeedMps(): number {
+        return this.flightModel.velocityVector.length();
+    }
+
+    get targetLoadFactorG(): number {
+        return this.flightModel.getLoadFactorG();
+    }
+
+    get targetHealthFraction(): number {
+        return this.health / this.maxHealth;
+    }
+
     // --- Render transform (for chase cameras) --------------------------------
 
     /** Interpolated render-space position, freshly sampled from the flight model. */

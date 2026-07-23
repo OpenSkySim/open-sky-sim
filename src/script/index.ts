@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { AudioSystem } from './audio/audioSystem';
 import { ConfigService } from './config/configService';
 import { PaletteCategory } from './config/palettes/palette';
@@ -10,7 +9,7 @@ import { HDProfile } from './config/profiles/hd';
 import { SVGAProfile } from './config/profiles/svga';
 import { VGAProfile } from './config/profiles/vga';
 import { Kernel } from './core/kernel';
-import { FPS_CAP, GROUND_SMOKE_PARTICLE_COUNT, H_RES, V_RES } from './defs';
+import { FPS_CAP, H_RES, V_RES } from './defs';
 import { JoystickControlDevice } from './input/devices/joystickControlDevice';
 import { KeyboardControlDevice, KeyboardControlLayoutId } from './input/devices/keyboardControlDevice';
 import { setupOSD } from './osd/osdPanel';
@@ -22,9 +21,7 @@ import { Renderer } from './render/renderer';
 import { SceneMaterialManager } from './scene/materials/materials';
 import { BackgroundModelLibBuilder } from './scene/models/lib/backgroundModelBuilder';
 import { FieldModelLibBuilder, FieldModelType } from './scene/models/lib/fieldModelBuilder';
-import { FireModelLibBuilder } from './scene/models/lib/fireModelBuilder';
 import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, MountainModelLibBuilder } from './scene/models/lib/mountainModelBuilder';
-import { ParticleMeshModelLibBuilder } from './scene/models/lib/particleMeshModelBuilder';
 import { TracerModelLibBuilder } from './scene/models/lib/tracerModelBuilder';
 import { ModelManager } from './scene/models/models';
 import { Game, GameRenderTask, GameUpdateTask } from './state/game';
@@ -58,8 +55,6 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         new FieldModelLibBuilder('cropRed', FieldModelType.TRIANGLE, PaletteCategory.SCENERY_FIELD_RED, 400),
         new MountainModelLibBuilder('hill', HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
         new MountainModelLibBuilder('mountain', MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
-        new FireModelLibBuilder('smallFire', 7),
-        new ParticleMeshModelLibBuilder('groundSmoke', GROUND_SMOKE_PARTICLE_COUNT, new THREE.CircleGeometry(1, 5), 100),
         new TracerModelLibBuilder('tracer'),
     ]);
     const audio = new AudioSystem();

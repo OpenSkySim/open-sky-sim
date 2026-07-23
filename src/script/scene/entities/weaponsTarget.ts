@@ -23,4 +23,10 @@ export interface WeaponsTarget {
      * target; ground installations omit this.
      */
     readVelocity?(out: THREE.Vector3): THREE.Vector3;
+    /** Airspeed (m/s). Airborne combatants only. */
+    readonly targetSpeedMps?: number;
+    /** Instantaneous load factor (g). Airborne combatants only. */
+    readonly targetLoadFactorG?: number;
+    /** Remaining hull [0, 1]. Airborne combatants only. */
+    readonly targetHealthFraction?: number;
 }

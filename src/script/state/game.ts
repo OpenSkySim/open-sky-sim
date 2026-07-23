@@ -20,7 +20,6 @@ import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
 import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
-import { GroundSmokeEntity } from '../scene/entities/groundSmoke';
 import { DebrisField } from '../scene/entities/debrisField';
 import { DamageSmokeField } from '../scene/entities/damageSmokeField';
 import { GroundTargetEntity } from '../scene/entities/groundTarget';
@@ -303,8 +302,6 @@ export class Game {
     private readonly telemetryAccel = new THREE.Vector3();
     private exteriorEntities: Entity[] = [];
 
-    private groundSmoke: GroundSmokeEntity;
-    private groundFire: StaticSceneryEntity;
     private spawnMenu: SpawnMenuEntity;
     private spawnPanel: SpawnPanel;
 
@@ -340,10 +337,6 @@ export class Game {
             this.audio.getGlobal('assets/engine-loop-01.ogg', true),
             PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING);
 
-        this.groundSmoke = new GroundSmokeEntity(models.getModel('lib:groundSmoke'));
-        this.groundSmoke.enabled = false;
-        this.groundFire = new StaticSceneryEntity(models.getModel('lib:smallFire'));
-        this.groundFire.enabled = false;
         this.spawnMenu = new SpawnMenuEntity();
         this.spawnPanel = new SpawnPanel(
             (index) => this.selectAircraftByIndex(index),
@@ -1225,7 +1218,7 @@ export class Game {
         this.syncExteriorEnemyLockTarget();
     }
 
-    /** Tab: emit debris + damage smoke from the enemy plane for VFX debugging. */
+    /** Tab: emit debris + hit smoke from the enemy plane for VFX debugging. */
     private debugEmitDebris(): void {
         if (!this.aiOpponent?.enabled) {
             return;
@@ -1236,13 +1229,14 @@ export class Game {
         this.damageSmoke?.spawnDebugLeak(this.aiOpponent.simId);
     }
 
-    /** Pose lookup for damage-smoke leaks attached to sim aircraft. */
-    private getDamageSmokePose(targetId: string): { position: THREE.Vector3; quaternion: THREE.Quaternion; velocity: THREE.Vector3 } | undefined {
+    private getDamageSmokePose(targetId: string): { position: THREE.Vector3; quaternion: THREE.Quaternion; velocity: THREE.Vector3; isAlive: boolean; isCrashed: boolean } | undefined {
         if (targetId === PLAYER_SIM_ID) {
             return {
                 position: this.player.getDisplayPosition(),
                 quaternion: this.player.getDisplayQuaternion(),
                 velocity: this.player.getDisplayVelocity(),
+                isAlive: this.player.isAlive(),
+                isCrashed: this.player.isCrashed,
             };
         }
         for (let i = 0; i < this.aiOpponents.length; i++) {
@@ -1253,6 +1247,8 @@ export class Game {
                     position: ai.getDisplayPosition(),
                     quaternion: ai.getDisplayQuaternion(),
                     velocity: this._damageSmokeVel,
+                    isAlive: ai.isAlive(),
+                    isCrashed: ai.isCrashed(),
                 };
             }
         }
@@ -1605,14 +1601,7 @@ export class Game {
     }
 
     transitionFromPlayerToCrashed() {
-        this.groundSmoke.enabled = true;
-        this.groundSmoke.position.copy(this.player.position);
-        this.groundSmoke.reset();
-
-        this.groundFire.enabled = true;
-        this.groundFire.position.copy(this.player.position);
-        this.groundFire.position.setY(0);
-
+        this.damageSmoke?.ensureCrashPlume(PLAYER_SIM_ID);
         this.enterSpawnMenu(true);
     }
 
@@ -1639,8 +1628,6 @@ export class Game {
             }
         } else {
             this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
-            this.groundSmoke.enabled = false;
-            this.groundFire.enabled = false;
             this.damageSmoke?.reset();
             this.setCockpitFrontView();
         }
@@ -1657,8 +1644,6 @@ export class Game {
         this.player.setSimulationPaused(false);
         this.spawnMenu.enabled = false;
         this.spawnPanel.hide();
-        this.groundSmoke.enabled = false;
-        this.groundFire.enabled = false;
         this.damageSmoke?.reset();
 
         if (spawn === 'approach') {
@@ -1953,8 +1938,6 @@ export class Game {
         warehouse.quaternion.setFromAxisAngle(UP, Math.PI / 2);
         this.scene.add(warehouse);
 
-        this.scene.add(this.groundSmoke);
-        this.scene.add(this.groundFire);
         this.scene.add(this.player);
 
         this.setupCombat();
