@@ -16,6 +16,8 @@ export enum AiFlightPhase {
     TAKEOFF_ROLL,
     CLIMB_OUT,
     NAVIGATE,
+    /** Hold current heading/altitude/speed until mission logic promotes to ENGAGE. */
+    STRAIGHT,
     ENGAGE,
     RTB,
     APPROACH,
@@ -102,9 +104,9 @@ export enum DogfightMode {
 // bank-hold loop is proportional only: rollCmd = K * bankError drives the bank
 // error to zero as a stable first-order response. (A derivative term here fights
 // the plant's own integrator and produces a bang-bang limit cycle.)
-const ROLL_KP = 1.5;                 // bank error (rad) -> roll command
+const ROLL_KP = 2.2;                 // bank error (rad) -> roll command (snappy combat rolls)
 const ROLL_YAW_COORD = 0.05;         // coordinating rudder as a fraction of bank
-const BANK_PER_HEADING = 1.2;        // heading error (rad) -> desired bank (rad)
+const BANK_PER_HEADING = 2.5;        // heading error (rad) -> desired bank (rad); hit max bank ~34° off
 const HEADING_DEADBAND = 1.0 * Math.PI / 180;  // ignore sub-degree heading error
 // Near +/-180 deg the shortest-turn sign chatters frame-to-frame, which makes
 // the bank command flip and the aircraft rock instead of committing to the
@@ -116,8 +118,12 @@ const RATE_EMA = 0.35;               // low-pass factor for finite-difference at
 // the body axes' vertical components) go singular and the roll loop thrashes.
 const MAX_ELEV_CMD = 55 * Math.PI / 180;
 const MAX_BANK_NAV = 45 * Math.PI / 180;
-const MAX_BANK_COMBAT = 72 * Math.PI / 180;
+const MAX_BANK_COMBAT = 85 * Math.PI / 180;  // near knife-edge for min turn radius
 const MAX_BANK_APPROACH = 25 * Math.PI / 180;
+/** Best sustained-turn airspeed (m/s). Faster = huge circles the player can sit in. */
+const CORNER_SPEED = 180;
+/** Angle-off above which pursuit bleeds toward corner speed for a tighter turn. */
+const CORNER_SPEED_AO = 35 * Math.PI / 180;
 
 const PITCH_KP = 1.0;                // pitch-angle error (rad) -> pitch command
 // No AI pitch-RATE damping by default: the FM2 FCS already damps the short period
@@ -174,8 +180,11 @@ const LOW_YOYO_ENERGY_EDGE = 150;            // need at least this much of an en
 const LOW_YOYO_PITCH_DROP = 15 * Math.PI / 180;    // nose-down bias to cut across the turn circle
 const LOW_YOYO_DURATION = 2.5;               // s
 
-const LAG_ANGLE_OFF_TRIGGER = 70 * Math.PI / 180;  // switch lead -> lag pursuit past this angle-off
-const LAG_BLEND_MAX = 0.75;                  // max lag-point weight even at the widest angle-off
+// Stay in aggressive lead pursuit longer — lag pursuit was flying large circles
+// instead of cutting inside to get guns on. Only lag when the lead point is truly
+// unflyable (near reverse).
+const LAG_ANGLE_OFF_TRIGGER = 100 * Math.PI / 180;
+const LAG_BLEND_MAX = 0.4;                   // still bias toward the target, not a lazy lag circle
 
 const EXTEND_MIN_DURATION = 2.0;             // s, avoids instantly flip-flopping back into a losing fight
 const EXTEND_RECOVER_MARGIN = 150;           // resume pursuit once within this much of the target's energy (m)
@@ -210,6 +219,10 @@ export class AiPilot {
     private pullUpActive = false;
     /** Latched turn direction (+1/-1/0) to resolve the +/-180 deg heading ambiguity. */
     private turnDir = 0;
+
+    /** Heading held while in {@link AiFlightPhase.STRAIGHT}. */
+    private straightHeading = 0;
+    private straightHeadingLatched = false;
 
     // --- Dogfight sub-state (ENGAGE phase only) -------------------------------
     private dogfightMode: DogfightMode = DogfightMode.PURSUE;
@@ -246,7 +259,8 @@ export class AiPilot {
     ) {
         this.cruiseAltitude = options.cruiseAltitude ?? 3000;
         this.cruiseSpeed = options.cruiseSpeed ?? 220;
-        this.combatSpeed = options.combatSpeed ?? 300;
+        // Default stays near corner speed so pursuit doesn't open into huge circles.
+        this.combatSpeed = options.combatSpeed ?? 220;
         this.maxSpeed = options.maxSpeed ?? MAX_SPEED;
         this.bulletSpeed = options.bulletSpeed ?? 1000;
         this.gunRange = options.gunRange ?? 900;
@@ -271,6 +285,9 @@ export class AiPilot {
 
     setPhase(phase: AiFlightPhase): void {
         this.phase = phase;
+        if (phase === AiFlightPhase.STRAIGHT) {
+            this.straightHeadingLatched = false;
+        }
     }
 
     setTarget(target: Combatant | undefined): void {
@@ -315,6 +332,7 @@ export class AiPilot {
             case AiFlightPhase.TAKEOFF_ROLL: this.doTakeoff(delta); break;
             case AiFlightPhase.CLIMB_OUT: this.doClimbOut(delta); break;
             case AiFlightPhase.NAVIGATE: this.doNavigate(delta); break;
+            case AiFlightPhase.STRAIGHT: this.doStraight(delta); break;
             case AiFlightPhase.ENGAGE: this.doEngage(delta); break;
             case AiFlightPhase.RTB: this.doRtb(delta); break;
             case AiFlightPhase.APPROACH: this.doApproach(delta); break;
@@ -639,6 +657,19 @@ export class AiPilot {
         this.commandSpeed(this.cruiseSpeed, delta);
     }
 
+    /** Fly wings-level on a latched heading; does not auto-engage even with a target. */
+    private doStraight(delta: number): void {
+        if (!this.straightHeadingLatched) {
+            this.straightHeading = this.heading;
+            this.straightHeadingLatched = true;
+        }
+        this.aircraft.setLandingGearDeployed(false);
+        this.aircraft.setFlapsExtended(false);
+        this.commandHeading(this.avoidObstacles(this.straightHeading), MAX_BANK_NAV);
+        this.commandAltitudeClamped(this.cruiseAltitude);
+        this.commandSpeed(this.cruiseSpeed, delta);
+    }
+
     private doEngage(delta: number): void {
         if (!this.target || !this.target.isAlive()) {
             this.phase = AiFlightPhase.NAVIGATE;
@@ -668,7 +699,7 @@ export class AiPilot {
             case DogfightMode.HIGH_YOYO: this.doHighYoYo(delta, range); break;
             case DogfightMode.LOW_YOYO: this.doLowYoYo(delta, range); break;
             case DogfightMode.LAG_PURSUE: this.doLagPursue(delta, range, ao); break;
-            case DogfightMode.PURSUE: default: this.doPursue(delta, range); break;
+            case DogfightMode.PURSUE: default: this.doPursue(delta, range, ao); break;
         }
 
         // Only PURSUE/LAG_PURSUE actually aim at the target this frame; every
@@ -760,6 +791,21 @@ export class AiPilot {
         }
     }
 
+    /**
+     * Pick a pursuit airspeed that keeps turn radius tight. High combat speed
+     * with small bank changes is what produced the easy-to-trail lazy circles.
+     */
+    private combatTurnSpeed(range: number, ao: number): number {
+        if (range < 250) {
+            return Math.min(this.combatSpeed * 0.65, CORNER_SPEED);
+        }
+        if (ao >= CORNER_SPEED_AO) {
+            const t = clamp((ao - CORNER_SPEED_AO) / (Math.PI / 2 - CORNER_SPEED_AO), 0, 1);
+            return this.combatSpeed + (CORNER_SPEED - this.combatSpeed) * t;
+        }
+        return this.combatSpeed;
+    }
+
     /** Turn/pitch toward `this.aim`, hold `desiredSpeed`, and fire if the nose is on and in range. */
     private steerAtAimAndFire(delta: number, range: number, desiredSpeed: number, maxBank: number = MAX_BANK_COMBAT): void {
         this.toPoint.copy(this.aim).sub(this.pos);
@@ -779,14 +825,12 @@ export class AiPilot {
     }
 
     /** Straight lead-pursuit intercept — the default, common case. */
-    private doPursue(delta: number, range: number): void {
+    private doPursue(delta: number, range: number, ao: number): void {
         const tof = range / this.bulletSpeed;
         this.aim.copy(this.tvel).multiplyScalar(tof).add(this.tpos);
         this.clampAimToHardDeck();
 
-        // Ease off when very close to avoid overshoot.
-        const desiredSpeed = range < 250 ? this.combatSpeed * 0.7 : this.combatSpeed;
-        this.steerAtAimAndFire(delta, range, desiredSpeed);
+        this.steerAtAimAndFire(delta, range, this.combatTurnSpeed(range, ao));
     }
 
     /**
@@ -804,8 +848,8 @@ export class AiPilot {
         this.aim.lerp(this.tpos, blend);
         this.clampAimToHardDeck();
 
-        const desiredSpeed = range < 250 ? this.combatSpeed * 0.7 : this.combatSpeed;
-        this.steerAtAimAndFire(delta, range, desiredSpeed);
+        // Lag with corner speed — still cut the circle, just not as hard as pure lead.
+        this.steerAtAimAndFire(delta, range, this.combatTurnSpeed(range, ao));
     }
 
     /**
@@ -862,10 +906,10 @@ export class AiPilot {
         const breakHeading = this.heading + Math.sign(bearingOff || 1) * (Math.PI / 2);
 
         this.commandHeading(breakHeading, MAX_BANK_COMBAT);
-        // Hold the nose level through the break; a horizontal max-rate turn is
-        // the priority, not also fighting to gain altitude.
-        this.commandElevation(0);
-        this.commandSpeed(this.combatSpeed, delta);
+        // Slight nose-up loaded break: higher instantaneous turn rate than a
+        // level break, and harder for the attacker to stay in the saddle.
+        this.commandElevation(12 * Math.PI / 180);
+        this.commandSpeed(CORNER_SPEED, delta);
     }
 
     /**

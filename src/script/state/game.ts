@@ -21,6 +21,8 @@ import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FIN
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
 import { GroundSmokeEntity } from '../scene/entities/groundSmoke';
+import { DebrisField } from '../scene/entities/debrisField';
+import { DamageSmokeField } from '../scene/entities/damageSmokeField';
 import { GroundTargetEntity } from '../scene/entities/groundTarget';
 import { CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize } from '../scene/entities/overlay/cockpit';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
@@ -47,7 +49,7 @@ import { CameraUpdater } from './cameraUpdaters/cameraUpdater';
 import { CockpitFrontCameraUpdater } from './cameraUpdaters/cockpitFrontCameraUpdater';
 import { CrashedCameraUpdater } from './cameraUpdaters/crashedCameraUpdater';
 import { ExteriorFrontBehindCameraUpdater, ExteriorViewHeading } from './cameraUpdaters/exteriorFrontBehindCameraUpdater';
-import { AiExteriorCameraUpdater, AI_CHASE_MERGE_DISTANCE_M } from './cameraUpdaters/aiExteriorCameraUpdater';
+import { AiExteriorCameraUpdater, AI_SPAWN_DISTANCE_M } from './cameraUpdaters/aiExteriorCameraUpdater';
 import { ExteriorSideCameraUpdater, ExteriorViewSide } from './cameraUpdaters/exteriorSideCameraUpdater';
 import { TargetFromCameraUpdater } from './cameraUpdaters/targetFromCameraUpdater';
 import { TargetToCameraUpdater } from './cameraUpdaters/targetToCameraUpdater';
@@ -73,6 +75,8 @@ import { defaultFm2Config } from '../physics/fm2/fm2AircraftConfig';
 
 /** How many AI opponents the combat sim spawns. */
 const AI_OPPONENT_COUNT = 1;
+/** Seconds the AI flies straight before engaging. */
+const AI_STRAIGHT_DURATION_SEC = 5;
 
 /** Player hit-sphere radius (m) used by the combat sim's hit detection. */
 const PLAYER_HIT_RADIUS_M = 10;
@@ -235,6 +239,10 @@ export class Game {
     private readonly hillColliders: HillCollider[] = [];
     private readonly obstacles: Obstacle[] = [];
     private weaponsField: WeaponsField | undefined;
+    private debrisField: DebrisField | undefined;
+    private damageSmoke: DamageSmokeField | undefined;
+    /** Countdown before AI opponents leave STRAIGHT and enter ENGAGE. */
+    private aiStraightTimer = 0;
     /** All AI opponents; `aiOpponent` is the first, used by chase cam / targeting. */
     private readonly aiOpponents: AiAircraftEntity[] = [];
     private aiOpponent: AiAircraftEntity | undefined;
@@ -261,6 +269,8 @@ export class Game {
     private cockpitTargetRenderLayersHd: RenderLayer[];
     private exteriorRenderLayersHd: RenderLayer[];
     private showcaseRenderLayersHd: RenderLayer[];
+    /** Weapons-target MFD is refreshed every Nth frame to cut dual-scene cost. */
+    private targetMfdFrame = 0;
 
     private hdResolutionWidth = 0;
     private hdResolutionHeight = 0;
@@ -283,6 +293,9 @@ export class Game {
     private _orbitPivot = new THREE.Vector3();
     private _orbitOffset = new THREE.Vector3();
     private _orbitAxis = new THREE.Vector3();
+    private _debugDebrisVel = new THREE.Vector3();
+    private _debugDebrisPos = new THREE.Vector3();
+    private _damageSmokeVel = new THREE.Vector3();
 
     private cockpitEntities: Entity[] = [];
     private readonly telemetryGraph = new TelemetryGraph();
@@ -587,7 +600,6 @@ export class Game {
         this.refreshAircraftMenu();
         this.selectAircraftById(DEFAULT_START_AIRCRAFT_ID, FALLBACK_START_AIRCRAFT_ID);
         await this.beginFlight('approach');
-        this.setExteriorBehindFrontView();
         window.addEventListener('resize', () => this.onViewportResize());
     }
 
@@ -974,6 +986,7 @@ export class Game {
             this.recordTelemetry(delta);
             this.scene.update(delta);
             this.pumpCombatSim(delta);
+            this.updateAiStraightTimer(delta);
 
             if (this.flightRecorder.isRecording()) {
                 this.flightRecorder.record(this.getShownAircraft().captureFlightSample(), delta);
@@ -1070,20 +1083,37 @@ export class Game {
             const weaponsTargetId = resolution === DisplayResolution.LO_RES ? WEAPONSTARGET_RENDER_TARGET_LO
                 : resolution === DisplayResolution.HI_RES ? WEAPONSTARGET_RENDER_TARGET_HI
                     : WEAPONSTARGET_RENDER_TARGET_HD;
+            const mapTargetId = resolution === DisplayResolution.LO_RES ? MAP_RENDER_TARGET_LO
+                : resolution === DisplayResolution.HI_RES ? MAP_RENDER_TARGET_HI
+                    : MAP_RENDER_TARGET_HD;
             const nightVisionPalette = this.player.nightVision ? this.configService.techProfiles.getActive().nightVisionPalette : undefined;
+            // Interleave map/target MFD refreshes, and freeze both while stick
+            // keys are held — target MFD rebuild alone was still ~55ms and felt
+            // like a pause until keyup.
+            const slot = this.targetMfdFrame++ % 4;
+            const stickHeld = this.player.flightStickKeysHeld;
+            const refreshMap = !stickHeld && (slot === 0 || slot === 2);
+            const refreshTargetMfd = !stickHeld && slot === 1;
             for (let i = 0; i < layers.length; i++) {
                 const layer = layers[i];
                 if (layer.target === weaponsTargetId) {
                     layer.palette = nightVisionPalette;
+                    layer.skipRefresh = !refreshTargetMfd;
+                } else if (layer.target === mapTargetId) {
+                    layer.skipRefresh = !refreshMap;
+                } else {
+                    layer.skipRefresh = false;
                 }
             }
         } else if (this.view === PlayerViewState.SHOWCASE) {
             for (let i = 0; i < layers.length; i++) {
                 layers[i].palette = ShowcasePalette;
+                layers[i].skipRefresh = false;
             }
         } else {
             for (let i = 0; i < layers.length; i++) {
                 layers[i].palette = undefined;
+                layers[i].skipRefresh = false;
             }
         }
         this.renderer.render(this.scene, layers);
@@ -1195,6 +1225,40 @@ export class Game {
         this.syncExteriorEnemyLockTarget();
     }
 
+    /** Tab: emit debris + damage smoke from the enemy plane for VFX debugging. */
+    private debugEmitDebris(): void {
+        if (!this.aiOpponent?.enabled) {
+            return;
+        }
+        this._debugDebrisPos.copy(this.aiOpponent.getDisplayPosition());
+        this.aiOpponent.readVelocity(this._debugDebrisVel);
+        this.debrisField?.spawnDebugBurst(this._debugDebrisPos, this._debugDebrisVel);
+        this.damageSmoke?.spawnDebugLeak(this.aiOpponent.simId);
+    }
+
+    /** Pose lookup for damage-smoke leaks attached to sim aircraft. */
+    private getDamageSmokePose(targetId: string): { position: THREE.Vector3; quaternion: THREE.Quaternion; velocity: THREE.Vector3 } | undefined {
+        if (targetId === PLAYER_SIM_ID) {
+            return {
+                position: this.player.getDisplayPosition(),
+                quaternion: this.player.getDisplayQuaternion(),
+                velocity: this.player.getDisplayVelocity(),
+            };
+        }
+        for (let i = 0; i < this.aiOpponents.length; i++) {
+            const ai = this.aiOpponents[i];
+            if (ai.simId === targetId && ai.enabled) {
+                ai.readVelocity(this._damageSmokeVel);
+                return {
+                    position: ai.getDisplayPosition(),
+                    quaternion: ai.getDisplayQuaternion(),
+                    velocity: this._damageSmokeVel,
+                };
+            }
+        }
+        return undefined;
+    }
+
     private openTelemetryGraphWindow(): void {
         const borderColor = PaletteColor(this.getPalette(), PaletteCategory.HUD_TEXT_SECONDARY);
         this.telemetryGraphWindow.open(this.telemetryGraph, borderColor);
@@ -1282,6 +1346,12 @@ export class Game {
             } else if (event.code === 'KeyB') {
                 event.preventDefault();
                 this.player.setForceVectorsEnabled(!this.player.forceVectorsEnabled);
+            } else if (event.code === 'Tab') {
+                if (event.repeat) {
+                    return;
+                }
+                event.preventDefault();
+                this.debugEmitDebris();
             } else if (event.code === 'Numpad5') {
                 event.preventDefault();
                 this.resetOrbit();
@@ -1571,6 +1641,7 @@ export class Game {
             this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
             this.groundSmoke.enabled = false;
             this.groundFire.enabled = false;
+            this.damageSmoke?.reset();
             this.setCockpitFrontView();
         }
     }
@@ -1588,6 +1659,7 @@ export class Game {
         this.spawnPanel.hide();
         this.groundSmoke.enabled = false;
         this.groundFire.enabled = false;
+        this.damageSmoke?.reset();
 
         if (spawn === 'approach') {
             this.player.reset(PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
@@ -1596,6 +1668,9 @@ export class Game {
         }
         this.spawnOpponent();
         this.setCockpitFrontView();
+        if (this.aiOpponent?.enabled) {
+            this.player.setWeaponsTarget(this.aiOpponent);
+        }
     }
 
     /**
@@ -1651,6 +1726,16 @@ export class Game {
         this.weaponsField = new WeaponsField(this.models, this.combatSim);
         this.scene.add(this.weaponsField);
 
+        this.debrisField = new DebrisField(this.materials);
+        this.scene.add(this.debrisField);
+        this.damageSmoke = new DamageSmokeField(this.materials);
+        this.damageSmoke.setPoseProvider((targetId) => this.getDamageSmokePose(targetId));
+        this.scene.add(this.damageSmoke);
+        this.combatSim.onHits = (hits) => {
+            this.debrisField?.spawnFromHits(hits);
+            this.damageSmoke?.spawnFromHits(hits);
+        };
+
         // Spawn N AI opponents (the snapshot + worker are already multi-aircraft;
         // each gets a distinct sim id ai0..aiN-1). They start disabled until the
         // player triggers a merge (see spawnOpponent).
@@ -1663,13 +1748,21 @@ export class Game {
                 aiSimId(i),
                 Faction.ENEMY,
                 {
-                    position: new THREE.Vector3(3000 + i * 300, 3000, 4000),
-                    heading: Math.PI,
+                    position: PLAYER_STARTING_POSITION.clone().add(
+                        FORWARD.clone().applyAxisAngle(UP, PLAYER_STARTING_HEADING).multiplyScalar(AI_SPAWN_DISTANCE_M)),
+                    heading: PLAYER_STARTING_HEADING,
                     airborne: true,
-                    throttle: 0.85,
-                    velocity: FORWARD.clone().applyAxisAngle(UP, Math.PI).multiplyScalar(250),
+                    throttle: PLAYER_APPROACH_SPAWN.throttle,
+                    velocity: PLAYER_APPROACH_SPAWN.velocity!.clone(),
                 },
-                { cruiseAltitude: 3000, cruiseSpeed: 260, combatSpeed: 330, gunRange: 900, hardDeck: 200, alwaysEngage: true },
+                {
+                    cruiseAltitude: APPROACH_ALTITUDE_M,
+                    cruiseSpeed: APPROACH_SPEED_MPS,
+                    combatSpeed: APPROACH_SPEED_MPS,
+                    gunRange: 900,
+                    hardDeck: 200,
+                    alwaysEngage: true,
+                },
             );
             ai.enabled = false;
             this.combatSim.setEnabled(ai.simId, false);
@@ -1695,7 +1788,7 @@ export class Game {
         };
     }
 
-    /** Spawn/enable the AI opponents airborne near the player and engage. */
+    /** Spawn/enable the AI opponents matching the player's direction, speed, and altitude. */
     private spawnOpponent() {
         if (this.aiOpponents.length === 0) {
             return;
@@ -1706,34 +1799,55 @@ export class Game {
             .setY(0)
             .normalize();
         const playerHeading = Math.atan2(playerForward.x, playerForward.z);
-        const heading = playerHeading + Math.PI;
         const right = RIGHT.clone().applyAxisAngle(UP, playerHeading);
+        const speed = this.player.velocityVector.length();
+        const velocity = playerForward.clone().multiplyScalar(speed);
+        // Preserve vertical speed so co-altitude spawn stays level with the player.
+        velocity.y = this.player.velocityVector.y;
 
-        const MERGE_DISTANCE_M = AI_CHASE_MERGE_DISTANCE_M;
-        const MERGE_LATERAL_OFFSET_M = 200;
+        const LATERAL_SPACING_M = 80;
         for (let i = 0; i < this.aiOpponents.length; i++) {
             const ai = this.aiOpponents[i];
-            // Fan multiple opponents out laterally so they don't spawn on top of each other.
-            const lateral = MERGE_LATERAL_OFFSET_M + i * 300;
+            // 500 m ahead, same heading/speed/altitude; fan extras slightly aside.
+            const lateral = this.aiOpponents.length === 1 ? 0 : (i - (this.aiOpponents.length - 1) / 2) * LATERAL_SPACING_M;
             const position = new THREE.Vector3(p.x, p.y, p.z)
-                .addScaledVector(playerForward, MERGE_DISTANCE_M)
+                .addScaledVector(playerForward, AI_SPAWN_DISTANCE_M)
                 .addScaledVector(right, lateral);
 
             ai.respawn({
                 position,
-                heading,
-                airborne: true,
-                throttle: 0.85,
-                velocity: FORWARD.clone().applyAxisAngle(UP, heading).multiplyScalar(260),
+                heading: playerHeading,
+                airborne: !this.player.isLanded,
+                throttle: this.player.throttleUnit,
+                velocity,
             });
             this.combatSim.setTarget(ai.simId, PLAYER_SIM_ID);
-            this.combatSim.setPhase(ai.simId, AiFlightPhase.ENGAGE);
+            this.combatSim.setPhase(ai.simId, AiFlightPhase.STRAIGHT);
         }
+        this.aiStraightTimer = AI_STRAIGHT_DURATION_SEC;
 
         // The player's in-worker autopilot flies home and lands (RTB); it also
         // knows about the primary opponent should combat logic be enabled for it later.
         this.combatSim.setTarget(PLAYER_SIM_ID, this.aiOpponents[0].simId);
         this.combatSim.setPhase(PLAYER_SIM_ID, AiFlightPhase.RTB);
+    }
+
+    /** After the straight-flight hold, promote AI opponents into ENGAGE. */
+    private updateAiStraightTimer(delta: number): void {
+        if (this.aiStraightTimer <= 0) {
+            return;
+        }
+        this.aiStraightTimer -= delta;
+        if (this.aiStraightTimer > 0) {
+            return;
+        }
+        this.aiStraightTimer = 0;
+        for (let i = 0; i < this.aiOpponents.length; i++) {
+            const ai = this.aiOpponents[i];
+            if (ai.enabled) {
+                this.combatSim.setPhase(ai.simId, AiFlightPhase.ENGAGE);
+            }
+        }
     }
 
     private async setupScene() {

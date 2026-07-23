@@ -213,7 +213,8 @@ describe('AiPilot dogfight sub-states', () => {
 
         const target = new FakeTarget();
         target.position.set(1000, 3000, 1000);
-        target.velocity.set(250, 0, 0); // perpendicular flight path: 90 deg angle-off
+        // ~150 deg angle-off (past LAG_ANGLE_OFF_TRIGGER); a 90 deg cross stays in lead.
+        target.velocity.set(-216.5, 0, -125);
 
         const pilot = new AiPilot(aircraft, new FlatWorld(), { gunRange: 900 });
         pilot.setTarget(target);

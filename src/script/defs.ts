@@ -29,6 +29,10 @@ export const COCKPIT_FOV = 50;
 export const COCKPIT_FAR = 40000;
 
 export const GROUND_SMOKE_PARTICLE_COUNT = 100;
+/** Fixed pool for hit debris; one instanced draw call, recycled across bursts. */
+export const DEBRIS_PARTICLE_COUNT = 64;
+/** Gray damage-smoke trail particles (shared across all hit leaks). */
+export const DAMAGE_SMOKE_PARTICLE_COUNT = 128;
 
 /** KeyboardEvent.code that opens the telemetry graph popup. */
 export const TELEMETRY_GRAPH_KEY_CODE = 'NumLock';

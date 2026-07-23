@@ -18,4 +18,9 @@ export interface WeaponsTarget {
     readonly targetLocation: string;
     /** True for airborne targets (enemy aircraft), false for fixed ground targets. */
     readonly airborne: boolean;
+    /**
+     * Optional world velocity (m/s). When present, the HUD gun pipper leads the
+     * target; ground installations omit this.
+     */
+    readVelocity?(out: THREE.Vector3): THREE.Vector3;
 }

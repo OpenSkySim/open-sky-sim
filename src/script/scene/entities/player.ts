@@ -909,6 +909,9 @@ export class PlayerEntity implements Entity {
         return !this.simulationPaused;
     }
 
+    /** True while a keyboard flight-stick key (pitch/roll/yaw) is physically held. */
+    flightStickKeysHeld = false;
+
     setRoll(roll: number) {
         this.roll = roll;
     }
@@ -974,7 +977,9 @@ export class PlayerEntity implements Entity {
         this.health -= amount;
         if (this.health <= 0) {
             this.health = 0;
-            this.flightModel.setCrashed(true);
+            // Flameout only; ground impact still sets crashed via the flight model.
+            this.flightModel.setThrottle(0);
+            this.flightModel.syncEffectiveThrottle();
         }
     }
 
@@ -1115,6 +1120,11 @@ export class PlayerEntity implements Entity {
 
     get weaponsTarget(): WeaponsTarget | undefined {
         return this.target;
+    }
+
+    /** Designate a weapons target (or clear with undefined). */
+    setWeaponsTarget(target: WeaponsTarget | undefined): void {
+        this.target = target;
     }
 
     get stallStatus(): number {

@@ -104,6 +104,8 @@ export interface SimProjectileState {
 /** A confirmed hit this frame, for SFX / feedback on the main thread. */
 export interface SimHitEvent {
     position: Vec3;
+    /** Target world velocity at impact (m/s) — debris should inherit this. */
+    velocity: Vec3;
     targetId: string;
     damage: number;
 }

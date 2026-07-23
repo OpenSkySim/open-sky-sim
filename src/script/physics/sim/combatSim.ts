@@ -158,10 +158,17 @@ class SimAircraft implements PilotableAircraft, Combatant {
     }
 
     applyInputsToModel(): void {
+        // Dead airframes keep control surfaces but produce no thrust.
+        if (this.health <= 0) {
+            this.inThrottle = 0;
+        }
         this.model.setPitch(this.inPitch);
         this.model.setRoll(this.inRoll);
         this.model.setYaw(this.inYaw);
         this.model.setThrottle(this.inThrottle);
+        if (this.health <= 0) {
+            this.model.syncEffectiveThrottle();
+        }
         this.model.setLandingGearDeployed(this.inGear);
         this.model.setFlapsExtended(this.inFlaps);
         this.model.setWheelBrakes(this.inBrakes);
@@ -219,7 +226,11 @@ class SimAircraft implements PilotableAircraft, Combatant {
         this.health -= amount;
         if (this.health <= 0) {
             this.health = 0;
-            this.model.setCrashed(true);
+            // Gun kill: flameout only — keep integrating so the wreck coasts
+            // instead of freezing mid-air (setCrashed is for ground impacts).
+            this.inThrottle = 0;
+            this.model.setThrottle(0);
+            this.model.syncEffectiveThrottle();
         }
     }
 
@@ -310,6 +321,7 @@ export class CombatSim implements ProjectileSink {
     private readonly toCenter = new THREE.Vector3();
     private readonly closest = new THREE.Vector3();
     private readonly cPos = new THREE.Vector3();
+    private readonly cVel = new THREE.Vector3();
 
     constructor() {
         for (let i = 0; i < PROJECTILE_POOL_SIZE; i++) {
@@ -542,8 +554,10 @@ export class CombatSim implements ProjectileSink {
             this.closest.copy(this.seg).multiplyScalar(t).add(slot.prevPos);
             if (this.closest.distanceToSquared(this.cPos) <= radius * radius) {
                 c.applyDamage(slot.damage);
+                c.readVelocity(this.cVel);
                 this.hits.push({
-                    position: this.cPos.toArray() as [number, number, number],
+                    position: [this.cPos.x, this.cPos.y, this.cPos.z],
+                    velocity: [this.cVel.x, this.cVel.y, this.cVel.z],
                     targetId: this.combatantId(c),
                     damage: slot.damage,
                 });

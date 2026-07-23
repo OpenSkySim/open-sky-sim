@@ -11,8 +11,8 @@ export interface ChaseTarget {
     getDisplayQuaternion(): THREE.Quaternion;
 }
 
-/** Head-on merge range at opponent spawn (shared with {@link import('../game').Game.spawnOpponent}). */
-export const AI_CHASE_MERGE_DISTANCE_M = 1000;
+/** Initial opponent standoff ahead of the player (m). */
+export const AI_SPAWN_DISTANCE_M = 500;
 
 /** Match the F2 exterior back/front offset (m). */
 const EXTERIOR_CHASE_DISTANCE_M = 40;

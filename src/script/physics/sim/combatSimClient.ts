@@ -39,6 +39,8 @@ export class CombatSimClient {
     private projectiles: Float32Array<ArrayBufferLike> = new Float32Array(0);
     private projectileCount = 0;
     private pendingHits: SimHitEvent[] = [];
+    /** Fired on the main thread whenever a snapshot carries new hits (debris / SFX). */
+    onHits: ((hits: SimHitEvent[]) => void) | undefined;
 
     constructor() {
         this.worker = new Worker(new URL('../worker/combatSimWorker.ts', import.meta.url));
@@ -176,7 +178,14 @@ export class CombatSimClient {
             i.firing = this.firing.get(proxy.simId) ?? false;
             inputs[proxy.simId] = i;
         }
-        const delta = this.pendingDelta;
+        // Cap step size and drop large backlogs so a slow main thread cannot
+        // enqueue multi-second worker steps that keep the UI behind forever.
+        const MAX_STEP_DELTA = 0.05;
+        const MAX_PENDING = 0.2;
+        if (this.pendingDelta > MAX_PENDING) {
+            this.pendingDelta = MAX_STEP_DELTA;
+        }
+        const delta = Math.min(this.pendingDelta, MAX_STEP_DELTA);
         this.pendingDelta = 0;
         this.busy = true;
         this.lastFlushTime = performance.now();
@@ -196,6 +205,9 @@ export class CombatSimClient {
             for (let i = 0; i < snapshot.hits.length; i++) {
                 this.pendingHits.push(snapshot.hits[i]);
             }
+            // Spawn FX as soon as the worker reports hits — don't wait for the
+            // next pumpCombatSim (tick is async; drain-after-tick often saw []).
+            this.onHits?.(snapshot.hits);
         }
     }
 

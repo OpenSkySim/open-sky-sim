@@ -13,7 +13,14 @@ export const PARTICLE_MESH_ATTR_COLOR = 'color';
 export class ParticleMeshModelLibBuilder implements ModelLibBuilder {
     type: string;
 
-    constructor(type: string, private particleCount: number, private particleGeometry: THREE.BufferGeometry, private radius: number) {
+    constructor(
+        type: string,
+        private particleCount: number,
+        private particleGeometry: THREE.BufferGeometry,
+        private radius: number,
+        private minPixels: number = 0,
+        private category: PaletteCategory = PaletteCategory.FX_SMOKE,
+    ) {
         this.type = type;
     }
 
@@ -32,11 +39,13 @@ export class ParticleMeshModelLibBuilder implements ModelLibBuilder {
         geometry.setAttribute(PARTICLE_MESH_ATTR_SCALE, new THREE.InstancedBufferAttribute(new Float32Array(scales), 1));
         geometry.setAttribute(PARTICLE_MESH_ATTR_ROTATION, new THREE.InstancedBufferAttribute(new Float32Array(rotations), 1));
         geometry.setAttribute(PARTICLE_MESH_ATTR_COLOR, new THREE.InstancedBufferAttribute(new Float32Array(colors), 4));
+        geometry.instanceCount = this.particleCount;
 
         const material = materials.build({
             type: SceneMaterialPrimitiveType.PARTICLE_MESH,
-            category: PaletteCategory.FX_SMOKE,
-            depthWrite: true
+            category: this.category,
+            depthWrite: false,
+            minPixels: this.minPixels,
         });
         const mesh = new THREE.Mesh(geometry, material);
         mesh.onBeforeRender = updateUniforms;

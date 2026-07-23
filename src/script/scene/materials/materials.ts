@@ -70,6 +70,11 @@ export interface SceneMaterialLineProperties {
 
 export interface SceneMaterialParticleMeshProperties {
     type: SceneMaterialPrimitiveType.PARTICLE_MESH;
+    /**
+     * Minimum projected height in pixels. Distant particles are enlarged to this
+     * size so small world-space chips stay visible. 0 = off.
+     */
+    minPixels?: number;
 }
 
 /** Camera-facing billboard used as a distant vegetation impostor. */
@@ -196,7 +201,9 @@ export class SceneMaterialManager implements KernelTask {
         this.particleMeshProto = new THREE.RawShaderMaterial({
             vertexShader: ParticleMeshVertProgram,
             fragmentShader: ParticleMeshFragProgram,
-            side: THREE.FrontSide,
+            // Discs are billboarded in view-space XY; FrontSide culls them (normal +Z
+            // faces away from the camera). DoubleSide keeps smoke/debris visible.
+            side: THREE.DoubleSide,
             depthWrite: true,
             userData: {},
             uniforms: {}
@@ -272,10 +279,19 @@ export class SceneMaterialManager implements KernelTask {
             point: this.isPoint(properties),
             highp: properties.type === SceneMaterialPrimitiveType.MESH && !properties.shaded && properties.highp || false,
             fog: this.fog,
-            ramp: (properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH && properties.category === PaletteCategory.FX_SMOKE) ? [
-                this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE)).clone(),
-                this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__B)).clone(),
-                this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__C)).clone(),
+            ramp: (properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH && (
+                properties.category === PaletteCategory.FX_SMOKE
+                || properties.category === PaletteCategory.FX_FIRE
+            )) ? [
+                this.colorCache.getColor(PaletteColor(palette, properties.category === PaletteCategory.FX_FIRE
+                    ? PaletteCategory.FX_FIRE
+                    : PaletteCategory.FX_SMOKE)).clone(),
+                this.colorCache.getColor(PaletteColor(palette, properties.category === PaletteCategory.FX_FIRE
+                    ? PaletteCategory.FX_FIRE__B
+                    : PaletteCategory.FX_SMOKE__B)).clone(),
+                this.colorCache.getColor(PaletteColor(palette, properties.category === PaletteCategory.FX_FIRE
+                    ? PaletteCategory.FX_SMOKE
+                    : PaletteCategory.FX_SMOKE__C)).clone(),
             ] : undefined,
         };
     }
@@ -317,6 +333,11 @@ export class SceneMaterialManager implements KernelTask {
                 // in every shading mode rather than a temporal colour flip.
                 colorDither: {
                     value: this.colorDitherUniform(properties)
+                },
+                minPixels: {
+                    value: properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH
+                        ? (properties.minPixels ?? 0)
+                        : 0,
                 },
             },
             ...(properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded) ? {
@@ -380,10 +401,16 @@ export class SceneMaterialManager implements KernelTask {
             }
             u.fogDensity.value = palette.values[FogValueCategory(c)];
             u.fogColor.value.copy(this.colorCache.getColor(PaletteColor(palette, FogColorCategory(c))));
-            if (d.particles && d.category === PaletteCategory.FX_SMOKE && d.ramp) {
-                d.ramp[0].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE)));
-                d.ramp[1].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__B)));
-                d.ramp[2].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__C)));
+            if (d.particles && d.ramp) {
+                if (d.category === PaletteCategory.FX_SMOKE) {
+                    d.ramp[0].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE)));
+                    d.ramp[1].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__B)));
+                    d.ramp[2].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__C)));
+                } else if (d.category === PaletteCategory.FX_FIRE) {
+                    d.ramp[0].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_FIRE)));
+                    d.ramp[1].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_FIRE__B)));
+                    d.ramp[2].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE)));
+                }
             }
         }
         this.updateFxFire();
