@@ -123,8 +123,14 @@ export class KeyboardControlDevice implements KernelTask {
 
     update(delta: number) {
         if (!this.player.controlsEnabled || this.player.isAutopilotEnabled) {
+            this.player.flightStickKeysHeld = false;
             return;
         }
+        this.player.flightStickKeysHeld =
+            this.pitchState === Stick.POSITIVE || this.pitchState === Stick.NEGATIVE ||
+            this.rollState === Stick.POSITIVE || this.rollState === Stick.NEGATIVE ||
+            this.yawState === Stick.POSITIVE || this.yawState === Stick.NEGATIVE;
+
         if (this.wKeyDown && this.canApplyWheelBrakes()) {
             if (!this.wheelBrakeHeld) {
                 this.engageWheelBrakes();
@@ -236,6 +242,10 @@ export class KeyboardControlDevice implements KernelTask {
             const key = normalizeControlKey(event);
             if (this.isLayoutKey(key) && (key.startsWith('arrow') || key.startsWith('numpad'))) {
                 event.preventDefault();
+            }
+            // Stick state is latched; repeats only add main-thread noise.
+            if (event.repeat && this.isLayoutKey(key)) {
+                return;
             }
             if (this.handleWheelBrakeKeyDown(key)) {
                 return;
@@ -385,6 +395,7 @@ export class KeyboardControlDevice implements KernelTask {
             this.yawState = Stick.IDLE;
             this.throttleState = Stick.IDLE;
             this.wKeyDown = false;
+            this.player.flightStickKeysHeld = false;
             this.releaseWheelBrakes();
         });
     }

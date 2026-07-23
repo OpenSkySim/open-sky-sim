@@ -43,6 +43,8 @@ export interface RenderLayer {
     camera: THREE.Camera;
     lists: string[];
     palette?: Palette;
+    /** Reuse prior WebGL contents for this target; still compose it. */
+    skipRefresh?: boolean;
 }
 
 export class Renderer {
@@ -166,7 +168,11 @@ export class Renderer {
                 this.materials.setPalette(palette);
             }
 
-            const renderTarget = this.prepareRenderTarget(layer.target, palette);
+            const skipRefresh = !!layer.skipRefresh;
+            const renderTarget = this.prepareRenderTarget(layer.target, palette, !skipRefresh);
+            if (skipRefresh) {
+                continue;
+            }
 
             if (renderTarget.type === RenderTargetType.WEBGL) {
                 this.render3D(renderTarget, scene, layer, palette);
@@ -183,23 +189,27 @@ export class Renderer {
         this.renderer.render(this.composeScene, this.composeCamera);
     }
 
-    prepareRenderTarget(target: string, palette: Palette): RenderTarget {
+    prepareRenderTarget(target: string, palette: Palette, clear: boolean = true): RenderTarget {
         const renderTarget = this.renderTargets.get(target);
         assertIsDefined(renderTarget);
         if (renderTarget.ready === false) {
             renderTarget.ready = true;
             if (renderTarget.type === RenderTargetType.CANVAS) {
-                renderTarget.painter.clear();
-                renderTarget.target.needsUpdate = true;
+                if (clear) {
+                    renderTarget.painter.clear();
+                    renderTarget.target.needsUpdate = true;
+                }
             } else {
                 renderTarget.compositorObj.position.set(
                     renderTarget.x + renderTarget.width / 2 - this.composeWidth / 2,
                     -renderTarget.y - renderTarget.height / 2 + this.composeHeight / 2,
                     0
                 );
-                this.renderer.setRenderTarget(renderTarget.target);
-                this.renderer.setClearColor(PaletteColor(palette, PaletteCategory.BACKGROUND));
-                this.renderer.clear();
+                if (clear) {
+                    this.renderer.setRenderTarget(renderTarget.target);
+                    this.renderer.setClearColor(PaletteColor(palette, PaletteCategory.BACKGROUND));
+                    this.renderer.clear();
+                }
             }
             this.composeScene.add(renderTarget.compositorObj);
         }
