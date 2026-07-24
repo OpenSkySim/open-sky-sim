@@ -116,15 +116,15 @@ const RUNWAY_STRIP_HALF_WIDTH = 75;
 const RUNWAY_STRIP_HALF_LENGTH = RUNWAY_HALF_LENGTH_M + 150;
 const VEGETATION_FIELD_OPTIONS = {
     cellSize: 75,
-    fillRatio: 0.68,
+    fillRatio: 0.55,
     tilesInView: 250,
-    treesPerCell: 10,
-    maxTreesPerFrame: 14000,
-    outerCellStep: 3,
+    treesPerCell: 7,
+    maxTreesPerFrame: 8000,
+    outerCellStep: 4,
     lowDetailRangeM: 100000,
     // Trees stay full-detail 3D volumes out to this radius (independent of the
     // density ramp), so detailed trees remain visible well ahead when flying.
-    fullDetailRangeM: 6000,
+    fullDetailRangeM: 4500,
     scaleMin: 0.7,
     scaleMax: 1.35,
 };

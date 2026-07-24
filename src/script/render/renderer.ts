@@ -66,7 +66,8 @@ export class Renderer {
         this.composeCamera = new THREE.OrthographicCamera(-composeWidth / 2, composeWidth / 2, composeHeight / 2, -composeHeight / 2, -10, 10);
         this.palette = palette;
         this.renderer = new THREE.WebGLRenderer({ antialias: false });
-        this.renderer.setPixelRatio(window.devicePixelRatio);
+        // Cap DPR so HD on high-DPI displays does not explode fill rate.
+        this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
         const gl = this.renderer.getContext();
         const isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
         assertExpr(
