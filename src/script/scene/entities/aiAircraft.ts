@@ -316,6 +316,18 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         return this.health / this.maxHealth;
     }
 
+    get targetStickPitch(): number {
+        return this.flightModel.getSimStickPitch();
+    }
+
+    get targetStickRoll(): number {
+        return this.flightModel.getSimStickRoll();
+    }
+
+    get targetThrottle(): number {
+        return this.flightModel.getSimThrottleLever();
+    }
+
     // --- Render transform (for chase cameras) --------------------------------
 
     /** Interpolated render-space position, freshly sampled from the flight model. */

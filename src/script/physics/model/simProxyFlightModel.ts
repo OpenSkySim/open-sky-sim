@@ -26,6 +26,9 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     private simFiring = false;
     private simHealth = 100;
     private simAmmo = 0;
+    private simStickPitch = 0;
+    private simStickRoll = 0;
+    private simThrottleLever = 0;
 
     constructor(
         private readonly client: CombatSimClient,
@@ -81,6 +84,9 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
         this.simFiring = buf[base + AC.firing] !== 0;
         this.simHealth = buf[base + AC.health];
         this.simAmmo = buf[base + AC.ammo];
+        this.simStickPitch = buf[base + AC.stickPitch];
+        this.simStickRoll = buf[base + AC.stickRoll];
+        this.simThrottleLever = buf[base + AC.throttleLever];
 
         // @ts-ignore - private on the base, written for render interpolation.
         this.prevPosition.set(buf[base + AC.ppX], buf[base + AC.ppY], buf[base + AC.ppZ]);
@@ -102,6 +108,18 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
 
     getSimAmmo(): number {
         return this.simAmmo;
+    }
+
+    getSimStickPitch(): number {
+        return this.simStickPitch;
+    }
+
+    getSimStickRoll(): number {
+        return this.simStickRoll;
+    }
+
+    getSimThrottleLever(): number {
+        return this.simThrottleLever;
     }
 
     getSimGearDeployed(): boolean {

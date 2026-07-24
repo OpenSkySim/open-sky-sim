@@ -274,6 +274,11 @@ class SimAircraft implements PilotableAircraft, Combatant {
         out[base + AC.firing] = this.firing ? 1 : 0;
         out[base + AC.health] = this.health;
         out[base + AC.ammo] = this.gun?.ammoRemaining ?? 0;
+        // Raw pilot controls, before the FCS turns them into surface commands.
+        // These drive the enemy stick/throttle indicators in the target MFD.
+        out[base + AC.stickPitch] = this.inPitch;
+        out[base + AC.stickRoll] = this.inRoll;
+        out[base + AC.throttleLever] = this.inThrottle;
     }
 }
 

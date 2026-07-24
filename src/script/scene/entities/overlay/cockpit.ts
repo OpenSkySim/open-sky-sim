@@ -68,6 +68,9 @@ export class CockpitEntity implements Entity {
     private weaponsTargetSpeedMps: number = 0;
     private weaponsTargetLoadG: number = 1;
     private weaponsTargetHealth: number = 1;
+    private weaponsTargetStickPitch: number = 0;
+    private weaponsTargetStickRoll: number = 0;
+    private weaponsTargetThrottle: number = 0;
 
     private _v = new THREE.Vector3();
     private _w = new THREE.Vector3();
@@ -139,6 +142,9 @@ export class CockpitEntity implements Entity {
             this.weaponsTargetSpeedMps = this.weaponsTarget.targetSpeedMps ?? 0;
             this.weaponsTargetLoadG = this.weaponsTarget.targetLoadFactorG ?? 1;
             this.weaponsTargetHealth = this.weaponsTarget.targetHealthFraction ?? 1;
+            this.weaponsTargetStickPitch = this.weaponsTarget.targetStickPitch ?? 0;
+            this.weaponsTargetStickRoll = this.weaponsTarget.targetStickRoll ?? 0;
+            this.weaponsTargetThrottle = this.weaponsTarget.targetThrottle ?? 0;
         }
     }
 
@@ -392,6 +398,11 @@ export class CockpitEntity implements Entity {
         painter.text(font, x + pad, ty, `G ${this.weaponsTargetLoadG.toFixed(1)}`, gColor);
         ty += line;
 
+        const controlSize = Math.max(9, Math.min(15, Math.round(size * 0.2)));
+        const controlX = x + size - pad - controlSize - 4;
+        const controlY = y + pad + line * 2;
+        this.renderTargetControls(controlX, controlY, controlSize, painter, hudColor);
+
         const barX = x + pad;
         const barY = ty + Math.floor(font.charHeight / 2) - 2;
         const barH = Math.max(3, Math.floor(font.charHeight * 0.55));
@@ -399,7 +410,8 @@ export class CockpitEntity implements Entity {
         const labelW = label.length * font.charWidth + Math.max(0, label.length - 1) * font.charSpacing;
         painter.text(font, barX, ty, label, this.weaponsTargetHealth <= 0.3 ? warnColor : hudColor);
         const trackX = barX + labelW + pad;
-        const trackW = Math.max(8, size - (trackX - x) - pad);
+        // Stop the hull bar before the enemy-control indicator on compact MFDs.
+        const trackW = Math.max(8, controlX - trackX - pad);
         painter.setColor(hudColor);
         painter.rectangle(trackX, barY, trackW, barH);
         const fillW = Math.max(0, Math.round(trackW * Math.max(0, Math.min(1, this.weaponsTargetHealth))));
@@ -407,6 +419,37 @@ export class CockpitEntity implements Entity {
             painter.setBackground(this.weaponsTargetHealth <= 0.3 ? warnColor : hudColor);
             painter.rectangle(trackX, barY, fillW, barH, true);
         }
+    }
+
+    /** Enemy raw stick position plus throttle lever, mirrored from the sim worker. */
+    private renderTargetControls(
+        x: number, y: number, size: number,
+        painter: CanvasPainter, hudColor: string,
+    ): void {
+        const centerX = x + Math.floor(size / 2);
+        const centerY = y + Math.floor(size / 2);
+        const travel = Math.max(2, Math.floor(size / 2) - 2);
+        const pitch = Math.max(-1, Math.min(1, this.weaponsTargetStickPitch));
+        const roll = Math.max(-1, Math.min(1, this.weaponsTargetStickRoll));
+        const throttle = Math.max(0, Math.min(1, this.weaponsTargetThrottle));
+
+        painter.setColor(hudColor);
+        painter.rectangle(x, y, size, size);
+        painter.batch()
+            .hLine(centerX - travel, centerX + travel, centerY)
+            .vLine(centerX, centerY - travel, centerY + travel)
+            .commit();
+
+        // Positive pitch is aft stick and therefore down on the indicator,
+        // matching the player's HUD control-position display.
+        const stickX = Math.round(centerX + roll * travel);
+        const stickY = Math.round(centerY + pitch * travel);
+        painter.circle(stickX, stickY, 1);
+
+        const throttleX = x + size + 3;
+        painter.vLine(throttleX, y, y + size);
+        const throttleY = Math.round(y + size - throttle * size);
+        painter.hLine(throttleX - 1, throttleX + 1, throttleY);
     }
 
     /**

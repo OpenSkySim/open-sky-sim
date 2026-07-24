@@ -29,4 +29,10 @@ export interface WeaponsTarget {
     readonly targetLoadFactorG?: number;
     /** Remaining hull [0, 1]. Airborne combatants only. */
     readonly targetHealthFraction?: number;
+    /** Raw pilot stick pitch command [-1, 1]. Airborne combatants only. */
+    readonly targetStickPitch?: number;
+    /** Raw pilot stick roll command [-1, 1]. Airborne combatants only. */
+    readonly targetStickRoll?: number;
+    /** Pilot throttle-lever position [0, 1]. Airborne combatants only. */
+    readonly targetThrottle?: number;
 }
