@@ -14,6 +14,11 @@ const _los = new THREE.Vector3();
 const _rel = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _tail = new THREE.Vector3();
+const _relPos = new THREE.Vector3();
+const _relVel = new THREE.Vector3();
+const _iter = new THREE.Vector3();
+const _bullet = new THREE.Vector3();
+const _tgt = new THREE.Vector3();
 
 /**
  * "Energy height" (m): altitude plus the altitude-equivalent of kinetic
@@ -86,4 +91,79 @@ export function angleOff(myVel: THREE.Vector3, targetVel: THREE.Vector3): number
     }
     const dot = myVel.dot(targetVel) / (myVel.length() * targetVel.length());
     return Math.acos(clamp(dot, -1, 1));
+}
+
+/**
+ * Bullet time-of-flight (s) to intercept a target moving at `relVel`
+ * relative to the shooter, starting `relPos` away, with the round leaving at
+ * `muzzleSpeed` relative to the shooter (rounds inherit the shooter's own
+ * velocity, so all shooter motion cancels out of the relative problem).
+ * Solved by fixed-point iteration of `tof = |relPos + relVel * tof| /
+ * muzzleSpeed`, which contracts as long as |relVel| < muzzleSpeed (always
+ * true here: aircraft fly at a fraction of the ~1000 m/s muzzle velocity).
+ */
+export function solveInterceptTime(relPos: THREE.Vector3, relVel: THREE.Vector3, muzzleSpeed: number, maxTof = 5): number {
+    const speed = Math.max(1, muzzleSpeed);
+    let tof = relPos.length() / speed;
+    for (let i = 0; i < 3; i++) {
+        _iter.copy(relVel).multiplyScalar(tof).add(relPos);
+        tof = _iter.length() / speed;
+    }
+    return clamp(tof, 0, maxTof);
+}
+
+/**
+ * Gun-lead aim point (world frame) for a shooter whose rounds inherit its own
+ * velocity: `targetPos + (targetVel - myVel) * tof + 0.5 * targetAcc * tof^2
+ * + 0.5 * g * tof^2 * up`. Pointing the gun at this world point makes the
+ * round — which flies at `muzzleSpeed` along the nose *plus* the shooter's
+ * velocity, dropping under gravity — meet the (constant-acceleration
+ * extrapolated) target. Note the `- myVel * tof` term: a naive world-frame
+ * lead (`targetPos + targetVel * tof`) is wrong by the shooter's own motion,
+ * which on a crossing shot is a many-degree aim error. Writes the aim point
+ * into `out` and returns the time of flight (s).
+ */
+export function ballisticAimPoint(
+    out: THREE.Vector3,
+    myPos: THREE.Vector3, myVel: THREE.Vector3,
+    targetPos: THREE.Vector3, targetVel: THREE.Vector3, targetAcc: THREE.Vector3,
+    muzzleSpeed: number,
+): number {
+    _relPos.copy(targetPos).sub(myPos);
+    _relVel.copy(targetVel).sub(myVel);
+    const tof = solveInterceptTime(_relPos, _relVel, muzzleSpeed);
+    out.copy(targetPos)
+        .addScaledVector(_relVel, tof)
+        .addScaledVector(targetAcc, 0.5 * tof * tof);
+    out.y += 0.5 * G * tof * tof; // hold-over for the round's gravity drop
+    return tof;
+}
+
+/**
+ * Predicted miss distance (m): minimum separation between a round leaving
+ * `shooterPos` with world velocity `bulletVel` (dropping under gravity) and a
+ * target extrapolated from `targetPos`/`targetVel`/`targetAcc`, sampled in a
+ * window around the nominal time of flight `tof`. This is the actual "will
+ * this trigger pull connect?" question, unlike a fixed angular cone which is
+ * blind to range and to the shooter's velocity contribution to the round.
+ */
+export function predictedMissDistance(
+    shooterPos: THREE.Vector3, bulletVel: THREE.Vector3,
+    targetPos: THREE.Vector3, targetVel: THREE.Vector3, targetAcc: THREE.Vector3,
+    tof: number,
+): number {
+    let best = Infinity;
+    for (let f = 0.8; f <= 1.2001; f += 0.05) {
+        const t = tof * f;
+        _bullet.copy(shooterPos).addScaledVector(bulletVel, t);
+        _bullet.y -= 0.5 * G * t * t;
+        _tgt.copy(targetPos)
+            .addScaledVector(targetVel, t)
+            .addScaledVector(targetAcc, 0.5 * t * t);
+        const d = _bullet.distanceTo(_tgt);
+        if (d < best) {
+            best = d;
+        }
+    }
+    return best;
 }

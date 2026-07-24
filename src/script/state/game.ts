@@ -61,7 +61,7 @@ import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 import { Obstacle, Runway } from '../ai/worldQuery';
-import { AiFlightPhase } from '../ai/aiPilot';
+import { AiFlightPhase, AiSkillLevel } from '../ai/aiPilot';
 import { AiAircraftEntity } from '../scene/entities/aiAircraft';
 import { WeaponsField } from '../scene/entities/weaponsField';
 import { Faction } from '../weapons/combatant';
@@ -75,7 +75,9 @@ import { defaultFm2Config } from '../physics/fm2/fm2AircraftConfig';
 /** How many AI opponents the combat sim spawns. */
 const AI_OPPONENT_COUNT = 1;
 /** Seconds the AI flies straight before engaging. */
-const AI_STRAIGHT_DURATION_SEC = 5;
+const AI_STRAIGHT_DURATION_SEC = 1;
+/** Spawn distance ahead of the player when a merge begins (m). */
+const AI_ENGAGE_SPAWN_DISTANCE_M = 300;
 
 /** Player hit-sphere radius (m) used by the combat sim's hit detection. */
 const PLAYER_HIT_RADIUS_M = 10;
@@ -1740,10 +1742,11 @@ export class Game {
                 {
                     cruiseAltitude: APPROACH_ALTITUDE_M,
                     cruiseSpeed: APPROACH_SPEED_MPS,
-                    combatSpeed: APPROACH_SPEED_MPS,
+                    combatSpeed: 180,
                     gunRange: 900,
                     hardDeck: 200,
                     alwaysEngage: true,
+                    skill: AiSkillLevel.ACE,
                 },
             );
             ai.enabled = false;
@@ -1793,7 +1796,7 @@ export class Game {
             // 500 m ahead, same heading/speed/altitude; fan extras slightly aside.
             const lateral = this.aiOpponents.length === 1 ? 0 : (i - (this.aiOpponents.length - 1) / 2) * LATERAL_SPACING_M;
             const position = new THREE.Vector3(p.x, p.y, p.z)
-                .addScaledVector(playerForward, AI_SPAWN_DISTANCE_M)
+                .addScaledVector(playerForward, AI_ENGAGE_SPAWN_DISTANCE_M)
                 .addScaledVector(right, lateral);
 
             ai.respawn({
@@ -1804,9 +1807,9 @@ export class Game {
                 velocity,
             });
             this.combatSim.setTarget(ai.simId, PLAYER_SIM_ID);
-            this.combatSim.setPhase(ai.simId, AiFlightPhase.STRAIGHT);
+            this.combatSim.setPhase(ai.simId, AiFlightPhase.ENGAGE);
         }
-        this.aiStraightTimer = AI_STRAIGHT_DURATION_SEC;
+        this.aiStraightTimer = 0;
 
         // The player's in-worker autopilot flies home and lands (RTB); it also
         // knows about the primary opponent should combat logic be enabled for it later.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import * as THREE from 'three';
-import { angleOff, aspectAngle, closureRate, specificEnergyHeight, trackingAngle } from './dogfightGeometry';
+import { angleOff, aspectAngle, ballisticAimPoint, closureRate, predictedMissDistance, solveInterceptTime, specificEnergyHeight, trackingAngle } from './dogfightGeometry';
 
 const DEG = Math.PI / 180;
 
@@ -126,5 +126,62 @@ describe('angleOff', () => {
         const myVel = new THREE.Vector3(0, 0, 30);
         const targetVel = new THREE.Vector3(Math.sin(45 * DEG) * 300, 0, Math.cos(45 * DEG) * 300);
         assert.ok(Math.abs(angleOff(myVel, targetVel) - 45 * DEG) < 1e-6);
+    });
+});
+
+describe('solveInterceptTime', () => {
+    it('lengthens time-of-flight when the target is moving away along the line of sight', () => {
+        const relPos = new THREE.Vector3(0, 0, 900);
+        const relVel = new THREE.Vector3(0, 0, 200);
+        const tof = solveInterceptTime(relPos, relVel, 1000);
+        assert.ok(tof > 0.9 && tof < 1.5);
+    });
+
+    it('shortens time-of-flight when the target is closing along the line of sight', () => {
+        const relPos = new THREE.Vector3(0, 0, 900);
+        const relVel = new THREE.Vector3(0, 0, -200);
+        const tof = solveInterceptTime(relPos, relVel, 1000);
+        assert.ok(tof > 0.7 && tof < 0.9);
+    });
+});
+
+describe('ballisticAimPoint', () => {
+    const zeroAcc = new THREE.Vector3();
+
+    it('includes gravity hold-over above the linear lead point', () => {
+        const myPos = new THREE.Vector3(0, 3000, 0);
+        const myVel = new THREE.Vector3(0, 0, 220);
+        const targetPos = new THREE.Vector3(0, 3000, 500);
+        const targetVel = new THREE.Vector3(0, 0, 220);
+        const aim = new THREE.Vector3();
+        const tof = ballisticAimPoint(aim, myPos, myVel, targetPos, targetVel, zeroAcc, 1000);
+        const naive = new THREE.Vector3().copy(targetPos).addScaledVector(targetVel, tof);
+        assert.ok(aim.y > naive.y + 0.5, 'expected gravity hold-over above the naive lead');
+        assert.ok(tof > 0.4 && tof < 0.6);
+    });
+
+    it('accounts for shooter velocity on a crossing shot', () => {
+        const myPos = new THREE.Vector3(0, 3000, 0);
+        const myVel = new THREE.Vector3(200, 0, 0);
+        const targetPos = new THREE.Vector3(0, 3000, 500);
+        const targetVel = new THREE.Vector3(0, 0, 220);
+        const aim = new THREE.Vector3();
+        ballisticAimPoint(aim, myPos, myVel, targetPos, targetVel, zeroAcc, 1000);
+        const naive = new THREE.Vector3().copy(targetPos).addScaledVector(targetVel, 0.5);
+        assert.ok(Math.abs(aim.x - naive.x) > 50, 'relative-velocity lead should shift the aim on a crossing shot');
+    });
+});
+
+describe('predictedMissDistance', () => {
+    const zeroAcc = new THREE.Vector3();
+
+    it('is near zero for a perfect in-trail solution', () => {
+        const shooterPos = new THREE.Vector3(0, 3000, 0);
+        const bulletVel = new THREE.Vector3(0, 0, 1220);
+        const targetPos = new THREE.Vector3(0, 3000, 500);
+        const targetVel = new THREE.Vector3(0, 0, 220);
+        const tof = 500 / 1000;
+        const miss = predictedMissDistance(shooterPos, bulletVel, targetPos, targetVel, zeroAcc, tof);
+        assert.ok(miss < 15);
     });
 });
