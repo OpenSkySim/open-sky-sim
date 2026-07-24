@@ -3,7 +3,7 @@ import { clamp, FORWARD, RIGHT, UP } from '../utils/math';
 import { PilotableAircraft } from './aircraftControls';
 import { SceneWorldQuery, WorldQuery } from './worldQuery';
 import { Combatant } from '../weapons/combatant';
-import { angleOff, closureRate, specificEnergyHeight, trackingAngle } from './dogfightGeometry';
+import { angleOff, ballisticAimPoint, closureRate, predictedMissDistance, specificEnergyHeight, trackingAngle } from './dogfightGeometry';
 
 /**
  * Hierarchical flight phases. Mission logic sets high-level setpoints (heading,
@@ -68,14 +68,19 @@ interface SkillTuning {
     defensiveReactTime: number;
     /** Energy-height deficit (m) vs. the target that triggers an extend/disengage. */
     extendEnergyDeficit: number;
-    /** Multiplier on the base gun cone (sloppier gunnery for lower skill). */
-    gunConeToleranceMult: number;
+    /**
+     * Multiplier on the allowed predicted miss distance before pulling the
+     * trigger. ACE only fires when the round will pass within roughly the
+     * target's hit sphere (tight, lethal bursts); lower tiers spray at
+     * solutions that mostly miss.
+     */
+    missAllowanceMult: number;
 }
 
 const SKILL_TUNING: Record<AiSkillLevel, SkillTuning> = {
-    [AiSkillLevel.ROOKIE]: { defensiveReactTime: 1.2, extendEnergyDeficit: 650, gunConeToleranceMult: 1.6 },
-    [AiSkillLevel.VETERAN]: { defensiveReactTime: 0.6, extendEnergyDeficit: 450, gunConeToleranceMult: 1.25 },
-    [AiSkillLevel.ACE]: { defensiveReactTime: 0.25, extendEnergyDeficit: 300, gunConeToleranceMult: 1.0 },
+    [AiSkillLevel.ROOKIE]: { defensiveReactTime: 1.2, extendEnergyDeficit: 650, missAllowanceMult: 2.5 },
+    [AiSkillLevel.VETERAN]: { defensiveReactTime: 0.6, extendEnergyDeficit: 450, missAllowanceMult: 1.5 },
+    [AiSkillLevel.ACE]: { defensiveReactTime: 0.25, extendEnergyDeficit: 300, missAllowanceMult: 1.0 },
 };
 
 /**
@@ -157,17 +162,35 @@ const ROTATE_SPEED = 90;             // takeoff rotation speed (m/s)
 const GEAR_UP_ALT = 40;              // retract gear above this AGL (m)
 const FLAPS_UP_SPEED = 150;          // retract flaps above this speed (m/s)
 
-const GUN_CONE_RAD = 3.0 * Math.PI / 180;   // fire when aim within this cone
+const FIRE_MISS_SLACK_M = 3;
 const TERRAIN_LOOKAHEAD_S = 8;               // predictive GPWS horizon (s)
 
+// --- Max-performance turn ("hard turn") -----------------------------------------
+// The heading/elevation cascade is a cruise autopilot (~2 g). Whenever the aim
+// point is far off the nose the AI flies a proper BFM turn instead: roll toward
+// max bank, pull near the pitch limit, hand back to fine tracking once aligned.
+const HARD_TURN_ENTER = 20 * Math.PI / 180;
+const HARD_TURN_EXIT = 12 * Math.PI / 180;
+const HARD_TURN_FULL_PULL_ANGLE = 60 * Math.PI / 180;
+const HARD_TURN_MIN_PULL = 0.15;
+const HARD_TURN_BANK_GAIN = 4.0;             // stronger bank command than the cruise loop
+const REVERSAL_LATCH_ENTER = 150 * Math.PI / 180;
+const REVERSAL_LATCH_RELEASE = 110 * Math.PI / 180;
+
+// --- Gun lead / target prediction ------------------------------------------------
+const TARGET_ACCEL_CAP = 90;                 // ~9 g (m/s^2)
+const TARGET_ACCEL_EMA = 0.25;
+
 // --- Dogfight mode thresholds --------------------------------------------------
-// A tracking threat is "them pointed roughly at us, within their own gun range".
-// We don't know the target's actual bank/AoA, so their velocity direction stands
-// in for their nose (same approximation the lead-pursuit math already makes).
-const DEFENSIVE_AOT_THRESHOLD = 35 * Math.PI / 180;  // their tracking angle on us, to call it a threat
-const DEFENSIVE_CLEAR_AOT = 55 * Math.PI / 180;      // release threshold (hysteresis)
-const DEFENSIVE_RANGE_MULT = 1.2;                    // threat radius = our gunRange * this
-const DEFENSIVE_CLEAR_RANGE_MULT = 1.5;              // release radius (hysteresis)
+// A tracking threat is them pointed at us from our rear hemisphere. Without the
+// rear-hemisphere gate a head-on merge reads as a threat and the AI breaks
+// away, donating its six on every neutral merge.
+const DEFENSIVE_AOT_THRESHOLD = 35 * Math.PI / 180;
+const DEFENSIVE_CLEAR_AOT = 55 * Math.PI / 180;
+const DEFENSIVE_REAR_HEMISPHERE = 90 * Math.PI / 180;
+const DEFENSIVE_REAR_CLEAR = 75 * Math.PI / 180;
+const DEFENSIVE_RANGE_MULT = 1.2;
+const DEFENSIVE_CLEAR_RANGE_MULT = 1.5;
 
 const YOYO_RANGE_TRIGGER = 500;              // only worry about overshoot inside this range (m)
 const YOYO_CLOSURE_TRIGGER = 60;             // closure rate (m/s) that risks an overshoot
@@ -208,13 +231,17 @@ export class AiPilot {
     private readonly skillTuning: SkillTuning;
     /** When true, the AI never enters EXTEND (never turns tail to rebuild energy). */
     private readonly alwaysEngage: boolean;
-    /** Base gun cone, widened for lower skill tiers (sloppier gunnery). */
-    private readonly gunConeRad: number;
 
     /** Latest throttle command (integrated by the speed controller). */
     private throttleCmd = 0.5;
     /** Set true by the engage phase when a valid gun solution exists this frame. */
     private firing = false;
+    /** Previous frame had a valid gun solution (used to gate HIGH_YOYO). */
+    private hadSolution = false;
+    /** Hard-turn latch: stay in max-performance turn until nearly aligned. */
+    private hardTurnActive = false;
+    /** Reversal direction latch for near-180 deg turn commits. */
+    private reversalDir = 0;
     /** Pull-up override latch to add hysteresis to the GPWS. */
     private pullUpActive = false;
     /** Latched turn direction (+1/-1/0) to resolve the +/-180 deg heading ambiguity. */
@@ -230,6 +257,12 @@ export class AiPilot {
     private threatTimer = 0;
     /** Seconds spent in the current timed maneuver (HIGH_YOYO/LOW_YOYO/EXTEND). */
     private maneuverTimer = 0;
+    /** Low-passed target acceleration for gun-lead prediction. */
+    private readonly targetAcc = new THREE.Vector3();
+    private readonly prevTvel = new THREE.Vector3();
+    private hasPrevTvel = false;
+    /** Last ballistic time-of-flight from the most recent aim computation (s). */
+    private lastTof = 0;
 
     // Pitch-rate estimate (finite-differenced, low-passed) for pitch-loop damping.
     private prevNosePitch = 0;
@@ -251,6 +284,8 @@ export class AiPilot {
     private readonly aim = new THREE.Vector3();
     private readonly probe = new THREE.Vector3();
     private readonly toPoint = new THREE.Vector3();
+    private readonly bulletVel = new THREE.Vector3();
+    private readonly aimDir = new THREE.Vector3();
 
     constructor(
         private readonly aircraft: PilotableAircraft,
@@ -271,7 +306,6 @@ export class AiPilot {
         this.skill = options.skill ?? AiSkillLevel.ACE;
         this.skillTuning = SKILL_TUNING[this.skill];
         this.alwaysEngage = options.alwaysEngage ?? false;
-        this.gunConeRad = GUN_CONE_RAD * this.skillTuning.gunConeToleranceMult;
     }
 
     getPhase(): AiFlightPhase {
@@ -473,6 +507,68 @@ export class AiPilot {
         const maxStep = this.pitchSlew * this.lastDelta;
         this.pitchCmdState += clamp(target - this.pitchCmdState, -maxStep, maxStep);
         this.aircraft.setPitch(this.pitchCmdState);
+    }
+
+    /** Immediate pitch command without slew limiting — used for max-g hard turns. */
+    private applyPitchImmediate(raw: number): void {
+        this.pitchCmdState = this.limitPitchForAttitude(raw);
+        this.aircraft.setPitch(this.pitchCmdState);
+    }
+
+    /**
+     * Max-performance turn toward a world-space direction: roll hard toward the
+     * aim bearing and pull near the pitch limit, easing off as the nose closes.
+     * Returns true while the hard turn is active this frame.
+     */
+    private commandHardTurn(aimDirection: THREE.Vector3, delta: number, desiredSpeed: number): boolean {
+        this.aimDir.copy(aimDirection);
+        if (this.aimDir.lengthSq() < 1e-9) {
+            return false;
+        }
+        this.aimDir.normalize();
+
+        const aimAngle = Math.acos(clamp(this.fwd.dot(this.aimDir), -1, 1));
+        if (this.hardTurnActive) {
+            if (aimAngle < HARD_TURN_EXIT) {
+                this.hardTurnActive = false;
+            }
+        } else if (aimAngle > HARD_TURN_ENTER) {
+            this.hardTurnActive = true;
+        }
+        if (!this.hardTurnActive) {
+            return false;
+        }
+
+        let desiredHeading = Math.atan2(this.aimDir.x, this.aimDir.z);
+        desiredHeading = this.avoidObstacles(desiredHeading);
+        let hErr = wrapPi(desiredHeading - this.heading);
+        if (this.reversalDir !== 0) {
+            if (Math.abs(hErr) < REVERSAL_LATCH_RELEASE) {
+                this.reversalDir = 0;
+            } else {
+                hErr = this.reversalDir * Math.abs(hErr);
+            }
+        } else if (Math.abs(hErr) > REVERSAL_LATCH_ENTER) {
+            this.reversalDir = hErr >= 0 ? 1 : -1;
+            hErr = this.reversalDir * Math.abs(hErr);
+        }
+        const desiredBank = clamp(-hErr * HARD_TURN_BANK_GAIN, -MAX_BANK_COMBAT, MAX_BANK_COMBAT);
+        this.commandBank(desiredBank);
+        this.aircraft.setYaw(clamp(this.bank * ROLL_YAW_COORD, -0.3, 0.3));
+
+        const pullT = clamp(aimAngle / HARD_TURN_FULL_PULL_ANGLE, 0, 1);
+        const pull = HARD_TURN_MIN_PULL + pullT * (PITCH_MAX - HARD_TURN_MIN_PULL);
+        this.applyPitchImmediate(pull);
+
+        // Overspeed guard still applies during hard turns.
+        const over = this.aircraft.getAirspeed() - this.maxSpeed;
+        if (over > 0) {
+            const floor = clamp(over * OVERSPEED_ELEV_GAIN, 0, OVERSPEED_ELEV_MAX);
+            this.applyPitchImmediate(Math.max(pull, floor));
+        }
+
+        this.commandSpeed(desiredSpeed, delta);
+        return true;
     }
 
     /**
@@ -680,18 +776,20 @@ export class AiPilot {
 
         this.target.readPosition(this.tpos);
         this.target.readVelocity(this.tvel);
+        this.updateTargetAcceleration(delta);
         this.toPoint.copy(this.tpos).sub(this.pos);
         const range = this.toPoint.length();
 
         // Shared per-frame BFM geometry (see dogfightGeometry.ts for definitions).
         const closure = closureRate(this.pos, this.vel, this.tpos, this.tvel);
         const theirTrackingAngle = trackingAngle(this.tpos, this.tvel, this.pos);
+        const myAspectOnTarget = trackingAngle(this.pos, this.vel, this.tpos);
         const ao = angleOff(this.vel, this.tvel);
         const myEnergy = specificEnergyHeight(this.pos.y, this.vel.length());
         const theirEnergy = specificEnergyHeight(this.tpos.y, this.tvel.length());
         const energyDeficit = theirEnergy - myEnergy;
 
-        this.updateDogfightMode(delta, range, closure, ao, theirTrackingAngle, energyDeficit);
+        this.updateDogfightMode(delta, range, closure, ao, theirTrackingAngle, myAspectOnTarget, energyDeficit);
 
         switch (this.dogfightMode) {
             case DogfightMode.DEFENSIVE_BREAK: this.doDefensiveBreak(delta); break;
@@ -708,6 +806,7 @@ export class AiPilot {
         if (this.dogfightMode !== DogfightMode.PURSUE && this.dogfightMode !== DogfightMode.LAG_PURSUE) {
             this.firing = false;
         }
+        this.hadSolution = this.firing;
     }
 
     /**
@@ -716,14 +815,22 @@ export class AiPilot {
      * energy deficit (rebuild before fighting on), then the timed vertical
      * repositioning maneuvers, then the steady-state pursuit style.
      */
-    private updateDogfightMode(delta: number, range: number, closure: number, ao: number, theirTrackingAngle: number, energyDeficit: number): void {
+    private updateDogfightMode(
+        delta: number, range: number, closure: number, ao: number,
+        theirTrackingAngle: number, myAspectOnTarget: number, energyDeficit: number,
+    ): void {
         const theirThreatRange = this.gunRange * DEFENSIVE_RANGE_MULT;
         const theirClearRange = this.gunRange * DEFENSIVE_CLEAR_RANGE_MULT;
-        const underThreat = theirTrackingAngle <= DEFENSIVE_AOT_THRESHOLD && range <= theirThreatRange;
+        const targetInRearHemisphere = myAspectOnTarget >= DEFENSIVE_REAR_HEMISPHERE;
+        const underThreat = targetInRearHemisphere
+            && theirTrackingAngle <= DEFENSIVE_AOT_THRESHOLD
+            && range <= theirThreatRange;
         this.threatTimer = underThreat ? this.threatTimer + delta : 0;
 
         if (this.dogfightMode === DogfightMode.DEFENSIVE_BREAK) {
-            if (theirTrackingAngle > DEFENSIVE_CLEAR_AOT || range > theirClearRange) {
+            if (theirTrackingAngle > DEFENSIVE_CLEAR_AOT
+                || range > theirClearRange
+                || myAspectOnTarget < DEFENSIVE_REAR_CLEAR) {
                 this.setDogfightMode(DogfightMode.PURSUE);
             }
             return;
@@ -757,9 +864,10 @@ export class AiPilot {
             }
             return;
         }
-        if (range <= YOYO_RANGE_TRIGGER && closure >= YOYO_CLOSURE_TRIGGER) {
+        if (range <= YOYO_RANGE_TRIGGER && closure >= YOYO_CLOSURE_TRIGGER && !this.hadSolution) {
             // Closing fast at short range: about to blow past the target. Bleed
-            // the overtake in the vertical rather than tightening the turn.
+            // the overtake in the vertical rather than tightening the turn —
+            // but not if we already have a guns solution this pass.
             this.setDogfightMode(DogfightMode.HIGH_YOYO);
             return;
         }
@@ -791,6 +899,46 @@ export class AiPilot {
         }
     }
 
+    /** Finite-difference + low-pass the target's acceleration for lead prediction. */
+    private updateTargetAcceleration(delta: number): void {
+        if (this.hasPrevTvel && delta > 1e-4) {
+            const ax = (this.tvel.x - this.prevTvel.x) / delta;
+            const ay = (this.tvel.y - this.prevTvel.y) / delta;
+            const az = (this.tvel.z - this.prevTvel.z) / delta;
+            const mag = Math.hypot(ax, ay, az);
+            const scale = mag > TARGET_ACCEL_CAP ? TARGET_ACCEL_CAP / mag : 1;
+            this.targetAcc.x += (ax * scale - this.targetAcc.x) * TARGET_ACCEL_EMA;
+            this.targetAcc.y += (ay * scale - this.targetAcc.y) * TARGET_ACCEL_EMA;
+            this.targetAcc.z += (az * scale - this.targetAcc.z) * TARGET_ACCEL_EMA;
+        } else {
+            this.targetAcc.set(0, 0, 0);
+        }
+        this.prevTvel.copy(this.tvel);
+        this.hasPrevTvel = true;
+    }
+
+    /** Compute a ballistic gun-lead aim point into `this.aim`; returns tof (s). */
+    private computeBallisticAim(): number {
+        this.lastTof = ballisticAimPoint(
+            this.aim, this.pos, this.vel, this.tpos, this.tvel, this.targetAcc, this.bulletSpeed,
+        );
+        this.clampAimToHardDeck();
+        return this.lastTof;
+    }
+
+    /** Would the current nose direction produce a hit at `range`? */
+    private evaluateFireSolution(range: number): boolean {
+        if (!this.target || range > this.gunRange || range < 1) {
+            return false;
+        }
+        this.bulletVel.copy(this.fwd).multiplyScalar(this.bulletSpeed).add(this.vel);
+        const miss = predictedMissDistance(
+            this.pos, this.bulletVel, this.tpos, this.tvel, this.targetAcc, this.lastTof,
+        );
+        const allowance = this.target.getHitRadius() * this.skillTuning.missAllowanceMult + FIRE_MISS_SLACK_M;
+        return miss <= allowance;
+    }
+
     /**
      * Pick a pursuit airspeed that keeps turn radius tight. High combat speed
      * with small bank changes is what produced the easy-to-trail lazy circles.
@@ -806,30 +954,34 @@ export class AiPilot {
         return this.combatSpeed;
     }
 
-    /** Turn/pitch toward `this.aim`, hold `desiredSpeed`, and fire if the nose is on and in range. */
+    /** Turn/pitch toward `this.aim`, hold `desiredSpeed`, and fire on a predicted hit. */
     private steerAtAimAndFire(delta: number, range: number, desiredSpeed: number, maxBank: number = MAX_BANK_COMBAT): void {
         this.toPoint.copy(this.aim).sub(this.pos);
-        const horiz = Math.hypot(this.toPoint.x, this.toPoint.z);
-        let desiredHeading = Math.atan2(this.toPoint.x, this.toPoint.z);
-        desiredHeading = this.avoidObstacles(desiredHeading);
-        const desiredElev = Math.atan2(this.toPoint.y, horiz);
+        const aimDist = this.toPoint.length();
+        if (aimDist < 1e-3) {
+            this.firing = false;
+            return;
+        }
+        this.aimDir.copy(this.toPoint).divideScalar(aimDist);
 
-        this.commandHeading(desiredHeading, maxBank);
-        this.commandElevation(desiredElev);
-        this.commandSpeed(desiredSpeed, delta);
+        const turnSpeed = desiredSpeed;
+        if (!this.commandHardTurn(this.aimDir, delta, turnSpeed)) {
+            const horiz = Math.hypot(this.toPoint.x, this.toPoint.z);
+            let desiredHeading = Math.atan2(this.toPoint.x, this.toPoint.z);
+            desiredHeading = this.avoidObstacles(desiredHeading);
+            const desiredElev = Math.atan2(this.toPoint.y, horiz);
 
-        this.toPoint.normalize();
-        const aimDot = clamp(this.fwd.dot(this.toPoint), -1, 1);
-        const aimAngle = Math.acos(aimDot);
-        this.firing = range <= this.gunRange && aimAngle <= this.gunConeRad;
+            this.commandHeading(desiredHeading, maxBank);
+            this.commandElevation(desiredElev);
+            this.commandSpeed(desiredSpeed, delta);
+        }
+
+        this.firing = this.evaluateFireSolution(range);
     }
 
     /** Straight lead-pursuit intercept — the default, common case. */
     private doPursue(delta: number, range: number, ao: number): void {
-        const tof = range / this.bulletSpeed;
-        this.aim.copy(this.tvel).multiplyScalar(tof).add(this.tpos);
-        this.clampAimToHardDeck();
-
+        this.computeBallisticAim();
         this.steerAtAimAndFire(delta, range, this.combatTurnSpeed(range, ao));
     }
 
@@ -840,15 +992,13 @@ export class AiPilot {
      * unreachable lead point.
      */
     private doLagPursue(delta: number, range: number, ao: number): void {
-        const tof = range / this.bulletSpeed;
-        this.aim.copy(this.tvel).multiplyScalar(tof).add(this.tpos);
+        this.computeBallisticAim();
 
         const span = Math.max(1e-3, Math.PI - LAG_ANGLE_OFF_TRIGGER);
         const blend = clamp((ao - LAG_ANGLE_OFF_TRIGGER) / span, 0, LAG_BLEND_MAX);
         this.aim.lerp(this.tpos, blend);
         this.clampAimToHardDeck();
 
-        // Lag with corner speed — still cut the circle, just not as hard as pure lead.
         this.steerAtAimAndFire(delta, range, this.combatTurnSpeed(range, ao));
     }
 
@@ -858,9 +1008,7 @@ export class AiPilot {
      * Does not track/fire — this is a repositioning maneuver.
      */
     private doHighYoYo(delta: number, range: number): void {
-        const tof = range / this.bulletSpeed;
-        this.aim.copy(this.tvel).multiplyScalar(tof).add(this.tpos);
-        this.clampAimToHardDeck();
+        this.computeBallisticAim();
 
         this.toPoint.copy(this.aim).sub(this.pos);
         const horiz = Math.hypot(this.toPoint.x, this.toPoint.z);
@@ -868,9 +1016,18 @@ export class AiPilot {
         desiredHeading = this.avoidObstacles(desiredHeading);
         const desiredElev = Math.atan2(this.toPoint.y, horiz) + HIGH_YOYO_PITCH_BONUS;
 
-        this.commandHeading(desiredHeading, MAX_BANK_COMBAT * HIGH_YOYO_MAX_BANK_MULT);
-        this.commandElevation(desiredElev);
-        this.commandSpeed(this.combatSpeed, delta);
+        const aimDist = this.toPoint.length();
+        if (aimDist > 1e-3) {
+            this.aimDir.copy(this.toPoint).divideScalar(aimDist);
+            // Bias the hard-turn direction slightly above the aim for the yo-yo.
+            this.aimDir.y += Math.sin(HIGH_YOYO_PITCH_BONUS) * 0.3;
+            this.aimDir.normalize();
+            if (!this.commandHardTurn(this.aimDir, delta, this.combatSpeed)) {
+                this.commandHeading(desiredHeading, MAX_BANK_COMBAT * HIGH_YOYO_MAX_BANK_MULT);
+                this.commandElevation(desiredElev);
+                this.commandSpeed(this.combatSpeed, delta);
+            }
+        }
     }
 
     /**
@@ -879,9 +1036,7 @@ export class AiPilot {
      * Does not track/fire — this is a repositioning maneuver.
      */
     private doLowYoYo(delta: number, range: number): void {
-        const tof = range / this.bulletSpeed;
-        this.aim.copy(this.tvel).multiplyScalar(tof).add(this.tpos);
-        this.clampAimToHardDeck();
+        this.computeBallisticAim();
 
         this.toPoint.copy(this.aim).sub(this.pos);
         const horiz = Math.hypot(this.toPoint.x, this.toPoint.z);
@@ -889,9 +1044,15 @@ export class AiPilot {
         desiredHeading = this.avoidObstacles(desiredHeading);
         const desiredElev = Math.atan2(this.toPoint.y, horiz) - LOW_YOYO_PITCH_DROP;
 
-        this.commandHeading(desiredHeading, MAX_BANK_COMBAT);
-        this.commandElevation(desiredElev);
-        this.commandSpeed(this.maxSpeed, delta); // accept the extra speed the dive builds
+        const aimDist = this.toPoint.length();
+        if (aimDist > 1e-3) {
+            this.aimDir.copy(this.toPoint).divideScalar(aimDist);
+            if (!this.commandHardTurn(this.aimDir, delta, this.maxSpeed)) {
+                this.commandHeading(desiredHeading, MAX_BANK_COMBAT);
+                this.commandElevation(desiredElev);
+                this.commandSpeed(this.maxSpeed, delta);
+            }
+        }
     }
 
     /**
@@ -905,11 +1066,13 @@ export class AiPilot {
         const bearingOff = wrapPi(bearing - this.heading);
         const breakHeading = this.heading + Math.sign(bearingOff || 1) * (Math.PI / 2);
 
-        this.commandHeading(breakHeading, MAX_BANK_COMBAT);
-        // Slight nose-up loaded break: higher instantaneous turn rate than a
-        // level break, and harder for the attacker to stay in the saddle.
-        this.commandElevation(12 * Math.PI / 180);
-        this.commandSpeed(CORNER_SPEED, delta);
+        // Hard break into the threat: roll and pull for max instantaneous turn rate.
+        this.aimDir.set(Math.sin(breakHeading), 0.15, Math.cos(breakHeading)).normalize();
+        if (!this.commandHardTurn(this.aimDir, delta, CORNER_SPEED)) {
+            this.commandHeading(breakHeading, MAX_BANK_COMBAT);
+            this.commandElevation(12 * Math.PI / 180);
+            this.commandSpeed(CORNER_SPEED, delta);
+        }
     }
 
     /**
