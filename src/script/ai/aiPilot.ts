@@ -169,11 +169,11 @@ const TERRAIN_LOOKAHEAD_S = 8;               // predictive GPWS horizon (s)
 // The heading/elevation cascade is a cruise autopilot (~2 g). Whenever the aim
 // point is far off the nose the AI flies a proper BFM turn instead: roll toward
 // max bank, pull near the pitch limit, hand back to fine tracking once aligned.
-const HARD_TURN_ENTER = 20 * Math.PI / 180;
-const HARD_TURN_EXIT = 12 * Math.PI / 180;
-const HARD_TURN_FULL_PULL_ANGLE = 60 * Math.PI / 180;
-const HARD_TURN_MIN_PULL = 0.15;
-const HARD_TURN_BANK_GAIN = 4.0;             // stronger bank command than the cruise loop
+const HARD_TURN_ENTER = 8 * Math.PI / 180;
+const HARD_TURN_EXIT = 5 * Math.PI / 180;
+const HARD_TURN_FULL_PULL_ANGLE = 45 * Math.PI / 180;
+const HARD_TURN_MIN_PULL = 0.45;
+const HARD_TURN_BANK_GAIN = 5.5;
 const REVERSAL_LATCH_ENTER = 150 * Math.PI / 180;
 const REVERSAL_LATCH_RELEASE = 110 * Math.PI / 180;
 
@@ -192,8 +192,8 @@ const DEFENSIVE_REAR_CLEAR = 75 * Math.PI / 180;
 const DEFENSIVE_RANGE_MULT = 1.2;
 const DEFENSIVE_CLEAR_RANGE_MULT = 1.5;
 
-const YOYO_RANGE_TRIGGER = 500;              // only worry about overshoot inside this range (m)
-const YOYO_CLOSURE_TRIGGER = 60;             // closure rate (m/s) that risks an overshoot
+const YOYO_RANGE_TRIGGER = 350;
+const YOYO_CLOSURE_TRIGGER = 90;
 const HIGH_YOYO_PITCH_BONUS = 25 * Math.PI / 180;  // extra nose-up bias during a high yo-yo
 const HIGH_YOYO_DURATION = 3.0;              // s, runs to completion once triggered
 const HIGH_YOYO_MAX_BANK_MULT = 0.6;         // reduced bank during a high yo-yo (repositioning, not tracking)
@@ -206,8 +206,8 @@ const LOW_YOYO_DURATION = 2.5;               // s
 // Stay in aggressive lead pursuit longer — lag pursuit was flying large circles
 // instead of cutting inside to get guns on. Only lag when the lead point is truly
 // unflyable (near reverse).
-const LAG_ANGLE_OFF_TRIGGER = 100 * Math.PI / 180;
-const LAG_BLEND_MAX = 0.4;                   // still bias toward the target, not a lazy lag circle
+const LAG_ANGLE_OFF_TRIGGER = 125 * Math.PI / 180;
+const LAG_BLEND_MAX = 0.55;
 
 const EXTEND_MIN_DURATION = 2.0;             // s, avoids instantly flip-flopping back into a losing fight
 const EXTEND_RECOVER_MARGIN = 150;           // resume pursuit once within this much of the target's energy (m)
@@ -836,7 +836,11 @@ export class AiPilot {
             return;
         }
         if (this.threatTimer >= this.skillTuning.defensiveReactTime) {
-            this.setDogfightMode(DogfightMode.DEFENSIVE_BREAK);
+            // Relentless opponents press the attack even under mild pressure; only
+            // break when the bandit is clearly on their six, not on a neutral merge.
+            if (!this.alwaysEngage || myAspectOnTarget >= 120 * Math.PI / 180) {
+                this.setDogfightMode(DogfightMode.DEFENSIVE_BREAK);
+            }
             return;
         }
 
@@ -857,6 +861,10 @@ export class AiPilot {
         }
 
         if (this.dogfightMode === DogfightMode.HIGH_YOYO || this.dogfightMode === DogfightMode.LOW_YOYO) {
+            if (this.alwaysEngage) {
+                this.setDogfightMode(DogfightMode.PURSUE);
+                return;
+            }
             this.maneuverTimer += delta;
             const duration = this.dogfightMode === DogfightMode.HIGH_YOYO ? HIGH_YOYO_DURATION : LOW_YOYO_DURATION;
             if (this.maneuverTimer >= duration) {
@@ -864,7 +872,7 @@ export class AiPilot {
             }
             return;
         }
-        if (range <= YOYO_RANGE_TRIGGER && closure >= YOYO_CLOSURE_TRIGGER && !this.hadSolution) {
+        if (!this.alwaysEngage && range <= YOYO_RANGE_TRIGGER && closure >= YOYO_CLOSURE_TRIGGER && !this.hadSolution) {
             // Closing fast at short range: about to blow past the target. Bleed
             // the overtake in the vertical rather than tightening the turn —
             // but not if we already have a guns solution this pass.
@@ -873,7 +881,7 @@ export class AiPilot {
         }
         // Energy edge and a turn too tight to lead-pursue: dive across the
         // circle instead of trying (and failing) to out-turn them level.
-        if (-energyDeficit >= LOW_YOYO_ENERGY_EDGE && ao >= LOW_YOYO_ANGLE_OFF_TRIGGER) {
+        if (!this.alwaysEngage && -energyDeficit >= LOW_YOYO_ENERGY_EDGE && ao >= LOW_YOYO_ANGLE_OFF_TRIGGER) {
             this.setDogfightMode(DogfightMode.LOW_YOYO);
             return;
         }
@@ -936,7 +944,8 @@ export class AiPilot {
             this.pos, this.bulletVel, this.tpos, this.tvel, this.targetAcc, this.lastTof,
         );
         const allowance = this.target.getHitRadius() * this.skillTuning.missAllowanceMult + FIRE_MISS_SLACK_M;
-        return miss <= allowance;
+        const aggressiveSlack = this.alwaysEngage ? allowance * 1.35 : allowance;
+        return miss <= aggressiveSlack;
     }
 
     /**
@@ -944,6 +953,11 @@ export class AiPilot {
      * with small bank changes is what produced the easy-to-trail lazy circles.
      */
     private combatTurnSpeed(range: number, ao: number): number {
+        if (this.alwaysEngage) {
+            if (range < 500 || ao >= 25 * Math.PI / 180) {
+                return Math.min(CORNER_SPEED, this.combatSpeed > CORNER_SPEED ? CORNER_SPEED : this.combatSpeed * 0.95);
+            }
+        }
         if (range < 250) {
             return Math.min(this.combatSpeed * 0.65, CORNER_SPEED);
         }
@@ -965,6 +979,10 @@ export class AiPilot {
         this.aimDir.copy(this.toPoint).divideScalar(aimDist);
 
         const turnSpeed = desiredSpeed;
+        const aimAngle = Math.acos(clamp(this.fwd.dot(this.aimDir), -1, 1));
+        if (this.alwaysEngage && aimAngle > 3 * Math.PI / 180) {
+            this.hardTurnActive = true;
+        }
         if (!this.commandHardTurn(this.aimDir, delta, turnSpeed)) {
             const horiz = Math.hypot(this.toPoint.x, this.toPoint.z);
             let desiredHeading = Math.atan2(this.toPoint.x, this.toPoint.z);
@@ -1064,6 +1082,18 @@ export class AiPilot {
         this.toPoint.copy(this.tpos).sub(this.pos);
         const bearing = Math.atan2(this.toPoint.x, this.toPoint.z);
         const bearingOff = wrapPi(bearing - this.heading);
+
+        if (this.alwaysEngage) {
+            // Scissors into the threat instead of breaking 90° away — stay offensive.
+            this.aimDir.set(Math.sin(bearing), 0.12, Math.cos(bearing)).normalize();
+            if (!this.commandHardTurn(this.aimDir, delta, CORNER_SPEED)) {
+                this.commandHeading(bearing, MAX_BANK_COMBAT);
+                this.commandElevation(15 * Math.PI / 180);
+                this.commandSpeed(CORNER_SPEED, delta);
+            }
+            return;
+        }
+
         const breakHeading = this.heading + Math.sign(bearingOff || 1) * (Math.PI / 2);
 
         // Hard break into the threat: roll and pull for max instantaneous turn rate.
