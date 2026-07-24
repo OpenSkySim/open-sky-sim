@@ -1080,13 +1080,10 @@ export class Game {
                 : resolution === DisplayResolution.HI_RES ? MAP_RENDER_TARGET_HI
                     : MAP_RENDER_TARGET_HD;
             const nightVisionPalette = this.player.nightVision ? this.configService.techProfiles.getActive().nightVisionPalette : undefined;
-            // Interleave map/target MFD refreshes, and freeze both while stick
-            // keys are held — target MFD rebuild alone was still ~55ms and felt
-            // like a pause until keyup.
+            // Interleave map/target MFD refreshes so both never rebuild in one frame.
             const slot = this.targetMfdFrame++ % 4;
-            const stickHeld = this.player.flightStickKeysHeld;
-            const refreshMap = !stickHeld && (slot === 0 || slot === 2);
-            const refreshTargetMfd = !stickHeld && slot === 1;
+            const refreshMap = slot === 0 || slot === 2;
+            const refreshTargetMfd = slot === 1;
             for (let i = 0; i < layers.length; i++) {
                 const layer = layers[i];
                 if (layer.target === weaponsTargetId) {
