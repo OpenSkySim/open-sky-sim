@@ -918,9 +918,6 @@ export class PlayerEntity implements Entity {
         return !this.simulationPaused;
     }
 
-    /** True while a keyboard flight-stick key (pitch/roll/yaw) is physically held. */
-    flightStickKeysHeld = false;
-
     setRoll(roll: number) {
         this.roll = roll;
     }

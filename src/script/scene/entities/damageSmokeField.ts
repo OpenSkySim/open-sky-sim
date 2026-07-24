@@ -12,9 +12,9 @@ import { Scene, SceneLayers } from '../scene';
 import { clamp, lerp } from '../../utils/math';
 
 /** Steady upward rise (m/s). */
-const RISE_MPS = 10;
+const RISE_MPS = 20;
 /** Small random horizontal drift (m/s). */
-const DRIFT_MPS = 0.75;
+const DRIFT_MPS = 0.9;
 /** How long a leak keeps emitting after the last hit while still alive (s). */
 const LEAK_EMIT_DURATION_SEC = 14;
 /** Base emit rate at low speed (puffs/s). */
@@ -27,12 +27,16 @@ const MAX_LEAKS = 8;
 const MAX_HITS_PER_FRAME = 6;
 
 const FLAME_DITHER = 0.75;
-const SMOKE_DITHER_START = 0.7;
-const SMOKE_DITHER_END = 0.12;
+const SMOKE_DITHER_START = 0.72;
+/** End of puff — sparse stipple so the column fades to light haze. */
+const SMOKE_DITHER_END = 0.08;
 /**
- * Life fraction still on fire (yellow→red). After this the puff is gray smoke.
+ * Life fraction still on fire (yellow→red). Kept short so longer puff life
+ * mostly adds gray smoke, not more flame.
  */
-const FIRE_PHASE_END = 0.28;
+const FIRE_PHASE_END = 0.12;
+/** How much of the start→end size growth happens during the fire phase. */
+const FIRE_SIZE_GROWTH = 0.1;
 
 export type DamageSmokePose = {
     position: THREE.Vector3;
@@ -91,12 +95,12 @@ export class DamageSmokeField implements Entity {
                 systemMaxParticles: DAMAGE_SMOKE_PARTICLE_COUNT,
                 systemReSpawn: true,
                 emitterSpawnRatePerSecond: 0,
-                particleLifeMin: 8,
-                particleLifeMax: 12,
+                particleLifeMin: 22,
+                particleLifeMax: 30,
                 particleSizeStartMin: 0.8,
                 particleSizeStartMax: 1.3,
-                particleSizeEndMin: 2.5,
-                particleSizeEndMax: 4,
+                particleSizeEndMin: 16,
+                particleSizeEndMax: 24,
                 particleRotationStartMin: -Math.PI,
                 particleRotationStartMax: Math.PI,
                 particleRotationEndMin: -Math.PI * 1.2,
@@ -380,20 +384,19 @@ export class DamageSmokeField implements Entity {
             const p = this.system.particles[i];
             // spawns bumps on every activation — catches recycled slots that stay "was active".
             if (p.isActive && p.spawns !== prevSpawns[i]) {
-                // Absolute plume motion — rise + light sideways wind, no aircraft inherit.
+                // Same plume behaviour in-flight and on the wreck: rise, drift,
+                // long smoke life, widen, dither out to zero.
                 p.velocity.set(
-                    (Math.random() * 2 - 1) * DRIFT_MPS * (crashed ? 1.4 : 1),
+                    (Math.random() * 2 - 1) * DRIFT_MPS,
                     RISE_MPS * (0.9 + Math.random() * 0.2),
-                    (Math.random() * 2 - 1) * DRIFT_MPS * (crashed ? 1.4 : 1),
+                    (Math.random() * 2 - 1) * DRIFT_MPS,
                 );
+                p.lifespan = 22 + Math.random() * 8;
                 if (crashed) {
-                    p.lifespan = 14 + Math.random() * 6;
+                    // Slightly larger origin on the ground fire only.
                     p.sizeStart = Math.max(p.sizeStart, 2.2 + Math.random() * 1.2);
-                    p.sizeEnd = 7 + Math.random() * 4;
-                } else {
-                    // Longer-lived trail puffs (on top of system defaults).
-                    p.lifespan = Math.max(p.lifespan, 8 + Math.random() * 4);
                 }
+                p.sizeEnd = 16 + Math.random() * 8;
             }
         }
     }
@@ -408,7 +411,13 @@ export class DamageSmokeField implements Entity {
                 continue;
             }
             const progress = p.life / p.lifespan;
-            const size = p.sizeStart + (p.sizeEnd - p.sizeStart) * progress;
+            // Most widening happens after the flame dies — smoke billows out.
+            const sizeT = progress < FIRE_PHASE_END
+                ? (progress / FIRE_PHASE_END) * FIRE_SIZE_GROWTH
+                : FIRE_SIZE_GROWTH
+                    + (1 - FIRE_SIZE_GROWTH)
+                    * ((progress - FIRE_PHASE_END) / (1 - FIRE_PHASE_END));
+            const size = p.sizeStart + (p.sizeEnd - p.sizeStart) * sizeT;
             mesh.visible = true;
             mesh.position.copy(p.position);
             mesh.scale.setScalar(size);
@@ -419,9 +428,8 @@ export class DamageSmokeField implements Entity {
             const u = (mesh.material as THREE.ShaderMaterial).uniforms as SceneMaterialUniforms;
             u.color.value.copy(this.tmpColor);
             u.colorSecondary.value.copy(this.tmpColorB);
-            u.alphaDither.value = progress < FIRE_PHASE_END
-                ? FLAME_DITHER
-                : lerp((progress - FIRE_PHASE_END) / (1 - FIRE_PHASE_END), SMOKE_DITHER_START, SMOKE_DITHER_END);
+            // Steady dissolve over the whole puff life — 0.72 → 0.08 (light haze).
+            u.alphaDither.value = lerp(progress, SMOKE_DITHER_START, SMOKE_DITHER_END);
 
             mesh.lookAt(camera.position);
             mesh.rotateZ(p.rotationStart + (p.rotationEnd - p.rotationStart) * progress);
@@ -430,7 +438,7 @@ export class DamageSmokeField implements Entity {
 
     render3D(_targetWidth: number, _targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
         this.syncPuffs(camera, palette);
-        const list = lists.get(SceneLayers.EntityFlats) || lists.get(SceneLayers.EntityFX);
+        const list = lists.get(SceneLayers.EntityFX);
         if (!list) {
             return;
         }
