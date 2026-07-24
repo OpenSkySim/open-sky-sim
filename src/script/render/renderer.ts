@@ -6,6 +6,7 @@ import { assertExpr, assertIsDefined } from '../utils/asserts';
 import { getOverlayLayout, getOverlayStrokeWidth } from '../scene/entities/overlay/overlayUtils';
 import { CanvasPainter } from './screen/canvasPainter';
 import { TextEffect } from './screen/text';
+import { beginRenderListPass, pruneRenderList } from './renderList';
 
 export interface RendererOptions {
     textColors?: string[];
@@ -58,17 +59,9 @@ export class Renderer {
     private renderLists: Map<string, THREE.Scene>;
     private current3DRenderLists: Map<string, THREE.Scene> = new Map();
     private current2DRenderLists: Set<string> = new Set();
-    /** Scratch scene: merge same-camera lists into one WebGL submit. */
+    /** Parent of layer list scenes for a single same-camera WebGL submit. */
     private readonly mergedListScene = new THREE.Scene();
-    // #region agent log
-    private _dbgFrame = 0;
-    private _dbgWebglSubmits = 0;
-    private _dbgListsMerged = 0;
-    private _dbgListsWouldHaveBeen = 0;
-    private _dbgDrawCalls = 0;
-    private _dbgUseMerged = true;
-    private _dbgPhase: 'baseline' | 'merged' = 'baseline';
-    // #endregion
+    private renderListGeneration = 0;
 
     constructor(private materials: SceneMaterialManager, private composeWidth: number, private composeHeight: number, palette: Palette) {
         const container = document.getElementById('container');
@@ -164,25 +157,6 @@ export class Renderer {
     }
 
     render(scene: Scene, renderLayers: RenderLayer[]) {
-        // #region agent log
-        const _dbgT0 = performance.now();
-        this._dbgWebglSubmits = 0;
-        this._dbgListsMerged = 0;
-        this._dbgListsWouldHaveBeen = 0;
-        this._dbgDrawCalls = 0;
-        // Warmup 30 frames, then ~3s baseline (old multi-submit), then merged.
-        this._dbgFrame++;
-        if (this._dbgFrame < 30) {
-            this._dbgUseMerged = false;
-            this._dbgPhase = 'baseline';
-        } else if (this._dbgFrame < 210) {
-            this._dbgUseMerged = false;
-            this._dbgPhase = 'baseline';
-        } else {
-            this._dbgUseMerged = true;
-            this._dbgPhase = 'merged';
-        }
-        // #endregion
 
         let prevPalette = this.palette;
         this.materials.setPalette(this.palette);
@@ -218,14 +192,6 @@ export class Renderer {
         this.renderer.setClearColor('#000000');
         this.renderer.clear();
         this.renderer.render(this.composeScene, this.composeCamera);
-        // #region agent log
-        this._dbgWebglSubmits++;
-        this._dbgDrawCalls += this.renderer.info.render.calls;
-        if (this._dbgFrame % 30 === 0 && this._dbgFrame >= 30) {
-            const ms = performance.now() - _dbgT0;
-            fetch('http://127.0.0.1:7537/ingest/0cb546c4-9d8e-4b0c-bf3b-82898b4440ec',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ea1f5d'},body:JSON.stringify({sessionId:'ea1f5d',runId:'list-merge-ab',hypothesisId:'collapse-lists',location:'renderer.ts:render',message:'frame render A/B',data:{frame:this._dbgFrame,phase:this._dbgPhase,useMerged:this._dbgUseMerged,ms:Math.round(ms*100)/100,webglSubmits:this._dbgWebglSubmits,listsWouldHaveBeen:this._dbgListsWouldHaveBeen,listsMergedAway:this._dbgListsMerged,drawCalls:this._dbgDrawCalls},timestamp:Date.now()})}).catch(()=>{});
-        }
-        // #endregion
     }
 
     prepareRenderTarget(target: string, palette: Palette, clear: boolean = true): RenderTarget {
@@ -265,52 +231,40 @@ export class Renderer {
             }
         }
 
+        this.renderListGeneration++;
         this.current3DRenderLists.clear();
         for (const listId of layer.lists) {
             const list = this.renderLists.get(listId);
             assertIsDefined(list);
-            list.clear();
+            beginRenderListPass(list, this.renderListGeneration);
             this.current3DRenderLists.set(listId, list);
         }
         scene.buildRenderLists(renderTarget.width, renderTarget.height, layer.camera, this.current3DRenderLists, palette);
-
-        // #region agent log
-        this._dbgListsWouldHaveBeen += layer.lists.length;
-        // #endregion
-
-        // Same camera for all lists in a layer: one WebGL submit preserves
-        // Terrain → Flats → Volumes → FX order (sortObjects is false).
-        // #region agent log
-        const useMerged = this._dbgUseMerged && layer.lists.length > 1;
-        // #endregion
-        if (useMerged) {
-            this.mergedListScene.clear();
-            for (const listId of layer.lists) {
-                const list = this.current3DRenderLists.get(listId);
-                assertIsDefined(list);
-                const children = list.children;
-                while (children.length > 0) {
-                    this.mergedListScene.add(children[0]);
-                }
-            }
-            this.renderer.render(this.mergedListScene, layer.camera);
-            // #region agent log
-            this._dbgWebglSubmits++;
-            this._dbgListsMerged += layer.lists.length - 1;
-            this._dbgDrawCalls += this.renderer.info.render.calls;
-            // #endregion
-            return;
-        }
-
         for (const listId of layer.lists) {
             const list = this.current3DRenderLists.get(listId);
             assertIsDefined(list);
-            this.renderer.render(list, layer.camera);
-            // #region agent log
-            this._dbgWebglSubmits++;
-            this._dbgDrawCalls += this.renderer.info.render.calls;
-            // #endregion
+            pruneRenderList(list);
         }
+
+        // Same camera for all lists in a layer: one WebGL submit. Parent the
+        // list scenes (keep their children) so Terrain → Flats → Volumes → FX
+        // order is preserved with sortObjects = false.
+        if (layer.lists.length > 1) {
+            for (const listId of layer.lists) {
+                const list = this.current3DRenderLists.get(listId);
+                assertIsDefined(list);
+                this.mergedListScene.add(list);
+            }
+            this.renderer.render(this.mergedListScene, layer.camera);
+            while (this.mergedListScene.children.length > 0) {
+                this.mergedListScene.remove(this.mergedListScene.children[0]);
+            }
+            return;
+        }
+
+        const only = this.current3DRenderLists.get(layer.lists[0]);
+        assertIsDefined(only);
+        this.renderer.render(only, layer.camera);
     }
 
     render2D(renderTarget: CanvasRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette) {

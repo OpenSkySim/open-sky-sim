@@ -3,6 +3,7 @@ import { PaletteCategory } from '../../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/materials';
 import { updateUniforms } from '../utils';
 import { ForceVectorKind, ForceVectorSample } from '../../physics/model/flightModel';
+import { attachToRenderList } from '../../render/renderList';
 
 /** Metres of arrow drawn per newton of force. Tunable for legibility. */
 const FORCE_SCALE = 0.0004;
@@ -152,6 +153,6 @@ export class AircraftForceVectors {
         if (!list) {
             return;
         }
-        list.add(this.root);
+        attachToRenderList(list, this.root);
     }
 }

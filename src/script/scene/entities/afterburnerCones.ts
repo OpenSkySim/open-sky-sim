@@ -4,6 +4,7 @@ import { F16ThrottleZone, getF16ThrottleZone } from '../../physics/f16Engine';
 import { PaletteCategory } from '../../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType, SceneMaterialUniforms } from '../materials/materials';
 import { updateUniforms } from '../utils';
+import { attachToRenderList } from '../../render/renderList';
 
 /**
  * Default twin nozzle origins in aircraft body space (+Z forward, exhaust −Z).
@@ -253,7 +254,7 @@ export class AfterburnerCones {
         }
         for (const root of this.plumeRoots) {
             if (root.visible) {
-                list.add(root);
+                attachToRenderList(list, root);
             }
         }
     }

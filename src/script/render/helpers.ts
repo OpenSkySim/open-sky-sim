@@ -6,6 +6,7 @@ import { ParticleSystem } from '../physics/particles/particleSystem';
 import { lerp } from '../utils/math';
 import { PARTICLE_MESH_ATTR_COLOR, PARTICLE_MESH_ATTR_OFFSET, PARTICLE_MESH_ATTR_ROTATION, PARTICLE_MESH_ATTR_SCALE } from '../scene/models/lib/particleMeshModelBuilder';
 import { SceneMaterialData } from '../scene/materials/materials';
+import { attachToRenderList } from './renderList';
 
 
 export function visibleWidthAtDistance(camera: THREE.PerspectiveCamera, position: number | THREE.Vector3): number {
@@ -29,13 +30,23 @@ enum PlaybackStatus {
     STOPPED
 }
 
+type LodAttachCache = {
+    lodLevel: number;
+    paletteTime: Palette['time'] | undefined;
+    hasAnim: boolean;
+};
+
 export class LODHelper {
 
     private elapsed: number = 0;
 
     private objFlats: THREE.Object3D = new THREE.Object3D();
     private objVolumes: THREE.Object3D = new THREE.Object3D();
+    private objFlatsAnim: THREE.Object3D = new THREE.Object3D();
     private objVolumesAnim: THREE.Object3D = new THREE.Object3D();
+
+    private flatsCache: LodAttachCache = { lodLevel: -1, paletteTime: undefined, hasAnim: false };
+    private volumesCache: LodAttachCache = { lodLevel: -1, paletteTime: undefined, hasAnim: false };
 
     private animActions: THREE.AnimationAction[] = [];
     private animMixers: THREE.AnimationMixer[] = [];
@@ -133,45 +144,62 @@ export class LODHelper {
         if (lodLevel >= this.model.lod.length) return;
 
         if (hasFlats && this.model.lod[lodLevel].flats.length > 0) {
-            this.subRender(position, quaternion, scale, this.objFlats, this.objVolumesAnim, this.model.lod[lodLevel].flats, flatsId, lists, palette);
+            this.subRender(
+                position, quaternion, scale,
+                this.objFlats, this.objFlatsAnim, this.model.lod[lodLevel].flats,
+                flatsId, lists, palette, lodLevel, this.flatsCache,
+            );
         }
         if (hasVolumes && this.model.lod[lodLevel].volumes.length > 0) {
-            this.subRender(position, quaternion, scale, this.objVolumes, this.objVolumesAnim, this.model.lod[lodLevel].volumes, volumesId, lists, palette);
+            this.subRender(
+                position, quaternion, scale,
+                this.objVolumes, this.objVolumesAnim, this.model.lod[lodLevel].volumes,
+                volumesId, lists, palette, lodLevel, this.volumesCache,
+            );
         }
     }
 
     private subRender(
         position: THREE.Vector3, quaternion: THREE.Quaternion, scale: THREE.Vector3,
         dst: THREE.Object3D, dstAnim: THREE.Object3D, collection: THREE.Object3D[], listId: string, lists: Map<string, THREE.Scene>,
-        palette: Palette) {
+        palette: Palette, lodLevel: number, cache: LodAttachCache) {
 
-        let hasAnim = false;
         const list = lists.get(listId);
         assertIsDefined(list);
-        dst.clear();
-        dstAnim.clear();
-        for (let i = 0; i < collection.length; i++) {
-            const m = collection[i];
-            if (modelMatchesPaletteTime(m, palette.time)) {
-                if (modelHasAnim(m, ModelAnimation.ROTATE_UP)) {
-                    hasAnim = true;
-                    dstAnim.add(m);
-                } else {
-                    dst.add(m);
+
+        const needRebuild = cache.lodLevel !== lodLevel || cache.paletteTime !== palette.time;
+        let hasAnim = cache.hasAnim;
+        if (needRebuild) {
+            dst.clear();
+            dstAnim.clear();
+            hasAnim = false;
+            for (let i = 0; i < collection.length; i++) {
+                const m = collection[i];
+                if (modelMatchesPaletteTime(m, palette.time)) {
+                    if (modelHasAnim(m, ModelAnimation.ROTATE_UP)) {
+                        hasAnim = true;
+                        dstAnim.add(m);
+                    } else {
+                        dst.add(m);
+                    }
                 }
             }
+            cache.lodLevel = lodLevel;
+            cache.paletteTime = palette.time;
+            cache.hasAnim = hasAnim;
         }
+
         dst.position.copy(position);
         dst.quaternion.copy(quaternion);
         dst.scale.copy(scale);
-        list.add(dst);
+        attachToRenderList(list, dst);
 
         if (hasAnim) {
             dstAnim.position.copy(position);
             dstAnim.quaternion.copy(quaternion);
             dstAnim.rotateY(2 * Math.PI * this.elapsed * ANIM_ROTATE_UP_SPEED);
             dstAnim.scale.copy(scale);
-            list.add(dstAnim);
+            attachToRenderList(list, dstAnim);
         }
     }
 }
@@ -256,7 +284,7 @@ export class ParticleSystemHelper {
         }
         dst.position.copy(position);
         dst.scale.copy(scale);
-        list.add(dst);
+        attachToRenderList(list, dst);
     }
 }
 

@@ -9,6 +9,7 @@ import { SceneMaterialManager, SceneMaterialPrimitiveType, SceneMaterialUniforms
 import { updateUniforms } from '../utils';
 import { Entity } from '../entity';
 import { Scene, SceneLayers } from '../scene';
+import { attachToRenderList } from '../../render/renderList';
 import { clamp, lerp } from '../../utils/math';
 
 /** Steady upward rise (m/s). */
@@ -442,7 +443,7 @@ export class DamageSmokeField implements Entity {
         if (!list) {
             return;
         }
-        list.add(this.root);
+        attachToRenderList(list, this.root);
     }
 
     render2D(_targetWidth: number, _targetHeight: number, _camera: THREE.Camera, _lists: Set<string>, _painter: CanvasPainter, _palette: Palette): void {

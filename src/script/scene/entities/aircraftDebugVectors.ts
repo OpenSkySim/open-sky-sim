@@ -4,6 +4,7 @@ import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/m
 import { updateUniforms } from '../utils';
 import { modelMatchesPaletteTime } from '../models/models';
 import { Palette } from '../../config/palettes/palette';
+import { attachToRenderList } from '../../render/renderList';
 
 const BODY_AXIS_LENGTH = 25;
 const MAX_VELOCITY_LENGTH = 100;
@@ -73,10 +74,10 @@ export class AircraftDebugVectors {
         }
 
         if (modelMatchesPaletteTime(this.bodyAxisLine, palette.time)) {
-            list.add(this.bodyAxisRoot);
+            attachToRenderList(list, this.bodyAxisRoot);
         }
         if (modelMatchesPaletteTime(this.velocityLine, palette.time) && this.velocityEnd.lengthSq() > 1e-4) {
-            list.add(this.velocityRoot);
+            attachToRenderList(list, this.velocityRoot);
         }
     }
 }

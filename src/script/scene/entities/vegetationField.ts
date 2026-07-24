@@ -8,6 +8,7 @@ import { SceneMaterialManager } from '../materials/materials';
 import { VegetationKind, buildVegetationParts } from '../models/lib/vegetationModelBuilder';
 import { updateUniforms } from '../utils';
 import { HillCollider, sampleHillSurfaceY } from './hillCollider';
+import { attachToRenderList } from '../../render/renderList';
 
 export interface TerrainSampler {
     isLand(worldX: number, worldZ: number): boolean;
@@ -326,24 +327,24 @@ export class VegetationField implements Entity {
             batch.foliage.count = batch.volumeCount;
             if (batch.volumeCount > 0) {
                 batch.foliage.instanceMatrix.needsUpdate = true;
-                volumesLayer?.add(batch.foliage);
+                attachToRenderList(volumesLayer, batch.foliage);
                 if (batch.trunk) {
                     batch.trunk.count = batch.volumeCount;
                     batch.trunk.instanceMatrix.needsUpdate = true;
-                    volumesLayer?.add(batch.trunk);
+                    attachToRenderList(volumesLayer, batch.trunk);
                 }
             }
 
             batch.impostor.count = batch.impostorCount;
             if (batch.impostorCount > 0) {
                 batch.impostor.instanceMatrix.needsUpdate = true;
-                volumesLayer?.add(batch.impostor);
+                attachToRenderList(volumesLayer, batch.impostor);
             }
 
             batch.pixel.geometry.setDrawRange(0, batch.pixelCount);
             if (batch.pixelCount > 0) {
                 (batch.pixel.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-                volumesLayer?.add(batch.pixel);
+                attachToRenderList(volumesLayer, batch.pixel);
             }
         }
     }

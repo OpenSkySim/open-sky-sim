@@ -5,6 +5,7 @@ import { UP } from '../../utils/math';
 import { PaletteCategory } from '../../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType, SceneMaterialUniforms } from '../materials/materials';
 import { updateUniforms } from '../utils';
+import { attachToRenderList } from '../../render/renderList';
 
 /** Body space: +Z forward, −Z aft. Last-resort defaults when no tips are passed. */
 const DEFAULT_WINGTIP_OUTWARD = F16_PROFILE.wingSpanM * 0.5;
@@ -165,7 +166,7 @@ class WingTrailSide {
         if (!list) {
             return;
         }
-        list.add(this.root);
+        attachToRenderList(list, this.root);
     }
 }
 
