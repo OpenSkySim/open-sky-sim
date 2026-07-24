@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import * as THREE from 'three';
 import { clamp } from '../utils/math';
 import { AiFlightPhase, AiPilot, DogfightMode } from './aiPilot';
+import { angleOff } from './dogfightGeometry';
 import { PilotableAircraft } from './aircraftControls';
 import { Runway, WorldQuery } from './worldQuery';
 import { Combatant, Faction } from '../weapons/combatant';
@@ -213,8 +214,8 @@ describe('AiPilot dogfight sub-states', () => {
 
         const target = new FakeTarget();
         target.position.set(1000, 3000, 1000);
-        // ~150 deg angle-off (past LAG_ANGLE_OFF_TRIGGER); a 90 deg cross stays in lead.
-        target.velocity.set(-216.5, 0, -125);
+        // ~155 deg angle-off (past LAG_ANGLE_OFF_TRIGGER); a 90 deg cross stays in lead.
+        target.velocity.set(0, 0, -250);
 
         const pilot = new AiPilot(aircraft, new FlatWorld(), { gunRange: 900 });
         pilot.setTarget(target);
@@ -223,5 +224,80 @@ describe('AiPilot dogfight sub-states', () => {
         pilot.update(1 / 60);
 
         assert.equal(pilot.getDogfightMode(), DogfightMode.LAG_PURSUE);
+    });
+
+    it('does not break defensively on a head-on merge where the target is ahead', () => {
+        const aircraft = new FakeAircraft();
+        aircraft.position.set(0, 3000, 0);
+        aircraft.heading = 0;
+        aircraft.airspeed = 250;
+        aircraft.velocity.set(0, 0, 250);
+
+        const target = new FakeTarget();
+        target.position.set(0, 3000, 500); // ahead, both pointed at each other
+        target.velocity.set(0, 0, -250);
+
+        const pilot = new AiPilot(aircraft, new FlatWorld(), { gunRange: 900 });
+        pilot.setTarget(target);
+        pilot.setPhase(AiFlightPhase.ENGAGE);
+
+        let sawDefensive = false;
+        const dt = 1 / 60;
+        for (let i = 0; i < 60; i++) {
+            pilot.update(dt);
+            aircraft.step(dt);
+            sawDefensive = sawDefensive || pilot.getDogfightMode() === DogfightMode.DEFENSIVE_BREAK;
+        }
+
+        assert.equal(sawDefensive, false, 'head-on merge should stay offensive, not break away');
+    });
+
+    it('gains angles against a constant-rate level turn instead of losing them', () => {
+        const aircraft = new FakeAircraft();
+        aircraft.position.set(0, 3000, 500);
+        aircraft.heading = Math.PI;
+        aircraft.airspeed = 220;
+        aircraft.velocity.set(0, 0, -220);
+
+        const target = new FakeTarget();
+        target.position.set(0, 3000, 0);
+        target.velocity.set(0, 0, 220);
+
+        const pilot = new AiPilot(aircraft, new FlatWorld(), { gunRange: 900, alwaysEngage: true });
+        pilot.setTarget(target);
+        pilot.setPhase(AiFlightPhase.ENGAGE);
+
+        const dt = 1 / 60;
+        let startAo = angleOff(aircraft.velocity, target.velocity);
+        for (let i = 0; i < 240; i++) {
+            pilot.update(dt);
+            aircraft.step(dt);
+            // Target flies a gentle constant left turn.
+            target.velocity.set(-Math.sin(i * 0.02) * 220, 0, Math.cos(i * 0.02) * 220);
+            if (i === 60) {
+                startAo = angleOff(aircraft.velocity, target.velocity);
+            }
+        }
+        const endAo = angleOff(aircraft.velocity, target.velocity);
+        assert.ok(endAo < startAo, `expected angle-off to shrink (${startAo} -> ${endAo})`);
+    });
+
+    it('holds fire when the nose is off the ballistic solution', () => {
+        const aircraft = new FakeAircraft();
+        aircraft.position.set(0, 3000, 0);
+        aircraft.heading = Math.PI / 2; // beam to target
+        aircraft.airspeed = 220;
+        aircraft.velocity.set(220, 0, 0);
+
+        const target = new FakeTarget();
+        target.position.set(0, 3000, 500);
+        target.velocity.set(0, 0, 220);
+
+        const pilot = new AiPilot(aircraft, new FlatWorld(), { gunRange: 900 });
+        pilot.setTarget(target);
+        pilot.setPhase(AiFlightPhase.ENGAGE);
+
+        pilot.update(1 / 60);
+        assert.equal(pilot.isFiring, false, 'should not fire when the nose is off the solution');
     });
 });
