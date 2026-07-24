@@ -419,6 +419,21 @@ export class CockpitEntity implements Entity {
             painter.setBackground(this.weaponsTargetHealth <= 0.3 ? warnColor : hudColor);
             painter.rectangle(trackX, barY, fillW, barH, true);
         }
+
+        // The graphical controls are deliberately compact, so also print the
+        // exact values where they remain readable in every supported resolution.
+        ty += line;
+        const pitchText = this.formatSignedControl(this.weaponsTargetStickPitch);
+        const rollText = this.formatSignedControl(this.weaponsTargetStickRoll);
+        painter.text(font, x + pad, ty, `STK P${pitchText} R${rollText}`, hudColor);
+        ty += line;
+        painter.text(font, x + pad, ty,
+            `THR ${Math.round(Math.max(0, Math.min(1, this.weaponsTargetThrottle)) * 100)}%`, hudColor);
+    }
+
+    private formatSignedControl(value: number): string {
+        const clamped = Math.max(-1, Math.min(1, value));
+        return `${clamped >= 0 ? '+' : ''}${clamped.toFixed(1)}`;
     }
 
     /** Enemy raw stick position plus throttle lever, mirrored from the sim worker. */
