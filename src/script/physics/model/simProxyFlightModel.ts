@@ -124,6 +124,19 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
         return this.simAmmo;
     }
 
+    /** Raw pilot controls mirrored by the target branch's input snapshot fields. */
+    getSimStickPitch(): number {
+        return this.pitch;
+    }
+
+    getSimStickRoll(): number {
+        return this.roll;
+    }
+
+    getSimThrottleLever(): number {
+        return this.throttle;
+    }
+
     getSimGearDeployed(): boolean {
         return this.simGearDeployed;
     }
