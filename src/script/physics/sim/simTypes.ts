@@ -1,6 +1,7 @@
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { AiPilotOptions } from '../../ai/aiPilot';
 import { ForceVectorSample } from '../model/flightModel';
+import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { SerializedWorld } from './serializedWorld';
 
 /**
@@ -137,7 +138,13 @@ export type SimToWorkerMessage =
     | { type: 'snapPhysicsState'; id: string }
     | { type: 'setExternalState'; id: string; enabled: boolean; faction: number; position: Vec3; velocity: Vec3; alive: boolean }
     | { type: 'clearExternalState'; id: string }
-    | { type: 'step'; delta: number; inputs: Record<string, SimControlInputs> };
+    | { type: 'step'; delta: number; inputs: Record<string, SimControlInputs> }
+    | { type: 'keyEvent'; id: string; key: string; down: boolean; repeat: boolean }
+    | { type: 'setKeyboardLayout'; layoutId: KeyboardControlLayoutId }
+    | { type: 'gamepadAxes'; id: string; pitch: number; roll: number; yaw: number; throttle: number; connected: boolean }
+    | { type: 'inputBlur'; id: string }
+    | { type: 'setInputEnabled'; id: string; enabled: boolean }
+    | { type: 'setForceVectorsRequested'; id: string; want: boolean };
 
 // --- Worker -> main thread messages ------------------------------------------
 

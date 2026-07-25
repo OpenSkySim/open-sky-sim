@@ -5,6 +5,7 @@ import {
     formatF16ThrottleHud, stepF16ThrottleDetent, isF16AbDetentBand,
     adjustF16ThrottleInput, getF16ThrottleZone, f16ThrottleAudioLevel, getF16EngineNozzleColor,
 } from '../f16Engine';
+import { FcsPitchLimiter } from '../fm2/fcs';
 import { CombatSimClient, SimAircraftProxy } from '../sim/combatSimClient';
 import { SimControlInputs } from '../sim/simTypes';
 import { AC } from '../sim/simSnapshotCodec';
@@ -26,6 +27,11 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     private simFiring = false;
     private simHealth = 100;
     private simAmmo = 0;
+    private simAutopilot = false;
+    private simPitchStickUnits = 0;
+    private simWheelBrakes = false;
+    private simLimitersEnabled = true;
+    private simPitchLimiterMode = 0;
 
     constructor(
         private readonly client: CombatSimClient,
@@ -43,14 +49,15 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     // --- SimAircraftProxy -----------------------------------------------------
 
     collectInputs(): SimControlInputs {
+        // Worker-owned player input overwrites these during step(); keep neutral.
         return {
-            pitch: this.pitch,
-            roll: this.roll,
-            yaw: this.yaw,
-            throttle: this.throttle,
+            pitch: 0,
+            roll: 0,
+            yaw: 0,
+            throttle: 0,
             landingGearDeployed: this.landingGearDeployed,
             flapsExtended: this.flapsExtended,
-            wheelBrakesApplied: this.wheelBrakesApplied,
+            wheelBrakesApplied: false,
             pitchLimiterMode: this.pitchLimiterMode,
             limitersEnabled: this.limitersEnabled,
             wantForceVectors: this.forceVectorsRequested,
@@ -82,6 +89,19 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
         this.simHealth = buf[base + AC.health];
         this.simAmmo = buf[base + AC.ammo];
 
+        this.pitch = buf[base + AC.inPitch];
+        this.roll = buf[base + AC.inRoll];
+        this.yaw = buf[base + AC.inYaw];
+        this.throttle = buf[base + AC.inThrottle];
+        this.simPitchStickUnits = buf[base + AC.pitchStickUnits];
+        this.simWheelBrakes = buf[base + AC.wheelBrakes] !== 0;
+        this.simLimitersEnabled = buf[base + AC.limitersEnabled] !== 0;
+        this.simPitchLimiterMode = buf[base + AC.pitchLimiterMode];
+        this.simAutopilot = buf[base + AC.autopilot] !== 0;
+        this.wheelBrakesApplied = this.simWheelBrakes;
+        this.pitchLimiterMode = this.simPitchLimiterMode as FcsPitchLimiter;
+        this.limitersEnabled = this.simLimitersEnabled;
+
         // @ts-ignore - private on the base, written for render interpolation.
         this.prevPosition.set(buf[base + AC.ppX], buf[base + AC.ppY], buf[base + AC.ppZ]);
         // @ts-ignore
@@ -110,6 +130,18 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
 
     getSimFlapsExtended(): boolean {
         return this.simFlapsExtended;
+    }
+
+    getSimAutopilot(): boolean {
+        return this.simAutopilot;
+    }
+
+    getSimPitchStickUnits(): number {
+        return this.simPitchStickUnits;
+    }
+
+    getSimWheelBrakes(): boolean {
+        return this.simWheelBrakes;
     }
 
     // --- FlightModel overrides ------------------------------------------------

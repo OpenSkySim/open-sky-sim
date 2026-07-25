@@ -6,6 +6,8 @@ import { SceneWorldQuery } from '../../ai/worldQuery';
 import { Combatant, Faction } from '../../weapons/combatant';
 import { Gun, GunConfig, ProjectileSink } from '../../weapons/gun';
 import { FORWARD } from '../../utils/math';
+import { PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
+import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { FcsPitchLimiter } from '../fm2/fcs';
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { ForceVectorSample } from '../model/flightModel';
@@ -15,6 +17,7 @@ import {
     SimAircraftDesc, SimAircraftSpawn, SimControlInputs,
     SimControlMode, SimHitEvent,
 } from './simTypes';
+import { fm2UsesAfterburner, SimPlayerInput, SimPlayerInputSink } from './simPlayerInput';
 
 /** Seconds a tracer lives before self-destructing (mirrors WeaponsField). */
 const PROJECTILE_LIFESPAN = 2.5;
@@ -43,7 +46,7 @@ interface ProjectileSlot {
  * optional in-worker {@link AiPilot} and gun. Implements {@link PilotableAircraft}
  * (so a pilot can fly it) and {@link Combatant} (so it can be targeted/hit).
  */
-class SimAircraft implements PilotableAircraft, Combatant {
+class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
 
     readonly id: string;
     readonly faction: Faction;
@@ -58,6 +61,7 @@ class SimAircraft implements PilotableAircraft, Combatant {
     health: number;
     maxHealth: number;
     readonly hitRadius: number;
+    private afterburner = false;
 
     /** Firing decision resolved this frame (pilot solution or external trigger). */
     firing = false;
@@ -86,6 +90,7 @@ class SimAircraft implements PilotableAircraft, Combatant {
         this.hitRadius = desc.hitRadius;
         this.maxHealth = desc.maxHealth;
         this.health = desc.maxHealth;
+        this.afterburner = fm2UsesAfterburner(desc.aircraftConfig);
         this.model = new Fm2FlightModel(desc.aircraftConfig, { kinematic: desc.kinematic });
         if (desc.gun) {
             const cfg: GunConfig = {
@@ -200,6 +205,40 @@ class SimAircraft implements PilotableAircraft, Combatant {
     setLandingGearDeployed(deployed: boolean): void { this.inGear = deployed; }
     setFlapsExtended(extended: boolean): void { this.inFlaps = extended; }
 
+    // --- SimPlayerInputSink (worker keyboard / gamepad) ------------------------
+
+    isOnGround(): boolean {
+        return this.model.position.y <= PLANE_DISTANCE_TO_GROUND + 0.05;
+    }
+
+    getThrottle(): number {
+        return this.inThrottle;
+    }
+
+    getAfterburner(): boolean {
+        return this.afterburner;
+    }
+
+    toggleGear(): void {
+        this.inGear = !this.inGear;
+    }
+
+    toggleFlaps(): void {
+        this.inFlaps = !this.inFlaps;
+    }
+
+    toggleAutopilot(): void {
+        this.control = this.control === 'ai' ? 'external' : 'ai';
+    }
+
+    setPitchLimiterMode(mode: FcsPitchLimiter): void {
+        this.inLimiterMode = mode;
+    }
+
+    setAfterburnerFromConfig(config: Fm2AircraftConfig): void {
+        this.afterburner = fm2UsesAfterburner(config);
+    }
+
     // --- PilotableAircraft: observation --------------------------------------
 
     getPosition(): THREE.Vector3 { return this.model.position; }
@@ -242,7 +281,7 @@ class SimAircraft implements PilotableAircraft, Combatant {
     }
 
     /** Pack this aircraft's numeric state into the flat snapshot row at `base`. */
-    writeInto(out: Float32Array, base: number): void {
+    writeInto(out: Float32Array, base: number, input: SimPlayerInput | undefined): void {
         const m = this.model as unknown as {
             prevPosition: THREE.Vector3; prevQuaternion: THREE.Quaternion; prevVelocity: THREE.Vector3;
             deltaRemainder: number;
@@ -274,6 +313,23 @@ class SimAircraft implements PilotableAircraft, Combatant {
         out[base + AC.firing] = this.firing ? 1 : 0;
         out[base + AC.health] = this.health;
         out[base + AC.ammo] = this.gun?.ammoRemaining ?? 0;
+
+        const mirror = {
+            pitch: this.inPitch, roll: this.inRoll, yaw: this.inYaw, throttle: this.inThrottle,
+            pitchStickUnits: 0, wheelBrakes: this.inBrakes,
+            limitersEnabled: this.inLimiters, pitchLimiterMode: this.inLimiterMode,
+            autopilot: this.control === 'ai',
+        };
+        input?.readMirror(mirror, this.control);
+        out[base + AC.inPitch] = mirror.pitch;
+        out[base + AC.inRoll] = mirror.roll;
+        out[base + AC.inYaw] = mirror.yaw;
+        out[base + AC.inThrottle] = mirror.throttle;
+        out[base + AC.pitchStickUnits] = mirror.pitchStickUnits;
+        out[base + AC.wheelBrakes] = mirror.wheelBrakes ? 1 : 0;
+        out[base + AC.limitersEnabled] = mirror.limitersEnabled ? 1 : 0;
+        out[base + AC.pitchLimiterMode] = mirror.pitchLimiterMode;
+        out[base + AC.autopilot] = mirror.autopilot ? 1 : 0;
     }
 }
 
@@ -315,6 +371,10 @@ export class CombatSim implements ProjectileSink {
     private readonly aircraft = new Map<string, SimAircraft>();
     private readonly order: string[] = [];
     private readonly external = new Map<string, ExternalCombatant>();
+    /** Worker-side keyboard/gamepad handlers for externally-controlled aircraft. */
+    private readonly playerInputs = new Map<string, SimPlayerInput>();
+
+    private readonly terrainHalfSize = 2.5 * TERRAIN_SCALE * TERRAIN_MODEL_SIZE;
 
     private readonly projectiles: ProjectileSlot[] = [];
     private readonly hits: SimHitEvent[] = [];
@@ -351,10 +411,15 @@ export class CombatSim implements ProjectileSink {
             this.order.push(desc.id);
         }
         this.aircraft.set(desc.id, new SimAircraft(desc, this.world, this));
+        if (desc.control === 'external') {
+            this.playerInputs.set(desc.id, new SimPlayerInput());
+            this.playerInputs.get(desc.id)!.syncThrottle(desc.spawn.throttle);
+        }
     }
 
     removeAircraft(id: string): void {
         this.aircraft.delete(id);
+        this.playerInputs.delete(id);
         const i = this.order.indexOf(id);
         if (i >= 0) this.order.splice(i, 1);
     }
@@ -370,6 +435,35 @@ export class CombatSim implements ProjectileSink {
             a.buildPilot(undefined, this.world);
             a.control = control;
         }
+    }
+
+    keyEvent(id: string, key: string, down: boolean, repeat: boolean): void {
+        const a = this.aircraft.get(id);
+        const input = this.playerInputs.get(id);
+        if (!a || !input) return;
+        input.keyEvent(key, down, repeat, a);
+    }
+
+    setKeyboardLayout(layoutId: KeyboardControlLayoutId): void {
+        for (const input of this.playerInputs.values()) {
+            input.setKeyboardLayout(layoutId);
+        }
+    }
+
+    gamepadAxes(id: string, pitch: number, roll: number, yaw: number, throttle: number, connected: boolean): void {
+        this.playerInputs.get(id)?.setGamepadAxes(pitch, roll, yaw, throttle, connected);
+    }
+
+    inputBlur(id: string): void {
+        this.playerInputs.get(id)?.blur();
+    }
+
+    setInputEnabled(id: string, enabled: boolean): void {
+        this.playerInputs.get(id)?.setInputEnabled(enabled);
+    }
+
+    setForceVectorsRequested(id: string, want: boolean): void {
+        this.playerInputs.get(id)?.setForceVectorsRequested(want);
     }
 
     setTarget(id: string, targetId: string | null): void {
@@ -402,6 +496,7 @@ export class CombatSim implements ProjectileSink {
         a.model.setThrottle(throttle);
         a.health = a.maxHealth;
         a.resetGun();
+        this.playerInputs.get(id)?.syncThrottle(throttle);
     }
 
     setAircraftConfig(id: string, config: Fm2AircraftConfig, kinematic: boolean): void {
@@ -417,6 +512,7 @@ export class CombatSim implements ProjectileSink {
         next.velocityVector = a.model.velocityVector;
         a.model = next;
         a.kinematic = kinematic;
+        a.setAfterburnerFromConfig(config);
     }
 
     private rebuildIfKinematicChanged(a: SimAircraft, kinematic: boolean): void {
@@ -481,6 +577,12 @@ export class CombatSim implements ProjectileSink {
     }
 
     step(delta: number, inputs: Record<string, SimControlInputs>): void {
+        // 0. Worker-side player input → control inputs for externally-flown aircraft.
+        for (const [id, input] of this.playerInputs) {
+            const a = this.aircraft.get(id);
+            if (!a?.enabled || a.control !== 'external') continue;
+            inputs[id] = input.tick(delta, a);
+        }
         // 1. External inputs first, so pilots (below) and models read a consistent buffer.
         for (const a of this.aircraft.values()) {
             if (!a.enabled) continue;
@@ -507,6 +609,7 @@ export class CombatSim implements ProjectileSink {
             a.applyInputsToModel();
             a.model.update(delta);
             a.resolveFiring();
+            this.wrapBounds(a);
         }
         // 4. Guns + projectiles.
         this.hits.length = 0;
@@ -518,6 +621,29 @@ export class CombatSim implements ProjectileSink {
             }
         }
         this.updateProjectiles(delta);
+    }
+
+    /** Wrap aircraft that fly past the terrain edge (mirrors former main-thread logic). */
+    private wrapBounds(a: SimAircraft): void {
+        const pos = a.model.position;
+        let wrapped = false;
+        if (pos.x > this.terrainHalfSize) {
+            pos.x = -this.terrainHalfSize;
+            wrapped = true;
+        } else if (pos.x < -this.terrainHalfSize) {
+            pos.x = this.terrainHalfSize;
+            wrapped = true;
+        }
+        if (pos.z > this.terrainHalfSize) {
+            pos.z = -this.terrainHalfSize;
+            wrapped = true;
+        } else if (pos.z < -this.terrainHalfSize) {
+            pos.z = this.terrainHalfSize;
+            wrapped = true;
+        }
+        if (wrapped) {
+            a.model.snapPhysicsState();
+        }
     }
 
     /** {@link ProjectileSink} — guns push rounds here. */
@@ -608,7 +734,7 @@ export class CombatSim implements ProjectileSink {
         const forceVectors: Record<string, ForceVectorSample[]> = {};
         for (let i = 0; i < ids.length; i++) {
             const a = this.aircraft.get(ids[i])!;
-            a.writeInto(aircraft, i * AC_STRIDE);
+            a.writeInto(aircraft, i * AC_STRIDE, this.playerInputs.get(ids[i]));
             const fv = a.forceVectors();
             if (fv.length > 0) {
                 forceVectors[ids[i]] = fv;

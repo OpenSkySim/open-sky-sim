@@ -13,7 +13,7 @@ import { SimHitEvent } from './simTypes';
  */
 
 /** Floats per aircraft row. Keep in sync with the AC_* offsets below. */
-export const AC_STRIDE = 39;
+export const AC_STRIDE = 48;
 
 export const AC = {
     posX: 0, posY: 1, posZ: 2,
@@ -39,6 +39,16 @@ export const AC = {
     firing: 36,
     health: 37,
     ammo: 38,
+    /** Normalized pilot commands mirrored for HUD (worker-owned input). */
+    inPitch: 39,
+    inRoll: 40,
+    inYaw: 41,
+    inThrottle: 42,
+    pitchStickUnits: 43,
+    wheelBrakes: 44,
+    limitersEnabled: 45,
+    pitchLimiterMode: 46,
+    autopilot: 47,
 } as const;
 
 /** Floats per projectile row: position (3) + quaternion (4). */

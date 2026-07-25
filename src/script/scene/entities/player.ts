@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ShaderMaterial } from 'three';
 import { AudioClip } from '../../audio/audioSystem';
 import { Palette, PaletteCategory } from "../../config/palettes/palette";
-import { AIRBASE_RUNWAY, PITCH_STICK_AFT_UNITS, PITCH_STICK_FWD_UNITS, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
+import { AIRBASE_RUNWAY, PITCH_STICK_AFT_UNITS, PITCH_STICK_FWD_UNITS, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
 import { FcsPitchLimiter } from '../../physics/fm2/fcs';
 import { FlightSample } from '../../physics/flightRecorder';
@@ -23,6 +23,7 @@ import { WeaponsTarget } from './weaponsTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { Combatant, Faction } from '../../weapons/combatant';
 import { CombatSimClient } from '../../physics/sim/combatSimClient';
+import { SimProxyFlightModel } from '../../physics/model/simProxyFlightModel';
 import { PLAYER_SIM_ID } from '../../physics/sim/simIds';
 
 
@@ -134,7 +135,6 @@ export class PlayerEntity implements Entity {
 
     private _nightVision: boolean = false;
     private hudFocus: HUDFocusMode = HUDFocusMode.DISABLED;
-    private autopilotEnabled: boolean = false;
 
     /**
      * Shared combat sim client. The player's physics, gun and autopilot all run
@@ -144,7 +144,6 @@ export class PlayerEntity implements Entity {
     private combatSim: CombatSimClient | undefined;
     /** True once the sim has been told this aircraft carries a gun. */
     private hasGunFlag = false;
-    private firing: boolean = false;
     private readonly maxHealth = 100;
     private health = this.maxHealth;
     readonly faction: Faction = Faction.PLAYER;
@@ -325,37 +324,35 @@ export class PlayerEntity implements Entity {
         if (this.simulationPaused) {
             return;
         }
-        // Mirror sim-authoritative health before latching controls.
         const simHealth = this.flightModel.getSimHealth();
         if (simHealth >= 0) {
             this.health = simHealth;
         }
-        if (this.health <= 0) {
-            // Dead: no stick / throttle — wreck coasts ballistically.
-            this.pitch = 0;
-            this.pitchStickUnits = 0;
-            this.roll = 0;
-            this.yaw = 0;
-            this.throttle = 0;
-        }
-        // Physics + autopilot now run in the shared combat sim worker. For manual
-        // flight we latch our control inputs onto the (proxy) flight model so the
-        // client can pump them into the worker; the worker ignores them while its
-        // in-worker autopilot is flying (control mode is flipped in toggleAutopilot).
-        this.flightModel.setPitch(this.pitch);
-        this.flightModel.setRoll(this.roll);
-        this.flightModel.setYaw(this.yaw);
-        this.flightModel.setThrottle(this.throttle);
-        this.flightModel.setLandingGearDeployed(this.landingGearState === AircraftDeviceState.EXTENDED);
-        this.flightModel.setFlapsExtended(this.flapsState === AircraftDeviceState.EXTENDED);
-        this.flightModel.setWheelBrakes(this.wheelBrakes);
-        this.flightModel.setLimitersEnabled(this.limitersEnabled);
-        this.flightModel.setPitchLimiterMode(this.pitchLimiterMode);
-        this.flightModel.update(delta);
 
-        // While the in-worker autopilot flies, mirror its gear/flaps commands so
-        // the airframe animates correctly.
-        if (this.autopilotEnabled) {
+        if (!this.isWorkerControlled()) {
+            if (this.health <= 0) {
+                this.pitch = 0;
+                this.pitchStickUnits = 0;
+                this.roll = 0;
+                this.yaw = 0;
+                this.throttle = 0;
+            }
+            this.flightModel.setPitch(this.pitch);
+            this.flightModel.setRoll(this.roll);
+            this.flightModel.setYaw(this.yaw);
+            this.flightModel.setThrottle(this.throttle);
+            this.flightModel.setLandingGearDeployed(this.landingGearState === AircraftDeviceState.EXTENDED);
+            this.flightModel.setFlapsExtended(this.flapsState === AircraftDeviceState.EXTENDED);
+            this.flightModel.setWheelBrakes(this.wheelBrakes);
+            this.flightModel.setLimitersEnabled(this.limitersEnabled);
+            this.flightModel.setPitchLimiterMode(this.pitchLimiterMode);
+            this.flightModel.update(delta);
+        } else {
+            this.flightModel.update(delta);
+        }
+
+        // Mirror sim-authoritative gear/flaps for airframe animation.
+        if (this.isWorkerControlled()) {
             const gear = this.flightModel.getSimGearDeployed();
             if (gear !== null) {
                 this.setLandingGearDeployed(gear);
@@ -369,29 +366,6 @@ export class PlayerEntity implements Entity {
         this.obj.position.copy(this.flightModel.position);
         this.obj.quaternion.copy(this.flightModel.quaternion);
         this.velocity.copy(this.flightModel.velocityVector);
-
-        // Avoid flying out of bounds, wraps around
-        const terrainHalfSize = 2.5 * TERRAIN_SCALE * TERRAIN_MODEL_SIZE;
-        let isOutBounds = false;
-        if (this.obj.position.x > terrainHalfSize) {
-            this.obj.position.x = -terrainHalfSize;
-            isOutBounds = true;
-        }
-        if (this.obj.position.x < -terrainHalfSize) {
-            this.obj.position.x = terrainHalfSize;
-            isOutBounds = true;
-        }
-        if (this.obj.position.z > terrainHalfSize) {
-            this.obj.position.z = -terrainHalfSize;
-            isOutBounds = true;
-        }
-        if (this.obj.position.z < -terrainHalfSize) {
-            this.obj.position.z = terrainHalfSize;
-            isOutBounds = true;
-        }
-        if (isOutBounds) {
-            this.flightModel.position = this.obj.position;
-        }
 
         this.updateAudio();
         this.bindAfterburnerPaneMaterials();
@@ -410,13 +384,14 @@ export class PlayerEntity implements Entity {
             this.updateLandingGear(delta);
             this.updateFlaps(delta);
         }
-
-        this.updateWeapons(delta);
     }
 
-    private updateWeapons(_delta: number): void {
-        // The gun is simulated in the combat worker; just latch the trigger.
-        this.combatSim?.setFiring(PLAYER_SIM_ID, this.firing && !this.isCrashed && this.controlsEnabled);
+    private isWorkerControlled(): boolean {
+        return this.flightModel instanceof SimProxyFlightModel;
+    }
+
+    getFlightModel(): FlightModel {
+        return this.flightModel;
     }
 
     updateDisplayTransform(): void {
@@ -477,7 +452,6 @@ export class PlayerEntity implements Entity {
         this.target = undefined;
 
         this.health = this.maxHealth;
-        this.firing = false;
     }
 
     private updateFlaps(delta: number) {
@@ -583,7 +557,7 @@ export class PlayerEntity implements Entity {
 
     private updateAfterburnerPaneColors() {
         const abDetents = this.flightModel.useAfterburnerThrottleDetents();
-        const lever = this.throttle;
+        const lever = this.throttleUnit;
         // An aircraft is afterburner-capable if the flight model runs the
         // afterburner quadrant OR the model provides nozzle exits. The latter
         // decouples the effect from the (possibly inherited) flight config so
@@ -597,12 +571,6 @@ export class PlayerEntity implements Entity {
             this.displayPosition,
             this.displayQuaternion,
         );
-    }
-
-    private toggleAutopilot() {
-        this.autopilotEnabled = !this.autopilotEnabled;
-        // Hand flying control to (or take it back from) the in-worker autopilot.
-        this.combatSim?.setControlMode(PLAYER_SIM_ID, this.autopilotEnabled ? 'ai' : 'external');
     }
 
     private updateAudio() {
@@ -685,7 +653,10 @@ export class PlayerEntity implements Entity {
     }
 
     get isAutopilotEnabled(): boolean {
-        return this.autopilotEnabled;
+        if (this.flightModel instanceof SimProxyFlightModel) {
+            return this.flightModel.getSimAutopilot();
+        }
+        return false;
     }
 
     get forceVectorsEnabled(): boolean {
@@ -696,6 +667,7 @@ export class PlayerEntity implements Entity {
     setForceVectorsEnabled(enabled: boolean): void {
         this._forceVectorsEnabled = enabled;
         this.flightModel.setForceVectorsRequested(enabled);
+        this.combatSim?.setForceVectorsRequested(PLAYER_SIM_ID, enabled);
     }
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
@@ -896,6 +868,7 @@ export class PlayerEntity implements Entity {
 
     setSimulationPaused(paused: boolean): void {
         this.simulationPaused = paused;
+        this.combatSim?.setInputEnabled(PLAYER_SIM_ID, !paused);
     }
 
     setShowcaseMode(enabled: boolean): void {
@@ -1083,14 +1056,21 @@ export class PlayerEntity implements Entity {
     }
 
     get throttleUnit(): number {
-        return this.throttle;
+        return this.isWorkerControlled()
+            ? this.flightModel.getPilotThrottle()
+            : this.throttle;
     }
 
     get pitchInput(): number {
-        return this.pitch;
+        return this.isWorkerControlled()
+            ? this.flightModel.getPilotPitch()
+            : this.pitch;
     }
 
     get pitchStickUnitsValue(): number {
+        if (this.flightModel instanceof SimProxyFlightModel) {
+            return this.flightModel.getSimPitchStickUnits();
+        }
         return this.pitchStickUnits;
     }
 
@@ -1109,11 +1089,15 @@ export class PlayerEntity implements Entity {
     }
 
     get rollInput(): number {
-        return this.roll;
+        return this.isWorkerControlled()
+            ? this.flightModel.getPilotRoll()
+            : this.roll;
     }
 
     get yawInput(): number {
-        return this.yaw;
+        return this.isWorkerControlled()
+            ? this.flightModel.getPilotYaw()
+            : this.yaw;
     }
 
     get rawSpeed(): number {
@@ -1156,13 +1140,13 @@ export class PlayerEntity implements Entity {
     /** Snapshot of pilot commands and rigid-body state for the flight recorder. */
     captureFlightSample(): FlightSample {
         return {
-            pitchCmd: this.pitch,
-            rollCmd: this.roll,
-            yawCmd: this.yaw,
-            thrLever: this.throttle,
+            pitchCmd: this.pitchInput,
+            rollCmd: this.rollInput,
+            yawCmd: this.yawInput,
+            thrLever: this.throttleUnit,
             gear: this.landingGearState === AircraftDeviceState.EXTENDED,
             flaps: this.flapsState === AircraftDeviceState.EXTENDED,
-            brake: this.wheelBrakes,
+            brake: this.wheelBrakesApplied,
             stabilizer: this.flightModel.getCommandedElevator(),
             aileron: this.flightModel.getCommandedAileron(),
             rudder: this.flightModel.getCommandedRudder(),
@@ -1196,36 +1180,25 @@ export class PlayerEntity implements Entity {
     }
 
     get wheelBrakesApplied(): boolean {
-        return this.wheelBrakes;
+        return this.isWorkerControlled()
+            ? this.flightModel.getWheelBrakesApplied()
+            : this.wheelBrakes;
     }
 
     get fcsLimitersEnabled(): boolean {
-        return this.limitersEnabled;
+        return this.isWorkerControlled()
+            ? this.flightModel.isLimitersEnabled()
+            : this.limitersEnabled;
     }
 
     /** Active pitch AoA/g limiter strategy (keys 1/2/3). */
     get fcsPitchLimiterMode(): FcsPitchLimiter {
-        return this.pitchLimiterMode;
+        return this.isWorkerControlled()
+            ? this.flightModel.getPitchLimiterMode()
+            : this.pitchLimiterMode;
     }
 
     private setupInput() {
-        document.addEventListener('keydown', (event: KeyboardEvent) => {
-            if (event.key === ' ' || event.code === 'Space') {
-                if (!this.isCrashed && this.controlsEnabled) {
-                    this.firing = true;
-                    event.preventDefault();
-                }
-            }
-        });
-        document.addEventListener('keyup', (event: KeyboardEvent) => {
-            if (event.key === ' ' || event.code === 'Space') {
-                this.firing = false;
-            }
-        });
-        document.addEventListener('blur', () => {
-            this.firing = false;
-        });
-
         document.addEventListener('keypress', (event: KeyboardEvent) => {
             if (!this.isCrashed && this.controlsEnabled) {
                 switch (event.key) {
@@ -1240,34 +1213,6 @@ export class PlayerEntity implements Entity {
                     case 'h': {
                         this.hudFocus += 1;
                         this.hudFocus %= HUDFocusMode._LENGTH;
-                        break;
-                    }
-                    case 'f': {
-                        this.toggleFlaps();
-                        break;
-                    }
-                    case 'g': {
-                        this.toggleLandingGear();
-                        break;
-                    }
-                    case 'l': {
-                        this.toggleLimiters();
-                        break;
-                    }
-                    case 'a': {
-                        this.toggleAutopilot();
-                        break;
-                    }
-                    case '1': {
-                        this.pitchLimiterMode = FcsPitchLimiter.SOFT;
-                        break;
-                    }
-                    case '2': {
-                        this.pitchLimiterMode = FcsPitchLimiter.PREDICTIVE;
-                        break;
-                    }
-                    case '3': {
-                        this.pitchLimiterMode = FcsPitchLimiter.SMOOTH;
                         break;
                     }
                 }
@@ -1308,10 +1253,6 @@ export class PlayerEntity implements Entity {
             }
         }
         return result;
-    }
-
-    private toggleLimiters() {
-        this.limitersEnabled = !this.limitersEnabled;
     }
 
     private toggleFlaps() {

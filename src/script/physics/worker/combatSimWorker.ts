@@ -85,6 +85,24 @@ function handleMessage(data: SimToWorkerMessage): void {
         case 'clearExternalState':
             sim.clearExternalState(data.id);
             break;
+        case 'keyEvent':
+            sim.keyEvent(data.id, data.key, data.down, data.repeat);
+            break;
+        case 'setKeyboardLayout':
+            sim.setKeyboardLayout(data.layoutId);
+            break;
+        case 'gamepadAxes':
+            sim.gamepadAxes(data.id, data.pitch, data.roll, data.yaw, data.throttle, data.connected);
+            break;
+        case 'inputBlur':
+            sim.inputBlur(data.id);
+            break;
+        case 'setInputEnabled':
+            sim.setInputEnabled(data.id, data.enabled);
+            break;
+        case 'setForceVectorsRequested':
+            sim.setForceVectorsRequested(data.id, data.want);
+            break;
         case 'step': {
             sim.step(data.delta, data.inputs);
             const snapshot = sim.encodeSnapshot();

@@ -264,6 +264,12 @@ export abstract class FlightModel {
         return this.pitchLimiterMode;
     }
 
+    getPilotPitch(): number { return this.pitch; }
+    getPilotRoll(): number { return this.roll; }
+    getPilotYaw(): number { return this.yaw; }
+    getPilotThrottle(): number { return this.throttle; }
+    getWheelBrakesApplied(): boolean { return this.wheelBrakesApplied; }
+
     /** Enable/disable the FBW AoA/g limiters (false = pilot limiter override). */
     setLimitersEnabled(enabled: boolean) {
         this.limitersEnabled = enabled;

@@ -62,9 +62,19 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
     config.techProfiles.setActive(TechProfiles.HD);
     await game.setup();
 
-    const keyboardInput = new KeyboardControlDevice(game.getPlayer());
+    const keyboardInput = new KeyboardControlDevice(
+        combatSim,
+        game.getPlayer(),
+        PLAYER_SIM_ID,
+        () => config.flightModels.getActive() instanceof SimProxyFlightModel,
+    );
     keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.ARROWS);
-    const joystickInput = new JoystickControlDevice(game.getPlayer());
+    const joystickInput = new JoystickControlDevice(
+        combatSim,
+        game.getPlayer(),
+        PLAYER_SIM_ID,
+        () => config.flightModels.getActive() instanceof SimProxyFlightModel,
+    );
 
     const kernel = new Kernel();
     kernel.setTargetFPS(config.techProfiles.getActive().fpsCap ? FPS_CAP : undefined);

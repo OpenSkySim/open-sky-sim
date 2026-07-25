@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { Faction } from '../../weapons/combatant';
 import { ForceVectorSample } from '../model/flightModel';
+import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { SerializedWorld } from './serializedWorld';
 import { AC_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
@@ -157,6 +158,30 @@ export class CombatSimClient {
     /** Latch this frame's trigger for an externally-controlled aircraft. */
     setFiring(id: string, firing: boolean): void {
         this.firing.set(id, firing);
+    }
+
+    postKeyEvent(id: string, key: string, down: boolean, repeat = false): void {
+        this.post({ type: 'keyEvent', id, key, down, repeat });
+    }
+
+    setKeyboardLayout(layoutId: KeyboardControlLayoutId): void {
+        this.post({ type: 'setKeyboardLayout', layoutId });
+    }
+
+    postGamepadAxes(id: string, pitch: number, roll: number, yaw: number, throttle: number, connected: boolean): void {
+        this.post({ type: 'gamepadAxes', id, pitch, roll, yaw, throttle, connected });
+    }
+
+    postInputBlur(id: string): void {
+        this.post({ type: 'inputBlur', id });
+    }
+
+    setInputEnabled(id: string, enabled: boolean): void {
+        this.post({ type: 'setInputEnabled', id, enabled });
+    }
+
+    setForceVectorsRequested(id: string, want: boolean): void {
+        this.post({ type: 'setForceVectorsRequested', id, want });
     }
 
     /** Pump one frame of accumulated time into the worker. Called once per frame. */
