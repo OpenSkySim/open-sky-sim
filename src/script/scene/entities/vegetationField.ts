@@ -69,9 +69,20 @@ export interface VegetationFieldSettings {
     hashSeed?: number;
 }
 
+/**
+ * Deterministic [0,1) hash. Integer avalanche mix — roughly an order of
+ * magnitude faster than the previous sin-based hash (this runs hundreds of
+ * thousands of times per frame) with equally uniform output. Inputs are
+ * quantized to 1cm; ToInt32 wrapping keeps large inputs deterministic.
+ */
 function hash2D(x: number, z: number, seed: number): number {
-    const n = Math.sin(x * 12.9898 + z * 78.233 + seed * 43.13) * 43758.5453;
-    return n - Math.floor(n);
+    let h = Math.imul((x * 100) | 0, 0x27d4eb2d)
+        ^ Math.imul((z * 100) | 0, 0x165667b1)
+        ^ Math.imul((seed * 1000) | 0, 0x9e3779b9);
+    h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+    h ^= h >>> 16;
+    return (h >>> 0) * (1 / 4294967296);
 }
 
 function landCacheKey(col: number, row: number): number {
@@ -166,6 +177,8 @@ export class VegetationField implements Entity {
     private readonly densityInnerSpan: number;
     /** LOD boundary: trees within this radius render as full-detail volumes. */
     private readonly innerHalfSpan: number;
+    /** innerHalfSpan squared, for distance tests without a sqrt per cell. */
+    private readonly innerHalfSpanSq: number;
     private readonly maxTreesPerFrame: number;
     private readonly outerCellStep: number;
     /** Working cells processed in the current frame (bounded by MAX_WORKING_CELLS_PER_FRAME). */
@@ -265,6 +278,7 @@ export class VegetationField implements Entity {
         // out to the farthest species' outer (pixel) range, and treat cells beyond
         // the largest full-detail range as "far" (coarser sampling).
         this.innerHalfSpan = Math.max(this.densityInnerSpan, ...this.batches.map(b => b.fullDetailRange));
+        this.innerHalfSpanSq = this.innerHalfSpan * this.innerHalfSpan;
         this.halfSpan = Math.max(this.densityHalfSpan, ...this.batches.map(b => b.lowDetailRange));
     }
 
@@ -308,7 +322,11 @@ export class VegetationField implements Entity {
         this.treesRendered = 0;
         this.cellsVisited = 0;
 
-        for (let ring = 0; ring <= maxRing && this.withinFrameBudget(); ring++) {
+        // Phase 1: fine walk of the near region, where every cell may hold
+        // full-detail trees. Rings beyond innerRing are guaranteed farther than
+        // innerHalfSpan (Chebyshev ring distance is a lower bound on Euclidean).
+        const innerRing = Math.min(maxRing, Math.ceil(this.innerHalfSpan / cell) + 1);
+        for (let ring = 0; ring <= innerRing && this.withinFrameBudget(); ring++) {
             for (let dc = -ring; dc <= ring && this.withinFrameBudget(); dc++) {
                 this.processCell(camCol + dc, camRow - ring, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
                 if (ring === 0) continue;
@@ -318,6 +336,30 @@ export class VegetationField implements Entity {
             for (let dr = -ring + 1; dr < ring && this.withinFrameBudget(); dr++) {
                 this.processCell(camCol - ring, camRow + dr, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
                 this.processCell(camCol + ring, camRow + dr, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
+            }
+        }
+
+        // Phase 2: coarse walk of the far region. Far cells are thinned to the
+        // outerCellStep grid anyway, so walk that grid directly instead of
+        // visiting every fine cell and rejecting all but 1 in step*step (with a
+        // 100km draw range that rejection loop alone dominated the frame).
+        const step = this.outerCellStep;
+        const camColC = Math.round(camCol / step);
+        const camRowC = Math.round(camRow / step);
+        const maxRingC = Math.ceil(maxRing / step) + 1;
+        // Coarse rings whose every cell lies within phase 1's fine walk can be
+        // skipped wholesale; partial overlap is filtered per cell below.
+        const startRingC = Math.max(0, Math.floor(innerRing / step) - 1);
+        for (let ring = startRingC; ring <= maxRingC && this.withinFrameBudget(); ring++) {
+            for (let dc = -ring; dc <= ring && this.withinFrameBudget(); dc++) {
+                this.processCoarseCell(camColC + dc, camRowC - ring, camCol, camRow, innerRing, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
+                if (ring === 0) continue;
+                this.processCoarseCell(camColC + dc, camRowC + ring, camCol, camRow, innerRing, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
+            }
+            if (ring === 0) continue;
+            for (let dr = -ring + 1; dr < ring && this.withinFrameBudget(); dr++) {
+                this.processCoarseCell(camColC - ring, camRowC + dr, camCol, camRow, innerRing, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
+                this.processCoarseCell(camColC + ring, camRowC + dr, camCol, camRow, innerRing, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
             }
         }
 
@@ -357,6 +399,32 @@ export class VegetationField implements Entity {
             && this.cellsVisited < MAX_WORKING_CELLS_PER_FRAME;
     }
 
+    /**
+     * Phase-2 wrapper: maps a coarse (outerCellStep-aligned) grid index to the
+     * fine cell it represents, skipping cells already covered by the fine walk.
+     */
+    private processCoarseCell(
+        colC: number,
+        rowC: number,
+        camCol: number,
+        camRow: number,
+        innerRing: number,
+        minCol: number,
+        maxCol: number,
+        minRow: number,
+        maxRow: number,
+        cell: number,
+        camX: number,
+        camZ: number,
+        hashSeed: number,
+        treesPerCell: number,
+    ): void {
+        const col = colC * this.outerCellStep;
+        const row = rowC * this.outerCellStep;
+        if (Math.max(Math.abs(col - camCol), Math.abs(row - camRow)) <= innerRing) return;
+        this.processCell(col, row, minCol, maxCol, minRow, maxRow, cell, camX, camZ, hashSeed, treesPerCell);
+    }
+
     private processCell(
         col: number,
         row: number,
@@ -373,13 +441,13 @@ export class VegetationField implements Entity {
         if (col < minCol || col > maxCol || row < minRow || row > maxRow) return;
         if (this.treesRendered >= this.maxTreesPerFrame) return;
 
-        const cellSeed = col * 928371 + row * 689287;
-
         const centerX = (col + 0.5) * cell;
         const centerZ = (row + 0.5) * cell;
-        const cellDist = Math.hypot(centerX - camX, centerZ - camZ);
+        const dx = centerX - camX;
+        const dz = centerZ - camZ;
+        const distSq = dx * dx + dz * dz;
 
-        const isFar = cellDist > this.innerHalfSpan;
+        const isFar = distSq > this.innerHalfSpanSq;
         if (isFar && (col % this.outerCellStep !== 0 || row % this.outerCellStep !== 0)) return;
 
         // Count only cells that reach the land lookup; this is the work the
@@ -397,6 +465,8 @@ export class VegetationField implements Entity {
         }
         if (!isLand) return;
 
+        const cellDist = Math.sqrt(distSq);
+        const cellSeed = col * 928371 + row * 689287;
         const slotsForCell = treesForCellDistance(cellDist, this.densityInnerSpan, treesPerCell);
         // Per-tree spawn probability: the field's base density (fillRatio) thinned
         // out with distance. Applied per candidate so trees scatter individually
@@ -404,7 +474,9 @@ export class VegetationField implements Entity {
         // to the density inner radius so the full-detail LOD range can extend
         // independently without changing how dense the field is.
         const spawnChance = this.options.fillRatio * effectiveFillForDistance(cellDist, this.densityInnerSpan, this.densityHalfSpan);
-        const sampleHills = anyHillNear(centerX, centerZ, this.hills);
+        // Lazy: the hill test walks every hill collider, so only pay for it
+        // once a tree actually spawns in this cell (-1 = not yet sampled).
+        let sampleHills = -1;
 
         for (let slot = 0; slot < slotsForCell && this.treesRendered < this.maxTreesPerFrame; slot++) {
             const slotSeed = cellSeed + slot * 48271;
@@ -423,7 +495,10 @@ export class VegetationField implements Entity {
             // impostor (LOD1), single 1px point (LOD2), then cull.
             if (cellDist > batch.lowDetailRange) continue;
 
-            const surfaceY = sampleHills ? sampleHillSurfaceY(wx, wz, this.hills) : 0;
+            if (sampleHills < 0) {
+                sampleHills = anyHillNear(centerX, centerZ, this.hills) ? 1 : 0;
+            }
+            const surfaceY = sampleHills !== 0 ? sampleHillSurfaceY(wx, wz, this.hills) : 0;
 
             if (cellDist > batch.impostorRange) {
                 // LOD2: a bare point. No scale/rotation/matrix needed.

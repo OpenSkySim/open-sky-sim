@@ -3,7 +3,7 @@
     "description": "Simulating early 90s flight sim visuals",
     "version": "0.0.1",
     "scripts": {
-        "pack-mods": "python tools/pack_aircraft_mods.py",
+        "pack-mods": "node tools/run-python.mjs tools/pack_aircraft_mods.py",
         "build": "webpack --mode=development && npm run pack-mods",
         "build:prod": "webpack --mode=production && npm run pack-mods",
         "start": "node tools/dev.mjs",
