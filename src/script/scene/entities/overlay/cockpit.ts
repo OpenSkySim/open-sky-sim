@@ -364,13 +364,23 @@ export class CockpitEntity implements Entity {
             painter.clear(x, y, size, size);
             const pad = font.charSpacing;
             const line = font.charHeight + font.charSpacing;
-            painter.text(font, x + pad, y + pad,
-                this.weaponsTarget.targetType, hudColor);
-            painter.text(font, x + pad, y + pad + line,
-                this.weaponsTargetAirborne ? this.weaponsTarget.targetLocation : `at ${this.weaponsTarget.targetLocation}`, hudColor);
             if (this.weaponsTargetAirborne) {
+                // Put enemy controls in the two most prominent MFD rows. The
+                // previous lower telemetry rows could be clipped or obscured in
+                // compact profiles, while these replace generic type/location
+                // labels and are visible at every supported resolution.
+                const pitch = this.formatSignedControl(this.weaponsTargetStickPitch);
+                const roll = this.formatSignedControl(this.weaponsTargetStickRoll);
+                const throttle = Math.round(Math.max(0, Math.min(1, this.weaponsTargetThrottle)) * 100);
+                painter.text(font, x + pad, y + pad, `AI P${pitch} R${roll}`, hudColor);
+                painter.text(font, x + pad, y + pad + line, `THR ${throttle}%`, hudColor);
                 this.renderTargetDirectionMarker(x, y, size, painter, hudColor);
                 this.renderTargetTelemetry(x, y, size, painter, palette, font, hudColor);
+            } else {
+                painter.text(font, x + pad, y + pad,
+                    this.weaponsTarget.targetType, hudColor);
+                painter.text(font, x + pad, y + pad + line,
+                    `at ${this.weaponsTarget.targetLocation}`, hudColor);
             }
             painter.text(font, x + pad, y + size - 2 * line,
                 `BRG ${formatHeading(this.weaponsTargetBearing)}`, hudColor);
@@ -420,15 +430,6 @@ export class CockpitEntity implements Entity {
             painter.rectangle(trackX, barY, fillW, barH, true);
         }
 
-        // The graphical controls are deliberately compact, so also print the
-        // exact values where they remain readable in every supported resolution.
-        ty += line;
-        const pitchText = this.formatSignedControl(this.weaponsTargetStickPitch);
-        const rollText = this.formatSignedControl(this.weaponsTargetStickRoll);
-        painter.text(font, x + pad, ty, `STK P${pitchText} R${rollText}`, hudColor);
-        ty += line;
-        painter.text(font, x + pad, ty,
-            `THR ${Math.round(Math.max(0, Math.min(1, this.weaponsTargetThrottle)) * 100)}%`, hudColor);
     }
 
     private formatSignedControl(value: number): string {
