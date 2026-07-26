@@ -12,12 +12,7 @@ import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { WeaponsTarget } from '../weaponsTarget';
 import { PlayerEntity } from "../player";
-import {
-    computeGunPipperWorldPoint,
-    GUN_AIM_DEFAULT_RANGE_M,
-    GUN_LINE_SAMPLES,
-    sampleGunLineWorldPoints,
-} from '../../../weapons/gunPipper';
+import { computeGunPipperWorldPoint, GUN_AIM_DEFAULT_RANGE_M } from '../../../weapons/gunPipper';
 import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout, toFeet } from './overlayUtils';
 import { DisplayUnits } from './displayUnits';
 
@@ -107,7 +102,6 @@ export class HUDEntity implements Entity {
     private _w = new THREE.Vector3();
     private _aim = new THREE.Vector3();
     private _plane = new THREE.Plane();
-    private readonly _gunLine = Array.from({ length: GUN_LINE_SAMPLES }, () => new THREE.Vector3());
 
     readonly tags: string[] = [];
 
@@ -683,9 +677,8 @@ export class HUDEntity implements Entity {
     }
 
     /**
-     * Gun-line pipper: circle where the rounds will be at the current target
-     * range (or {@link GUN_AIM_DEFAULT_RANGE_M}), plus the ballistic trajectory
-     * line from the boresight. Put the circle on the target to score hits.
+     * Gun pipper: circle where rounds are at the current target range, with a
+     * single line from the HUD boresight to the pipper.
      */
     private renderGunAimIndicator(
         width: number, height: number, halfWidth: number, halfHeight: number,
@@ -703,11 +696,9 @@ export class HUDEntity implements Entity {
         this._v.copy(FORWARD).applyQuaternion(quat);
 
         let targetPos: THREE.Vector3 | undefined;
-        let rangeM = GUN_AIM_DEFAULT_RANGE_M;
         if (this.weaponsTarget) {
             this._aim.copy(this.weaponsTarget.position).add(this.weaponsTarget.localCenter);
             targetPos = this._aim;
-            rangeM = Math.max(1, targetPos.distanceTo(pos));
         }
 
         computeGunPipperWorldPoint(
@@ -717,69 +708,30 @@ export class HUDEntity implements Entity {
 
         camera.getWorldDirection(this._aim);
         this._plane.setFromNormalAndCoplanarPoint(this._aim, camera.position);
-
-        painter.setColor(hudColor);
-        this.renderGunLine(
-            width, height, halfWidth, halfHeight, painter, camera, pos, vel, rangeM,
-        );
-
         if (this._plane.distanceToPoint(this._w) <= 0) {
             return;
         }
 
         this._w.project(camera);
-        const x = Math.round((this._w.x * halfWidth) + halfWidth);
-        const y = Math.round(-(this._w.y * halfHeight) + halfHeight);
-        if (x < 0 || x >= width || y < 0 || y >= height) {
+        const pipperX = Math.round((this._w.x * halfWidth) + halfWidth);
+        const pipperY = Math.round(-(this._w.y * halfHeight) + halfHeight);
+        if (pipperX < 0 || pipperX >= width || pipperY < 0 || pipperY >= height) {
             return;
         }
 
-        const r = Math.max(3, Math.round(5 * geomScale));
-        // Circle + center tick — continuum/gun-line pipper at target range.
-        painter.circle(x, y, r);
+        const boreX = Math.round(halfWidth);
+        const boreY = Math.round(halfHeight);
+        painter.setColor(hudColor);
         painter.batch()
-            .hLine(x - 1, x + 1, y)
-            .vLine(x, y - 1, y + 1)
+            .line(boreX, boreY, pipperX, pipperY)
             .commit();
-    }
 
-    /** Ballistic gun line from near the muzzle out to the pipper range. */
-    private renderGunLine(
-        width: number, height: number, halfWidth: number, halfHeight: number,
-        painter: CanvasPainter, camera: THREE.Camera,
-        gunPos: THREE.Vector3, gunVel: THREE.Vector3, rangeM: number,
-    ) {
-        // Nose direction is still in `_v` from the caller.
-        sampleGunLineWorldPoints(
-            this._gunLine, gunPos, this._v, gunVel, GUN_MUZZLE_VELOCITY_MPS, rangeM,
-        );
-
-        let prevX = 0;
-        let prevY = 0;
-        let hasPrev = false;
-        const batch = painter.batch();
-        // Skip the muzzle sample (i≈0) — it sits on the camera / boresight.
-        for (let i = 1; i < this._gunLine.length; i++) {
-            const p = this._gunLine[i];
-            if (this._plane.distanceToPoint(p) <= 0) {
-                hasPrev = false;
-                continue;
-            }
-            this._aim.copy(p).project(camera);
-            const x = Math.round((this._aim.x * halfWidth) + halfWidth);
-            const y = Math.round(-(this._aim.y * halfHeight) + halfHeight);
-            if (x < -width || x > width * 2 || y < -height || y > height * 2) {
-                hasPrev = false;
-                continue;
-            }
-            if (hasPrev) {
-                batch.line(prevX, prevY, x, y);
-            }
-            prevX = x;
-            prevY = y;
-            hasPrev = true;
-        }
-        batch.commit();
+        const r = Math.max(3, Math.round(5 * geomScale));
+        painter.circle(pipperX, pipperY, r);
+        painter.batch()
+            .hLine(pipperX - 1, pipperX + 1, pipperY)
+            .vLine(pipperX, pipperY - 1, pipperY + 1)
+            .commit();
     }
 
     private renderBoresight(halfWidth: number, halfHeight: number, painter: CanvasPainter, geomScale: number) {

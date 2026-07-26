@@ -6,9 +6,6 @@ export const GUN_PROJECTILE_GRAVITY = 9.80665;
 /** When no weapons target is locked, pipper uses this reference range (m). */
 export const GUN_AIM_DEFAULT_RANGE_M = 500;
 
-/** Max samples for the HUD gun-line polyline. */
-export const GUN_LINE_SAMPLES = 12;
-
 const _bulletVel = new THREE.Vector3();
 
 /**
@@ -65,31 +62,4 @@ export function computeGunPipperWorldPoint(
         : defaultRangeM;
     const tof = tofForRange(gunForward, gunVel, muzzleSpeed, rangeM);
     return bulletPositionAtTime(out, gunPos, _bulletVel, tof, gravity);
-}
-
-/**
- * Sample world points along the ballistic gun line from the muzzle out to
- * `rangeM` (inclusive). Writes up to `out.length` points; returns how many
- * were filled. Used to draw the HUD trajectory line under the pipper.
- */
-export function sampleGunLineWorldPoints(
-    out: THREE.Vector3[],
-    gunPos: THREE.Vector3,
-    gunForward: THREE.Vector3,
-    gunVel: THREE.Vector3,
-    muzzleSpeed: number,
-    rangeM: number,
-    gravity: number = GUN_PROJECTILE_GRAVITY,
-): number {
-    if (out.length === 0) {
-        return 0;
-    }
-    _bulletVel.copy(gunForward).multiplyScalar(muzzleSpeed).add(gunVel);
-    const tofEnd = tofForRange(gunForward, gunVel, muzzleSpeed, rangeM);
-    const n = out.length;
-    for (let i = 0; i < n; i++) {
-        const t = tofEnd * (i / (n - 1));
-        bulletPositionAtTime(out[i], gunPos, _bulletVel, t, gravity);
-    }
-    return n;
 }

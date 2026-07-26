@@ -5,7 +5,6 @@ import {
     computeGunPipperWorldPoint,
     GUN_AIM_DEFAULT_RANGE_M,
     GUN_PROJECTILE_GRAVITY,
-    sampleGunLineWorldPoints,
     tofForRange,
 } from './gunPipper';
 
@@ -72,22 +71,5 @@ describe('computeGunPipperWorldPoint', () => {
         );
         assert.ok(far.z > near.z, 'longer range should push the pipper farther ahead');
         assert.ok(far.y < near.y, 'longer range should drop farther under gravity');
-    });
-});
-
-describe('sampleGunLineWorldPoints', () => {
-    it('starts at the muzzle and ends at the pipper range', () => {
-        const gunPos = new THREE.Vector3(0, 3000, 0);
-        const gunForward = new THREE.Vector3(0, 0, 1);
-        const gunVel = new THREE.Vector3(0, 0, 220);
-        const samples = Array.from({ length: 8 }, () => new THREE.Vector3());
-        const n = sampleGunLineWorldPoints(samples, gunPos, gunForward, gunVel, 1000, 500);
-        assert.equal(n, 8);
-        assert.ok(samples[0].distanceTo(gunPos) < 0.01);
-        const pipper = new THREE.Vector3();
-        computeGunPipperWorldPoint(
-            pipper, gunPos, gunForward, gunVel, 1000, new THREE.Vector3(0, 3000, 500),
-        );
-        assert.ok(samples[n - 1].distanceTo(pipper) < 0.5);
     });
 });
