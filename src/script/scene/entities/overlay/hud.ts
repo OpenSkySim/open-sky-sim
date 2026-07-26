@@ -246,9 +246,9 @@ export class HUDEntity implements Entity {
         this.renderStickIndicator(stickCenterX, stickCenterY, stickArm, geomScale, painter, hudColor, hudSecondaryColor, hudLimitColor, fontSmall);
 
         this.renderTarget(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale);
-        this.renderBoresight(halfWidth, halfHeight, painter, geomScale);
-        this.renderGunReticle(halfWidth, halfHeight, painter, geomScale, hudColor, hudWarnColor, font);
+        this.renderGunReticle(targetHeight, painter, geomScale, hudColor, hudWarnColor, font);
         this.renderGunAimIndicator(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale, hudColor);
+        this.renderBoresight(halfWidth, halfHeight, painter, geomScale, hudColor);
         this.renderFlightPathMarker(targetWidth, targetHeight, halfWidth, halfHeight, painter, camera, geomScale);
         this.renderStallWarning(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor, font);
 
@@ -649,28 +649,15 @@ export class HUDEntity implements Entity {
         }
     }
 
-    /** Gun pipper brackets around the boresight plus an ammo/health readout. */
-    private renderGunReticle(halfWidth: number, halfHeight: number, painter: CanvasPainter, geomScale: number, hudColor: string, hudWarnColor: string, font: Font) {
+    /** Gun ammo/hull readout when cannon is armed. */
+    private renderGunReticle(targetHeight: number, painter: CanvasPainter, geomScale: number, hudColor: string, hudWarnColor: string, font: Font) {
         if (!this.hasGun) {
             return;
         }
-        const u = geomScale;
-        const r = Math.round(7 * u);
-        // A square "pipper" bracket around the boresight to frame the gun aim.
-        painter.batch()
-            .hLine(halfWidth - r, halfWidth - r + 3 * u, halfHeight - r)
-            .hLine(halfWidth + r - 3 * u, halfWidth + r, halfHeight - r)
-            .hLine(halfWidth - r, halfWidth - r + 3 * u, halfHeight + r)
-            .hLine(halfWidth + r - 3 * u, halfWidth + r, halfHeight + r)
-            .vLine(halfWidth - r, halfHeight - r, halfHeight - r + 3 * u)
-            .vLine(halfWidth - r, halfHeight + r - 3 * u, halfHeight + r)
-            .vLine(halfWidth + r, halfHeight - r, halfHeight - r + 3 * u)
-            .vLine(halfWidth + r, halfHeight + r - 3 * u, halfHeight + r)
-            .commit();
 
         const lineHeight = font.charHeight + font.charSpacing;
         const x = Math.max(4, Math.round(4 * geomScale));
-        const y = halfHeight * 2 - lineHeight * 2 - 2;
+        const y = targetHeight - lineHeight * 2 - 2;
         const hpPct = Math.round(this.healthFraction * 100);
         painter.text(font, x, y, `GUN ${this.gunAmmo}`, this.gunAmmo > 0 ? hudColor : hudWarnColor, TextAlignment.LEFT);
         painter.text(font, x, y + lineHeight, `HULL ${hpPct}%`, hpPct <= 30 ? hudWarnColor : hudColor, TextAlignment.LEFT);
@@ -734,13 +721,19 @@ export class HUDEntity implements Entity {
             .commit();
     }
 
-    private renderBoresight(halfWidth: number, halfHeight: number, painter: CanvasPainter, geomScale: number) {
+    /** HUD boresight cross at screen center (gun axis / nozzle aim point). */
+    private renderBoresight(halfWidth: number, halfHeight: number, painter: CanvasPainter, geomScale: number, hudColor: string) {
+        painter.setColor(hudColor);
         const u = geomScale;
+        const cx = Math.round(halfWidth);
+        const cy = Math.round(halfHeight);
+        const gap = Math.max(1, Math.round(u));
+        const arm = Math.max(4, Math.round(5 * u));
         painter.batch()
-            .hLine(halfWidth - 5 * u - 5 * u, halfWidth - 5 * u, halfHeight)
-            .hLine(halfWidth + 5 * u, halfWidth + 5 * u + 5 * u, halfHeight)
-            .vLine(halfWidth, halfHeight - 3 * u - 3 * u, halfHeight - 3 * u)
-            .vLine(halfWidth, halfHeight + 3 * u, halfHeight + 3 * u + 3 * u)
+            .hLine(cx - arm - gap, cx - gap, cy)
+            .hLine(cx + gap, cx + arm + gap, cy)
+            .vLine(cx, cy - arm - gap, cy - gap)
+            .vLine(cx, cy + gap, cy + arm + gap)
             .commit();
     }
 
