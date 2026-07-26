@@ -1,4 +1,5 @@
 import { ConfigService } from "../config/configService";
+import { updateSettings } from "../config/settingsStorage";
 import { JoystickControlDevice } from "../input/devices/joystickControlDevice";
 import { KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts } from "../input/devices/keyboardControlDevice";
 import { FlightModels, TechProfiles } from "../state/gameDefs";
@@ -11,6 +12,7 @@ export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDe
     setupFlightModel(config);
     setupKeyboardHelp(keyboardInput);
     setupJoystickHelp(joystickInput);
+    syncSettingsUI(config, keyboardInput);
 }
 
 function setupButtons() {
@@ -66,18 +68,23 @@ function setupGenerationOptions(config: ConfigService) {
 
     genCGA.addEventListener('change', () => {
         config.techProfiles.setActive(TechProfiles.CGA);
+        updateSettings({ techProfile: TechProfiles.CGA });
     });
     genEGA.addEventListener('change', () => {
         config.techProfiles.setActive(TechProfiles.EGA);
+        updateSettings({ techProfile: TechProfiles.EGA });
     });
     genVGA.addEventListener('change', () => {
         config.techProfiles.setActive(TechProfiles.VGA);
+        updateSettings({ techProfile: TechProfiles.VGA });
     });
     genSVGA.addEventListener('change', () => {
         config.techProfiles.setActive(TechProfiles.SVGA);
+        updateSettings({ techProfile: TechProfiles.SVGA });
     });
     genHD.addEventListener('change', () => {
         config.techProfiles.setActive(TechProfiles.HD);
+        updateSettings({ techProfile: TechProfiles.HD });
     });
 }
 
@@ -91,12 +98,15 @@ function setupFlightModel(config: ConfigService) {
 
     debugFlightModel.addEventListener('change', () => {
         config.flightModels.setActive(FlightModels.DEBUG);
+        updateSettings({ flightModel: FlightModels.DEBUG });
     });
     arcadeFlightModel.addEventListener('change', () => {
         config.flightModels.setActive(FlightModels.ARCADE);
+        updateSettings({ flightModel: FlightModels.ARCADE });
     });
     realisticFlightModel.addEventListener('change', () => {
         config.flightModels.setActive(FlightModels.REALISTIC);
+        updateSettings({ flightModel: FlightModels.REALISTIC });
     });
 }
 
@@ -115,26 +125,64 @@ function setupKeyboardHelp(keyboardInput: KeyboardControlDevice) {
     qwertyLayout.addEventListener('change', () => {
         keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.QWERTY);
         updateControlsHelp(KeyboardControlLayoutId.QWERTY);
+        updateSettings({ keyboardLayout: KeyboardControlLayoutId.QWERTY });
     });
     qwertzLayout.addEventListener('change', () => {
         keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.QWERTZ);
         updateControlsHelp(KeyboardControlLayoutId.QWERTZ);
+        updateSettings({ keyboardLayout: KeyboardControlLayoutId.QWERTZ });
     });
     azertyLayout.addEventListener('change', () => {
         keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.AZERTY);
         updateControlsHelp(KeyboardControlLayoutId.AZERTY);
+        updateSettings({ keyboardLayout: KeyboardControlLayoutId.AZERTY });
     });
     dvorakLayout.addEventListener('change', () => {
         keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.DVORAK);
         updateControlsHelp(KeyboardControlLayoutId.DVORAK);
+        updateSettings({ keyboardLayout: KeyboardControlLayoutId.DVORAK });
     });
     arrowsLayout.addEventListener('change', () => {
         keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.ARROWS);
         updateControlsHelp(KeyboardControlLayoutId.ARROWS);
+        updateSettings({ keyboardLayout: KeyboardControlLayoutId.ARROWS });
     });
 
-    keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.ARROWS);
-    updateControlsHelp(KeyboardControlLayoutId.ARROWS);
+    updateControlsHelp(keyboardInput.getKeyboardLayoutId());
+}
+
+function syncSettingsUI(config: ConfigService, keyboardInput: KeyboardControlDevice) {
+    const techProfileRadioIds: Record<string, string> = {
+        [TechProfiles.CGA]: 'gen-cga',
+        [TechProfiles.EGA]: 'gen-ega',
+        [TechProfiles.VGA]: 'gen-vga',
+        [TechProfiles.SVGA]: 'gen-svga',
+        [TechProfiles.HD]: 'gen-hd',
+    };
+    const flightModelRadioIds: Record<string, string> = {
+        [FlightModels.DEBUG]: 'flightmodel-debug',
+        [FlightModels.ARCADE]: 'flightmodel-arcade',
+        [FlightModels.REALISTIC]: 'flightmodel-realistic',
+    };
+    const keyboardLayoutRadioIds: Record<KeyboardControlLayoutId, string> = {
+        [KeyboardControlLayoutId.QWERTY]: 'layout-qwerty',
+        [KeyboardControlLayoutId.QWERTZ]: 'layout-qwertz',
+        [KeyboardControlLayoutId.AZERTY]: 'layout-azerty',
+        [KeyboardControlLayoutId.DVORAK]: 'layout-dvorak',
+        [KeyboardControlLayoutId.ARROWS]: 'layout-arrows',
+    };
+
+    checkRadio(techProfileRadioIds[config.techProfiles.getActiveId()]);
+    checkRadio(flightModelRadioIds[config.flightModels.getActiveId()]);
+    checkRadio(keyboardLayoutRadioIds[keyboardInput.getKeyboardLayoutId()]);
+}
+
+function checkRadio(id: string | undefined) {
+    if (!id) return;
+    const input = document.getElementById(id);
+    if (input instanceof HTMLInputElement) {
+        input.checked = true;
+    }
 }
 
 function setupJoystickHelp(joystickInput: JoystickControlDevice) {

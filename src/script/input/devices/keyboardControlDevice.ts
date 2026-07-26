@@ -212,6 +212,10 @@ export class KeyboardControlDevice implements KernelTask {
         this.layout = KeyboardControlLayouts.get(layoutId) || QwertyKeyboardControlLayout;
     }
 
+    getKeyboardLayoutId(): KeyboardControlLayoutId {
+        return this.layoutId;
+    }
+
     private setupInput() {
         document.addEventListener('keydown', (event: KeyboardEvent) => {
             const key = normalizeControlKey(event);

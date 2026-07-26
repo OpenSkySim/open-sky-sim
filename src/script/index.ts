@@ -9,10 +9,11 @@ import { DisplayShading, FogQuality } from './config/profiles/profile';
 import { HDProfile } from './config/profiles/hd';
 import { SVGAProfile } from './config/profiles/svga';
 import { VGAProfile } from './config/profiles/vga';
+import { loadSettings } from './config/settingsStorage';
 import { Kernel } from './core/kernel';
 import { FPS_CAP, GROUND_SMOKE_PARTICLE_COUNT, H_RES, V_RES } from './defs';
 import { JoystickControlDevice } from './input/devices/joystickControlDevice';
-import { KeyboardControlDevice, KeyboardControlLayoutId } from './input/devices/keyboardControlDevice';
+import { KeyboardControlDevice } from './input/devices/keyboardControlDevice';
 import { setupOSD } from './osd/osdPanel';
 import { ArcadeFlightModel } from './physics/model/arcadeFlightModel';
 import { DebugFlightModel } from './physics/model/debugFlightModel';
@@ -30,9 +31,12 @@ import { FlightModels, TechProfiles } from './state/gameDefs';
 
 
 function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice] {
+    const settings = loadSettings();
     const config = new ConfigService(
         { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
-        { [FlightModels.DEBUG]: new DebugFlightModel(), [FlightModels.ARCADE]: new ArcadeFlightModel(), [FlightModels.REALISTIC]: new RealisticFlightModel(), }
+        { [FlightModels.DEBUG]: new DebugFlightModel(), [FlightModels.ARCADE]: new ArcadeFlightModel(), [FlightModels.REALISTIC]: new RealisticFlightModel(), },
+        settings.techProfile,
+        settings.flightModel,
     );
     const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
     const renderer = new Renderer(materials, H_RES, V_RES, HDNoonPalette);
@@ -51,11 +55,13 @@ function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControl
     ]);
     const audio = new AudioSystem();
     const game = new Game(config, models, materials, renderer, audio);
-    config.techProfiles.setActive(TechProfiles.HD);
+    // Apply persisted settings after Game registers change listeners.
+    config.techProfiles.notifyActive();
+    config.flightModels.notifyActive();
     game.setup();
 
     const keyboardInput = new KeyboardControlDevice(game.getPlayer());
-    keyboardInput.setKeyboardLayout(KeyboardControlLayoutId.ARROWS);
+    keyboardInput.setKeyboardLayout(settings.keyboardLayout);
     const joystickInput = new JoystickControlDevice(game.getPlayer());
 
     const kernel = new Kernel(FPS_CAP);
@@ -66,6 +72,7 @@ function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControl
     kernel.addTask(new GameRenderTask(game));
 
     config.techProfiles.addChangeListener(profile => kernel.setTargetFPS(profile.fpsCap ? FPS_CAP : undefined));
+    kernel.setTargetFPS(config.techProfiles.getActive().fpsCap ? FPS_CAP : undefined);
 
     return [kernel, config, keyboardInput, joystickInput];
 }
