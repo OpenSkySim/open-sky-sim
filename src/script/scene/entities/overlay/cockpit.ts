@@ -364,23 +364,13 @@ export class CockpitEntity implements Entity {
             painter.clear(x, y, size, size);
             const pad = font.charSpacing;
             const line = font.charHeight + font.charSpacing;
+            painter.text(font, x + pad, y + pad,
+                this.weaponsTarget.targetType, hudColor);
+            painter.text(font, x + pad, y + pad + line,
+                this.weaponsTargetAirborne ? this.weaponsTarget.targetLocation : `at ${this.weaponsTarget.targetLocation}`, hudColor);
             if (this.weaponsTargetAirborne) {
-                // Put enemy controls in the two most prominent MFD rows. The
-                // previous lower telemetry rows could be clipped or obscured in
-                // compact profiles, while these replace generic type/location
-                // labels and are visible at every supported resolution.
-                const pitch = this.formatSignedControl(this.weaponsTargetStickPitch);
-                const roll = this.formatSignedControl(this.weaponsTargetStickRoll);
-                const throttle = Math.round(Math.max(0, Math.min(1, this.weaponsTargetThrottle)) * 100);
-                painter.text(font, x + pad, y + pad, `AI P${pitch} R${roll}`, hudColor);
-                painter.text(font, x + pad, y + pad + line, `THR ${throttle}%`, hudColor);
                 this.renderTargetDirectionMarker(x, y, size, painter, hudColor);
                 this.renderTargetTelemetry(x, y, size, painter, palette, font, hudColor);
-            } else {
-                painter.text(font, x + pad, y + pad,
-                    this.weaponsTarget.targetType, hudColor);
-                painter.text(font, x + pad, y + pad + line,
-                    `at ${this.weaponsTarget.targetLocation}`, hudColor);
             }
             painter.text(font, x + pad, y + size - 2 * line,
                 `BRG ${formatHeading(this.weaponsTargetBearing)}`, hudColor);
@@ -408,10 +398,13 @@ export class CockpitEntity implements Entity {
         painter.text(font, x + pad, ty, `G ${this.weaponsTargetLoadG.toFixed(1)}`, gColor);
         ty += line;
 
-        const controlSize = Math.max(9, Math.min(15, Math.round(size * 0.2)));
-        const controlX = x + size - pad - controlSize - 4;
-        const controlY = y + pad + line * 2;
-        this.renderTargetControls(controlX, controlY, controlSize, painter, hudColor);
+        const pitch = this.formatSignedControl(this.weaponsTargetStickPitch);
+        const roll = this.formatSignedControl(this.weaponsTargetStickRoll);
+        painter.text(font, x + pad, ty, `P ${pitch} R ${roll}`, hudColor);
+        ty += line;
+        const throttle = Math.round(Math.max(0, Math.min(1, this.weaponsTargetThrottle)) * 100);
+        painter.text(font, x + pad, ty, `THR ${throttle}%`, hudColor);
+        ty += line;
 
         const barX = x + pad;
         const barY = ty + Math.floor(font.charHeight / 2) - 2;
@@ -420,8 +413,7 @@ export class CockpitEntity implements Entity {
         const labelW = label.length * font.charWidth + Math.max(0, label.length - 1) * font.charSpacing;
         painter.text(font, barX, ty, label, this.weaponsTargetHealth <= 0.3 ? warnColor : hudColor);
         const trackX = barX + labelW + pad;
-        // Stop the hull bar before the enemy-control indicator on compact MFDs.
-        const trackW = Math.max(8, controlX - trackX - pad);
+        const trackW = Math.max(8, size - (trackX - x) - pad);
         painter.setColor(hudColor);
         painter.rectangle(trackX, barY, trackW, barH);
         const fillW = Math.max(0, Math.round(trackW * Math.max(0, Math.min(1, this.weaponsTargetHealth))));
@@ -435,37 +427,6 @@ export class CockpitEntity implements Entity {
     private formatSignedControl(value: number): string {
         const clamped = Math.max(-1, Math.min(1, value));
         return `${clamped >= 0 ? '+' : ''}${clamped.toFixed(1)}`;
-    }
-
-    /** Enemy raw stick position plus throttle lever, mirrored from the sim worker. */
-    private renderTargetControls(
-        x: number, y: number, size: number,
-        painter: CanvasPainter, hudColor: string,
-    ): void {
-        const centerX = x + Math.floor(size / 2);
-        const centerY = y + Math.floor(size / 2);
-        const travel = Math.max(2, Math.floor(size / 2) - 2);
-        const pitch = Math.max(-1, Math.min(1, this.weaponsTargetStickPitch));
-        const roll = Math.max(-1, Math.min(1, this.weaponsTargetStickRoll));
-        const throttle = Math.max(0, Math.min(1, this.weaponsTargetThrottle));
-
-        painter.setColor(hudColor);
-        painter.rectangle(x, y, size, size);
-        painter.batch()
-            .hLine(centerX - travel, centerX + travel, centerY)
-            .vLine(centerX, centerY - travel, centerY + travel)
-            .commit();
-
-        // Positive pitch is aft stick and therefore down on the indicator,
-        // matching the player's HUD control-position display.
-        const stickX = Math.round(centerX + roll * travel);
-        const stickY = Math.round(centerY + pitch * travel);
-        painter.circle(stickX, stickY, 1);
-
-        const throttleX = x + size + 3;
-        painter.vLine(throttleX, y, y + size);
-        const throttleY = Math.round(y + size - throttle * size);
-        painter.hLine(throttleX - 1, throttleX + 1, throttleY);
     }
 
     /**
