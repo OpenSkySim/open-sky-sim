@@ -12,6 +12,19 @@
 
 <body>
     <div id="container"></div>
+    <div id="mod-status" class="hidden"></div>
+    <div id="showcase-pick" class="hidden"></div>
+    <div id="spawn-panel" class="hidden">
+        <div id="spawn-dialog">
+            <h2 id="spawn-title">Retro Flight Sim</h2>
+            <label for="aircraft-select">Aircraft</label>
+            <select id="aircraft-select"></select>
+            <div id="spawn-actions">
+                <button type="button" id="spawn-approach">Approach (1)</button>
+                <button type="button" id="spawn-runway">Runway (2)</button>
+            </div>
+        </div>
+    </div>
     <div id="panel">
         <nav>
             <div id="help-button">?</div>
@@ -29,6 +42,7 @@
                     <li><span id="key-roll-neg">A</span>/<span id="key-roll-pos">D</span>: Roll</li>
                     <li><span id="key-yaw-neg">Q</span>/<span id="key-yaw-pos">E</span>: Yaw</li>
                     <li><span id="key-throttle-pos">Z</span>/<span id="key-throttle-neg">X</span>: Throttle</li>
+                <li><span>Num Lock</span>: Telemetry graph</li>
                 </ul>
             </div>
 
@@ -47,18 +61,35 @@
             <ul>
                 <li><span>G</span>: Landing gear</li>
                 <li><span>F</span>: Flaps</li>
+                <li><span>L</span>: FCS limiters (AoA/g) on/off</li>
+                <li><span>1/2/3</span>: FCS limiter strategy (soft / predictive / smooth)</li>
                 <li><span>T</span>: Select target</li>
                 <li><span>I</span>: Target night view</li>
                 <li><span>H</span>: Cycle HUD focus</li>
+                <li><span>R</span>: Flight recorder (toggle, downloads JSON)</li>
+                <li><span>F10</span>: Import aircraft mod (.zip)</li>
+            </ul>
+
+            <h2>Spawn menu</h2>
+            <ul>
+                <li><span>Esc</span>: Open spawn menu</li>
+                <li><span>1</span>: Approach spawn</li>
+                <li><span>2</span>: Runway spawn</li>
+                <li>Aircraft list: pick from the combobox in the spawn menu</li>
             </ul>
 
             <h2>Views</h2>
             <ul>
                 <li><span>N</span>: Day/night</li>
-                <li><span>1</span>: Cockpit</li>
-                <li><span>2</span>: Exterior back/front</li>
-                <li><span>3</span>: Exterior left/right</li>
+                <li><span>F1</span>: Cockpit</li>
+                <li><span>F2</span>: Exterior back/front</li>
+                <li><span>F3</span>: Exterior left/right</li>
+                <li><span>F6</span>: Exterior back/front of AI plane (looks at player)</li>
+                <li><span>F12</span>: Aircraft showcase (black background, orbit with numpad)</li>
                 <li><span>4</span>: To/from target</li>
+                <li><span>Numpad 4/6/8/2</span>: Move camera around aircraft</li>
+                <li><span>Numpad 5</span>: Recenter camera</li>
+                <li><span>Numpad * / /</span>: Zoom in / out (F2: lock/unlock on enemy)</li>
             </ul>
         </section>
         <section id="settings">
@@ -91,16 +122,43 @@
             <h2>Flight model</h2>
             <ul>
                 <li>
+                    <input type="radio" id="flightmodel-fm2" name="flightmodel" value="fm2" checked>
+                    <label for="flightmodel-fm2">FM2 (Rigid body)</label>
+                </li>
+                <li>
                     <input type="radio" id="flightmodel-debug" name="flightmodel" value="debug">
-                    <label for="flightmodel-debug">Debug</label>
+                    <label for="flightmodel-debug">Debug (Free-fly)</label>
                 </li>
                 <li>
-                    <input type="radio" id="flightmodel-arcade" name="flightmodel" value="arcade" checked>
-                    <label for="flightmodel-arcade">Arcade</label>
+                    <input type="radio" id="flightmodel-jsbsim" name="flightmodel" value="jsbsim">
+                    <label for="flightmodel-jsbsim">JSBSim (WASM, F-16)</label>
+                </li>
+            </ul>
+
+            <h2>AI pilot model</h2>
+            <p style="font-weight:normal;font-size:0.85rem;margin:0 0 0.5rem;color:rgb(184,184,184)">
+                Applies on the next merge / opponent spawn.
+            </p>
+            <ul>
+                <li>
+                    <input type="radio" id="aipilot-classic" name="aipilot" value="classic" checked>
+                    <label for="aipilot-classic">Classic BFM</label>
                 </li>
                 <li>
-                    <input type="radio" id="flightmodel-realistic" name="flightmodel" value="realistic" disabled>
-                    <label for="flightmodel-realistic">Realistic</label>
+                    <input type="radio" id="aipilot-shaw" name="aipilot" value="shaw">
+                    <label for="aipilot-shaw">Shaw (Fighter Combat)</label>
+                </li>
+            </ul>
+
+            <h2>Units</h2>
+            <ul>
+                <li>
+                    <input type="radio" id="units-metric" name="units" value="metric" checked>
+                    <label for="units-metric">Metric (m, km/h)</label>
+                </li>
+                <li>
+                    <input type="radio" id="units-imperial" name="units" value="imperial">
+                    <label for="units-imperial">Imperial (ft, kt)</label>
                 </li>
             </ul>
 
@@ -128,10 +186,6 @@
                 </li>
             </ul>
         </section>
-    </div>
-    <div id="credits">
-        By Ruben Moreno<br>
-        <a href="https://github.com/ruben3d">GitHub</a> | <a href="https://twitter.com/ruben3d">Twitter</a>
     </div>
 </body>
 

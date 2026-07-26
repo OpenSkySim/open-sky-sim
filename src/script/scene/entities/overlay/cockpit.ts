@@ -1,19 +1,27 @@
 import * as THREE from 'three';
 import { Palette, PaletteCategory, PaletteColor } from "../../../config/palettes/palette";
+import { PITCH_STICK_AFT_UNITS, PITCH_STICK_FWD_UNITS } from '../../../defs';
+import { formatF16ThrottleHud } from '../../../physics/f16Engine';
 import { CanvasPainter } from "../../../render/screen/canvasPainter";
 import { Font, TextAlignment } from "../../../render/screen/text";
 import { calculatePitchRoll, FORWARD, UP, vectorHeading } from '../../../utils/math';
 import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { updateTargetCamera } from '../../utils';
-import { GroundTargetEntity } from '../groundTarget';
+import { WeaponsTarget } from '../weaponsTarget';
 import { AircraftDeviceState, PlayerEntity } from "../player";
-import { formatHeading, getOverlayLayout } from './overlayUtils';
+import { formatHeading, getAircraftDeviceStatusPosition, getOverlayLayout, renderAircraftDeviceStatus } from './overlayUtils';
 
 
 // Pixels
-export function CockpitMFDSize(height: number): number {
-    return Math.floor(height / 3.333);
+export function CockpitMFDSize(height: number, width?: number): number {
+    const byHeight = Math.floor(height / 3.333);
+    if (width === undefined) {
+        return byHeight;
+    }
+    const maxByWidth = Math.floor((width - 2) / 2);
+    const maxByHeight = Math.floor(height - 2);
+    return Math.max(1, Math.min(byHeight, maxByWidth, maxByHeight));
 }
 
 // Pixels
@@ -23,17 +31,17 @@ export function CockpitMFD1X(width: number, height: number, size: number): numbe
 
 // Pixels
 export function CockpitMFD1Y(width: number, height: number, size: number): number {
-    return height - size - 1;
+    return Math.max(1, height - size - 1);
 }
 
 // Pixels
 export function CockpitMFD2X(width: number, height: number, size: number): number {
-    return width - size - 1;
+    return Math.max(1, width - size - 1);
 }
 
 // Pixels
 export function CockpitMFD2Y(width: number, height: number, size: number): number {
-    return height - size - 1;
+    return Math.max(1, height - size - 1);
 }
 
 export class CockpitEntity implements Entity {
@@ -49,13 +57,26 @@ export class CockpitEntity implements Entity {
     private landingGear: AircraftDeviceState = AircraftDeviceState.EXTENDED;
     private flaps: AircraftDeviceState = AircraftDeviceState.EXTENDED;
     private mapPlaneMarkerHeading: number = 0;
-    private weaponsTarget: GroundTargetEntity | undefined;
+    private weaponsTarget: WeaponsTarget | undefined;
     private weaponsTargetRange: number = 0; // Km
     private weaponsTargetBearing: number = 0; // degrees, 0 is North, increases CW
     private weaponsTargetZoomFactor: number = 1; // Times standard FOV
+    private weaponsTargetAirborne: boolean = false;
+    // Enemy direction as seen down the aircraft's longitudinal axis (cockpit
+    // frame): a unit screen vector plus an off-boresight amount in [0, 1].
+    private weaponsTargetDirX: number = 0;
+    private weaponsTargetDirY: number = 0;
+    private weaponsTargetOffAxis: number = 0;
+    private weaponsTargetSpeedMps: number = 0;
+    private weaponsTargetLoadG: number = 1;
+    private weaponsTargetHealth: number = 1;
+    private weaponsTargetStickPitch: number = 0;
+    private weaponsTargetStickRoll: number = 0;
+    private weaponsTargetThrottle: number = 0;
 
     private _v = new THREE.Vector3();
     private _w = new THREE.Vector3();
+    private _q = new THREE.Quaternion();
 
     readonly tags: string[] = [];
 
@@ -66,23 +87,34 @@ export class CockpitEntity implements Entity {
     }
 
     update(delta: number): void {
+        this.weaponsTarget = this.actor.weaponsTarget;
+        this.flaps = this.actor.flaps;
+        this.landingGear = this.actor.landingGear;
+    }
+
+    private refreshVisualState(): void {
+        const displayPos = this.actor.getDisplayPosition();
+        const displayQuat = this.actor.getDisplayQuaternion();
 
         const prjForward = this.actor
-            .getWorldDirection(this._v)
+            .getDisplayWorldDirection(this._v)
             .setY(0)
             .normalize();
         this.mapPlaneMarkerHeading = vectorHeading(prjForward);
 
-        [this.aiPitch, this.aiRoll] = calculatePitchRoll(this.actor);
+        [this.aiPitch, this.aiRoll] = calculatePitchRoll({
+            quaternion: displayQuat,
+            getWorldDirection: (v) => this.actor.getDisplayWorldDirection(v),
+        });
 
-        this.mapCamera.position.copy(this.actor.position).setY(500);
-
-        this.weaponsTarget = this.actor.weaponsTarget;
+        this.mapCamera.position.copy(displayPos).setY(500);
 
         if (this.weaponsTarget !== undefined) {
+            this.weaponsTargetAirborne = this.weaponsTarget.airborne;
+
             this._v
                 .copy(this.weaponsTarget.position)
-                .sub(this.actor.position);
+                .sub(displayPos);
             this.weaponsTargetRange = this._v.length() / 1000.0;
 
             this._v
@@ -90,11 +122,32 @@ export class CockpitEntity implements Entity {
                 .normalize();
             this.weaponsTargetBearing = vectorHeading(this._v);
 
-            this.weaponsTargetZoomFactor = updateTargetCamera(this.actor, this.camera, this.targetCamera);
-        }
+            // Enemy direction rotated into the aircraft body frame so the pointer
+            // reflects the cockpit view down the longitudinal axis: +X is right,
+            // +Y is up, +Z is forward (nose).
+            this._w
+                .copy(this.weaponsTarget.position)
+                .sub(displayPos)
+                .applyQuaternion(this._q.copy(displayQuat).invert());
+            const perp = Math.hypot(this._w.x, this._w.y);
+            if (perp > 1e-3) {
+                this.weaponsTargetDirX = -this._w.x / perp;
+                this.weaponsTargetDirY = -this._w.y / perp;
+            } else {
+                this.weaponsTargetDirX = 0;
+                this.weaponsTargetDirY = 0;
+            }
+            this.weaponsTargetOffAxis = Math.min(1, Math.atan2(perp, this._w.z) / (Math.PI / 2));
 
-        this.flaps = this.actor.flaps;
-        this.landingGear = this.actor.landingGear;
+            this.weaponsTargetZoomFactor = updateTargetCamera(this.actor, this.camera, this.targetCamera);
+
+            this.weaponsTargetSpeedMps = this.weaponsTarget.targetSpeedMps ?? 0;
+            this.weaponsTargetLoadG = this.weaponsTarget.targetLoadFactorG ?? 1;
+            this.weaponsTargetHealth = this.weaponsTarget.targetHealthFraction ?? 1;
+            this.weaponsTargetStickPitch = this.weaponsTarget.targetStickPitch ?? 0;
+            this.weaponsTargetStickRoll = this.weaponsTarget.targetStickRoll ?? 0;
+            this.weaponsTargetThrottle = this.weaponsTarget.targetThrottle ?? 0;
+        }
     }
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
@@ -104,6 +157,8 @@ export class CockpitEntity implements Entity {
     render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
         if (!lists.has(SceneLayers.Overlay)) return;
 
+        this.refreshVisualState();
+
         const layout = getOverlayLayout(targetWidth, targetHeight);
         const { layoutScale } = layout;
 
@@ -112,7 +167,7 @@ export class CockpitEntity implements Entity {
 
         this.renderAttitudeIndicator(targetWidth, targetHeight, painter, palette);
 
-        const MFDSize = CockpitMFDSize(targetHeight);
+        const MFDSize = CockpitMFDSize(targetHeight, targetWidth);
         this.renderMFD1(
             CockpitMFD1X(targetWidth, targetHeight, MFDSize),
             CockpitMFD1Y(targetWidth, targetHeight, MFDSize),
@@ -122,9 +177,8 @@ export class CockpitEntity implements Entity {
             CockpitMFD2Y(targetWidth, targetHeight, MFDSize),
             MFDSize, painter, hudColor, palette, font);
 
-        const gearX = MFDSize + font.charSpacing + 2;
-        const gearY = targetHeight - font.charHeight - font.charSpacing;
-        this.renderDeviceStatus(gearX, gearY, painter, hudColor, font);
+        const { x: gearX, y: gearY } = getAircraftDeviceStatusPosition(targetHeight, MFDSize, font);
+        renderAircraftDeviceStatus(this.actor, gearX, gearY, painter, hudColor, font);
     }
 
     private renderAttitudeIndicator(targetWidth: number, targetHeight: number, painter: CanvasPainter, palette: Palette) {
@@ -310,25 +364,136 @@ export class CockpitEntity implements Entity {
             painter.text(font, x + font.charSpacing, y + size - font.charHeight - font.charSpacing, 'No target', hudColor);
         } else {
             painter.clear(x, y, size, size);
-            painter.text(font, x + font.charSpacing, y + font.charSpacing,
+            const pad = font.charSpacing;
+            const line = font.charHeight + font.charSpacing;
+            painter.text(font, x + pad, y + pad,
                 this.weaponsTarget.targetType, hudColor);
-            painter.text(font, x + font.charSpacing, y + font.charSpacing * 2 + font.charHeight,
-                `at ${this.weaponsTarget.targetLocation}`, hudColor);
-            painter.text(font, x + font.charSpacing, y + size - 2 * (font.charHeight + font.charSpacing),
+            const locationLine = this.weaponsTargetAirborne
+                ? (this.weaponsTarget.targetManeuver ?? this.weaponsTarget.targetLocation)
+                : `at ${this.weaponsTarget.targetLocation}`;
+            painter.text(font, x + pad, y + pad + line, locationLine, hudColor);
+            if (this.weaponsTargetAirborne) {
+                this.renderTargetDirectionMarker(x, y, size, painter, hudColor);
+                this.renderTargetTelemetry(x, y, size, painter, palette, font, hudColor);
+            }
+            painter.text(font, x + pad, y + size - 2 * line,
                 `BRG ${formatHeading(this.weaponsTargetBearing)}`, hudColor);
-            painter.text(font, x + size - font.charSpacing, y + size - 2 * (font.charHeight + font.charSpacing),
+            painter.text(font, x + size - pad, y + size - 2 * line,
                 `${this.weaponsTargetZoomFactor.toFixed(0)}x`, hudColor, TextAlignment.RIGHT);
-            painter.text(font, x + font.charSpacing, y + size - font.charHeight - font.charSpacing,
+            painter.text(font, x + pad, y + size - font.charHeight - pad,
                 `Range ${this.weaponsTargetRange.toFixed(1)} KM`, hudColor);
         }
     }
 
-    private renderDeviceStatus(x: number, y: number, painter: CanvasPainter, hudColor: string, font: Font) {
-        if (this.landingGear === AircraftDeviceState.EXTENDED || this.landingGear === AircraftDeviceState.EXTENDING) {
-            painter.text(font, x, y, 'GEAR', hudColor);
+    /** Speed, G, and hull bar for airborne weapons targets. */
+    private renderTargetTelemetry(
+        x: number, y: number, size: number,
+        painter: CanvasPainter, palette: Palette, font: Font, hudColor: string,
+    ): void {
+        const pad = font.charSpacing;
+        const line = font.charHeight + font.charSpacing;
+        const warnColor = PaletteColor(palette, PaletteCategory.HUD_TEXT_WARN);
+        // Below type/location; leave room for the off-boresight needle.
+        let ty = y + pad + line * 2;
+        const speedKmh = Math.round(this.weaponsTargetSpeedMps * 3.6);
+        painter.text(font, x + pad, ty, `SPD ${speedKmh}`, hudColor);
+        ty += line;
+        const gColor = this.weaponsTargetLoadG >= 4 || this.weaponsTargetLoadG < 0 ? warnColor : hudColor;
+        painter.text(font, x + pad, ty, `G ${this.weaponsTargetLoadG.toFixed(1)}`, gColor);
+        ty += line;
+
+        this.renderTargetControls(x, y, size, painter, palette, font, hudColor);
+
+        const barX = x + pad;
+        const barY = ty + Math.floor(font.charHeight / 2) - 2;
+        const barH = Math.max(3, Math.floor(font.charHeight * 0.55));
+        const label = 'HP';
+        const labelW = label.length * font.charWidth + Math.max(0, label.length - 1) * font.charSpacing;
+        painter.text(font, barX, ty, label, this.weaponsTargetHealth <= 0.3 ? warnColor : hudColor);
+        const trackX = barX + labelW + pad;
+        // Reserve the right side for the enemy's HUD-style control diagram.
+        const controlWidth = Math.max(18, Math.min(48, Math.round(size * 0.28)));
+        const trackW = Math.max(8, size - (trackX - x) - controlWidth - pad);
+        painter.setColor(hudColor);
+        painter.rectangle(trackX, barY, trackW, barH);
+        const fillW = Math.max(0, Math.round(trackW * Math.max(0, Math.min(1, this.weaponsTargetHealth))));
+        if (fillW > 0) {
+            painter.setBackground(this.weaponsTargetHealth <= 0.3 ? warnColor : hudColor);
+            painter.rectangle(trackX, barY, fillW, barH, true);
         }
-        if (this.flaps === AircraftDeviceState.EXTENDED || this.flaps === AircraftDeviceState.EXTENDING) {
-            painter.text(font, x, y - font.charHeight - font.charSpacing, 'FLAPS', hudColor);
+
+    }
+
+    /**
+     * Enemy pitch/roll stick and throttle, using the same visual language as the
+     * player's HUD: cross-shaped stick travel, circular stick marker, and a
+     * vertical throttle track. The engine label explicitly shows AB1/AB2.
+     */
+    private renderTargetControls(
+        x: number, y: number, size: number,
+        painter: CanvasPainter, palette: Palette, font: Font, hudColor: string,
+    ): void {
+        const pad = font.charSpacing;
+        const line = font.charHeight + font.charSpacing;
+        const secondary = PaletteColor(palette, PaletteCategory.HUD_TEXT_SECONDARY);
+        const arm = Math.max(5, Math.min(18, Math.round(size * 0.09)));
+        const gap = Math.max(2, Math.round(arm * 0.3));
+        const centerX = x + size - pad - arm - 1;
+        const centerY = y + pad + line * 3 + arm;
+
+        const pitchTotalUnits = PITCH_STICK_FWD_UNITS + PITCH_STICK_AFT_UNITS;
+        const pitchSpan = arm * 2;
+        const pitchFwdTravel = Math.max(2, Math.round(pitchSpan * PITCH_STICK_FWD_UNITS / pitchTotalUnits));
+        const pitchAftTravel = Math.max(2, pitchSpan - pitchFwdTravel);
+        const rollTravel = Math.max(2, arm - 2);
+        const pitch = Math.max(-1, Math.min(1, this.weaponsTargetStickPitch));
+        const roll = Math.max(-1, Math.min(1, this.weaponsTargetStickRoll));
+        const throttle = Math.max(0, Math.min(1, this.weaponsTargetThrottle));
+
+        painter.setColor(secondary);
+        painter.batch()
+            .hLine(centerX - arm, centerX + arm, centerY)
+            .vLine(centerX, centerY - pitchFwdTravel, centerY + pitchAftTravel)
+            .commit();
+
+        const pitchOffset = pitch >= 0 ? pitch * pitchAftTravel : pitch * pitchFwdTravel;
+        painter.setColor(hudColor);
+        painter.circle(
+            Math.round(centerX + roll * rollTravel),
+            Math.round(centerY + pitchOffset),
+            Math.max(1, Math.round(arm * 0.18)));
+
+        const throttleX = centerX - arm - gap;
+        painter.setColor(secondary);
+        painter.vLine(throttleX, centerY - arm, centerY + arm);
+        painter.setColor(hudColor);
+        const throttleY = Math.round(centerY + arm - throttle * arm * 2);
+        painter.hLine(throttleX - 1, throttleX + 1, throttleY);
+
+        const throttleLabel = formatF16ThrottleHud(throttle);
+        painter.text(font, centerX, centerY + pitchAftTravel + gap,
+            throttleLabel, hudColor, TextAlignment.CENTER);
+    }
+
+    /**
+     * Off-boresight cue in the target MFD: a needle from the MFD centre with a
+     * small rectangle at its tip, pointing toward the enemy as seen down the
+     * aircraft's longitudinal axis (the cockpit view). The needle grows from the
+     * centre (enemy dead ahead) out to the rim (enemy 90° or more off-boresight).
+     */
+    private renderTargetDirectionMarker(x: number, y: number, size: number, painter: CanvasPainter, hudColor: string) {
+        if (this.weaponsTargetOffAxis <= 0) {
+            return;
         }
+        const centerX = Math.round(x + size / 2);
+        const centerY = Math.round(y + size / 2);
+        const tipRadius = size * 0.42 * this.weaponsTargetOffAxis;
+        const tipX = Math.round(centerX + this.weaponsTargetDirX * tipRadius);
+        const tipY = Math.round(centerY + this.weaponsTargetDirY * tipRadius);
+        const markerSize = Math.max(3, Math.round(size * 0.1));
+        const half = Math.floor(markerSize / 2);
+        painter.setColor(hudColor);
+        painter.line(centerX, centerY, tipX, tipY);
+        painter.rectangle(tipX - half, tipY - half, markerSize, markerSize);
     }
 }

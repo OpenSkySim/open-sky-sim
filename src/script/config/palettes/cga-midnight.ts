@@ -21,7 +21,7 @@ const colors: PaletteColors = {
     [PaletteCategory.SKY]: CGA_BLACK,
 
     [PaletteCategory.TERRAIN_DEFAULT]: CGA_MAGENTA,
-    [PaletteCategory.TERRAIN_SAND]: CGA_BLACK,
+    [PaletteCategory.TERRAIN_SAND]: CGA_MAGENTA,
     [PaletteCategory.TERRAIN_BARE]: CGA_BLACK,
     [PaletteCategory.TERRAIN_GRASS]: CGA_BLACK,
     [PaletteCategory.TERRAIN_WATER]: [CGA_CYAN, CGA_BLACK],
@@ -51,6 +51,19 @@ const colors: PaletteColors = {
     [PaletteCategory.SCENERY_FIELD_YELLOW]: CGA_WHITE,
     [PaletteCategory.SCENERY_FIELD_OCHRE]: [CGA_WHITE, CGA_MAGENTA],
     [PaletteCategory.SCENERY_FIELD_RED]: [CGA_CYAN, CGA_MAGENTA],
+
+    [PaletteCategory.SCENERY_TREE_FOLIAGE]: [CGA_CYAN, CGA_MAGENTA],
+    [PaletteCategory.SCENERY_TREE_SHADOW]: [CGA_BLACK, CGA_CYAN],
+    [PaletteCategory.SCENERY_TREE_TRUNK]: CGA_BLACK,
+    [PaletteCategory.SCENERY_WOOD_PATCH]: [CGA_BLACK, CGA_MAGENTA],
+    [PaletteCategory.SCENERY_BIOME_PINE_PATCH]: [CGA_CYAN, CGA_BLACK],
+    [PaletteCategory.SCENERY_BIOME_BUSH_PATCH]: [CGA_WHITE, CGA_MAGENTA],
+    [PaletteCategory.SCENERY_BIOME_BIRCH_PATCH]: [CGA_CYAN, CGA_WHITE],
+    [PaletteCategory.SCENERY_BIOME_SCRUB_PATCH]: [CGA_MAGENTA, CGA_BLACK],
+    [PaletteCategory.SCENERY_BIOME_PINE_FOLIAGE]: [CGA_CYAN, CGA_MAGENTA],
+    [PaletteCategory.SCENERY_BIOME_BUSH_FOLIAGE]: [CGA_WHITE, CGA_CYAN],
+    [PaletteCategory.SCENERY_BIOME_SCRUB_FOLIAGE]: [CGA_MAGENTA, CGA_WHITE],
+    [PaletteCategory.SCENERY_BIOME_BIRCH_FOLIAGE]: [CGA_CYAN, CGA_WHITE],
 
     [PaletteCategory.SCENERY_BUILDING_PLASTER_WHITE]: [CGA_WHITE, CGA_BLACK],
     [PaletteCategory.SCENERY_BUILDING_PLASTER_RED]: [CGA_WHITE, CGA_MAGENTA],

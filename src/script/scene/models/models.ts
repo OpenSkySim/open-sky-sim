@@ -5,6 +5,7 @@ import { assertIsDefined } from '../../utils/asserts';
 import { isZero } from '../../utils/math';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/materials';
 import { updateUniforms } from '../utils';
+import { aircraftPackStore, isPackUrl, parsePackUrl } from '../../state/aircraftPack';
 
 
 export interface ModelLodLevel {
@@ -21,6 +22,19 @@ export interface Model {
 
 export const LIB_PREFFIX = 'lib:';
 export type ModelLoadedListener = (url: string, model: Model) => void;
+
+// The GLASS material is drawn as a flat dark-grey surface with a light ordered
+// dither, so canopies read as tinted glass without a real alpha-blend pipeline.
+// alphaDither is roughly "fraction of pixels kept" (0.5 ≈ half see-through);
+// a higher value means a lighter, sparser dither. Both are easy to tweak.
+const GLASS_COLOR = '#333333';
+const GLASS_ALPHA_DITHER = 0.65;
+// Legacy mod imports tagged glass as the default import_mod.py hex instead of GLASS.
+const LEGACY_GLASS_MATERIAL_NAMES = new Set(['GLASS', '#d1f7ff']);
+
+function isGlassMaterialName(matName: string): boolean {
+    return LEGACY_GLASS_MATERIAL_NAMES.has(matName);
+}
 
 export interface ModelLibBuilder {
     readonly type: string;
@@ -76,6 +90,26 @@ export class ModelManager {
                     status: RequestStatus.COMPLETED,
                     pending: []
                 }
+            } else if (isPackUrl(url)) {
+                modelWrapper = {
+                    model: this.empty(),
+                    status: RequestStatus.LOADING,
+                    pending: []
+                };
+                const { packId, path } = parsePackUrl(url);
+                const pack = aircraftPackStore.get(packId);
+                if (!pack) {
+                    modelWrapper.status = RequestStatus.ERROR;
+                    console.error(`Error loading "${url}": pack "${packId}" is not loaded`);
+                } else {
+                    const loader = new GLTFLoader(pack.createLoadingManager());
+                    loader.load(
+                        pack.getBlobUrl(path),
+                        this.getLoadFn(url, modelWrapper),
+                        undefined,
+                        this.getErrorFn(url, modelWrapper),
+                    );
+                }
             } else {
                 modelWrapper = {
                     model: this.empty(),
@@ -99,6 +133,13 @@ export class ModelManager {
         return newModel;
     }
 
+    /** Resolves when the model at {@link url} has finished loading (no-op if cached). */
+    waitForModel(url: string): Promise<void> {
+        return new Promise((resolve) => {
+            this.getModel(url, () => resolve());
+        });
+    }
+
     private getLoadFn(url: string, wrapper: ModelWrapper): (gltf: GLTF) => void {
         return (gltf: GLTF) => {
             wrapper.model = this.processModel(gltf, wrapper.model);
@@ -111,11 +152,11 @@ export class ModelManager {
         }
     }
 
-    private getErrorFn(url: string, wrapper: ModelWrapper): (error: ErrorEvent) => void {
-        return (error: ErrorEvent) => {
+    private getErrorFn(url: string, wrapper: ModelWrapper): (error: unknown) => void {
+        return (error: unknown) => {
             wrapper.status = RequestStatus.ERROR;
             wrapper.pending = [];
-            console.error(`Error loading "${url}":`, error.message);
+            console.error(`Error loading "${url}":`, error);
         }
     }
 
@@ -147,12 +188,32 @@ export class ModelManager {
                 }
 
                 if ('isMesh' in obj) {
-                    obj.material = this.materials.build({
-                        type: SceneMaterialPrimitiveType.MESH,
-                        category: (obj.material as THREE.MeshStandardMaterial).name as PaletteCategory,
-                        shaded: !isFlat,
-                        depthWrite: !isFlat
-                    });
+                    const matName = (obj.material as THREE.MeshStandardMaterial).name;
+                    const rawColor = ModelManager.rawColorFor(matName);
+                    if (isGlassMaterialName(matName)) {
+                        obj.material = this.materials.build({
+                            type: SceneMaterialPrimitiveType.MESH,
+                            category: PaletteCategory.GLASS,
+                            rawColor: GLASS_COLOR,
+                            shaded: false,
+                            alphaDither: GLASS_ALPHA_DITHER,
+                            depthWrite: !isFlat
+                        });
+                        (obj.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
+                    } else {
+                        obj.material = this.materials.build({
+                            type: SceneMaterialPrimitiveType.MESH,
+                            category: rawColor ? PaletteCategory.VEHICLE_PLANE_GREY : matName as PaletteCategory,
+                            rawColor,
+                            shaded: !isFlat,
+                            depthWrite: !isFlat
+                        });
+                        // Mod imports often have open/inverted Unity meshes; draw both
+                        // sides so backface culling does not leave see-through holes.
+                        if (rawColor) {
+                            (obj.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
+                        }
+                    }
                 } else if ('isLineSegments' in child) {
                     obj.material = this.materials.build({
                         type: SceneMaterialPrimitiveType.LINE,
@@ -180,6 +241,15 @@ export class ModelManager {
 
     private sortingFn(a: THREE.Object3D, b: THREE.Object3D) {
         return parseInt(a.name.charAt(0)) - parseInt(b.name.charAt(0));
+    }
+
+    /**
+     * Material names shaped like '#rrggbb' carry a literal colour (models that
+     * bring their own per-polygon palette, e.g. an imported mod) rather than a
+     * PaletteCategory. Returns the CSS colour, or undefined for category names.
+     */
+    private static rawColorFor(name: string): string | undefined {
+        return /^#[0-9a-fA-F]{6}$/.test(name) ? name : undefined;
     }
 
     private empty(): Model {

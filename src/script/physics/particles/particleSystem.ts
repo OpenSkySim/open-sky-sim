@@ -79,6 +79,53 @@ export class ParticleSystem {
         for (let i = 0; i < this.particles.length; i++) {
             const particle = this.particles[i];
             particle.isActive = false;
+            particle.spawns = 0;
+        }
+    }
+
+    addForce(force: ParticleForce): void {
+        this.forces.push(force);
+    }
+
+    /** Immediately activate up to `count` free particles at the current emitter pose.
+     * When `recycle` is true, oldest live particles are freed first so a full pool
+     * still accepts new bursts (needed for continuous hit debris).
+     * @returns number of particles newly activated */
+    burst(count: number, recycle = false): number {
+        if (count <= 0) {
+            return 0;
+        }
+        const want = Math.min(count, this.config.systemMaxParticles);
+        if (recycle) {
+            const free = this.config.systemMaxParticles - this.aliveCount;
+            if (free < want) {
+                this.freeOldest(want - free);
+            }
+        } else if (this.aliveCount >= this.config.systemMaxParticles) {
+            return 0;
+        }
+        const before = this.aliveCount;
+        this.spawnParticles(Math.min(want, this.config.systemMaxParticles - this.aliveCount));
+        return this.aliveCount - before;
+    }
+
+    /** Deactivate the `n` oldest active particles (highest life). */
+    private freeOldest(n: number): void {
+        for (let freed = 0; freed < n; freed++) {
+            let best = -1;
+            let bestLife = -1;
+            for (let i = 0; i < this.config.systemMaxParticles; i++) {
+                const p = this.particles[i];
+                if (p.isActive && p.life > bestLife) {
+                    bestLife = p.life;
+                    best = i;
+                }
+            }
+            if (best < 0) {
+                break;
+            }
+            this.particles[best].isActive = false;
+            this.aliveCount--;
         }
     }
 

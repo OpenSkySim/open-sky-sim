@@ -1,10 +1,12 @@
+import * as THREE from 'three';
 import { CanvasPainter } from '../render/screen/canvasPainter';
 import { Palette } from '../config/palettes/palette';
 import { Scene } from './scene';
 
 export enum ENTITY_TAGS {
     TARGET = 'TARGET',
-    GROUND = 'GROUND'
+    GROUND = 'GROUND',
+    AIRCRAFT = 'AIRCRAFT'
 }
 
 export interface Entity {

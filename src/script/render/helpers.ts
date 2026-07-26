@@ -6,6 +6,7 @@ import { ParticleSystem } from '../physics/particles/particleSystem';
 import { lerp } from '../utils/math';
 import { PARTICLE_MESH_ATTR_COLOR, PARTICLE_MESH_ATTR_OFFSET, PARTICLE_MESH_ATTR_ROTATION, PARTICLE_MESH_ATTR_SCALE } from '../scene/models/lib/particleMeshModelBuilder';
 import { SceneMaterialData } from '../scene/materials/materials';
+import { attachToRenderList } from './renderList';
 
 
 export function visibleWidthAtDistance(camera: THREE.PerspectiveCamera, position: number | THREE.Vector3): number {
@@ -29,13 +30,24 @@ enum PlaybackStatus {
     STOPPED
 }
 
+type LodAttachGroups = {
+    group: THREE.Object3D;
+    groupAnim: THREE.Object3D;
+    hasAnim: boolean;
+    paletteTime: Palette['time'];
+};
+
 export class LODHelper {
 
     private elapsed: number = 0;
 
-    private objFlats: THREE.Object3D = new THREE.Object3D();
-    private objVolumes: THREE.Object3D = new THREE.Object3D();
-    private objVolumesAnim: THREE.Object3D = new THREE.Object3D();
+    // Built groups cached per LOD level so several render passes with different
+    // cameras (main view, weapons-target MFD, map MFD) can each pick their own
+    // LOD in the same frame without clearing and re-adding all the meshes on
+    // every pass. Safe because ModelManager.getModel clones per call, so LOD
+    // levels within one model never share mesh objects.
+    private flatsGroups: Map<number, LodAttachGroups> = new Map();
+    private volumesGroups: Map<number, LodAttachGroups> = new Map();
 
     private animActions: THREE.AnimationAction[] = [];
     private animMixers: THREE.AnimationMixer[] = [];
@@ -133,45 +145,75 @@ export class LODHelper {
         if (lodLevel >= this.model.lod.length) return;
 
         if (hasFlats && this.model.lod[lodLevel].flats.length > 0) {
-            this.subRender(position, quaternion, scale, this.objFlats, this.objVolumesAnim, this.model.lod[lodLevel].flats, flatsId, lists, palette);
+            this.subRender(
+                position, quaternion, scale,
+                this.flatsGroups, this.model.lod[lodLevel].flats,
+                flatsId, lists, palette, lodLevel,
+            );
         }
         if (hasVolumes && this.model.lod[lodLevel].volumes.length > 0) {
-            this.subRender(position, quaternion, scale, this.objVolumes, this.objVolumesAnim, this.model.lod[lodLevel].volumes, volumesId, lists, palette);
+            this.subRender(
+                position, quaternion, scale,
+                this.volumesGroups, this.model.lod[lodLevel].volumes,
+                volumesId, lists, palette, lodLevel,
+            );
         }
     }
 
     private subRender(
         position: THREE.Vector3, quaternion: THREE.Quaternion, scale: THREE.Vector3,
-        dst: THREE.Object3D, dstAnim: THREE.Object3D, collection: THREE.Object3D[], listId: string, lists: Map<string, THREE.Scene>,
-        palette: Palette) {
+        groups: Map<number, LodAttachGroups>, collection: THREE.Object3D[], listId: string, lists: Map<string, THREE.Scene>,
+        palette: Palette, lodLevel: number) {
 
-        let hasAnim = false;
         const list = lists.get(listId);
         assertIsDefined(list);
-        dst.clear();
-        dstAnim.clear();
-        for (let i = 0; i < collection.length; i++) {
-            const m = collection[i];
-            if (modelMatchesPaletteTime(m, palette.time)) {
-                if (modelHasAnim(m, ModelAnimation.ROTATE_UP)) {
-                    hasAnim = true;
-                    dstAnim.add(m);
-                } else {
-                    dst.add(m);
-                }
-            }
+
+        let entry = groups.get(lodLevel);
+        if (entry === undefined) {
+            entry = {
+                group: new THREE.Object3D(),
+                groupAnim: new THREE.Object3D(),
+                hasAnim: false,
+                paletteTime: palette.time,
+            };
+            groups.set(lodLevel, entry);
+            this.populateGroups(entry, collection, palette.time);
+        } else if (entry.paletteTime !== palette.time) {
+            // Day/night flip: meshes tagged with a palette time appear or
+            // disappear, so this LOD level's groups must be rebuilt.
+            entry.paletteTime = palette.time;
+            this.populateGroups(entry, collection, palette.time);
         }
-        dst.position.copy(position);
-        dst.quaternion.copy(quaternion);
-        dst.scale.copy(scale);
-        list.add(dst);
+
+        const { group, groupAnim, hasAnim } = entry;
+        group.position.copy(position);
+        group.quaternion.copy(quaternion);
+        group.scale.copy(scale);
+        attachToRenderList(list, group);
 
         if (hasAnim) {
-            dstAnim.position.copy(position);
-            dstAnim.quaternion.copy(quaternion);
-            dstAnim.rotateY(2 * Math.PI * this.elapsed * ANIM_ROTATE_UP_SPEED);
-            dstAnim.scale.copy(scale);
-            list.add(dstAnim);
+            groupAnim.position.copy(position);
+            groupAnim.quaternion.copy(quaternion);
+            groupAnim.rotateY(2 * Math.PI * this.elapsed * ANIM_ROTATE_UP_SPEED);
+            groupAnim.scale.copy(scale);
+            attachToRenderList(list, groupAnim);
+        }
+    }
+
+    private populateGroups(entry: LodAttachGroups, collection: THREE.Object3D[], time: Palette['time']) {
+        entry.group.clear();
+        entry.groupAnim.clear();
+        entry.hasAnim = false;
+        for (let i = 0; i < collection.length; i++) {
+            const m = collection[i];
+            if (modelMatchesPaletteTime(m, time)) {
+                if (modelHasAnim(m, ModelAnimation.ROTATE_UP)) {
+                    entry.hasAnim = true;
+                    entry.groupAnim.add(m);
+                } else {
+                    entry.group.add(m);
+                }
+            }
         }
     }
 }
@@ -256,7 +298,7 @@ export class ParticleSystemHelper {
         }
         dst.position.copy(position);
         dst.scale.copy(scale);
-        list.add(dst);
+        attachToRenderList(list, dst);
     }
 }
 

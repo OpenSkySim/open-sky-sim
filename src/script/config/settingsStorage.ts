@@ -11,7 +11,7 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
     techProfile: TechProfiles.HD,
-    flightModel: FlightModels.ARCADE,
+    flightModel: FlightModels.FM2,
     keyboardLayout: KeyboardControlLayoutId.ARROWS,
 };
 

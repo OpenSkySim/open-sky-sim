@@ -1,6 +1,9 @@
 {
     "compilerOptions": {
-        "module": "CommonJS",
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "ignoreDeprecations": "6.0",
+        "rootDir": "./src",
         "target": "ES6",
         "lib": [
             "dom",
@@ -14,5 +17,8 @@
     },
     "include": [
         "src/**/*"
+    ],
+    "exclude": [
+        "src/**/*.test.ts"
     ]
 }

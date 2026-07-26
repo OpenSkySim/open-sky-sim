@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { AudioSystem } from './audio/audioSystem';
 import { ConfigService } from './config/configService';
 import { PaletteCategory } from './config/palettes/palette';
@@ -11,33 +10,42 @@ import { SVGAProfile } from './config/profiles/svga';
 import { VGAProfile } from './config/profiles/vga';
 import { loadSettings } from './config/settingsStorage';
 import { Kernel } from './core/kernel';
-import { FPS_CAP, GROUND_SMOKE_PARTICLE_COUNT, H_RES, V_RES } from './defs';
+import { FPS_CAP, H_RES, V_RES } from './defs';
 import { JoystickControlDevice } from './input/devices/joystickControlDevice';
 import { KeyboardControlDevice } from './input/devices/keyboardControlDevice';
 import { setupOSD } from './osd/osdPanel';
-import { ArcadeFlightModel } from './physics/model/arcadeFlightModel';
-import { DebugFlightModel } from './physics/model/debugFlightModel';
-import { RealisticFlightModel } from './physics/model/realisticFlightModel';
+import { WorkerJsbsimFlightModel } from './physics/model/workerJsbsimFlightModel';
+import { CombatSimClient } from './physics/sim/combatSimClient';
+import { SimProxyFlightModel } from './physics/model/simProxyFlightModel';
+import { PLAYER_SIM_ID } from './physics/sim/simIds';
 import { Renderer } from './render/renderer';
 import { SceneMaterialManager } from './scene/materials/materials';
 import { BackgroundModelLibBuilder } from './scene/models/lib/backgroundModelBuilder';
 import { FieldModelLibBuilder, FieldModelType } from './scene/models/lib/fieldModelBuilder';
-import { FireModelLibBuilder } from './scene/models/lib/fireModelBuilder';
-import { MountainModelLibBuilder } from './scene/models/lib/mountainModelBuilder';
-import { ParticleMeshModelLibBuilder } from './scene/models/lib/particleMeshModelBuilder';
+import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, MountainModelLibBuilder } from './scene/models/lib/mountainModelBuilder';
+import { TracerModelLibBuilder } from './scene/models/lib/tracerModelBuilder';
 import { ModelManager } from './scene/models/models';
 import { Game, GameRenderTask, GameUpdateTask } from './state/game';
 import { FlightModels, TechProfiles } from './state/gameDefs';
 
 
-function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice] {
+async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice, Game]> {
     const settings = loadSettings();
+    // Single authoritative combat sim worker. The player's FM2/DEBUG models are
+    // render-side proxies bound to it (id PLAYER_SIM_ID); JSBSim keeps its own
+    // worker. AI opponents register with the same client (see Game.setupCombat).
+    const combatSim = new CombatSimClient();
     const config = new ConfigService(
         { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
-        { [FlightModels.DEBUG]: new DebugFlightModel(), [FlightModels.ARCADE]: new ArcadeFlightModel(), [FlightModels.REALISTIC]: new RealisticFlightModel(), },
+        {
+            [FlightModels.FM2]: new SimProxyFlightModel(combatSim, PLAYER_SIM_ID, false),
+            [FlightModels.DEBUG]: new SimProxyFlightModel(combatSim, PLAYER_SIM_ID, true),
+            [FlightModels.JSBSIM]: new WorkerJsbsimFlightModel(),
+        },
         settings.techProfile,
         settings.flightModel,
     );
+    config.flightModels.getActive().activate();
     const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
     const renderer = new Renderer(materials, H_RES, V_RES, HDNoonPalette);
     const models = new ModelManager(materials, [
@@ -48,37 +56,48 @@ function setup(): [Kernel, ConfigService, KeyboardControlDevice, JoystickControl
         new FieldModelLibBuilder('cropYellow', FieldModelType.SQUARE, PaletteCategory.SCENERY_FIELD_YELLOW, 200),
         new FieldModelLibBuilder('cropOchre', FieldModelType.HEXAGON, PaletteCategory.SCENERY_FIELD_OCHRE, 400),
         new FieldModelLibBuilder('cropRed', FieldModelType.TRIANGLE, PaletteCategory.SCENERY_FIELD_RED, 400),
-        new MountainModelLibBuilder('hill', 700, 300, PaletteCategory.SCENERY_MOUNTAIN_GRASS),
-        new MountainModelLibBuilder('mountain', 1400, 600, PaletteCategory.SCENERY_MOUNTAIN_BARE),
-        new FireModelLibBuilder('smallFire', 7),
-        new ParticleMeshModelLibBuilder('groundSmoke', GROUND_SMOKE_PARTICLE_COUNT, new THREE.CircleGeometry(1, 5), 100),
+        new MountainModelLibBuilder('hill', HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
+        new MountainModelLibBuilder('mountain', MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
+        new TracerModelLibBuilder('tracer'),
     ]);
     const audio = new AudioSystem();
-    const game = new Game(config, models, materials, renderer, audio);
+    const game = new Game(config, models, materials, renderer, audio, combatSim);
     // Apply persisted settings after Game registers change listeners.
     config.techProfiles.notifyActive();
     config.flightModels.notifyActive();
-    game.setup();
+    await game.setup();
 
-    const keyboardInput = new KeyboardControlDevice(game.getPlayer());
+    const keyboardInput = new KeyboardControlDevice(
+        combatSim,
+        game.getPlayer(),
+        PLAYER_SIM_ID,
+        () => config.flightModels.getActive() instanceof SimProxyFlightModel,
+    );
     keyboardInput.setKeyboardLayout(settings.keyboardLayout);
-    const joystickInput = new JoystickControlDevice(game.getPlayer());
+    const joystickInput = new JoystickControlDevice(
+        combatSim,
+        game.getPlayer(),
+        PLAYER_SIM_ID,
+        () => config.flightModels.getActive() instanceof SimProxyFlightModel,
+    );
 
-    const kernel = new Kernel(FPS_CAP);
-    kernel.addTask(materials);
-    kernel.addTask(keyboardInput);
-    kernel.addTask(joystickInput);
-    kernel.addTask(new GameUpdateTask(game));
-    kernel.addTask(new GameRenderTask(game));
+    const kernel = new Kernel();
+    kernel.setTargetFPS(config.techProfiles.getActive().fpsCap ? FPS_CAP : undefined);
+    kernel.addUpdateTask(materials);
+    kernel.addUpdateTask(keyboardInput);
+    kernel.addUpdateTask(joystickInput);
+    kernel.addUpdateTask(new GameUpdateTask(game));
+    kernel.addRenderTask(new GameRenderTask(game));
 
     config.techProfiles.addChangeListener(profile => kernel.setTargetFPS(profile.fpsCap ? FPS_CAP : undefined));
     kernel.setTargetFPS(config.techProfiles.getActive().fpsCap ? FPS_CAP : undefined);
 
-    return [kernel, config, keyboardInput, joystickInput];
+    return [kernel, config, keyboardInput, joystickInput, game];
 }
 
 window.addEventListener("load", () => {
-    const [kernel, config, keyboardInput, joystickInput] = setup();
-    kernel.start();
-    setupOSD(config, keyboardInput, joystickInput);
+    void setup().then(([kernel, config, keyboardInput, joystickInput, game]) => {
+        kernel.start();
+        setupOSD(config, keyboardInput, joystickInput);
+    });
 });

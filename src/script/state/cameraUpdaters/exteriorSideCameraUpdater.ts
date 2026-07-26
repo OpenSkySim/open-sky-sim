@@ -17,21 +17,22 @@ export class ExteriorSideCameraUpdater extends CameraUpdater {
     }
 
     update(delta: number): void {
+        const displayQuat = this.actor.getDisplayQuaternion();
         const isUp = this.tmpVector
             .copy(UP)
-            .applyQuaternion(this.actor.quaternion)
+            .applyQuaternion(displayQuat)
             .dot(UP) >= 0;
 
         this.tmpVector
             .copy(FORWARD)
-            .applyQuaternion(this.actor.quaternion)
+            .applyQuaternion(displayQuat)
             .setY(0)
             .multiplyScalar(isUp ? 1.0 : -1)
             .normalize()
             .set(this.tmpVector.z, this.tmpVector.y, -this.tmpVector.x);
         this.camera.position
-            .copy(this.actor.position)
+            .copy(this.actor.getDisplayPosition())
             .addScaledVector(this.tmpVector, 35 * (this.side === ExteriorViewSide.RIGHT && isUp ? -1 : 1));
-        this.camera.lookAt(this.actor.position);
+        this.camera.lookAt(this.actor.getDisplayPosition());
     }
 }

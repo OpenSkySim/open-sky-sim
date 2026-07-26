@@ -2,7 +2,7 @@ import { ConfigService } from "../config/configService";
 import { updateSettings } from "../config/settingsStorage";
 import { JoystickControlDevice } from "../input/devices/joystickControlDevice";
 import { KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts } from "../input/devices/keyboardControlDevice";
-import { FlightModels, TechProfiles } from "../state/gameDefs";
+import { AiPilotModels, FlightModels, TechProfiles, UnitSystems } from "../state/gameDefs";
 import { assertIsDefined } from "../utils/asserts";
 
 
@@ -10,6 +10,8 @@ export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDe
     setupButtons();
     setupGenerationOptions(config);
     setupFlightModel(config);
+    setupUnitSystem(config);
+    setupAiPilotModel(config);
     setupKeyboardHelp(keyboardInput);
     setupJoystickHelp(joystickInput);
     syncSettingsUI(config, keyboardInput);
@@ -89,24 +91,52 @@ function setupGenerationOptions(config: ConfigService) {
 }
 
 function setupFlightModel(config: ConfigService) {
+    const fm2FlightModel = document.getElementById('flightmodel-fm2');
+    assertIsDefined(fm2FlightModel);
     const debugFlightModel = document.getElementById('flightmodel-debug');
     assertIsDefined(debugFlightModel);
-    const arcadeFlightModel = document.getElementById('flightmodel-arcade');
-    assertIsDefined(arcadeFlightModel);
-    const realisticFlightModel = document.getElementById('flightmodel-realistic');
-    assertIsDefined(realisticFlightModel);
+    const jsbsimFlightModel = document.getElementById('flightmodel-jsbsim');
+    assertIsDefined(jsbsimFlightModel);
 
+    fm2FlightModel.addEventListener('change', () => {
+        config.flightModels.setActive(FlightModels.FM2);
+        updateSettings({ flightModel: FlightModels.FM2 });
+    });
     debugFlightModel.addEventListener('change', () => {
         config.flightModels.setActive(FlightModels.DEBUG);
         updateSettings({ flightModel: FlightModels.DEBUG });
     });
-    arcadeFlightModel.addEventListener('change', () => {
-        config.flightModels.setActive(FlightModels.ARCADE);
-        updateSettings({ flightModel: FlightModels.ARCADE });
+    jsbsimFlightModel.addEventListener('change', () => {
+        config.flightModels.setActive(FlightModels.JSBSIM);
+        updateSettings({ flightModel: FlightModels.JSBSIM });
     });
-    realisticFlightModel.addEventListener('change', () => {
-        config.flightModels.setActive(FlightModels.REALISTIC);
-        updateSettings({ flightModel: FlightModels.REALISTIC });
+}
+
+function setupUnitSystem(config: ConfigService) {
+    const unitMetric = document.getElementById('units-metric');
+    assertIsDefined(unitMetric);
+    const unitImperial = document.getElementById('units-imperial');
+    assertIsDefined(unitImperial);
+
+    unitMetric.addEventListener('change', () => {
+        config.unitSystem.setActive(UnitSystems.METRIC);
+    });
+    unitImperial.addEventListener('change', () => {
+        config.unitSystem.setActive(UnitSystems.IMPERIAL);
+    });
+}
+
+function setupAiPilotModel(config: ConfigService) {
+    const classic = document.getElementById('aipilot-classic');
+    assertIsDefined(classic);
+    const shaw = document.getElementById('aipilot-shaw');
+    assertIsDefined(shaw);
+
+    classic.addEventListener('change', () => {
+        config.aiPilotModels.setActive(AiPilotModels.CLASSIC);
+    });
+    shaw.addEventListener('change', () => {
+        config.aiPilotModels.setActive(AiPilotModels.SHAW);
     });
 }
 
@@ -160,9 +190,9 @@ function syncSettingsUI(config: ConfigService, keyboardInput: KeyboardControlDev
         [TechProfiles.HD]: 'gen-hd',
     };
     const flightModelRadioIds: Record<string, string> = {
+        [FlightModels.FM2]: 'flightmodel-fm2',
         [FlightModels.DEBUG]: 'flightmodel-debug',
-        [FlightModels.ARCADE]: 'flightmodel-arcade',
-        [FlightModels.REALISTIC]: 'flightmodel-realistic',
+        [FlightModels.JSBSIM]: 'flightmodel-jsbsim',
     };
     const keyboardLayoutRadioIds: Record<KeyboardControlLayoutId, string> = {
         [KeyboardControlLayoutId.QWERTY]: 'layout-qwerty',
@@ -172,8 +202,8 @@ function syncSettingsUI(config: ConfigService, keyboardInput: KeyboardControlDev
         [KeyboardControlLayoutId.ARROWS]: 'layout-arrows',
     };
 
-    checkRadio(techProfileRadioIds[config.techProfiles.getActiveId()]);
-    checkRadio(flightModelRadioIds[config.flightModels.getActiveId()]);
+    checkRadio(techProfileRadioIds[config.techProfiles.getActiveKey()]);
+    checkRadio(flightModelRadioIds[config.flightModels.getActiveKey()]);
     checkRadio(keyboardLayoutRadioIds[keyboardInput.getKeyboardLayoutId()]);
 }
 

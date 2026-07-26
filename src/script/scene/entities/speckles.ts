@@ -5,6 +5,7 @@ import { Entity } from "../entity";
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/materials';
 import { Scene, SceneLayers } from "../scene";
 import { updateUniforms } from '../utils';
+import { attachToRenderList } from '../../render/renderList';
 
 
 const TILE_SUBDIVISIONS = 2; // Number of cells, each cell contains one speck of dust
@@ -54,7 +55,7 @@ export class SpecklesEntity implements Entity {
             }
         }
 
-        this.tiles.forEach(tile => layer.add(tile));
+        this.tiles.forEach(tile => attachToRenderList(layer, tile));
     }
 
     render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {

@@ -15,7 +15,12 @@ export class SimpleEntity implements Entity {
 
     enabled: boolean = true;
 
-    constructor(model: Model, private flatLayerId: string, private volumeLayerId: string, lodBias: number = DEFAULT_LOD_BIAS) {
+    constructor(
+        model: Model,
+        private flatLayerId: string,
+        private volumeLayerId: string,
+        lodBias: number = DEFAULT_LOD_BIAS,
+    ) {
         this.lodHelper = new LODHelper(model, lodBias);
     }
 

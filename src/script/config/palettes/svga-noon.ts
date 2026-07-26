@@ -19,14 +19,14 @@ const colors: PaletteColors = {
 
     [PaletteCategory.SKY]: '#688ca5', // #92b8d3
 
-    [PaletteCategory.TERRAIN_DEFAULT]: '#acac78',
-    [PaletteCategory.TERRAIN_SAND]: '#acac78',
-    [PaletteCategory.TERRAIN_BARE]: '#ab8a5d',
+    [PaletteCategory.TERRAIN_DEFAULT]: '#3f6044',
+    [PaletteCategory.TERRAIN_SAND]: '#3f6044',
+    [PaletteCategory.TERRAIN_BARE]: '#3f6044',
     [PaletteCategory.TERRAIN_GRASS]: '#3f6044',
     [PaletteCategory.TERRAIN_WATER]: '#195560',
     [PaletteCategory.TERRAIN_SHALLOW_WATER]: '#185d6d',
-    [PaletteCategory.SCENERY_MOUNTAIN_GRASS]: '#3f6044',
-    [PaletteCategory.SCENERY_MOUNTAIN_BARE]: '#ab8a5d',
+    [PaletteCategory.SCENERY_MOUNTAIN_GRASS]: ['#1e3420', '#3f6044'],
+    [PaletteCategory.SCENERY_MOUNTAIN_BARE]: ['#1e3420', '#3f6044'],
 
     [PaletteCategory.LIGHT_RED]: '#FF0000',
     [PaletteCategory.LIGHT_GREEN]: '#00FF00',
@@ -50,6 +50,19 @@ const colors: PaletteColors = {
     [PaletteCategory.SCENERY_FIELD_YELLOW]: '#dbb948',
     [PaletteCategory.SCENERY_FIELD_OCHRE]: '#ac7d48',
     [PaletteCategory.SCENERY_FIELD_RED]: '#ab6d5d',
+
+    [PaletteCategory.SCENERY_TREE_FOLIAGE]: ['#324134', '#497a51'],
+    [PaletteCategory.SCENERY_TREE_SHADOW]: ['#3f6044', '#1e3420'],
+    [PaletteCategory.SCENERY_TREE_TRUNK]: '#6b4423',
+    [PaletteCategory.SCENERY_WOOD_PATCH]: ['#213824', '#324134'],
+    [PaletteCategory.SCENERY_BIOME_PINE_PATCH]: ['#213824', '#324134'],
+    [PaletteCategory.SCENERY_BIOME_BUSH_PATCH]: ['#2a4030', '#3d523f'],
+    [PaletteCategory.SCENERY_BIOME_BIRCH_PATCH]: ['#2a4530', '#497a51'],
+    [PaletteCategory.SCENERY_BIOME_SCRUB_PATCH]: ['#3d3428', '#524838'],
+    [PaletteCategory.SCENERY_BIOME_PINE_FOLIAGE]: ['#243828', '#3d6048'],
+    [PaletteCategory.SCENERY_BIOME_BUSH_FOLIAGE]: ['#3a5828', '#507838'],
+    [PaletteCategory.SCENERY_BIOME_SCRUB_FOLIAGE]: ['#584830', '#786848'],
+    [PaletteCategory.SCENERY_BIOME_BIRCH_FOLIAGE]: ['#42623e', '#68a066'],
 
     [PaletteCategory.SCENERY_BUILDING_PLASTER_WHITE]: '#d8d8d8',
     [PaletteCategory.SCENERY_BUILDING_PLASTER_RED]: '#e16565',

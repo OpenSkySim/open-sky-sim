@@ -8,10 +8,16 @@ const shader = (highp: boolean): string => `
   varying vec3 vPosition;
 
   void main() {
-    vec4 tmpPos = modelMatrix * vec4(position, 1.0);
-    vPosition = vec3(tmpPos.x, 0.0, tmpPos.z);
+  #ifdef USE_INSTANCING
+    vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
+    vec4 viewPos = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+  #else
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vec4 viewPos = modelViewMatrix * vec4(position, 1.0);
+  #endif
+    vPosition = vec3(worldPos.x, 0.0, worldPos.z);
 
-    vec4 pos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);`+ (highp ? '' : `
+    vec4 pos = projectionMatrix * viewPos;`+ (highp ? '' : `
     if (shadingType != 3) {
       pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;
       pos.y = floor(pos.y / pos.w * halfHeight + 0.5) / halfHeight * pos.w;

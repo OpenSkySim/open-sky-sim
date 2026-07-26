@@ -7,6 +7,7 @@ import { assertExpr } from '../../utils/asserts';
 import { ConstantFragProgram } from './shaders/constantFP';
 import { DepthFragProgram } from './shaders/depthFP';
 import { FlatVertProgram, HighpFlatVertProgram } from './shaders/flatVP';
+import { ImpostorVertProgram } from './shaders/impostorVP';
 import { LineVertProgram } from './shaders/lineVP';
 import { ParticleMeshFragProgram } from './shaders/particlesMeshFP';
 import { ParticleMeshVertProgram } from './shaders/particlesMeshVP';
@@ -19,18 +20,29 @@ export enum SceneMaterialPrimitiveType {
     LINE,
     POINT,
     PARTICLE_MESH,
+    IMPOSTOR,
 }
 
 export type SceneMaterialProperties = SceneMaterialCommonProperties & (
     SceneMaterialMeshProperties |
     SceneMaterialLineProperties |
     SceneMaterialPointProperties |
-    SceneMaterialParticleMeshProperties
+    SceneMaterialParticleMeshProperties |
+    SceneMaterialImpostorProperties
 );
 
 export interface SceneMaterialCommonProperties {
     category: PaletteCategory;
     depthWrite: boolean;
+    /**
+     * Literal CSS colour (e.g. '#b5b4ba') that overrides the palette lookup for
+     * this material. Used by models that carry their own per-polygon colours
+     * (e.g. an imported mod, whose livery comes from a palette-swatch texture)
+     * instead of mapping to a PaletteCategory. `category` is still used for fog.
+     */
+    rawColor?: string;
+    /** true = force dither, false = solid primary, undefined = category default. */
+    colorDither?: boolean;
 }
 
 export type SceneMaterialMeshProperties = {
@@ -43,6 +55,8 @@ export type SceneMaterialMeshProperties = {
         {
             shaded: false;
             highp?: boolean;
+            /** Screen-space ordered dither opacity (0 = opaque, 0.5 ≈ half transparent). */
+            alphaDither?: number;
         }
     );
 
@@ -56,6 +70,16 @@ export interface SceneMaterialLineProperties {
 
 export interface SceneMaterialParticleMeshProperties {
     type: SceneMaterialPrimitiveType.PARTICLE_MESH;
+    /**
+     * Minimum projected height in pixels. Distant particles are enlarged to this
+     * size so small world-space chips stay visible. 0 = off.
+     */
+    minPixels?: number;
+}
+
+/** Camera-facing billboard used as a distant vegetation impostor. */
+export interface SceneMaterialImpostorProperties {
+    type: SceneMaterialPrimitiveType.IMPOSTOR;
 }
 
 export type SceneMaterialUniforms = SceneFlatMaterialUniforms | SceneShadedMaterialUniforms;
@@ -72,6 +96,8 @@ export interface SceneFlatMaterialUniforms {
     fogDensity: { value: number; };
     fogColor: { value: THREE.Color; };
     fogType: { value: number; };
+    alphaDither: { value: number; };
+    colorDither: { value: number; };
     [uniform: string]: THREE.IUniform<any>;
 }
 
@@ -92,6 +118,7 @@ export type SceneMaterialData = SceneCommonMaterialData & (SceneFlatMaterialData
 
 export interface SceneCommonMaterialData {
     category: PaletteCategory;
+    rawColor?: string;
     depthWrite: boolean;
     particles: boolean;
     line: boolean;
@@ -118,6 +145,7 @@ export class SceneMaterialManager implements KernelTask {
     private readonly shadedProto: THREE.ShaderMaterial;
     private readonly pointProto: THREE.ShaderMaterial;
     private readonly particleMeshProto: THREE.ShaderMaterial;
+    private readonly impostorProto: THREE.ShaderMaterial;
     private readonly colorCache: ColorCache = new ColorCache();
     private palette: Palette;
     private fog: FogQuality;
@@ -173,7 +201,17 @@ export class SceneMaterialManager implements KernelTask {
         this.particleMeshProto = new THREE.RawShaderMaterial({
             vertexShader: ParticleMeshVertProgram,
             fragmentShader: ParticleMeshFragProgram,
-            side: THREE.FrontSide,
+            // Discs are billboarded in view-space XY; FrontSide culls them (normal +Z
+            // faces away from the camera). DoubleSide keeps smoke/debris visible.
+            side: THREE.DoubleSide,
+            depthWrite: true,
+            userData: {},
+            uniforms: {}
+        });
+        this.impostorProto = new THREE.ShaderMaterial({
+            vertexShader: ImpostorVertProgram,
+            fragmentShader: DepthFragProgram,
+            side: THREE.DoubleSide,
             depthWrite: true,
             userData: {},
             uniforms: {}
@@ -196,15 +234,25 @@ export class SceneMaterialManager implements KernelTask {
 
     update(delta: number) {
         this.elapsed += delta;
-        this.updateFxFire(this.elapsed);
+        this.updateFxFire();
     }
 
-    private updateFxFire(elapsed: number) {
-        const bit = Math.floor(elapsed * 100) % 2 === 0;
-        const color = bit ? PaletteColor(this.palette, PaletteCategory.FX_FIRE) : PaletteColor(this.palette, PaletteCategory.FX_FIRE__B);
+    private updateFxFire() {
+        // Steady two-tone fire. Previously this alternated the whole material
+        // between FX_FIRE and FX_FIRE__B at 100Hz, which read as a harsh
+        // orange/yellow flicker (most visibly on engine nozzles). Instead we set
+        // both tones once and let the shader's ordered dither (colorDither) stipple
+        // them per-pixel: a steady retro dither with no temporal flicker.
+        const color = this.colorCache.getColor(PaletteColor(this.palette, PaletteCategory.FX_FIRE));
+        const colorSecondary = this.colorCache.getColor(PaletteColor(this.palette, PaletteCategory.FX_FIRE__B));
         for (let i = 0; i < this.fxFire.length; i++) {
+            const data = this.fxFire[i].userData as SceneMaterialData & { afterburnerThrottleDriven?: boolean };
+            if (data.afterburnerThrottleDriven) {
+                continue;
+            }
             const u = this.fxFire[i].uniforms as SceneMaterialUniforms;
-            u.color.value.copy(this.colorCache.getColor(color));
+            u.color.value.copy(color);
+            u.colorSecondary.value.copy(colorSecondary);
         }
     }
 
@@ -214,7 +262,7 @@ export class SceneMaterialManager implements KernelTask {
                 ...properties,
                 shaded: false,
                 highp: undefined
-            }
+            } as SceneMaterialProperties;
         }
         return { ...properties };
     }
@@ -224,18 +272,45 @@ export class SceneMaterialManager implements KernelTask {
             shaded: properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded,
             shading: this.shading,
             category: properties.category,
+            rawColor: properties.rawColor,
             depthWrite: properties.depthWrite,
             particles: properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH,
             line: properties.type === SceneMaterialPrimitiveType.LINE,
             point: this.isPoint(properties),
             highp: properties.type === SceneMaterialPrimitiveType.MESH && !properties.shaded && properties.highp || false,
             fog: this.fog,
-            ramp: (properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH && properties.category === PaletteCategory.FX_SMOKE) ? [
-                this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE)).clone(),
-                this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__B)).clone(),
-                this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__C)).clone(),
+            ramp: (properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH && (
+                properties.category === PaletteCategory.FX_SMOKE
+                || properties.category === PaletteCategory.FX_FIRE
+            )) ? [
+                this.colorCache.getColor(PaletteColor(palette, properties.category === PaletteCategory.FX_FIRE
+                    ? PaletteCategory.FX_FIRE
+                    : PaletteCategory.FX_SMOKE)).clone(),
+                this.colorCache.getColor(PaletteColor(palette, properties.category === PaletteCategory.FX_FIRE
+                    ? PaletteCategory.FX_FIRE__B
+                    : PaletteCategory.FX_SMOKE__B)).clone(),
+                this.colorCache.getColor(PaletteColor(palette, properties.category === PaletteCategory.FX_FIRE
+                    ? PaletteCategory.FX_SMOKE
+                    : PaletteCategory.FX_SMOKE__C)).clone(),
             ] : undefined,
         };
+    }
+
+    private categoryUsesColorDither(category: PaletteCategory): boolean {
+        return category === PaletteCategory.FX_FIRE
+            || category === PaletteCategory.SCENERY_TREE_FOLIAGE
+            || category === PaletteCategory.SCENERY_TREE_SHADOW
+            || category === PaletteCategory.SCENERY_WOOD_PATCH;
+    }
+
+    private colorDitherUniform(properties: SceneMaterialProperties): number {
+        if (properties.colorDither === true) {
+            return 1;
+        }
+        if (properties.colorDither === false) {
+            return -1;
+        }
+        return this.categoryUsesColorDither(properties.category) ? 1 : 0;
     }
 
     private buildUniforms(properties: SceneMaterialProperties): SceneMaterialUniforms {
@@ -244,11 +319,26 @@ export class SceneMaterialManager implements KernelTask {
                 halfWidth: { value: 0 },
                 halfHeight: { value: 0 },
                 shadingType: { value: this.shading },
-                color: { value: new THREE.Color(PaletteColor(this.palette, properties.category)) },
-                colorSecondary: { value: new THREE.Color(PaletteColorShade(this.palette, properties.category)) },
+                color: { value: new THREE.Color(properties.rawColor ?? PaletteColor(this.palette, properties.category)) },
+                colorSecondary: { value: new THREE.Color(properties.rawColor ?? PaletteColorShade(this.palette, properties.category)) },
                 fogType: { value: this.fog },
                 fogDensity: { value: this.palette.values[FogValueCategory(properties.category)] },
-                fogColor: { value: new THREE.Color(PaletteColor(this.palette, FogColorCategory(properties.category))) }
+                fogColor: { value: new THREE.Color(PaletteColor(this.palette, FogColorCategory(properties.category))) },
+                alphaDither: {
+                    value: properties.type === SceneMaterialPrimitiveType.MESH && !properties.shaded
+                        ? (properties.alphaDither ?? 0)
+                        : 0,
+                },
+                // Fire renders as a steady two-tone ordered dither (orange/yellow)
+                // in every shading mode rather than a temporal colour flip.
+                colorDither: {
+                    value: this.colorDitherUniform(properties)
+                },
+                minPixels: {
+                    value: properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH
+                        ? (properties.minPixels ?? 0)
+                        : 0,
+                },
             },
             ...(properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded) ? {
                 distance: { value: 0 },
@@ -288,6 +378,8 @@ export class SceneMaterialManager implements KernelTask {
             }
         } else if (properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH) {
             return this.particleMeshProto.clone();
+        } else if (properties.type === SceneMaterialPrimitiveType.IMPOSTOR) {
+            return this.impostorProto.clone();
         }
         assertExpr(false, 'This should never happen');
     }
@@ -297,20 +389,31 @@ export class SceneMaterialManager implements KernelTask {
 
         for (let i = 0; i < this.materials.length; i++) {
             const m = this.materials[i];
-            const d = m.userData as SceneMaterialData;
+            const d = m.userData as SceneMaterialData & { wingtipTrailDriven?: boolean };
+            if (d.wingtipTrailDriven) {
+                continue;
+            }
             const u = m.uniforms as SceneMaterialUniforms;
             const c = d.category;
-            u.color.value.copy(this.colorCache.getColor(PaletteColor(palette, c)));
-            u.colorSecondary.value.copy(this.colorCache.getColor(PaletteColorShade(palette, c)));
+            if (!d.rawColor) {
+                u.color.value.copy(this.colorCache.getColor(PaletteColor(palette, c)));
+                u.colorSecondary.value.copy(this.colorCache.getColor(PaletteColorShade(palette, c)));
+            }
             u.fogDensity.value = palette.values[FogValueCategory(c)];
             u.fogColor.value.copy(this.colorCache.getColor(PaletteColor(palette, FogColorCategory(c))));
-            if (d.particles && d.category === PaletteCategory.FX_SMOKE && d.ramp) {
-                d.ramp[0].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE)));
-                d.ramp[1].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__B)));
-                d.ramp[2].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__C)));
+            if (d.particles && d.ramp) {
+                if (d.category === PaletteCategory.FX_SMOKE) {
+                    d.ramp[0].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE)));
+                    d.ramp[1].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__B)));
+                    d.ramp[2].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE__C)));
+                } else if (d.category === PaletteCategory.FX_FIRE) {
+                    d.ramp[0].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_FIRE)));
+                    d.ramp[1].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_FIRE__B)));
+                    d.ramp[2].copy(this.colorCache.getColor(PaletteColor(palette, PaletteCategory.FX_SMOKE)));
+                }
             }
         }
-        this.updateFxFire(this.elapsed);
+        this.updateFxFire();
     }
 
     // This shouldn't be handled by the material system

@@ -15,7 +15,7 @@ export class ConeEmitter implements ParticleEmitter {
         this.radiusSq = radius * radius;
     }
 
-    emit(source: THREE.Object3D<THREE.Event>, particle: Particle): Particle {
+    emit(source: THREE.Object3D, particle: Particle): Particle {
         particle.position.copy(source.position);
 
         this.forward.copy(FORWARD).applyQuaternion(source.quaternion);

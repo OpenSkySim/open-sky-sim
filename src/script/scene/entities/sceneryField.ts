@@ -121,9 +121,12 @@ export class SceneryField implements Entity {
     private pickRandomCellVariation(): SceneryFieldCellVariation {
         let n = Math.random();
         let index = -1;
-        while (n >= 0 && index < this.options.cellVariations.length) {
+        while (n >= 0 && index < this.options.cellVariations.length - 1) {
             index++;
             n -= this.options.cellVariations[index].probability;
+        }
+        if (index < 0) {
+            index = 0;
         }
         return this.options.cellVariations[index];
     }

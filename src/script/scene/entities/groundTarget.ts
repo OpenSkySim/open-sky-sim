@@ -5,8 +5,9 @@ import { Entity, ENTITY_TAGS } from "../entity";
 import { Model } from '../models/models';
 import { Palette } from "../../config/palettes/palette";
 import { Scene, SceneLayers } from "../scene";
+import { WeaponsTarget } from './weaponsTarget';
 
-export class GroundTargetEntity implements Entity {
+export class GroundTargetEntity implements Entity, WeaponsTarget {
 
     private lodHelper: LODHelper;
 
@@ -64,6 +65,10 @@ export class GroundTargetEntity implements Entity {
 
     get center(): THREE.Vector3 {
         return this.model.center;
+    }
+
+    get airborne(): boolean {
+        return false;
     }
 
     init(scene: Scene): void {

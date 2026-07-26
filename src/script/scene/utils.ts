@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { FogQuality } from '../config/profiles/profile';
 import { COCKPIT_FOV, H_RES, V_RES } from '../defs';
 import { visibleWidthAtDistance } from '../render/helpers';
-import { GroundTargetEntity } from './entities/groundTarget';
+import { WeaponsTarget } from './entities/weaponsTarget';
 import { PlayerEntity } from './entities/player';
 import { SceneMaterialData, SceneMaterialUniforms } from './materials/materials';
 
@@ -62,16 +62,17 @@ export function updateTargetCamera(actor: PlayerEntity, mainCamera: THREE.Perspe
     const weaponsTarget = actor.weaponsTarget;
     if (!weaponsTarget) return 0;
 
-    const d = actor.position.distanceTo(weaponsTarget.position);
+    const actorPosition = actor.getDisplayPosition();
+    const d = actorPosition.distanceTo(weaponsTarget.position);
     const weaponsTargetZoomFactor = getWeaponsTargetZoomFactor(mainCamera, weaponsTarget, d);
 
-    targetCamera.position.copy(actor.position).setY(Math.max(TARGET_CAMERA_MIN_ALTITUDE, actor.position.y));
+    targetCamera.position.copy(actorPosition).setY(Math.max(TARGET_CAMERA_MIN_ALTITUDE, actorPosition.y));
     camPos.addVectors(weaponsTarget.position, weaponsTarget.localCenter);
     targetCamera.lookAt(camPos);
     targetCamera.fov = COCKPIT_FOV * 1 / weaponsTargetZoomFactor;
     if (d > TARGET_CAMERA_ADAPTIVE_THRESHOLD) {
-        targetCamera.near = actor.position.distanceTo(weaponsTarget.position) / 2;
-        targetCamera.far = actor.position.distanceTo(weaponsTarget.position) * 2;
+        targetCamera.near = actorPosition.distanceTo(weaponsTarget.position) / 2;
+        targetCamera.far = actorPosition.distanceTo(weaponsTarget.position) * 2;
     } else {
         targetCamera.near = TARGET_CAMERA_CONSTANT_NEAR;
         targetCamera.far = TARGET_CAMERA_CONSTANT_FAR;
@@ -80,7 +81,7 @@ export function updateTargetCamera(actor: PlayerEntity, mainCamera: THREE.Perspe
     return weaponsTargetZoomFactor;
 }
 
-function getWeaponsTargetZoomFactor(mainCamera: THREE.PerspectiveCamera, weaponsTarget: GroundTargetEntity, distance: number): number {
+function getWeaponsTargetZoomFactor(mainCamera: THREE.PerspectiveCamera, weaponsTarget: WeaponsTarget, distance: number): number {
     const farWidth = visibleWidthAtDistance(mainCamera, distance);
     const relativeSize = TARGET_SIZE_FACTOR * Math.min(TARGET_MAX_SIZE, weaponsTarget.maxSize) / farWidth;
     return Math.pow(2, relativeSize >= 1 ? 0 : Math.max(0, Math.floor(-Math.log2(relativeSize))));

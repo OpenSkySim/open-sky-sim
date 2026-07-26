@@ -1,2 +1,6 @@
 node_modules
+.cursor/.auto-build-state.json
 *.blend1
+dist
+/tools/mods/uploads/
+/tools/mods/imports/
