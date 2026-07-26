@@ -12,6 +12,7 @@ import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { WeaponsTarget } from '../weaponsTarget';
 import { PlayerEntity } from "../player";
+import { computeGunPipperWorldPoint, GUN_AIM_DEFAULT_RANGE_M } from '../../../weapons/gunPipper';
 import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout, toFeet } from './overlayUtils';
 import { DisplayUnits } from './displayUnits';
 
@@ -45,10 +46,6 @@ const TARGET_WIDTH = TARGET_HALF_WIDTH * 2 + 1;
 
 /** Matches player gun muzzle velocity in game.ts / combat sim. */
 const GUN_MUZZLE_VELOCITY_MPS = 1000;
-/** Matches combat-sim projectile gravity. */
-const GUN_PROJECTILE_GRAVITY = 9.80665;
-/** When no weapons target is locked, aim cue uses this reference range (m). */
-const GUN_AIM_DEFAULT_RANGE_M = 500;
 
 /** Short HUD tag for each pitch AoA/g limiter strategy (keys 1/2/3). */
 const FCS_MODE_LABELS: Record<number, string> = {
@@ -104,6 +101,7 @@ export class HUDEntity implements Entity {
     private _v = new THREE.Vector3();
     private _w = new THREE.Vector3();
     private _aim = new THREE.Vector3();
+    private _targetVel = new THREE.Vector3();
     private _plane = new THREE.Plane();
 
     readonly tags: string[] = [];
@@ -680,9 +678,9 @@ export class HUDEntity implements Entity {
     }
 
     /**
-     * Lead-computing gun aim pipper. With a locked target: future position +
-     * gravity drop so putting the diamond on the target box scores hits. Without
-     * a lock: bullet impact at {@link GUN_AIM_DEFAULT_RANGE_M}.
+     * Lead-computing LCOS gun pipper. With a locked target the diamond overlays
+     * the target box when the gun solution is good; without a lock it shows
+     * bullet impact at {@link GUN_AIM_DEFAULT_RANGE_M}.
      */
     private renderGunAimIndicator(
         width: number, height: number, halfWidth: number, halfHeight: number,
@@ -698,35 +696,31 @@ export class HUDEntity implements Entity {
 
         // Muzzle ≈ aircraft origin; rounds inherit shooter velocity + muzzle along nose.
         this._v.copy(FORWARD).applyQuaternion(quat);
-        this._w.copy(this._v).multiplyScalar(GUN_MUZZLE_VELOCITY_MPS).add(vel);
 
-        let tof: number;
+        let targetPos: THREE.Vector3 | undefined;
+        let targetVel: THREE.Vector3 | undefined;
         if (this.weaponsTarget) {
             this._aim.copy(this.weaponsTarget.position).add(this.weaponsTarget.localCenter);
-            const range = Math.max(1, this._aim.distanceTo(pos));
-            tof = range / GUN_MUZZLE_VELOCITY_MPS;
+            targetPos = this._aim;
             if (this.weaponsTarget.readVelocity) {
-                this.weaponsTarget.readVelocity(this._v);
-                this._aim.addScaledVector(this._v, tof);
+                targetVel = this.weaponsTarget.readVelocity(this._targetVel);
             }
-            // Aim high by the bullet drop so the pipper overlays the target when on solution.
-            this._aim.y += 0.5 * GUN_PROJECTILE_GRAVITY * tof * tof;
-        } else {
-            tof = GUN_AIM_DEFAULT_RANGE_M / GUN_MUZZLE_VELOCITY_MPS;
-            // Where the round is after flying the reference range (with drop).
-            this._aim.copy(pos).addScaledVector(this._w, tof);
-            this._aim.y -= 0.5 * GUN_PROJECTILE_GRAVITY * tof * tof;
         }
+
+        computeGunPipperWorldPoint(
+            this._w, pos, this._v, vel, GUN_MUZZLE_VELOCITY_MPS,
+            targetPos, targetVel, GUN_AIM_DEFAULT_RANGE_M,
+        );
 
         camera.getWorldDirection(this._v);
         this._plane.setFromNormalAndCoplanarPoint(this._v, camera.position);
-        if (this._plane.distanceToPoint(this._aim) <= 0) {
+        if (this._plane.distanceToPoint(this._w) <= 0) {
             return;
         }
 
-        this._aim.project(camera);
-        const x = Math.round((this._aim.x * halfWidth) + halfWidth);
-        const y = Math.round(-(this._aim.y * halfHeight) + halfHeight);
+        this._w.project(camera);
+        const x = Math.round((this._w.x * halfWidth) + halfWidth);
+        const y = Math.round(-(this._w.y * halfHeight) + halfHeight);
         if (x < 0 || x >= width || y < 0 || y >= height) {
             return;
         }
