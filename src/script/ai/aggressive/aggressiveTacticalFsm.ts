@@ -4,14 +4,15 @@ import { AircraftSnapshot, TacticalGeometry } from '../shaw/shawTypes';
 import { AggressiveFlightCommand, AggressiveManeuverType, AggressiveState } from './aggressiveTypes';
 
 // --- Side-selection latch --------------------------------------------------
-// Cutting into a scissors (SCISSORS_COUNTER) or picking which way to reverse
-// after a merge (POST_MERGE_REVERSAL) is a binary left/right choice driven by
-// the sign of a dot product that naturally sits near zero while the two
-// aircraft rotate relative to each other in a turning fight. Without
-// hysteresis that sign flips almost every frame, which reads as the aircraft
-// snap-rolling left/right/left instead of committing to one direction — the
-// same class of bug the heading-error turn latches elsewhere in the codebase
-// (e.g. AiPilot's TURN_LATCH_ENTER/RELEASE) exist to prevent.
+// Picking which way to reverse after a merge (POST_MERGE_REVERSAL) is a
+// binary left/right choice driven by the sign of a dot product that
+// naturally sits near zero while the two aircraft rotate relative to each
+// other. Without hysteresis that sign flips almost every frame, which reads
+// as the aircraft snap-rolling left/right/left instead of committing to one
+// direction — the same class of bug the heading-error turn latches elsewhere
+// in the codebase (e.g. AiPilot's TURN_LATCH_ENTER/RELEASE) exist to prevent.
+// (SCISSORS_COUNTER has no such choice: it always turns straight at the
+// bandit's bearing — see {@link executeCounter}.)
 const SIDE_LATCH_DEADBAND = 0.25;
 
 // --- Tactical-state hysteresis ----------------------------------------------
@@ -50,8 +51,6 @@ const COUNTER_EXIT_RANGE = 2750;
 export class AggressiveTacticalFSM {
     private currentState: AggressiveState = 'MERGE';
     private latchedManeuver: AggressiveManeuverType = 'HEAD_ON_PRESS';
-    /** Latched cut direction for SCISSORS_COUNTER (-1/0/1); see {@link SIDE_LATCH_DEADBAND}. */
-    private counterCutSide = 0;
     /** Latched reversal direction for POST_MERGE_REVERSAL (-1/0/1). */
     private mergeReversalSide = 0;
 
@@ -64,7 +63,6 @@ export class AggressiveTacticalFSM {
 
     private readonly _dir = new THREE.Vector3();
     private readonly _lead = new THREE.Vector3();
-    private readonly _tmp = new THREE.Vector3();
 
     constructor(options: {
         gunRange?: number;
@@ -92,10 +90,9 @@ export class AggressiveTacticalFSM {
     update(self: AircraftSnapshot, target: AircraftSnapshot, _delta: number): AggressiveFlightCommand {
         const geom = computeTacticalGeometry(self, target);
         const nextState = this.evaluateState(geom);
-        // Reset the side latches whenever we're not in the state that uses
-        // them, so the *next* time we enter that state picks a fresh side
-        // from the current geometry instead of inheriting a stale one.
-        if (nextState !== 'COUNTER') this.counterCutSide = 0;
+        // Reset the reversal-side latch whenever we're not in MERGE, so the
+        // *next* time we enter it picks a fresh side from the current
+        // geometry instead of inheriting a stale one.
         if (nextState !== 'MERGE') this.mergeReversalSide = 0;
         this.currentState = nextState;
 
@@ -216,16 +213,18 @@ export class AggressiveTacticalFSM {
 
     private executeCounter(
         self: AircraftSnapshot,
-        target: AircraftSnapshot,
+        _target: AircraftSnapshot,
         geom: TacticalGeometry,
     ): AggressiveFlightCommand {
-        // Never break away: roll and pull *into* the bandit's flight path,
-        // cutting inside their turn radius to force an overshoot rather than
-        // extending range to escape. This is the core "never flees" trait.
+        // Never break away: always turn straight at the bandit's current
+        // bearing — not away from it, and not toward some computed
+        // lateral "cut" that can point somewhere else entirely — closing the
+        // angle as fast as possible forces an overshoot instead of extending
+        // range to escape. This is the core "never flees" trait. A slight
+        // upward bias keeps it a scissoring pull rather than a flat, literal
+        // collision course (mirrors AiPilot's alwaysEngage scissors-into-threat).
         const maneuver: AggressiveManeuverType = 'SCISSORS_COUNTER';
-        this.counterCutSide = this.resolveSide(this.counterCutSide, self.right.dot(target.forward));
-        this._tmp.copy(self.right).multiplyScalar(this.counterCutSide);
-        this._dir.copy(target.forward).addScaledVector(this._tmp, 1.2).normalize();
+        this._dir.copy(geom.losVector).addScaledVector(self.up, 0.12).normalize();
 
         this.latchedManeuver = maneuver;
         return {

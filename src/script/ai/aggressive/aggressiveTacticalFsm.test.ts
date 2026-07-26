@@ -107,38 +107,49 @@ describe('AggressiveTacticalFSM maneuvers', () => {
     });
 });
 
-/**
- * Regression tests for a "rolls stupid left/right" bug: SCISSORS_COUNTER and
- * POST_MERGE_REVERSAL pick a binary left/right cut side from the sign of a
- * dot product that sits near zero mid-fight. Without hysteresis that sign
- * (and therefore the commanded direction) flipped almost every frame.
- */
-describe('AggressiveTacticalFSM side-selection stability (no left/right chatter)', () => {
-    it('keeps SCISSORS_COUNTER committed to one side despite tiny geometry noise, but can still flip on a real cross-over', () => {
+describe('AggressiveTacticalFSM SCISSORS_COUNTER always turns into the bandit', () => {
+    it('always points at (never away from, never off to a side of) the bandit\'s current bearing', () => {
         const fsm = new AggressiveTacticalFSM({ gunRange: 900 });
         const self = snap({ pos: [0, 2000, 800], vel: [0, 0, 180] });
 
-        const straight = snap({ pos: [0, 2000, 0], vel: [0, 0, 200] });
-        const c1 = fsm.update(self, straight, 1 / 60);
-        assert.equal(c1.stateName, 'COUNTER');
-        const lateral1 = c1.targetDirection.dot(self.right);
+        // Try several different bandit headings/lateral offsets; regardless
+        // of which way the bandit itself is pointed, the commanded direction
+        // must stay tightly aligned with the LOS bearing to the bandit
+        // (never flip off to some other side based on the bandit's heading).
+        const variants: [number, number, number][] = [
+            [0, 0, 200], [-10, 0, 200], [60, 0, 200], [-150, 0, 200], [150, 0, 200],
+        ];
+        for (const vel of variants) {
+            const target = snap({ pos: [0, 2000, 0], vel });
+            const geom = computeTacticalGeometry(self, target);
+            assert.equal(geom.taa < 60 * Math.PI / 180 && geom.range < 2500, true, 'expected COUNTER geometry');
 
-        // Tiny lateral noise in the bandit's heading (dot product barely
-        // crosses zero) must NOT flip the cut side.
-        const wobbled = snap({ pos: [0, 2000, 0], vel: [-10, 0, 200] });
-        const c2 = fsm.update(self, wobbled, 1 / 60);
-        assert.equal(c2.stateName, 'COUNTER');
-        const lateral2 = c2.targetDirection.dot(self.right);
-        assert.equal(Math.sign(lateral1), Math.sign(lateral2), 'cut side flipped on tiny noise');
+            const command = fsm.update(self, target, 1 / 60);
+            assert.equal(command.stateName, 'COUNTER');
+            assert.equal(command.maneuverName, 'SCISSORS_COUNTER');
 
-        // A clear, sustained cross-over should still be able to flip the side
-        // (the latch must not get stuck forever).
-        const clearlyOpposite = snap({ pos: [0, 2000, 0], vel: [-60, 0, 200] });
-        const c3 = fsm.update(self, clearlyOpposite, 1 / 60);
-        const lateral3 = c3.targetDirection.dot(self.right);
-        assert.notEqual(Math.sign(lateral1), Math.sign(lateral3), 'cut side never adapted to a real geometry change');
+            const bearingAngle = geom.losVector.angleTo(command.targetDirection);
+            assert.ok(bearingAngle < 10 * Math.PI / 180, `expected to point at the bandit, off by ${bearingAngle} rad`);
+        }
     });
 
+    it('turns into the bandit even when its own SIDE_LATCH-style geometry would previously have chattered', () => {
+        const fsm = new AggressiveTacticalFSM({ gunRange: 900 });
+        const self = snap({ pos: [0, 2000, 800], vel: [0, 0, 180] });
+
+        // Same near-zero dot-product wobble that used to cause left/right
+        // chatter before this fix — now irrelevant, since SCISSORS_COUNTER
+        // no longer picks a side at all.
+        const a = fsm.update(self, snap({ pos: [0, 2000, 0], vel: [-10, 0, 200] }), 1 / 60);
+        const b = fsm.update(self, snap({ pos: [0, 2000, 0], vel: [10, 0, 200] }), 1 / 60);
+        const geomA = computeTacticalGeometry(self, snap({ pos: [0, 2000, 0], vel: [-10, 0, 200] }));
+        const geomB = computeTacticalGeometry(self, snap({ pos: [0, 2000, 0], vel: [10, 0, 200] }));
+        assert.ok(a.targetDirection.angleTo(geomA.losVector) < 10 * Math.PI / 180);
+        assert.ok(b.targetDirection.angleTo(geomB.losVector) < 10 * Math.PI / 180);
+    });
+});
+
+describe('AggressiveTacticalFSM side-selection stability (no left/right chatter)', () => {
     it('keeps POST_MERGE_REVERSAL committed to one side despite tiny geometry noise', () => {
         const fsm = new AggressiveTacticalFSM({ gunRange: 900 });
         const self = snap({ pos: [0, 2000, 0], vel: [0, 0, 200] });
