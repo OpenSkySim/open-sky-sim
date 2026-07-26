@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { Palette, PaletteCategory, PaletteColor } from "../../../config/palettes/palette";
+import { PITCH_STICK_AFT_UNITS, PITCH_STICK_FWD_UNITS } from '../../../defs';
+import { formatF16ThrottleHud } from '../../../physics/f16Engine';
 import { CanvasPainter } from "../../../render/screen/canvasPainter";
 import { Font, TextAlignment } from "../../../render/screen/text";
 import { calculatePitchRoll, FORWARD, UP, vectorHeading } from '../../../utils/math';
@@ -398,13 +400,7 @@ export class CockpitEntity implements Entity {
         painter.text(font, x + pad, ty, `G ${this.weaponsTargetLoadG.toFixed(1)}`, gColor);
         ty += line;
 
-        const pitch = this.formatSignedControl(this.weaponsTargetStickPitch);
-        const roll = this.formatSignedControl(this.weaponsTargetStickRoll);
-        painter.text(font, x + pad, ty, `P ${pitch} R ${roll}`, hudColor);
-        ty += line;
-        const throttle = Math.round(Math.max(0, Math.min(1, this.weaponsTargetThrottle)) * 100);
-        painter.text(font, x + pad, ty, `THR ${throttle}%`, hudColor);
-        ty += line;
+        this.renderTargetControls(x, y, size, painter, palette, font, hudColor);
 
         const barX = x + pad;
         const barY = ty + Math.floor(font.charHeight / 2) - 2;
@@ -413,7 +409,9 @@ export class CockpitEntity implements Entity {
         const labelW = label.length * font.charWidth + Math.max(0, label.length - 1) * font.charSpacing;
         painter.text(font, barX, ty, label, this.weaponsTargetHealth <= 0.3 ? warnColor : hudColor);
         const trackX = barX + labelW + pad;
-        const trackW = Math.max(8, size - (trackX - x) - pad);
+        // Reserve the right side for the enemy's HUD-style control diagram.
+        const controlWidth = Math.max(18, Math.min(48, Math.round(size * 0.28)));
+        const trackW = Math.max(8, size - (trackX - x) - controlWidth - pad);
         painter.setColor(hudColor);
         painter.rectangle(trackX, barY, trackW, barH);
         const fillW = Math.max(0, Math.round(trackW * Math.max(0, Math.min(1, this.weaponsTargetHealth))));
@@ -424,9 +422,55 @@ export class CockpitEntity implements Entity {
 
     }
 
-    private formatSignedControl(value: number): string {
-        const clamped = Math.max(-1, Math.min(1, value));
-        return `${clamped >= 0 ? '+' : ''}${clamped.toFixed(1)}`;
+    /**
+     * Enemy pitch/roll stick and throttle, using the same visual language as the
+     * player's HUD: cross-shaped stick travel, circular stick marker, and a
+     * vertical throttle track. The engine label explicitly shows AB1/AB2.
+     */
+    private renderTargetControls(
+        x: number, y: number, size: number,
+        painter: CanvasPainter, palette: Palette, font: Font, hudColor: string,
+    ): void {
+        const pad = font.charSpacing;
+        const line = font.charHeight + font.charSpacing;
+        const secondary = PaletteColor(palette, PaletteCategory.HUD_TEXT_SECONDARY);
+        const arm = Math.max(5, Math.min(18, Math.round(size * 0.09)));
+        const gap = Math.max(2, Math.round(arm * 0.3));
+        const centerX = x + size - pad - arm - 1;
+        const centerY = y + pad + line * 3 + arm;
+
+        const pitchTotalUnits = PITCH_STICK_FWD_UNITS + PITCH_STICK_AFT_UNITS;
+        const pitchSpan = arm * 2;
+        const pitchFwdTravel = Math.max(2, Math.round(pitchSpan * PITCH_STICK_FWD_UNITS / pitchTotalUnits));
+        const pitchAftTravel = Math.max(2, pitchSpan - pitchFwdTravel);
+        const rollTravel = Math.max(2, arm - 2);
+        const pitch = Math.max(-1, Math.min(1, this.weaponsTargetStickPitch));
+        const roll = Math.max(-1, Math.min(1, this.weaponsTargetStickRoll));
+        const throttle = Math.max(0, Math.min(1, this.weaponsTargetThrottle));
+
+        painter.setColor(secondary);
+        painter.batch()
+            .hLine(centerX - arm, centerX + arm, centerY)
+            .vLine(centerX, centerY - pitchFwdTravel, centerY + pitchAftTravel)
+            .commit();
+
+        const pitchOffset = pitch >= 0 ? pitch * pitchAftTravel : pitch * pitchFwdTravel;
+        painter.setColor(hudColor);
+        painter.circle(
+            Math.round(centerX + roll * rollTravel),
+            Math.round(centerY + pitchOffset),
+            Math.max(1, Math.round(arm * 0.18)));
+
+        const throttleX = centerX - arm - gap;
+        painter.setColor(secondary);
+        painter.vLine(throttleX, centerY - arm, centerY + arm);
+        painter.setColor(hudColor);
+        const throttleY = Math.round(centerY + arm - throttle * arm * 2);
+        painter.hLine(throttleX - 1, throttleX + 1, throttleY);
+
+        const throttleLabel = formatF16ThrottleHud(throttle);
+        painter.text(font, centerX, centerY + pitchAftTravel + gap,
+            throttleLabel, hudColor, TextAlignment.CENTER);
     }
 
     /**
