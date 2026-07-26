@@ -30,12 +30,15 @@ export enum UnitSystems {
 
 /**
  * Selectable in-worker AI pilot models. CLASSIC is the existing BFM AiPilot;
- * SHAW is the Robert L. Shaw Fighter Combat tactical FSM + FCC.
+ * SHAW is the Robert L. Shaw Fighter Combat tactical FSM + FCC; AGGRESSIVE is
+ * a "Berserker" doctrine that never disengages/breaks defensively, always
+ * pressing the attack.
  * Applied on the next opponent spawn/enable (not mid-dogfight).
  */
 export enum AiPilotModels {
     CLASSIC = 'CLASSIC',
     SHAW = 'SHAW',
+    AGGRESSIVE = 'AGGRESSIVE',
 }
 
 export enum HUDFocusMode {

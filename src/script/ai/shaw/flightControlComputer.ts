@@ -2,7 +2,24 @@ import * as THREE from 'three';
 import { clamp, FORWARD, RIGHT, UP } from '../../utils/math';
 import { PilotableAircraft } from '../aircraftControls';
 import { WorldQuery } from '../worldQuery';
-import { FlightCommand } from './shawTypes';
+
+/**
+ * Minimal structural shape {@link FlightControlComputer} actually consumes.
+ * Any tactical FSM's command type (Shaw's `FlightCommand`, Aggressive's
+ * `AggressiveFlightCommand`, ...) can be passed to {@link FlightControlComputer.applyCommand}
+ * as long as it has these fields — the extra state/maneuver-label fields
+ * those richer command types carry are for telemetry only and are ignored here.
+ */
+export interface FlightSetpoint {
+    /** World-space aim direction the nose should track. */
+    targetDirection: THREE.Vector3;
+    /** Desired airspeed (m/s). */
+    targetSpeed: number;
+    /** When true, cut throttle hard (stand-in for speedbrakes). */
+    useAirbrakes: boolean;
+    /** Allow the hard-turn pull when angular error is large. */
+    allowHardTurn: boolean;
+}
 
 // FM2-friendly gains — mirrored from AiPilot (rate-commanded roll → P-only bank).
 const ROLL_KP = 2.2;
@@ -92,7 +109,7 @@ export class FlightControlComputer {
      * Apply a tactical command. Returns true if terrain pull-up pre-empted the
      * command this frame (caller should suppress firing).
      */
-    applyCommand(command: FlightCommand, delta: number): boolean {
+    applyCommand(command: FlightSetpoint, delta: number): boolean {
         this.readState(delta);
         this.aircraft.setLandingGearDeployed(false);
         this.aircraft.setFlapsExtended(false);

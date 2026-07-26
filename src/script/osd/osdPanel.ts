@@ -131,12 +131,20 @@ function setupAiPilotModel(config: ConfigService) {
     assertIsDefined(classic);
     const shaw = document.getElementById('aipilot-shaw');
     assertIsDefined(shaw);
+    const aggressive = document.getElementById('aipilot-aggressive');
+    assertIsDefined(aggressive);
 
     classic.addEventListener('change', () => {
         config.aiPilotModels.setActive(AiPilotModels.CLASSIC);
+        updateSettings({ aiPilotModel: AiPilotModels.CLASSIC });
     });
     shaw.addEventListener('change', () => {
         config.aiPilotModels.setActive(AiPilotModels.SHAW);
+        updateSettings({ aiPilotModel: AiPilotModels.SHAW });
+    });
+    aggressive.addEventListener('change', () => {
+        config.aiPilotModels.setActive(AiPilotModels.AGGRESSIVE);
+        updateSettings({ aiPilotModel: AiPilotModels.AGGRESSIVE });
     });
 }
 
@@ -201,10 +209,16 @@ function syncSettingsUI(config: ConfigService, keyboardInput: KeyboardControlDev
         [KeyboardControlLayoutId.DVORAK]: 'layout-dvorak',
         [KeyboardControlLayoutId.ARROWS]: 'layout-arrows',
     };
+    const aiPilotModelRadioIds: Record<string, string> = {
+        [AiPilotModels.CLASSIC]: 'aipilot-classic',
+        [AiPilotModels.SHAW]: 'aipilot-shaw',
+        [AiPilotModels.AGGRESSIVE]: 'aipilot-aggressive',
+    };
 
     checkRadio(techProfileRadioIds[config.techProfiles.getActiveKey()]);
     checkRadio(flightModelRadioIds[config.flightModels.getActiveKey()]);
     checkRadio(keyboardLayoutRadioIds[keyboardInput.getKeyboardLayoutId()]);
+    checkRadio(aiPilotModelRadioIds[config.aiPilotModels.getActive()]);
 }
 
 function checkRadio(id: string | undefined) {
