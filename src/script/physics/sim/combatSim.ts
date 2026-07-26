@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { Fm2FlightModel } from '../model/fm2FlightModel';
-import { AiPilot, AiFlightPhase, AiPilotOptions } from '../../ai/aiPilot';
+import { AiFlightPhase, AiPilotOptions } from '../../ai/aiPilot';
+import { AiPilotController } from '../../ai/aiPilotController';
+import { createAiPilot } from '../../ai/createAiPilot';
 import { PilotableAircraft } from '../../ai/aircraftControls';
 import { SceneWorldQuery } from '../../ai/worldQuery';
 import { Combatant, Faction } from '../../weapons/combatant';
@@ -43,7 +45,7 @@ interface ProjectileSlot {
 
 /**
  * One simulated aircraft: an {@link Fm2FlightModel} plus its command buffer, an
- * optional in-worker {@link AiPilot} and gun. Implements {@link PilotableAircraft}
+ * optional in-worker {@link AiPilotController} and gun. Implements {@link PilotableAircraft}
  * (so a pilot can fly it) and {@link Combatant} (so it can be targeted/hit).
  */
 class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
@@ -55,7 +57,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     kinematic: boolean;
 
     model: Fm2FlightModel;
-    pilot: AiPilot | undefined;
+    pilot: AiPilotController | undefined;
     gun: Gun | undefined;
 
     health: number;
@@ -109,12 +111,24 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
 
     private pilotOptions: AiPilotOptions | undefined;
 
-    buildPilot(options: AiPilotOptions | undefined, world: SceneWorldQuery | undefined): void {
+    buildPilot(options: AiPilotOptions | undefined, world: SceneWorldQuery | undefined, forceRebuild = false): void {
         this.pilotOptions = options ?? this.pilotOptions;
-        if (this.pilot || !this.pilotOptions || !world) {
+        if (!this.pilotOptions || !world) {
             return;
         }
-        this.pilot = new AiPilot(this, world, this.pilotOptions);
+        if (this.pilot && !forceRebuild) {
+            return;
+        }
+        const prevPhase = this.pilot?.getPhase();
+        this.pilot = createAiPilot(this, world, this.pilotOptions);
+        if (prevPhase !== undefined) {
+            this.pilot.setPhase(prevPhase);
+        }
+    }
+
+    /** Replace pilot options and rebuild the controller (e.g. AI model switch on spawn). */
+    setPilotOptions(options: AiPilotOptions, world: SceneWorldQuery | undefined): void {
+        this.buildPilot(options, world, true);
     }
 
     applySpawn(spawn: SimAircraftSpawn): void {
@@ -480,6 +494,13 @@ export class CombatSim implements ProjectileSink {
         a.pilot?.setPhase(phase as AiFlightPhase);
     }
 
+    /** Rebuild the in-worker pilot with new options (AI model switch applies here). */
+    setPilotOptions(id: string, options: AiPilotOptions): void {
+        const a = this.aircraft.get(id);
+        if (!a) return;
+        a.setPilotOptions(options, this.world);
+    }
+
     respawn(id: string, spawn: SimAircraftSpawn): void {
         this.aircraft.get(id)?.respawn(spawn);
     }
@@ -732,12 +753,16 @@ export class CombatSim implements ProjectileSink {
         }
         const aircraft = new Float32Array(ids.length * AC_STRIDE);
         const forceVectors: Record<string, ForceVectorSample[]> = {};
+        const maneuverLabels: Record<string, string> = {};
         for (let i = 0; i < ids.length; i++) {
             const a = this.aircraft.get(ids[i])!;
             a.writeInto(aircraft, i * AC_STRIDE, this.playerInputs.get(ids[i]));
             const fv = a.forceVectors();
             if (fv.length > 0) {
                 forceVectors[ids[i]] = fv;
+            }
+            if (a.pilot) {
+                maneuverLabels[ids[i]] = a.pilot.getManeuverLabel();
             }
         }
 
@@ -761,7 +786,7 @@ export class CombatSim implements ProjectileSink {
             k += PROJ_STRIDE;
         }
 
-        return { ids, aircraft, forceVectors, projectiles, projectileCount, hits: this.hits.slice() };
+        return { ids, aircraft, forceVectors, maneuverLabels, projectiles, projectileCount, hits: this.hits.slice() };
     }
 
     private readonly qScratch = new THREE.Quaternion();

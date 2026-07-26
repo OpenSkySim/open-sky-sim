@@ -1,22 +1,25 @@
 import { FlightModel } from "../physics/model/flightModel";
-import { UnitSystems } from "../state/gameDefs";
+import { AiPilotModels, UnitSystems } from "../state/gameDefs";
 import { assertExpr, assertIsDefined } from "../utils/asserts";
 import { TechProfile } from "./profiles/profile";
 
 export type ProfileChangeListener = (profile: TechProfile, newId: string, oldId: string) => void;
 export type FlightModelChangeListener = (flightModel: FlightModel, newId: string, oldId: string) => void;
 export type UnitSystemChangeListener = (unitSystem: UnitSystems) => void;
+export type AiPilotModelChangeListener = (model: AiPilotModels) => void;
 
 export class ConfigService {
 
     readonly techProfiles: ConfigSet<TechProfile>;
     readonly flightModels: ConfigSet<FlightModel>;
     readonly unitSystem: UnitSystemSetting;
+    readonly aiPilotModels: AiPilotModelSetting;
 
     constructor(profiles: { [id: string]: TechProfile }, flightModels: { [id: string]: FlightModel }) {
         this.techProfiles = new ConfigSet(profiles);
         this.flightModels = new ConfigSet(flightModels);
         this.unitSystem = new UnitSystemSetting();
+        this.aiPilotModels = new AiPilotModelSetting();
     }
 }
 
@@ -89,6 +92,31 @@ export class UnitSystemSetting {
     }
 
     removeChangeListener(listener: UnitSystemChangeListener) {
+        this.listeners.delete(listener);
+    }
+}
+
+export class AiPilotModelSetting {
+    private active: AiPilotModels = AiPilotModels.CLASSIC;
+    private listeners: Set<AiPilotModelChangeListener> = new Set();
+
+    getActive(): AiPilotModels {
+        return this.active;
+    }
+
+    setActive(model: AiPilotModels) {
+        if (model === this.active) return;
+        this.active = model;
+        for (const listener of this.listeners.values()) {
+            listener(model);
+        }
+    }
+
+    addChangeListener(listener: AiPilotModelChangeListener) {
+        this.listeners.add(listener);
+    }
+
+    removeChangeListener(listener: AiPilotModelChangeListener) {
         this.listeners.delete(listener);
     }
 }

@@ -368,8 +368,10 @@ export class CockpitEntity implements Entity {
             const line = font.charHeight + font.charSpacing;
             painter.text(font, x + pad, y + pad,
                 this.weaponsTarget.targetType, hudColor);
-            painter.text(font, x + pad, y + pad + line,
-                this.weaponsTargetAirborne ? this.weaponsTarget.targetLocation : `at ${this.weaponsTarget.targetLocation}`, hudColor);
+            const locationLine = this.weaponsTargetAirborne
+                ? (this.weaponsTarget.targetManeuver ?? this.weaponsTarget.targetLocation)
+                : `at ${this.weaponsTarget.targetLocation}`;
+            painter.text(font, x + pad, y + pad + line, locationLine, hudColor);
             if (this.weaponsTargetAirborne) {
                 this.renderTargetDirectionMarker(x, y, size, painter, hudColor);
                 this.renderTargetTelemetry(x, y, size, painter, palette, font, hudColor);

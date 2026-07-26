@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { clamp, FORWARD, RIGHT, UP } from '../utils/math';
+import { AiPilotModels } from '../state/gameDefs';
 import { PilotableAircraft } from './aircraftControls';
+import { AiPilotController } from './aiPilotController';
 import { SceneWorldQuery, WorldQuery } from './worldQuery';
 import { Combatant } from '../weapons/combatant';
 import { angleOff, ballisticAimPoint, closureRate, predictedMissDistance, specificEnergyHeight, trackingAngle } from './dogfightGeometry';
@@ -48,6 +50,11 @@ export interface AiPilotOptions {
     skill?: AiSkillLevel;
     /** When true, the AI never disengages to rebuild energy (no EXTEND): it stays relentlessly on the attack. */
     alwaysEngage?: boolean;
+    /**
+     * Which AI pilot model to instantiate. Defaults to CLASSIC. Applied when the
+     * in-worker pilot is (re)built — typically on opponent spawn.
+     */
+    model?: AiPilotModels;
 }
 
 /**
@@ -212,7 +219,7 @@ const LAG_BLEND_MAX = 0.55;
 const EXTEND_MIN_DURATION = 2.0;             // s, avoids instantly flip-flopping back into a losing fight
 const EXTEND_RECOVER_MARGIN = 150;           // resume pursuit once within this much of the target's energy (m)
 
-export class AiPilot {
+export class AiPilot implements AiPilotController {
 
     private phase: AiFlightPhase = AiFlightPhase.NAVIGATE;
     private target: Combatant | undefined;
@@ -315,6 +322,13 @@ export class AiPilot {
     /** Current dogfight maneuver sub-state (only meaningful during ENGAGE). */
     getDogfightMode(): DogfightMode {
         return this.dogfightMode;
+    }
+
+    getManeuverLabel(): string {
+        if (this.phase !== AiFlightPhase.ENGAGE) {
+            return AiFlightPhase[this.phase] ?? 'CLASSIC';
+        }
+        return DogfightMode[this.dogfightMode] ?? 'PURSUE';
     }
 
     setPhase(phase: AiFlightPhase): void {

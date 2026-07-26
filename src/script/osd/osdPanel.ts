@@ -1,7 +1,7 @@
 import { ConfigService } from "../config/configService";
 import { JoystickControlDevice } from "../input/devices/joystickControlDevice";
 import { KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts } from "../input/devices/keyboardControlDevice";
-import { FlightModels, TechProfiles, UnitSystems } from "../state/gameDefs";
+import { AiPilotModels, FlightModels, TechProfiles, UnitSystems } from "../state/gameDefs";
 import { assertIsDefined } from "../utils/asserts";
 
 
@@ -10,6 +10,7 @@ export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDe
     setupGenerationOptions(config);
     setupFlightModel(config);
     setupUnitSystem(config);
+    setupAiPilotModel(config);
     setupKeyboardHelp(keyboardInput);
     setupJoystickHelp(joystickInput);
 }
@@ -112,6 +113,20 @@ function setupUnitSystem(config: ConfigService) {
     });
     unitImperial.addEventListener('change', () => {
         config.unitSystem.setActive(UnitSystems.IMPERIAL);
+    });
+}
+
+function setupAiPilotModel(config: ConfigService) {
+    const classic = document.getElementById('aipilot-classic');
+    assertIsDefined(classic);
+    const shaw = document.getElementById('aipilot-shaw');
+    assertIsDefined(shaw);
+
+    classic.addEventListener('change', () => {
+        config.aiPilotModels.setActive(AiPilotModels.CLASSIC);
+    });
+    shaw.addEventListener('change', () => {
+        config.aiPilotModels.setActive(AiPilotModels.SHAW);
     });
 }
 

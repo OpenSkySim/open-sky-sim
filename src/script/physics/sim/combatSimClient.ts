@@ -5,12 +5,14 @@ import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { SerializedWorld } from './serializedWorld';
 import { AC_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
+import { AiPilotOptions } from '../../ai/aiPilot';
 import {
     SimAircraftDesc, SimAircraftSpawn, SimControlInputs,
     SimControlMode, SimHitEvent, SimToWorkerMessage, WorkerToSimMessage,
 } from './simTypes';
 
 const EMPTY_FORCE_VECTORS: ForceVectorSample[] = [];
+const EMPTY_MANEUVER_LABELS: Record<string, string> = {};
 
 /** A render-side proxy the client mirrors authoritative aircraft state onto. */
 export interface SimAircraftProxy {
@@ -40,6 +42,7 @@ export class CombatSimClient {
     private projectiles: Float32Array<ArrayBufferLike> = new Float32Array(0);
     private projectileCount = 0;
     private pendingHits: SimHitEvent[] = [];
+    private maneuverLabels: Record<string, string> = EMPTY_MANEUVER_LABELS;
     /** Fired on the main thread whenever a snapshot carries new hits (debris / SFX). */
     onHits: ((hits: SimHitEvent[]) => void) | undefined;
 
@@ -103,8 +106,18 @@ export class CombatSimClient {
         this.post({ type: 'setPhase', id, phase });
     }
 
+    /** Rebuild the in-worker pilot (used when switching AI model on spawn). */
+    setPilotOptions(id: string, options: AiPilotOptions): void {
+        this.post({ type: 'setPilotOptions', id, options });
+    }
+
     respawn(id: string, spawn: SimAircraftSpawn): void {
         this.post({ type: 'respawn', id, spawn });
+    }
+
+    /** Latest AI maneuver / phase label for an aircraft (from the last snapshot). */
+    getManeuverLabel(id: string): string | undefined {
+        return this.maneuverLabels[id];
     }
 
     resetAircraft(id: string, position: THREE.Vector3, quaternion: THREE.Quaternion, velocity: THREE.Vector3, landed: boolean, throttle: number, kinematic: boolean): void {
@@ -224,6 +237,7 @@ export class CombatSimClient {
             this.proxies.get(id)?.applyStateBuffer(
                 snapshot.aircraft, i * AC_STRIDE, snapshot.forceVectors[id] ?? EMPTY_FORCE_VECTORS);
         }
+        this.maneuverLabels = snapshot.maneuverLabels ?? EMPTY_MANEUVER_LABELS;
         this.projectiles = snapshot.projectiles;
         this.projectileCount = snapshot.projectileCount;
         if (snapshot.hits.length > 0) {

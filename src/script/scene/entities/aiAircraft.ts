@@ -297,7 +297,11 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     }
 
     get targetLocation(): string {
-        return 'Airborne';
+        return this.targetManeuver ?? 'Airborne';
+    }
+
+    get targetManeuver(): string | undefined {
+        return this.combatSim.getManeuverLabel(this.simId);
     }
 
     get airborne(): boolean {

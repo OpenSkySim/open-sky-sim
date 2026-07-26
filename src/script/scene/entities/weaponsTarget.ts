@@ -35,4 +35,6 @@ export interface WeaponsTarget {
     readonly targetStickRoll?: number;
     /** Pilot throttle-lever position [0, 1]. Airborne combatants only. */
     readonly targetThrottle?: number;
+    /** Current AI maneuver / phase label (e.g. PURSUE, SHAW:HIGH_YO_YO). */
+    readonly targetManeuver?: string;
 }

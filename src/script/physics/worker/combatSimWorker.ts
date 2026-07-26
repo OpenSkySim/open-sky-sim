@@ -48,6 +48,9 @@ function handleMessage(data: SimToWorkerMessage): void {
         case 'setPhase':
             sim.setPhase(data.id, data.phase);
             break;
+        case 'setPilotOptions':
+            sim.setPilotOptions(data.id, data.options);
+            break;
         case 'respawn':
             sim.respawn(data.id, data.spawn);
             break;

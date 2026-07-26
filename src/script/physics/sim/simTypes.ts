@@ -128,6 +128,7 @@ export type SimToWorkerMessage =
     | { type: 'setControlMode'; id: string; control: SimControlMode }
     | { type: 'setTarget'; id: string; targetId: string | null }
     | { type: 'setPhase'; id: string; phase: number }
+    | { type: 'setPilotOptions'; id: string; options: AiPilotOptions }
     | { type: 'respawn'; id: string; spawn: SimAircraftSpawn }
     | { type: 'reset'; id: string; position: Vec3; quaternion: Quat; velocity: Vec3; landed: boolean; throttle: number; kinematic: boolean }
     | { type: 'setAircraftConfig'; id: string; aircraftConfig: Fm2AircraftConfig; kinematic: boolean }

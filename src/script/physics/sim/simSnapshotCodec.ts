@@ -61,6 +61,8 @@ export interface SnapshotBuffers {
     aircraft: Float32Array;
     /** Debug force vectors, only for aircraft that currently expose them. */
     forceVectors: Record<string, ForceVectorSample[]>;
+    /** AI maneuver / phase labels keyed by aircraft id (for MFD telemetry). */
+    maneuverLabels: Record<string, string>;
     /** `projectileCount * PROJ_STRIDE` floats. */
     projectiles: Float32Array;
     projectileCount: number;

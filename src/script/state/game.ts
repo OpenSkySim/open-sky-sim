@@ -61,7 +61,7 @@ import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 import { Obstacle, Runway } from '../ai/worldQuery';
-import { AiFlightPhase, AiSkillLevel } from '../ai/aiPilot';
+import { AiFlightPhase, AiPilotOptions, AiSkillLevel } from '../ai/aiPilot';
 import { AiAircraftEntity } from '../scene/entities/aiAircraft';
 import { WeaponsField } from '../scene/entities/weaponsField';
 import { Faction } from '../weapons/combatant';
@@ -71,6 +71,7 @@ import { serializeWorld } from '../physics/sim/serializedWorld';
 import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/simTypes';
 import { PLAYER_SIM_ID, aiSimId } from '../physics/sim/simIds';
 import { defaultFm2Config } from '../physics/fm2/fm2AircraftConfig';
+import { AiPilotModels } from './gameDefs';
 
 /** How many AI opponents the combat sim spawns. */
 const AI_OPPONENT_COUNT = 1;
@@ -1739,15 +1740,7 @@ export class Game {
                     throttle: PLAYER_APPROACH_SPAWN.throttle,
                     velocity: PLAYER_APPROACH_SPAWN.velocity!.clone(),
                 },
-                {
-                    cruiseAltitude: APPROACH_ALTITUDE_M,
-                    cruiseSpeed: APPROACH_SPEED_MPS,
-                    combatSpeed: 180,
-                    gunRange: 900,
-                    hardDeck: 200,
-                    alwaysEngage: true,
-                    skill: AiSkillLevel.ACE,
-                },
+                this.opponentPilotOptions(),
             );
             ai.enabled = false;
             this.combatSim.setEnabled(ai.simId, false);
@@ -1773,6 +1766,22 @@ export class Game {
         };
     }
 
+    /** Pilot options for the next opponent spawn (includes active AI model). */
+    private opponentPilotOptions(): AiPilotOptions {
+        const model = this.configService.aiPilotModels.getActive();
+        return {
+            cruiseAltitude: APPROACH_ALTITUDE_M,
+            cruiseSpeed: APPROACH_SPEED_MPS,
+            combatSpeed: 180,
+            gunRange: 900,
+            hardDeck: 200,
+            // CLASSIC-only knobs; Shaw uses its own Offensive/Neutral/Defensive matrix.
+            alwaysEngage: model === AiPilotModels.CLASSIC,
+            skill: AiSkillLevel.ACE,
+            model,
+        };
+    }
+
     /** Spawn/enable the AI opponents matching the player's direction, speed, and altitude. */
     private spawnOpponent() {
         if (this.aiOpponents.length === 0) {
@@ -1790,6 +1799,7 @@ export class Game {
         // Preserve vertical speed so co-altitude spawn stays level with the player.
         velocity.y = this.player.velocityVector.y;
 
+        const pilotOptions = this.opponentPilotOptions();
         const LATERAL_SPACING_M = 80;
         for (let i = 0; i < this.aiOpponents.length; i++) {
             const ai = this.aiOpponents[i];
@@ -1799,6 +1809,8 @@ export class Game {
                 .addScaledVector(playerForward, AI_ENGAGE_SPAWN_DISTANCE_M)
                 .addScaledVector(right, lateral);
 
+            // Rebuild pilot so OSD AI-model changes apply on this merge.
+            this.combatSim.setPilotOptions(ai.simId, pilotOptions);
             ai.respawn({
                 position,
                 heading: playerHeading,

@@ -28,6 +28,16 @@ export enum UnitSystems {
     IMPERIAL = 'IMPERIAL',
 }
 
+/**
+ * Selectable in-worker AI pilot models. CLASSIC is the existing BFM AiPilot;
+ * SHAW is the Robert L. Shaw Fighter Combat tactical FSM + FCC.
+ * Applied on the next opponent spawn/enable (not mid-dogfight).
+ */
+export enum AiPilotModels {
+    CLASSIC = 'CLASSIC',
+    SHAW = 'SHAW',
+}
+
 export enum HUDFocusMode {
     DISABLED,
     PARTIAL,
