@@ -147,9 +147,10 @@ The system supports a single device connected only. If the device has less than 
 
 ### Views
 * `N`: Toggle day/night
-* `1`: Cockpit
+* `1` / `F1`: Cockpit (`F1` again with a target toggles padlock — camera tracks the target while the HUD stays airframe-fixed, so a high target leaves the HUD at the bottom of the view)
 * `2`: Toggle exterior back/front
 * `3`: Toggle exterior left/right
 * `4`: Toggle to/from target
+* `Numpad *`: Toggle F1 padlock / F2 enemy lock
 
 On reaching the limits of the detailed scenario the player position wraps around.
