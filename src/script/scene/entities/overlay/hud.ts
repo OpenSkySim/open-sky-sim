@@ -12,7 +12,11 @@ import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { WeaponsTarget } from '../weaponsTarget';
 import { PlayerEntity } from "../player";
-import { computeGunPipperWorldPoint, GUN_AIM_DEFAULT_RANGE_M } from '../../../weapons/gunPipper';
+import {
+    computeGunPipperWorldPoint,
+    GUN_AIM_DEFAULT_RANGE_M,
+    GUN_MUZZLE_OFFSET,
+} from '../../../weapons/gunPipper';
 import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout, toFeet } from './overlayUtils';
 import { DisplayUnits } from './displayUnits';
 
@@ -679,17 +683,19 @@ export class HUDEntity implements Entity {
         const quat = this.actor.getDisplayQuaternion();
         const vel = this.actor.getDisplayVelocity();
 
-        // Muzzle ≈ aircraft origin; rounds inherit shooter velocity + muzzle along nose.
+        // Same muzzle + velocity model as Gun.tryFire / combat sim.
         this._v.copy(FORWARD).applyQuaternion(quat);
+        this._aim.copy(GUN_MUZZLE_OFFSET).applyQuaternion(quat).add(pos);
 
         let targetPos: THREE.Vector3 | undefined;
         if (this.weaponsTarget) {
-            this._aim.copy(this.weaponsTarget.position).add(this.weaponsTarget.localCenter);
-            targetPos = this._aim;
+            // Reuse `_w` as scratch for target, then overwrite with pipper point.
+            this._w.copy(this.weaponsTarget.position).add(this.weaponsTarget.localCenter);
+            targetPos = this._w;
         }
 
         computeGunPipperWorldPoint(
-            this._w, pos, this._v, vel, GUN_MUZZLE_VELOCITY_MPS,
+            this._w, this._aim, this._v, vel, GUN_MUZZLE_VELOCITY_MPS,
             targetPos, GUN_AIM_DEFAULT_RANGE_M,
         );
 
