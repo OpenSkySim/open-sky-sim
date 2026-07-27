@@ -451,11 +451,18 @@ export class CombatSim implements ProjectileSink {
         }
     }
 
-    keyEvent(id: string, key: string, down: boolean, repeat: boolean): void {
+    keyDown(id: string, key: string, repeat: boolean): void {
         const a = this.aircraft.get(id);
         const input = this.playerInputs.get(id);
         if (!a || !input) return;
-        input.keyEvent(key, down, repeat, a);
+        input.keyDown(key, repeat, a);
+    }
+
+    keyUp(id: string, key: string): void {
+        const a = this.aircraft.get(id);
+        const input = this.playerInputs.get(id);
+        if (!a || !input) return;
+        input.keyUp(key, a);
     }
 
     setKeyboardLayout(layoutId: KeyboardControlLayoutId): void {

@@ -118,15 +118,11 @@ export class SimPlayerInput {
         this.throttle = throttle;
     }
 
-    keyEvent(key: string, down: boolean, repeat: boolean, sink: SimPlayerInputSink): void {
+    keyDown(key: string, repeat: boolean, sink: SimPlayerInputSink): void {
         if (repeat && this.isLayoutKey(key)) {
             return;
         }
-        if (down) {
-            this.keysDown.add(key);
-        } else {
-            this.keysDown.delete(key);
-        }
+        this.keysDown.add(key);
 
         if (!this.inputEnabled || sink.control === 'ai') {
             return;
@@ -135,32 +131,41 @@ export class SimPlayerInput {
             return;
         }
 
-        if (down) {
-            if (this.handleWheelBrakeKeyDown(key, sink)) {
-                return;
-            }
-            if (key === 'w') {
-                this.wKeyDown = true;
-            }
-            if (key === ' ' || key === 'space') {
-                this.firing = true;
-                return;
-            }
-            this.handleLayoutKeyDown(key, sink);
-            this.handleActionKeyDown(key, sink);
-        } else {
-            if (this.handleWheelBrakeKeyUp(key)) {
-                return;
-            }
-            if (key === 'w') {
-                this.wKeyDown = false;
-            }
-            if (key === ' ' || key === 'space') {
-                this.firing = false;
-                return;
-            }
-            this.handleLayoutKeyUp(key);
+        if (this.handleWheelBrakeKeyDown(key, sink)) {
+            return;
         }
+        if (key === 'w') {
+            this.wKeyDown = true;
+        }
+        if (key === ' ' || key === 'space') {
+            this.firing = true;
+            return;
+        }
+        this.handleLayoutKeyDown(key, sink);
+        this.handleActionKeyDown(key, sink);
+    }
+
+    keyUp(key: string, sink: SimPlayerInputSink): void {
+        this.keysDown.delete(key);
+
+        if (!this.inputEnabled || sink.control === 'ai') {
+            return;
+        }
+        if (sink.health <= 0 || sink.isCrashed()) {
+            return;
+        }
+
+        if (this.handleWheelBrakeKeyUp(key)) {
+            return;
+        }
+        if (key === 'w') {
+            this.wKeyDown = false;
+        }
+        if (key === ' ' || key === 'space') {
+            this.firing = false;
+            return;
+        }
+        this.handleLayoutKeyUp(key);
     }
 
     /** Advance stick/throttle state and produce this frame's control inputs. */

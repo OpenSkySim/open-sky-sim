@@ -173,8 +173,12 @@ export class CombatSimClient {
         this.firing.set(id, firing);
     }
 
-    postKeyEvent(id: string, key: string, down: boolean, repeat = false): void {
-        this.post({ type: 'keyEvent', id, key, down, repeat });
+    postKeyDown(id: string, key: string, repeat = false): void {
+        this.post({ type: 'keyDown', id, key, repeat });
+    }
+
+    postKeyUp(id: string, key: string): void {
+        this.post({ type: 'keyUp', id, key });
     }
 
     setKeyboardLayout(layoutId: KeyboardControlLayoutId): void {

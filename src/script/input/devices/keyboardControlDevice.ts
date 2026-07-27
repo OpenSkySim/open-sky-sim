@@ -98,7 +98,7 @@ export class KeyboardControlDevice implements KernelTask {
                 if (!this.player.controlsEnabled) {
                     return;
                 }
-                this.combatSim.postKeyEvent(this.simId, key, true, event.repeat);
+                this.combatSim.postKeyDown(this.simId, key, event.repeat);
                 return;
             }
             this.keysDown.add(key);
@@ -114,7 +114,7 @@ export class KeyboardControlDevice implements KernelTask {
         document.addEventListener('keyup', (event: KeyboardEvent) => {
             const key = normalizeControlKey(event);
             if (this.isWorkerControlled()) {
-                this.combatSim.postKeyEvent(this.simId, key, false, false);
+                this.combatSim.postKeyUp(this.simId, key);
                 return;
             }
             this.keysDown.delete(key);

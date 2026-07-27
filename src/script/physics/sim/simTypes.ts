@@ -140,7 +140,8 @@ export type SimToWorkerMessage =
     | { type: 'setExternalState'; id: string; enabled: boolean; faction: number; position: Vec3; velocity: Vec3; alive: boolean }
     | { type: 'clearExternalState'; id: string }
     | { type: 'step'; delta: number; inputs: Record<string, SimControlInputs> }
-    | { type: 'keyEvent'; id: string; key: string; down: boolean; repeat: boolean }
+    | { type: 'keyDown'; id: string; key: string; repeat: boolean }
+    | { type: 'keyUp'; id: string; key: string }
     | { type: 'setKeyboardLayout'; layoutId: KeyboardControlLayoutId }
     | { type: 'gamepadAxes'; id: string; pitch: number; roll: number; yaw: number; throttle: number; connected: boolean }
     | { type: 'inputBlur'; id: string }

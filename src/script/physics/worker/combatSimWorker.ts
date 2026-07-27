@@ -88,8 +88,11 @@ function handleMessage(data: SimToWorkerMessage): void {
         case 'clearExternalState':
             sim.clearExternalState(data.id);
             break;
-        case 'keyEvent':
-            sim.keyEvent(data.id, data.key, data.down, data.repeat);
+        case 'keyDown':
+            sim.keyDown(data.id, data.key, data.repeat);
+            break;
+        case 'keyUp':
+            sim.keyUp(data.id, data.key);
             break;
         case 'setKeyboardLayout':
             sim.setKeyboardLayout(data.layoutId);
