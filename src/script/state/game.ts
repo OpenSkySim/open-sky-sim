@@ -1800,7 +1800,8 @@ export class Game {
             combatSpeed: 180,
             gunRange: 900,
             hardDeck: 200,
-            // CLASSIC-only knobs; Shaw uses its own Offensive/Neutral/Defensive matrix.
+            // CLASSIC-only knob; Shaw and Aggressive each run their own tactical
+            // matrix (Offensive/Neutral/Defensive, resp. Attack/Merge/Counter).
             alwaysEngage: model === AiPilotModels.CLASSIC,
             skill: AiSkillLevel.ACE,
             model,

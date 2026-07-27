@@ -44,6 +44,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         },
         settings.techProfile,
         settings.flightModel,
+        settings.aiPilotModel,
     );
     config.flightModels.getActive().activate();
     const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);

@@ -12,7 +12,11 @@ import { Entity } from "../../entity";
 import { Scene, SceneLayers } from "../../scene";
 import { WeaponsTarget } from '../weaponsTarget';
 import { PlayerEntity } from "../player";
-import { computeGunPipperWorldPoint, GUN_AIM_DEFAULT_RANGE_M } from '../../../weapons/gunPipper';
+import {
+    computeGunPipperWorldPoint,
+    GUN_AIM_DEFAULT_RANGE_M,
+    GUN_MUZZLE_OFFSET,
+} from '../../../weapons/gunPipper';
 import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout, toFeet } from './overlayUtils';
 import { DisplayUnits } from './displayUnits';
 
@@ -101,7 +105,6 @@ export class HUDEntity implements Entity {
     private _v = new THREE.Vector3();
     private _w = new THREE.Vector3();
     private _aim = new THREE.Vector3();
-    private _targetVel = new THREE.Vector3();
     private _plane = new THREE.Plane();
 
     readonly tags: string[] = [];
@@ -255,11 +258,11 @@ export class HUDEntity implements Entity {
         const stickCenterY = hudY;
         this.renderStickIndicator(stickCenterX, stickCenterY, stickArm, geomScale, painter, hudColor, hudSecondaryColor, hudLimitColor, fontSmall);
 
-        this.renderBoresight(hudX, hudY, painter, geomScale);
-        this.renderGunReticle(hudX, hudY, dx, dy, targetHeight, painter, geomScale, hudColor, hudWarnColor, font);
-        // FPM / LCOS live on the combiner glass: project in the nose frame, then
+        this.renderGunReticle(dx, dy, targetHeight, painter, geomScale, hudColor, hudWarnColor, font);
+        // FPM / gun pipper live on the combiner glass: project in the nose frame, then
         // apply the same padlock HUD offset as the rest of the symbology.
         this.renderGunAimIndicator(targetWidth, targetHeight, halfWidth, halfHeight, dx, dy, painter, camera, geomScale, hudColor);
+        this.renderBoresight(hudX, hudY, painter, geomScale, hudColor);
         this.renderFlightPathMarker(targetWidth, targetHeight, halfWidth, halfHeight, dx, dy, painter, camera, geomScale);
         this.renderStallWarning(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor, font);
 
@@ -721,27 +724,14 @@ export class HUDEntity implements Entity {
         }
     }
 
-    /** Gun pipper brackets around the boresight plus an ammo/health readout. */
+    /** Gun ammo/hull readout when cannon is armed. */
     private renderGunReticle(
-        hudX: number, hudY: number, dx: number, dy: number, targetHeight: number,
+        dx: number, dy: number, targetHeight: number,
         painter: CanvasPainter, geomScale: number, hudColor: string, hudWarnColor: string, font: Font,
     ) {
         if (!this.hasGun) {
             return;
         }
-        const u = geomScale;
-        const r = Math.round(7 * u);
-        // A square "pipper" bracket around the boresight to frame the gun aim.
-        painter.batch()
-            .hLine(hudX - r, hudX - r + 3 * u, hudY - r)
-            .hLine(hudX + r - 3 * u, hudX + r, hudY - r)
-            .hLine(hudX - r, hudX - r + 3 * u, hudY + r)
-            .hLine(hudX + r - 3 * u, hudX + r, hudY + r)
-            .vLine(hudX - r, hudY - r, hudY - r + 3 * u)
-            .vLine(hudX - r, hudY + r - 3 * u, hudY + r)
-            .vLine(hudX + r, hudY - r, hudY - r + 3 * u)
-            .vLine(hudX + r, hudY + r - 3 * u, hudY + r)
-            .commit();
 
         const lineHeight = font.charHeight + font.charSpacing;
         const x = Math.max(4, Math.round(4 * geomScale)) + dx;
@@ -752,9 +742,8 @@ export class HUDEntity implements Entity {
     }
 
     /**
-     * Lead-computing LCOS gun pipper. With a locked target the diamond overlays
-     * the target box when the gun solution is good; without a lock it shows
-     * bullet impact at {@link GUN_AIM_DEFAULT_RANGE_M}.
+     * Gun pipper: circle where rounds are at the current target range, with a
+     * single line from the HUD boresight to the pipper.
      */
     private renderGunAimIndicator(
         width: number, height: number, halfWidth: number, halfHeight: number,
@@ -769,22 +758,20 @@ export class HUDEntity implements Entity {
         const quat = this.actor.getDisplayQuaternion();
         const vel = this.actor.getDisplayVelocity();
 
-        // Muzzle ≈ aircraft origin; rounds inherit shooter velocity + muzzle along nose.
+        // Same muzzle + velocity model as Gun.tryFire / combat sim.
         this._v.copy(FORWARD).applyQuaternion(quat);
+        this._aim.copy(GUN_MUZZLE_OFFSET).applyQuaternion(quat).add(pos);
 
         let targetPos: THREE.Vector3 | undefined;
-        let targetVel: THREE.Vector3 | undefined;
         if (this.weaponsTarget) {
-            this._aim.copy(this.weaponsTarget.position).add(this.weaponsTarget.localCenter);
-            targetPos = this._aim;
-            if (this.weaponsTarget.readVelocity) {
-                targetVel = this.weaponsTarget.readVelocity(this._targetVel);
-            }
+            // Scratch target into `_w`, then overwrite with pipper point.
+            this._w.copy(this.weaponsTarget.position).add(this.weaponsTarget.localCenter);
+            targetPos = this._w;
         }
 
         computeGunPipperWorldPoint(
-            this._w, pos, this._v, vel, GUN_MUZZLE_VELOCITY_MPS,
-            targetPos, targetVel, GUN_AIM_DEFAULT_RANGE_M,
+            this._w, this._aim, this._v, vel, GUN_MUZZLE_VELOCITY_MPS,
+            targetPos, GUN_AIM_DEFAULT_RANGE_M,
         );
 
         const projected = this.projectOnHudGlass(
@@ -793,32 +780,40 @@ export class HUDEntity implements Entity {
         if (!projected) {
             return;
         }
-        const { x, y } = projected;
-        if (x < 0 || x >= width || y < 0 || y >= height) {
+        const pipperX = projected.x;
+        const pipperY = projected.y;
+        if (pipperX < 0 || pipperX >= width || pipperY < 0 || pipperY >= height) {
             return;
         }
 
-        const u = geomScale;
-        const r = Math.max(2, Math.round(4 * u));
+        const boreX = Math.round(halfWidth + dx);
+        const boreY = Math.round(halfHeight + dy);
         painter.setColor(hudColor);
-        // Diamond pipper + center tick — distinct from boresight and flight-path marker.
         painter.batch()
-            .line(x, y - r, x + r, y)
-            .line(x + r, y, x, y + r)
-            .line(x, y + r, x - r, y)
-            .line(x - r, y, x, y - r)
-            .hLine(x - u, x + u, y)
-            .vLine(x, y - u, y + u)
+            .line(boreX, boreY, pipperX, pipperY)
+            .commit();
+
+        const r = Math.max(3, Math.round(5 * geomScale));
+        painter.circle(pipperX, pipperY, r);
+        painter.batch()
+            .hLine(pipperX - 1, pipperX + 1, pipperY)
+            .vLine(pipperX, pipperY - 1, pipperY + 1)
             .commit();
     }
 
-    private renderBoresight(halfWidth: number, halfHeight: number, painter: CanvasPainter, geomScale: number) {
+    /** HUD boresight cross at the airframe combiner (gun axis / nozzle aim point). */
+    private renderBoresight(hudX: number, hudY: number, painter: CanvasPainter, geomScale: number, hudColor: string) {
+        painter.setColor(hudColor);
         const u = geomScale;
+        const cx = Math.round(hudX);
+        const cy = Math.round(hudY);
+        const gap = Math.max(1, Math.round(u));
+        const arm = Math.max(4, Math.round(5 * u));
         painter.batch()
-            .hLine(halfWidth - 5 * u - 5 * u, halfWidth - 5 * u, halfHeight)
-            .hLine(halfWidth + 5 * u, halfWidth + 5 * u + 5 * u, halfHeight)
-            .vLine(halfWidth, halfHeight - 3 * u - 3 * u, halfHeight - 3 * u)
-            .vLine(halfWidth, halfHeight + 3 * u, halfHeight + 3 * u + 3 * u)
+            .hLine(cx - arm - gap, cx - gap, cy)
+            .hLine(cx + gap, cx + arm + gap, cy)
+            .vLine(cx, cy - arm - gap, cy - gap)
+            .vLine(cx, cy + gap, cy + arm + gap)
             .commit();
     }
 

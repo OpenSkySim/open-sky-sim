@@ -1,45 +1,71 @@
 import * as THREE from 'three';
-import { clamp } from '../utils/math';
 
 /** Matches combat-sim projectile gravity. */
 export const GUN_PROJECTILE_GRAVITY = 9.80665;
 
-/** When no weapons target is locked, aim cue uses this reference range (m). */
+/** When no weapons target is locked, pipper uses this reference range (m). */
 export const GUN_AIM_DEFAULT_RANGE_M = 500;
 
-const _relPos = new THREE.Vector3();
-const _relVel = new THREE.Vector3();
+/**
+ * Body-frame muzzle offset (m). Matches {@link PLAYER_GUN} / combat-sim spawn
+ * so the pipper starts from the same point rounds leave the aircraft.
+ */
+export const GUN_MUZZLE_OFFSET = new THREE.Vector3(0, 0, 9);
+
 const _bulletVel = new THREE.Vector3();
-const _bulletAtTof = new THREE.Vector3();
-const _targetAtTof = new THREE.Vector3();
-const _iter = new THREE.Vector3();
+const _disp = new THREE.Vector3();
 
 /**
- * Bullet time-of-flight (s) to intercept a target moving at `relVel` relative
- * to the shooter. Same fixed-point iteration as the AI gun-lead solver.
+ * Bullet world position after flying for `tof` seconds under gravity.
+ * Rounds inherit shooter velocity + muzzle along the nose — same continuous
+ * model as the combat-sim Euler integration (`vel.y -= gΔt; pos += velΔt`).
  */
-export function solveGunInterceptTime(
-    relPos: THREE.Vector3, relVel: THREE.Vector3, muzzleSpeed: number, maxTof = 5,
-): number {
-    const speed = Math.max(1, muzzleSpeed);
-    let tof = relPos.length() / speed;
-    for (let i = 0; i < 3; i++) {
-        _iter.copy(relVel).multiplyScalar(tof).add(relPos);
-        tof = _iter.length() / speed;
-    }
-    return clamp(tof, 0, maxTof);
+export function bulletPositionAtTime(
+    out: THREE.Vector3,
+    gunPos: THREE.Vector3,
+    bulletVel: THREE.Vector3,
+    tof: number,
+    gravity: number = GUN_PROJECTILE_GRAVITY,
+): THREE.Vector3 {
+    out.copy(gunPos).addScaledVector(bulletVel, tof);
+    out.y -= 0.5 * gravity * tof * tof;
+    return out;
 }
 
 /**
- * World-space LCOS gun pipper point for the HUD.
+ * Time of flight (s) for a round to travel approximately `rangeM` along its
+ * ballistic path. Starts from `|V|` and iterates so the muzzle-to-bullet
+ * distance matches the requested range (gravity bends the path slightly).
+ */
+export function tofForRange(
+    gunForward: THREE.Vector3,
+    gunVel: THREE.Vector3,
+    muzzleSpeed: number,
+    rangeM: number,
+    gravity: number = GUN_PROJECTILE_GRAVITY,
+): number {
+    _bulletVel.copy(gunForward).multiplyScalar(muzzleSpeed).add(gunVel);
+    const speed = Math.max(1, _bulletVel.length());
+    const range = Math.max(0, rangeM);
+    let tof = range / speed;
+    // Refine so |bullet(t) - muzzle| ≈ range. Two iterations are enough at
+    // cannon speeds (~1 km/s) where gravity barely stretches path length.
+    for (let i = 0; i < 2; i++) {
+        _disp.copy(_bulletVel).multiplyScalar(tof);
+        _disp.y -= 0.5 * gravity * tof * tof;
+        const travelled = Math.max(1e-6, _disp.length());
+        tof *= range / travelled;
+    }
+    return Math.max(0, tof);
+}
+
+/**
+ * World-space gun pipper: where the bullets are after flying the current
+ * target range (or {@link defaultRangeM} with no lock), including gravity drop.
  *
- * With a locked target the pipper is offset from the target by the predicted
- * miss (`targetAtTof - bulletAtTof`), so putting the diamond on the target box
- * means the round and target meet. Without a lock, returns the bullet impact
- * point at {@link defaultRangeM} along the gun line (with drop).
- *
- * Rounds inherit shooter velocity and drop under gravity — same model as the
- * combat sim / AI ballistic aim.
+ * `gunPos` should be the muzzle world position (aircraft origin + body muzzle
+ * offset). Put this circle on the target to score hits. Target motion is not
+ * lead-compensated — the pilot leads by placing the pipper ahead of a mover.
  */
 export function computeGunPipperWorldPoint(
     out: THREE.Vector3,
@@ -48,37 +74,13 @@ export function computeGunPipperWorldPoint(
     gunVel: THREE.Vector3,
     muzzleSpeed: number,
     targetPos: THREE.Vector3 | undefined,
-    targetVel: THREE.Vector3 | undefined,
     defaultRangeM: number = GUN_AIM_DEFAULT_RANGE_M,
     gravity: number = GUN_PROJECTILE_GRAVITY,
 ): THREE.Vector3 {
     _bulletVel.copy(gunForward).multiplyScalar(muzzleSpeed).add(gunVel);
-
-    if (targetPos) {
-        _relPos.copy(targetPos).sub(gunPos);
-        if (targetVel) {
-            _relVel.copy(targetVel).sub(gunVel);
-        } else {
-            _relVel.copy(gunVel).multiplyScalar(-1);
-        }
-        const tof = solveGunInterceptTime(_relPos, _relVel, muzzleSpeed);
-
-        _targetAtTof.copy(targetPos);
-        if (targetVel) {
-            _targetAtTof.addScaledVector(targetVel, tof);
-        }
-
-        _bulletAtTof.copy(gunPos).addScaledVector(_bulletVel, tof);
-        _bulletAtTof.y -= 0.5 * gravity * tof * tof;
-
-        // pipper = target + (targetAtTof - bulletAtTof): collapses onto the
-        // target when the gun solution is correct.
-        return out.copy(targetPos).add(_targetAtTof).sub(_bulletAtTof);
-    }
-
-    const speedAlongGun = Math.max(1, _bulletVel.dot(gunForward));
-    const tof = defaultRangeM / speedAlongGun;
-    out.copy(gunPos).addScaledVector(_bulletVel, tof);
-    out.y -= 0.5 * gravity * tof * tof;
-    return out;
+    const rangeM = targetPos
+        ? Math.max(1, targetPos.distanceTo(gunPos))
+        : defaultRangeM;
+    const tof = tofForRange(gunForward, gunVel, muzzleSpeed, rangeM, gravity);
+    return bulletPositionAtTime(out, gunPos, _bulletVel, tof, gravity);
 }
