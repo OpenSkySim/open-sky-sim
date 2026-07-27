@@ -92,9 +92,6 @@ const PLAYER_GUN: SimGunConfig = {
     spread: 0.003,
 };
 
-const DEFAULT_START_AIRCRAFT_ID = 'cold_war_planes_f_15c_32nd';
-/** Built-in aircraft to spawn when the preferred default pack isn't available. */
-const FALLBACK_START_AIRCRAFT_ID = 'f22';
 /** Legacy shipped packs kept out of the spawn menu when present in dist/. */
 const EXCLUDED_PACK_IDS = new Set(['a4e', 'f16']);
 
@@ -311,6 +308,8 @@ export class Game {
 
     private aircraftRegistry = new AircraftRegistry();
     private currentDef: FlyableAircraftDef;
+    /** Aircraft def used by AI opponents (chosen randomly at app start). */
+    private enemyDef: FlyableAircraftDef;
     private selectedAircraft = 0;
     private modUploadInput?: HTMLInputElement;
     private modImportInFlight = false;
@@ -333,6 +332,7 @@ export class Game {
         this.mapCamera.position.set(0, 500, 0);
 
         this.currentDef = buildF22Def();
+        this.enemyDef = buildF22Def();
         this.player = new PlayerEntity(this.models,
             this.currentDef,
             configService.flightModels.getActive(),
@@ -595,7 +595,7 @@ export class Game {
         await this.loadPersistedPacks();
         await this.setupScene();
         this.refreshAircraftMenu();
-        this.selectAircraftById(DEFAULT_START_AIRCRAFT_ID, FALLBACK_START_AIRCRAFT_ID);
+        this.selectRandomAircraft();
         await this.beginFlight('approach');
         window.addEventListener('resize', () => this.onViewportResize());
     }
@@ -642,6 +642,24 @@ export class Game {
         }
         this.selectedAircraft = index;
         this.spawnPanel.setSelectedIndex(index);
+    }
+
+    /** Pick a random flyable aircraft, falling back to the built-in F-22. */
+    private pickRandomAircraftDef(): FlyableAircraftDef {
+        const list = this.aircraftRegistry.list();
+        if (list.length === 0) {
+            return buildF22Def();
+        }
+        return list[Math.floor(Math.random() * list.length)];
+    }
+
+    /** Select a random aircraft in the spawn menu (used on app start). */
+    private selectRandomAircraft(): void {
+        const list = this.aircraftRegistry.list();
+        if (list.length === 0) {
+            return;
+        }
+        this.selectAircraftByIndex(Math.floor(Math.random() * list.length));
     }
 
     private selectAircraftById(id: string, fallbackId?: string): void {
@@ -1661,9 +1679,10 @@ export class Game {
     private async beginFlight(spawn: 'approach' | 'runway') {
         const list = this.aircraftRegistry.list();
         const def = list[this.selectedAircraft];
-        if (def) {
-            await this.preloadAircraftModels(def);
-        }
+        const toPreload = [def, this.enemyDef].filter((d): d is FlyableAircraftDef => !!d);
+        // Deduplicate when player and enemy rolled the same type.
+        const unique = new Map(toPreload.map(d => [d.id, d]));
+        await Promise.all([...unique.values()].map(d => this.preloadAircraftModels(d)));
         this.applySelectedAircraft();
         this.state = GameState.PLAYER;
         this.player.setSimulationPaused(false);
@@ -1748,12 +1767,14 @@ export class Game {
 
         // Spawn N AI opponents (the snapshot + worker are already multi-aircraft;
         // each gets a distinct sim id ai0..aiN-1). They start disabled until the
-        // player triggers a merge (see spawnOpponent).
+        // player triggers a merge (see spawnOpponent). Aircraft type is chosen
+        // randomly once at app start (same type for every opponent).
+        this.enemyDef = this.pickRandomAircraftDef();
         this.aiOpponents.length = 0;
         for (let i = 0; i < AI_OPPONENT_COUNT; i++) {
             const ai = new AiAircraftEntity(
                 this.models,
-                buildF22Def(),
+                this.enemyDef,
                 this.combatSim,
                 aiSimId(i),
                 Faction.ENEMY,
