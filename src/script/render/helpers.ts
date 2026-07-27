@@ -141,8 +141,9 @@ export class LODHelper {
         const hasVolumes = lists.has(volumesId);
         if (!hasFlats && !hasVolumes) return;
 
-        const lodLevel = forceLodLevel !== undefined ? forceLodLevel : getLodLevel(position, scale, targetWidth, camera, this.model.maxSize, this.bias);
-        if (lodLevel >= this.model.lod.length) return;
+        const requestedLod = forceLodLevel !== undefined ? forceLodLevel : getLodLevel(position, scale, targetWidth, camera, this.model.maxSize, this.bias);
+        const lodLevel = resolveLodLevel(this.model, requestedLod);
+        if (lodLevel < 0) return;
 
         if (hasFlats && this.model.lod[lodLevel].flats.length > 0) {
             this.subRender(
@@ -274,8 +275,9 @@ export class ParticleSystemHelper {
         const hasVolumes = lists.has(volumesId);
         if (!hasVolumes) return;
 
-        const lodLevel = forceLodLevel !== undefined ? forceLodLevel : getLodLevel(position, scale, targetWidth, camera, this.model.maxSize, this.bias);
-        if (lodLevel >= this.model.lod.length) return;
+        const requestedLod = forceLodLevel !== undefined ? forceLodLevel : getLodLevel(position, scale, targetWidth, camera, this.model.maxSize, this.bias);
+        const lodLevel = resolveLodLevel(this.model, requestedLod);
+        if (lodLevel < 0) return;
 
         if (hasVolumes && this.model.lod[lodLevel].volumes.length > 0) {
             this.subRender(position, scale, this.objVolumes, this.model.lod[lodLevel].volumes, volumesId, lists, palette);
@@ -316,4 +318,46 @@ export function getLodLevel(position: THREE.Vector3, scale: THREE.Vector3, targe
     const ratio = realSize / referenceSize;
     const scaledRelativeSize = relativeSize * ratio;
     return scaledRelativeSize >= 1 ? 0 : Math.max(0, Math.floor(-Math.log2(scaledRelativeSize)) - bias);
+}
+
+/** True when a LOD level carries at least one drawable mesh. */
+export function lodLevelHasGeometry(model: Model, lodLevel: number): boolean {
+    const level = model.lod[lodLevel];
+    return level !== undefined && (level.flats.length > 0 || level.volumes.length > 0);
+}
+
+/** Indices of LOD levels that contain at least one mesh, ascending. */
+export function populatedLodLevels(model: Model): number[] {
+    const levels: number[] = [];
+    for (let i = 0; i < model.lod.length; i++) {
+        if (lodLevelHasGeometry(model, i)) {
+            levels.push(i);
+        }
+    }
+    return levels;
+}
+
+/**
+ * Map a requested screen-size LOD to a level that actually has geometry.
+ * Imported aircraft often ship placeholder empty LOD scenes (1..5); without
+ * this fallback they vanish once {@link getLodLevel} steps above 0.
+ * Returns -1 when the model should be culled (no levels, or beyond the
+ * coarsest authored LOD on assets with a real multi-LOD chain).
+ */
+export function resolveLodLevel(model: Model, requestedLod: number): number {
+    const populated = populatedLodLevels(model);
+    if (populated.length === 0) {
+        return -1;
+    }
+    if (requestedLod >= model.lod.length) {
+        // Scenery with several populated LODs is culled once past the end.
+        // Single-populated imports keep their mesh visible at any distance.
+        return populated.length > 1 ? -1 : populated[0];
+    }
+    for (let lod = requestedLod; lod >= 0; lod--) {
+        if (lodLevelHasGeometry(model, lod)) {
+            return lod;
+        }
+    }
+    return populated[0];
 }
