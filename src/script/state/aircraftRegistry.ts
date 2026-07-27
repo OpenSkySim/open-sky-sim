@@ -75,6 +75,7 @@ export interface AircraftManifest {
     body: string;
     shadow: string;
     gear?: string | null;
+    gearAnimated?: boolean;
     static?: string | null;
     surfaces: {
         role: string; path: string;
@@ -108,7 +109,7 @@ export function manifestToDef(id: string, m: AircraftManifest): FlyableAircraftD
         body: m.body,
         shadow: m.shadow,
         gear: m.gear ?? undefined,
-        gearAnimated: false, // imported gear models are static (no retract clip)
+        gearAnimated: m.gearAnimated ?? false,
         cockpitOffset: m.cockpitOffset ?? [0, 1.0, 6.0],
         fx: { wingtips: m.fx?.wingtips ?? null, nozzles: m.fx?.nozzles ?? null, nozzleRadius: m.fx?.nozzleRadius ?? null },
         flight: m.flight ?? undefined,
