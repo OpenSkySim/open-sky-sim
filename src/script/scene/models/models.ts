@@ -201,9 +201,12 @@ export class ModelManager {
                         });
                         (obj.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
                     } else {
+                        const category = rawColor
+                            ? PaletteCategory.VEHICLE_PLANE_GREY
+                            : ModelManager.paletteCategoryOrFallback(matName);
                         obj.material = this.materials.build({
                             type: SceneMaterialPrimitiveType.MESH,
-                            category: rawColor ? PaletteCategory.VEHICLE_PLANE_GREY : matName as PaletteCategory,
+                            category,
                             rawColor,
                             shaded: !isFlat,
                             depthWrite: !isFlat
@@ -217,13 +220,15 @@ export class ModelManager {
                 } else if ('isLineSegments' in child) {
                     obj.material = this.materials.build({
                         type: SceneMaterialPrimitiveType.LINE,
-                        category: (obj.material as THREE.LineBasicMaterial).name as PaletteCategory,
+                        category: ModelManager.paletteCategoryOrFallback(
+                            (obj.material as THREE.LineBasicMaterial).name),
                         depthWrite: !isFlat
                     });
                 } else if ('isPoints' in child) {
                     obj.material = this.materials.build({
                         type: SceneMaterialPrimitiveType.POINT,
-                        category: (obj.material as THREE.PointsMaterial).name as PaletteCategory,
+                        category: ModelManager.paletteCategoryOrFallback(
+                            (obj.material as THREE.PointsMaterial).name),
                         depthWrite: !isFlat
                     });
                 }
@@ -250,6 +255,15 @@ export class ModelManager {
      */
     private static rawColorFor(name: string): string | undefined {
         return /^#[0-9a-fA-F]{6}$/.test(name) ? name : undefined;
+    }
+
+    /** Map a glTF material name to a PaletteCategory; unknown names fall back. */
+    private static paletteCategoryOrFallback(name: string): PaletteCategory {
+        const values = Object.values(PaletteCategory) as string[];
+        if (values.includes(name)) {
+            return name as PaletteCategory;
+        }
+        return PaletteCategory.VEHICLE_PLANE_GREY;
     }
 
     private empty(): Model {
