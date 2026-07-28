@@ -121,6 +121,7 @@ export interface SimSnapshot {
 
 export type SimToWorkerMessage =
     | { type: 'init' }
+    | { type: 'attachSharedState'; buffer: SharedArrayBuffer }
     | { type: 'setWorld'; world: SerializedWorld }
     | { type: 'addAircraft'; desc: SimAircraftDesc }
     | { type: 'removeAircraft'; id: string }
@@ -150,6 +151,19 @@ export type SimToWorkerMessage =
 
 // --- Worker -> main thread messages ------------------------------------------
 
+/** Lightweight state when pose floats live in SharedArrayBuffer. */
+export type WorkerSharedStateMessage = {
+    type: 'state';
+    shared: true;
+    seq: number;
+    ids: string[];
+    forceVectors: import('./simSnapshotCodec').SnapshotBuffers['forceVectors'];
+    maneuverLabels: import('./simSnapshotCodec').SnapshotBuffers['maneuverLabels'];
+    hits: import('./simSnapshotCodec').SnapshotBuffers['hits'];
+    workerStepMs?: number;
+};
+
 export type WorkerToSimMessage =
-    | ({ type: 'state' } & import('./simSnapshotCodec').SnapshotBuffers)
+    | ({ type: 'state'; shared?: false } & import('./simSnapshotCodec').SnapshotBuffers & { workerStepMs?: number })
+    | WorkerSharedStateMessage
     | { type: 'error'; message: string; stack?: string };

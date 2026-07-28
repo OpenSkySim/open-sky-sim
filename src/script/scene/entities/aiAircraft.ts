@@ -17,6 +17,7 @@ import { Scene, SceneLayers } from '../scene';
 import { WeaponsTarget } from './weaponsTarget';
 
 const DEFAULT_HIT_RADIUS = 10;
+const LANDING_GEAR_ANIM_DURATION = 3; // Seconds — match PlayerEntity
 
 // Enemy aircraft are centred on their own origin when framed by the target camera.
 const AI_TARGET_LOCAL_CENTER = new THREE.Vector3(0, 0, 0);
@@ -66,7 +67,9 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
 
     private readonly modelBody: LODHelper;
     private readonly modelShadow: LODHelper;
-    private readonly modelLandingGear: LODHelper | undefined;
+    private modelLandingGear: LODHelper | undefined;
+    private readonly gearAnimated: boolean;
+    private gearAnimReady = false;
     private readonly controlSurfaces: AiControlSurface[];
 
     private readonly obj = new THREE.Object3D();
@@ -100,7 +103,20 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         this.flightModel = new SimProxyFlightModel(combatSim, simId, false);
         this.modelBody = new LODHelper(models.getModel(def.body));
         this.modelShadow = new LODHelper(models.getModel(def.shadow), 5);
-        this.modelLandingGear = def.gear ? new LODHelper(models.getModel(def.gear)) : undefined;
+        this.gearAnimated = !!(def.gear && (def.gearAnimated ?? true));
+        this.modelLandingGear = undefined;
+        if (def.gear) {
+            // Build LODHelper in the load callback so AnimationClips exist (same
+            // as PlayerEntity). Sync construct would bind an empty placeholder.
+            models.getModel(def.gear, (_, model) => {
+                this.modelLandingGear = new LODHelper(model);
+                if (this.gearAnimated) {
+                    this.modelLandingGear.setPlaybackDuration(LANDING_GEAR_ANIM_DURATION);
+                    this.gearAnimReady = true;
+                    this.syncGearVisual(this.gearDeployed, false);
+                }
+            });
+        }
         this.controlSurfaces = def.surfaces.map((s: ControlSurfaceConfig): AiControlSurface => ({
             model: new LODHelper(models.getModel(s.model)),
             pivot: new THREE.Vector3().fromArray(s.pivot),
@@ -137,11 +153,28 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
 
     respawn(spawn: AiAircraftSpawn): void {
         this.health = this.maxHealth;
-        this.gearDeployed = !(spawn.airborne ?? false);
         this.flapsExtended = !(spawn.airborne ?? false);
         this.combatSim.respawn(this.simId, this.toSimSpawn(spawn));
         this.applyRenderSpawn(spawn);
         this.enabled = true;
+    }
+
+    /** Snap or play the gear clip to match deployed/retracted (F-22: t=1 extended). */
+    private syncGearVisual(deployed: boolean, animate: boolean): void {
+        if (!this.modelLandingGear || !this.gearAnimated || !this.gearAnimReady) {
+            return;
+        }
+        if (!animate) {
+            this.modelLandingGear.setPlaybackPosition(deployed ? 1 : 0);
+            return;
+        }
+        if (deployed) {
+            this.modelLandingGear.setPlaybackPosition(0);
+            this.modelLandingGear.play();
+        } else {
+            this.modelLandingGear.setPlaybackPosition(1);
+            this.modelLandingGear.playBackwards();
+        }
     }
 
     private toSimSpawn(spawn: AiAircraftSpawn): SimAircraftSpawn {
@@ -169,8 +202,10 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             this.flightModel.velocityVector = spawn.velocity;
         }
         this.flightModel.setLanded(!airborne);
+        this.flightModel.invalidateSimDeviceState();
         this.gearDeployed = !airborne;
         this.flapsExtended = !airborne;
+        this.syncGearVisual(this.gearDeployed, false);
     }
 
     init(scene: Scene): void {
@@ -180,8 +215,9 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     update(delta: number): void {
         // Physics + AI run in the worker; mirror authoritative state for rendering.
         const gear = this.flightModel.getSimGearDeployed();
-        if (gear !== null) {
+        if (gear !== null && gear !== this.gearDeployed) {
             this.gearDeployed = gear;
+            this.syncGearVisual(gear, true);
         }
         const flaps = this.flightModel.getSimFlapsExtended();
         if (flaps !== null) {
@@ -190,6 +226,9 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         const health = this.flightModel.getSimHealth();
         if (health >= 0) {
             this.health = health;
+        }
+        if (this.gearAnimated) {
+            this.modelLandingGear?.update(delta);
         }
         this.obj.position.copy(this.flightModel.position);
         this.obj.quaternion.copy(this.flightModel.quaternion);
@@ -372,7 +411,12 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
 
         // Close up, add the articulated parts (gear + hinge-pivoted surfaces).
         if (lod === 0) {
-            if (this.gearDeployed) {
+            // Animated gear stays drawn when up so bay doors remain in the closed
+            // clip pose; static gear is simply omitted when retracted. Wait for
+            // the clip to bind before drawing retracted gear (avoids open-door rest).
+            const showLandingGear = this.gearDeployed
+                || (this.gearAnimated && this.gearAnimReady);
+            if (showLandingGear) {
                 this.modelLandingGear?.addToRenderList(
                     this.displayPosition, this.displayQuaternion, this.scale,
                     targetWidth, camera, palette,

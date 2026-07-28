@@ -5,6 +5,13 @@ import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { SerializedWorld } from './serializedWorld';
 import { AC_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
+import {
+    createSimSharedState,
+    isSharedBusy,
+    setSharedBusy,
+    SimSharedViews,
+    tryPullSharedSnapshot,
+} from './simSharedState';
 import { AiPilotOptions } from '../../ai/aiPilot';
 import {
     SimAircraftDesc, SimAircraftSpawn, SimControlInputs,
@@ -27,6 +34,10 @@ export interface SimAircraftProxy {
  * register here; once per frame {@link tick} pumps their control inputs into the
  * worker (coalescing frames that arrive while the worker is busy) and, on each
  * snapshot, mirrors authoritative state back onto every proxy.
+ *
+ * When `crossOriginIsolated`, aircraft/projectile floats live in a SharedArrayBuffer
+ * double-buffer so pose can be applied every tick without waiting for a starved
+ * worker `onmessage`.
  */
 export class CombatSimClient {
 
@@ -38,6 +49,11 @@ export class CombatSimClient {
     private pendingDelta = 0;
     private lastDelta = 0;
 
+    private readonly shared: SimSharedViews | undefined;
+    private lastSharedSeq = 0;
+    private sharedIds: string[] = [];
+    private sharedForceVectors: Record<string, ForceVectorSample[]> = {};
+
     private projectiles: Float32Array<ArrayBufferLike> = new Float32Array(0);
     private projectileCount = 0;
     private pendingHits: SimHitEvent[] = [];
@@ -48,19 +64,35 @@ export class CombatSimClient {
     constructor() {
         this.worker = new Worker(new URL('../worker/combatSimWorker.ts', import.meta.url));
         this.post({ type: 'init' });
+        if (typeof SharedArrayBuffer !== 'undefined' && globalThis.crossOriginIsolated) {
+            this.shared = createSimSharedState();
+            this.post({ type: 'attachSharedState', buffer: this.shared.buffer });
+        }
         this.worker.onmessage = (event: MessageEvent<WorkerToSimMessage>) => {
             const data = event.data;
             if (data.type === 'state') {
-                this.busy = false;
-                const workerStepMs = (data as { workerStepMs?: number }).workerStepMs ?? -1;
+                const workerStepMs = data.workerStepMs ?? -1;
                 // RTT includes main-thread scheduling; only warn on real worker compute cost.
                 if (workerStepMs > 20) {
                     console.warn(`[siminstr] worker step compute ${workerStepMs.toFixed(1)}ms for delta=${(this.lastDelta * 1000).toFixed(1)}ms`);
                 }
-                this.applySnapshot(data);
+                if (data.shared) {
+                    this.sharedIds = data.ids;
+                    this.sharedForceVectors = data.forceVectors ?? {};
+                    this.maneuverLabels = data.maneuverLabels ?? EMPTY_MANEUVER_LABELS;
+                    this.applyHits(data.hits);
+                    this.pullSharedPose();
+                    this.syncBusyFromShared();
+                } else {
+                    this.busy = false;
+                    this.applySnapshot(data);
+                }
                 this.flush();
             } else if (data.type === 'error') {
                 this.busy = false;
+                if (this.shared) {
+                    setSharedBusy(this.shared, false);
+                }
                 console.error('[combatSimWorker]', data.message, data.stack);
                 this.flush();
             }
@@ -68,6 +100,11 @@ export class CombatSimClient {
         this.worker.onerror = (event) => {
             console.error('[combatSimWorker] worker error', event.message, event.filename, event.lineno);
         };
+    }
+
+    /** True when pose is mirrored via SharedArrayBuffer (HD can run uncapped). */
+    usesSharedState(): boolean {
+        return this.shared !== undefined;
     }
 
     private post(message: SimToWorkerMessage): void {
@@ -208,11 +245,43 @@ export class CombatSimClient {
         if (delta > 0.1) {
             delta = 0.05;
         }
+        // Pull pose from SAB before flush so a delayed onmessage cannot freeze the aircraft.
+        this.pullSharedPose();
+        this.syncBusyFromShared();
         this.pendingDelta += delta;
         this.flush();
     }
 
+    private syncBusyFromShared(): void {
+        if (!this.shared) {
+            return;
+        }
+        this.busy = isSharedBusy(this.shared);
+    }
+
+    private pullSharedPose(): void {
+        if (!this.shared || this.sharedIds.length === 0) {
+            return;
+        }
+        const pull = tryPullSharedSnapshot(this.shared, this.lastSharedSeq);
+        if (!pull) {
+            return;
+        }
+        this.lastSharedSeq = pull.seq;
+        const count = Math.min(pull.aircraftCount, this.sharedIds.length);
+        for (let i = 0; i < count; i++) {
+            const id = this.sharedIds[i];
+            this.proxies.get(id)?.applyStateBuffer(
+                pull.aircraft, i * AC_STRIDE, this.sharedForceVectors[id] ?? EMPTY_FORCE_VECTORS);
+        }
+        this.projectiles = pull.projectiles;
+        this.projectileCount = pull.projectileCount;
+    }
+
     private flush(): void {
+        if (this.shared) {
+            this.busy = isSharedBusy(this.shared);
+        }
         if (this.busy || this.pendingDelta <= 0 || this.proxies.size === 0) {
             return;
         }
@@ -234,8 +303,21 @@ export class CombatSimClient {
         const delta = Math.min(this.pendingDelta, MAX_STEP_DELTA);
         this.pendingDelta = 0;
         this.busy = true;
+        if (this.shared) {
+            setSharedBusy(this.shared, true);
+        }
         this.lastDelta = delta;
         this.post({ type: 'step', delta, inputs });
+    }
+
+    private applyHits(hits: SimHitEvent[]): void {
+        if (hits.length === 0) {
+            return;
+        }
+        for (let i = 0; i < hits.length; i++) {
+            this.pendingHits.push(hits[i]);
+        }
+        this.onHits?.(hits);
     }
 
     private applySnapshot(snapshot: SnapshotBuffers): void {
@@ -247,14 +329,7 @@ export class CombatSimClient {
         this.maneuverLabels = snapshot.maneuverLabels ?? EMPTY_MANEUVER_LABELS;
         this.projectiles = snapshot.projectiles;
         this.projectileCount = snapshot.projectileCount;
-        if (snapshot.hits.length > 0) {
-            for (let i = 0; i < snapshot.hits.length; i++) {
-                this.pendingHits.push(snapshot.hits[i]);
-            }
-            // Spawn FX as soon as the worker reports hits — don't wait for the
-            // next pumpCombatSim (tick is async; drain-after-tick often saw []).
-            this.onHits?.(snapshot.hits);
-        }
+        this.applyHits(snapshot.hits);
     }
 
     /** Flat projectile buffer from the latest snapshot (PROJ_STRIDE floats each). */

@@ -2,13 +2,23 @@ import * as THREE from 'three';
 import { CombatSim } from '../sim/combatSim';
 import { Faction } from '../../weapons/combatant';
 import { SimToWorkerMessage } from '../sim/simTypes';
+import {
+    aircraftBank,
+    projectileBank,
+    publishSharedBanks,
+    sharedBackBank,
+    SimSharedViews,
+    wrapSimSharedState,
+} from '../sim/simSharedState';
 
 /**
  * Worker entry hosting the authoritative {@link CombatSim}. Receives control
  * inputs and discrete events from the main thread and returns one snapshot per
- * physics pump.
+ * physics pump. When a SharedArrayBuffer is attached, pose floats are published
+ * there and only cold fields ride on postMessage.
  */
 const sim = new CombatSim();
+let shared: SimSharedViews | undefined;
 
 const v = new THREE.Vector3();
 const q = new THREE.Quaternion();
@@ -26,6 +36,9 @@ self.onmessage = (event: MessageEvent<SimToWorkerMessage>) => {
 function handleMessage(data: SimToWorkerMessage): void {
     switch (data.type) {
         case 'init':
+            break;
+        case 'attachSharedState':
+            shared = wrapSimSharedState(data.buffer);
             break;
         case 'setWorld':
             sim.setWorld(data.world);
@@ -113,10 +126,29 @@ function handleMessage(data: SimToWorkerMessage): void {
             const t0 = performance.now();
             sim.step(data.delta, data.inputs);
             const workerStepMs = performance.now() - t0;
-            const snapshot = sim.encodeSnapshot();
-            self.postMessage(
-                { type: 'state', ...snapshot, workerStepMs },
-                { transfer: [snapshot.aircraft.buffer, snapshot.projectiles.buffer] as Transferable[] });
+            if (shared) {
+                const back = sharedBackBank(shared);
+                const snapshot = sim.encodeSnapshotInto(
+                    aircraftBank(shared, back),
+                    projectileBank(shared, back),
+                );
+                const seq = publishSharedBanks(shared, snapshot.ids.length, snapshot.projectileCount);
+                self.postMessage({
+                    type: 'state',
+                    shared: true,
+                    seq,
+                    ids: snapshot.ids,
+                    forceVectors: snapshot.forceVectors,
+                    maneuverLabels: snapshot.maneuverLabels,
+                    hits: snapshot.hits,
+                    workerStepMs,
+                });
+            } else {
+                const snapshot = sim.encodeSnapshot();
+                self.postMessage(
+                    { type: 'state', shared: false, ...snapshot, workerStepMs },
+                    { transfer: [snapshot.aircraft.buffer, snapshot.projectiles.buffer] as Transferable[] });
+            }
             break;
         }
     }

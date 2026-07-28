@@ -81,12 +81,14 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
     );
 
     const kernel = new Kernel();
+    const combatSimUsesShared = combatSim.usesSharedState();
     const targetFpsFor = (profile: TechProfile): number | undefined => {
         if (profile.fpsCap) {
             return FPS_CAP;
         }
-        // HD render averages ~20ms; uncapped rAF starves combat-sim worker replies.
-        if (profile.resolution === DisplayResolution.HD_RES) {
+        // Without SharedArrayBuffer isolation, HD rAF can starve worker onmessage —
+        // soft-cap so the event loop can drain replies. With SAB pose mirror, uncap.
+        if (profile.resolution === DisplayResolution.HD_RES && !combatSimUsesShared) {
             return HD_FPS_CAP;
         }
         return undefined;

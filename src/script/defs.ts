@@ -1,6 +1,6 @@
 
 export const FPS_CAP = 15; // FPS (CGA/EGA/VGA)
-/** Soft cap for HD: leave event-loop idle so combat-sim worker replies are not starved. */
+/** Soft cap for HD when SharedArrayBuffer isolation is unavailable (worker onmessage starvation). */
 export const HD_FPS_CAP = 30;
 
 export const LO_H_RES = 320;

@@ -754,11 +754,26 @@ export class CombatSim implements ProjectileSink {
 
     /** Encode a transferable snapshot (see {@link SnapshotBuffers}). */
     encodeSnapshot(): SnapshotBuffers {
+        return this.encodeSnapshotInto(undefined, undefined);
+    }
+
+    /**
+     * Pack aircraft/projectile floats into optional preallocated banks (SharedArrayBuffer
+     * mirrors). When banks are omitted, allocates fresh transferable arrays.
+     */
+    encodeSnapshotInto(
+        aircraftBank: Float32Array | undefined,
+        projectileBank: Float32Array | undefined,
+    ): SnapshotBuffers {
         const ids: string[] = [];
         for (const id of this.order) {
             if (this.aircraft.has(id)) ids.push(id);
         }
-        const aircraft = new Float32Array(ids.length * AC_STRIDE);
+        if (ids.length > (aircraftBank ? aircraftBank.length / AC_STRIDE : Infinity)) {
+            throw new Error(`encodeSnapshot: aircraft count ${ids.length} exceeds shared bank`);
+        }
+        const aircraft = aircraftBank
+            ?? new Float32Array(ids.length * AC_STRIDE);
         const forceVectors: Record<string, ForceVectorSample[]> = {};
         const maneuverLabels: Record<string, string> = {};
         for (let i = 0; i < ids.length; i++) {
@@ -777,7 +792,11 @@ export class CombatSim implements ProjectileSink {
         for (let i = 0; i < this.projectiles.length; i++) {
             if (this.projectiles[i].active) projectileCount++;
         }
-        const projectiles = new Float32Array(projectileCount * PROJ_STRIDE);
+        if (projectileCount > (projectileBank ? projectileBank.length / PROJ_STRIDE : Infinity)) {
+            throw new Error(`encodeSnapshot: projectile count ${projectileCount} exceeds shared bank`);
+        }
+        const projectiles = projectileBank
+            ?? new Float32Array(projectileCount * PROJ_STRIDE);
         let k = 0;
         for (let i = 0; i < this.projectiles.length; i++) {
             const slot = this.projectiles[i];

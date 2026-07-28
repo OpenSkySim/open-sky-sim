@@ -24,6 +24,8 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     private fm2Afterburner = true;
     private simGearDeployed = true;
     private simFlapsExtended = true;
+    /** False until the first worker snapshot — defaults must not override spawn pose. */
+    private simStateReady = false;
     private simFiring = false;
     private simHealth = 100;
     private simAmmo = 0;
@@ -85,6 +87,7 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
         this.lastStall = buf[base + AC.stall];
         this.simGearDeployed = buf[base + AC.gearDeployed] !== 0;
         this.simFlapsExtended = buf[base + AC.flapsExtended] !== 0;
+        this.simStateReady = true;
         this.simFiring = buf[base + AC.firing] !== 0;
         this.simHealth = buf[base + AC.health];
         this.simAmmo = buf[base + AC.ammo];
@@ -137,12 +140,17 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
         return this.throttle;
     }
 
-    getSimGearDeployed(): boolean {
-        return this.simGearDeployed;
+    getSimGearDeployed(): boolean | null {
+        return this.simStateReady ? this.simGearDeployed : null;
     }
 
-    getSimFlapsExtended(): boolean {
-        return this.simFlapsExtended;
+    getSimFlapsExtended(): boolean | null {
+        return this.simStateReady ? this.simFlapsExtended : null;
+    }
+
+    /** Clear mirrored gear/flaps until the next worker snapshot (e.g. after respawn). */
+    invalidateSimDeviceState(): void {
+        this.simStateReady = false;
     }
 
     getSimAutopilot(): boolean {
