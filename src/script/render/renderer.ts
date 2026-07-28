@@ -121,6 +121,9 @@ export class Renderer {
         }
     }
 
+    /**
+     * Viewport size in device pixels for HD render targets.
+     */
     getMaxViewportResolution(): [number, number] {
         const pixelRatio = this.renderer.getPixelRatio();
         const width = Math.max(1, Math.floor(this.container.clientWidth * pixelRatio));

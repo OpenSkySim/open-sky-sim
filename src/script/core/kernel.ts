@@ -16,7 +16,7 @@ export type KernelTask = KernelUpdateTask;
 const DEFAULT_FRAME_DURATION: number = 1000.0 / 60.0;
 
 export class Kernel {
-    private runTasksFn = () => { this.runTasks() };
+    private runTasksFn = () => { this.runTasks(); };
 
     private updateTasks: KernelUpdateTask[] = [];
     private renderTasks: KernelRenderTask[] = [];
@@ -66,15 +66,17 @@ export class Kernel {
 
         if (this.targetFPS) {
             this.targetFPSprogress += deltaMs;
-            if (this.targetFPSprogress >= this.targetFPSLength) {
-                // This might cause frame skips when deltaMs > targetFPSLength
-                do {
-                    this.targetFPSprogress -= this.targetFPSLength;
-                } while (this.targetFPSprogress >= this.targetFPSLength);
-
-                const delta = this.targetFPSLength / 1000.0;
-                this.runUpdates(delta);
+            // Skip the whole frame when early so the event loop can drain worker
+            // messages instead of burning the budget on another HD render.
+            if (this.targetFPSprogress < this.targetFPSLength) {
+                return;
             }
+            do {
+                this.targetFPSprogress -= this.targetFPSLength;
+            } while (this.targetFPSprogress >= this.targetFPSLength);
+
+            const delta = this.targetFPSLength / 1000.0;
+            this.runUpdates(delta);
             this.runRenders();
             return;
         }

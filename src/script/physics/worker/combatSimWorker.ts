@@ -110,10 +110,12 @@ function handleMessage(data: SimToWorkerMessage): void {
             sim.setForceVectorsRequested(data.id, data.want);
             break;
         case 'step': {
+            const t0 = performance.now();
             sim.step(data.delta, data.inputs);
+            const workerStepMs = performance.now() - t0;
             const snapshot = sim.encodeSnapshot();
             self.postMessage(
-                { type: 'state', ...snapshot },
+                { type: 'state', ...snapshot, workerStepMs },
                 { transfer: [snapshot.aircraft.buffer, snapshot.projectiles.buffer] as Transferable[] });
             break;
         }

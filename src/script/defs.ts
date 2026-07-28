@@ -1,5 +1,7 @@
 
-export const FPS_CAP = 15; // FPS
+export const FPS_CAP = 15; // FPS (CGA/EGA/VGA)
+/** Soft cap for HD: leave event-loop idle so combat-sim worker replies are not starved. */
+export const HD_FPS_CAP = 30;
 
 export const LO_H_RES = 320;
 export const LO_V_RES = 200;

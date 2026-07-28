@@ -1131,6 +1131,15 @@ export class Game {
                 layers[i].palette = undefined;
                 layers[i].skipRefresh = false;
             }
+            // HD cockpit map still costs a terrain pass every frame with no lock — half-rate it.
+            if (resolution === DisplayResolution.HD_RES && this.view === PlayerViewState.COCKPIT_FRONT) {
+                const refreshMap = (this.targetMfdFrame++ & 1) === 0;
+                for (let i = 0; i < layers.length; i++) {
+                    if (layers[i].target === MAP_RENDER_TARGET_HD) {
+                        layers[i].skipRefresh = !refreshMap;
+                    }
+                }
+            }
         }
         this.renderer.render(this.scene, layers);
     }

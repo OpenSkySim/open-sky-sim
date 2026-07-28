@@ -25,6 +25,8 @@ export class JoystickControlDevice implements KernelTask {
     private lastRoll: number = 0;
     private lastYaw: number = 0;
     private lastThrottle: number = 0;
+    /** Last connected flag posted to the worker; avoids per-frame disconnect spam. */
+    private lastPostedConnected = false;
 
     constructor(
         private readonly combatSim: CombatSimClient,
@@ -38,20 +40,18 @@ export class JoystickControlDevice implements KernelTask {
 
     update(_delta: number) {
         if (!this.player.controlsEnabled || this.player.isAutopilotEnabled) {
-            if (this.isWorkerControlled()) {
-                this.combatSim.postGamepadAxes(this.simId, 0, 0, 0, 0, false);
-            }
+            this.postGamepadDisconnected();
             return;
         }
 
         if (this.isWorkerControlled()) {
             if (!this.connected) {
-                this.combatSim.postGamepadAxes(this.simId, 0, 0, 0, 0, false);
+                this.postGamepadDisconnected();
                 return;
             }
             const gamepad = navigator.getGamepads()[this.index];
             if (!gamepad) {
-                this.combatSim.postGamepadAxes(this.simId, 0, 0, 0, 0, false);
+                this.postGamepadDisconnected();
                 return;
             }
             let pitch = 0;
@@ -70,7 +70,20 @@ export class JoystickControlDevice implements KernelTask {
             if (this.axisCount > AXIS_ROLL) {
                 roll = clamp(gamepad.axes[AXIS_ROLL], -1, 1);
             }
-            this.combatSim.postGamepadAxes(this.simId, pitch, roll, yaw, throttle, true);
+            if (
+                !this.lastPostedConnected
+                || !equals(pitch, this.lastPitch)
+                || !equals(roll, this.lastRoll)
+                || !equals(yaw, this.lastYaw)
+                || !equals(throttle, this.lastThrottle)
+            ) {
+                this.lastPitch = pitch;
+                this.lastRoll = roll;
+                this.lastYaw = yaw;
+                this.lastThrottle = throttle;
+                this.lastPostedConnected = true;
+                this.combatSim.postGamepadAxes(this.simId, pitch, roll, yaw, throttle, true);
+            }
             return;
         }
 
@@ -109,6 +122,18 @@ export class JoystickControlDevice implements KernelTask {
         }
     }
 
+    private postGamepadDisconnected(): void {
+        if (!this.isWorkerControlled() || !this.lastPostedConnected) {
+            return;
+        }
+        this.lastPostedConnected = false;
+        this.lastPitch = 0;
+        this.lastRoll = 0;
+        this.lastYaw = 0;
+        this.lastThrottle = 0;
+        this.combatSim.postGamepadAxes(this.simId, 0, 0, 0, 0, false);
+    }
+
     isConnected(): boolean {
         return this.connected;
     }
@@ -143,9 +168,7 @@ export class JoystickControlDevice implements KernelTask {
             this.lastYaw = 0;
             this.lastThrottle = 0;
             this.listener(false);
-            if (this.isWorkerControlled()) {
-                this.combatSim.postGamepadAxes(this.simId, 0, 0, 0, 0, false);
-            }
+            this.postGamepadDisconnected();
         });
     }
 }

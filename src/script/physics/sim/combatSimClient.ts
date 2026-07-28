@@ -36,7 +36,6 @@ export class CombatSimClient {
 
     private busy = false;
     private pendingDelta = 0;
-    private lastFlushTime = 0;
     private lastDelta = 0;
 
     private projectiles: Float32Array<ArrayBufferLike> = new Float32Array(0);
@@ -53,9 +52,10 @@ export class CombatSimClient {
             const data = event.data;
             if (data.type === 'state') {
                 this.busy = false;
-                const elapsed = performance.now() - this.lastFlushTime;
-                if (elapsed > 50) {
-                    console.warn(`[siminstr] worker step took ${elapsed.toFixed(1)}ms for delta=${(this.lastDelta * 1000).toFixed(1)}ms (${Math.floor(this.lastDelta / (1 / 120))} substeps)`);
+                const workerStepMs = (data as { workerStepMs?: number }).workerStepMs ?? -1;
+                // RTT includes main-thread scheduling; only warn on real worker compute cost.
+                if (workerStepMs > 20) {
+                    console.warn(`[siminstr] worker step compute ${workerStepMs.toFixed(1)}ms for delta=${(this.lastDelta * 1000).toFixed(1)}ms`);
                 }
                 this.applySnapshot(data);
                 this.flush();
@@ -203,8 +203,10 @@ export class CombatSimClient {
 
     /** Pump one frame of accumulated time into the worker. Called once per frame. */
     tick(delta: number): void {
+        // After tab resume / long stalls, clamp so one huge frame cannot enqueue a
+        // multi-hundred-ms step (and never console.warn here — DevTools makes that a hitch loop).
         if (delta > 0.1) {
-            console.warn(`[siminstr] big frame delta=${(delta * 1000).toFixed(1)}ms pending=${(this.pendingDelta * 1000).toFixed(1)}ms busy=${this.busy}`);
+            delta = 0.05;
         }
         this.pendingDelta += delta;
         this.flush();
@@ -222,7 +224,9 @@ export class CombatSimClient {
         }
         // Cap step size and drop large backlogs so a slow main thread cannot
         // enqueue multi-second worker steps that keep the UI behind forever.
-        const MAX_STEP_DELTA = 0.05;
+        // Remainder is discarded (not carried) so pending cannot snowball when
+        // snapshot RTT exceeds the step size — realtime pacing over exact catch-up.
+        const MAX_STEP_DELTA = 1 / 30;
         const MAX_PENDING = 0.2;
         if (this.pendingDelta > MAX_PENDING) {
             this.pendingDelta = MAX_STEP_DELTA;
@@ -230,7 +234,6 @@ export class CombatSimClient {
         const delta = Math.min(this.pendingDelta, MAX_STEP_DELTA);
         this.pendingDelta = 0;
         this.busy = true;
-        this.lastFlushTime = performance.now();
         this.lastDelta = delta;
         this.post({ type: 'step', delta, inputs });
     }

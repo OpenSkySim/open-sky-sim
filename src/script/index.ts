@@ -4,13 +4,13 @@ import { PaletteCategory } from './config/palettes/palette';
 import { HDNoonPalette } from './config/palettes/hd-noon';
 import { CGAProfile } from './config/profiles/cga';
 import { EGAProfile } from './config/profiles/ega';
-import { DisplayShading, FogQuality } from './config/profiles/profile';
+import { DisplayResolution, DisplayShading, FogQuality, TechProfile } from './config/profiles/profile';
 import { HDProfile } from './config/profiles/hd';
 import { SVGAProfile } from './config/profiles/svga';
 import { VGAProfile } from './config/profiles/vga';
 import { loadSettings } from './config/settingsStorage';
 import { Kernel } from './core/kernel';
-import { FPS_CAP, H_RES, V_RES } from './defs';
+import { FPS_CAP, HD_FPS_CAP, H_RES, V_RES } from './defs';
 import { JoystickControlDevice } from './input/devices/joystickControlDevice';
 import { KeyboardControlDevice } from './input/devices/keyboardControlDevice';
 import { setupOSD } from './osd/osdPanel';
@@ -27,8 +27,6 @@ import { TracerModelLibBuilder } from './scene/models/lib/tracerModelBuilder';
 import { ModelManager } from './scene/models/models';
 import { Game, GameRenderTask, GameUpdateTask } from './state/game';
 import { FlightModels, TechProfiles } from './state/gameDefs';
-
-
 async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice, Game]> {
     const settings = loadSettings();
     // Single authoritative combat sim worker. The player's FM2/DEBUG models are
@@ -83,15 +81,24 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
     );
 
     const kernel = new Kernel();
-    kernel.setTargetFPS(config.techProfiles.getActive().fpsCap ? FPS_CAP : undefined);
+    const targetFpsFor = (profile: TechProfile): number | undefined => {
+        if (profile.fpsCap) {
+            return FPS_CAP;
+        }
+        // HD render averages ~20ms; uncapped rAF starves combat-sim worker replies.
+        if (profile.resolution === DisplayResolution.HD_RES) {
+            return HD_FPS_CAP;
+        }
+        return undefined;
+    };
+    kernel.setTargetFPS(targetFpsFor(config.techProfiles.getActive()));
     kernel.addUpdateTask(materials);
     kernel.addUpdateTask(keyboardInput);
     kernel.addUpdateTask(joystickInput);
     kernel.addUpdateTask(new GameUpdateTask(game));
     kernel.addRenderTask(new GameRenderTask(game));
 
-    config.techProfiles.addChangeListener(profile => kernel.setTargetFPS(profile.fpsCap ? FPS_CAP : undefined));
-    kernel.setTargetFPS(config.techProfiles.getActive().fpsCap ? FPS_CAP : undefined);
+    config.techProfiles.addChangeListener(profile => kernel.setTargetFPS(targetFpsFor(profile)));
 
     return [kernel, config, keyboardInput, joystickInput, game];
 }
