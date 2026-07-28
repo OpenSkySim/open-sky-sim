@@ -29,6 +29,7 @@ const LANDING_GEAR_ANIM_DURATION = 3; // Seconds
 
 const FLAPS_ANIM_DURATION = 2; // Seconds
 const FLAPS_EXTENDED_ANGLE = Math.PI / 5; // Radians
+const AIRBRAKE_ANIM_DURATION = 1.5; // Seconds
 
 /**
  * Visible roll-deflection gains (fraction of a surface's hinge range at full
@@ -95,6 +96,9 @@ export class PlayerEntity implements Entity {
     private flapsState: AircraftDeviceState = AircraftDeviceState.EXTENDED;
     private flapsProgress = FLAPS_ANIM_DURATION;
     private flapsProgressUnit = 1.0;
+    private airbrakesState: AircraftDeviceState = AircraftDeviceState.RETRACTED;
+    private airbrakesProgress = 0;
+    private airbrakesProgressUnit = 0;
 
     private readonly fx: AircraftFx;
     private forceVectors: AircraftForceVectors;
@@ -258,6 +262,7 @@ export class PlayerEntity implements Entity {
             case 'yaw': return sign * this.flightModel.getCommandedRudder();
             case 'flaps': return sign * this.flapsProgressUnit;
             case 'slats': return sign * this.slatDeploymentUnit();
+            case 'airbrake': return sign * this.airbrakesProgressUnit;
             // Flaperons: flap camber blended with the ailerons' SHARE of the roll.
             // Roll is tail-dominant (~20% aileron), so the flaperon shows only a
             // small roll deflection.
@@ -312,6 +317,7 @@ export class PlayerEntity implements Entity {
             this.flightModel.setThrottle(this.throttle);
             this.flightModel.setLandingGearDeployed(this.landingGearState === AircraftDeviceState.EXTENDED);
             this.flightModel.setFlapsExtended(this.flapsState === AircraftDeviceState.EXTENDED);
+            this.flightModel.setAirbrakesExtended(this.airbrakesState === AircraftDeviceState.EXTENDED);
             this.flightModel.setWheelBrakes(this.wheelBrakes);
             this.flightModel.setLimitersEnabled(this.limitersEnabled);
             this.flightModel.setPitchLimiterMode(this.pitchLimiterMode);
@@ -329,6 +335,10 @@ export class PlayerEntity implements Entity {
             const flaps = this.flightModel.getSimFlapsExtended();
             if (flaps !== null) {
                 this.setFlapsExtended(flaps);
+            }
+            const airbrakes = this.flightModel.getSimAirbrakesExtended();
+            if (airbrakes !== null) {
+                this.setAirbrakesExtended(airbrakes);
             }
         }
 
@@ -351,6 +361,7 @@ export class PlayerEntity implements Entity {
         if (!this.isCrashed) {
             this.updateLandingGear(delta);
             this.updateFlaps(delta);
+            this.updateAirbrakes(delta);
         }
     }
 
@@ -412,6 +423,9 @@ export class PlayerEntity implements Entity {
         this.flapsState = AircraftDeviceState.EXTENDED;
         this.flapsProgress = FLAPS_ANIM_DURATION;
         this.flapsProgressUnit = 1.0;
+        this.airbrakesState = AircraftDeviceState.RETRACTED;
+        this.airbrakesProgress = 0;
+        this.airbrakesProgressUnit = 0;
 
         this.engineStarted = false;
 
@@ -440,6 +454,27 @@ export class PlayerEntity implements Entity {
         }
         if (this.flapsState === AircraftDeviceState.EXTENDING || this.flapsState === AircraftDeviceState.RETRACTING) {
             this.flapsProgressUnit = this.flapsProgress / FLAPS_ANIM_DURATION;
+        }
+    }
+
+    private updateAirbrakes(delta: number) {
+        if (this.airbrakesState === AircraftDeviceState.EXTENDING) {
+            this.airbrakesProgress += delta;
+            if (this.airbrakesProgress >= AIRBRAKE_ANIM_DURATION) {
+                this.airbrakesProgress = AIRBRAKE_ANIM_DURATION;
+                this.airbrakesProgressUnit = 1.0;
+                this.airbrakesState = AircraftDeviceState.EXTENDED;
+            }
+        } else if (this.airbrakesState === AircraftDeviceState.RETRACTING) {
+            this.airbrakesProgress -= delta;
+            if (this.airbrakesProgress <= 0) {
+                this.airbrakesProgress = 0;
+                this.airbrakesProgressUnit = 0;
+                this.airbrakesState = AircraftDeviceState.RETRACTED;
+            }
+        }
+        if (this.airbrakesState === AircraftDeviceState.EXTENDING || this.airbrakesState === AircraftDeviceState.RETRACTING) {
+            this.airbrakesProgressUnit = this.airbrakesProgress / AIRBRAKE_ANIM_DURATION;
         }
     }
 
@@ -829,6 +864,15 @@ export class PlayerEntity implements Entity {
         }
     }
 
+    /** Drive the airbrakes to a target state (used by the AI pilot / B key). */
+    setAirbrakesExtended(extended: boolean) {
+        const isExtended = this.airbrakesState === AircraftDeviceState.EXTENDED
+            || this.airbrakesState === AircraftDeviceState.EXTENDING;
+        if (extended !== isExtended) {
+            this.toggleAirbrakes();
+        }
+    }
+
     /** Wire the shared combat sim client (physics/gun/autopilot run in its worker). */
     setCombatSimClient(client: CombatSimClient) {
         this.combatSim = client;
@@ -1087,6 +1131,10 @@ export class PlayerEntity implements Entity {
         return this.flapsState;
     }
 
+    get airbrakes(): AircraftDeviceState {
+        return this.airbrakesState;
+    }
+
     get wheelBrakesApplied(): boolean {
         return this.isWorkerControlled()
             ? this.flightModel.getWheelBrakesApplied()
@@ -1168,6 +1216,14 @@ export class PlayerEntity implements Entity {
             this.flapsState = AircraftDeviceState.RETRACTING;
         } else {
             this.flapsState = AircraftDeviceState.EXTENDING;
+        }
+    }
+
+    private toggleAirbrakes() {
+        if (this.airbrakesState === AircraftDeviceState.EXTENDED || this.airbrakesState === AircraftDeviceState.EXTENDING) {
+            this.airbrakesState = AircraftDeviceState.RETRACTING;
+        } else {
+            this.airbrakesState = AircraftDeviceState.EXTENDING;
         }
     }
 

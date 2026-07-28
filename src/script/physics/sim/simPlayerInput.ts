@@ -33,8 +33,10 @@ export interface SimPlayerInputSink {
     getAfterburner(): boolean;
     isGearDeployed(): boolean;
     isFlapsExtended(): boolean;
+    isAirbrakesExtended(): boolean;
     toggleGear(): void;
     toggleFlaps(): void;
+    toggleAirbrakes(): void;
     toggleAutopilot(): void;
     setPitchLimiterMode(mode: FcsPitchLimiter): void;
 }
@@ -190,6 +192,7 @@ export class SimPlayerInput {
             throttle: this.throttle,
             landingGearDeployed: sink.isGearDeployed(),
             flapsExtended: sink.isFlapsExtended(),
+            airbrakesExtended: sink.isAirbrakesExtended(),
             wheelBrakesApplied: this.wheelBrakes,
             pitchLimiterMode: this.pitchLimiterMode,
             limitersEnabled: this.limitersEnabled,
@@ -425,6 +428,9 @@ export class SimPlayerInput {
             case 'g':
                 sink.toggleGear();
                 break;
+            case 'b':
+                sink.toggleAirbrakes();
+                break;
             case 'l':
                 this.toggleLimiters();
                 break;
@@ -563,7 +569,7 @@ export class SimPlayerInput {
     private neutralInputs(firing: boolean): SimControlInputs {
         return {
             pitch: 0, roll: 0, yaw: 0, throttle: 0,
-            landingGearDeployed: true, flapsExtended: true,
+            landingGearDeployed: true, flapsExtended: true, airbrakesExtended: false,
             wheelBrakesApplied: false,
             pitchLimiterMode: this.pitchLimiterMode,
             limitersEnabled: this.limitersEnabled,

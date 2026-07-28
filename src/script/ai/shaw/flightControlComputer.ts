@@ -113,6 +113,7 @@ export class FlightControlComputer {
         this.readState(delta);
         this.aircraft.setLandingGearDeployed(false);
         this.aircraft.setFlapsExtended(false);
+        this.aircraft.setAirbrakesExtended(command.useAirbrakes);
         this.aircraft.setWheelBrakes(false);
 
         if (this.updateTerrainAvoidance()) {

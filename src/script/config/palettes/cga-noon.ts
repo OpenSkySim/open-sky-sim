@@ -53,7 +53,7 @@ const colors: PaletteColors = {
     [PaletteCategory.SCENERY_FIELD_RED]: [CGA_CYAN, CGA_MAGENTA],
 
     [PaletteCategory.SCENERY_TREE_FOLIAGE]: [CGA_CYAN, CGA_MAGENTA],
-    [PaletteCategory.SCENERY_TREE_SHADOW]: [CGA_MAGENTA, CGA_BLACK],
+    [PaletteCategory.SCENERY_TREE_SHADOW]: [CGA_BLACK, CGA_MAGENTA],
     [PaletteCategory.SCENERY_TREE_TRUNK]: CGA_BLACK,
     [PaletteCategory.SCENERY_WOOD_PATCH]: [CGA_BLACK, CGA_MAGENTA],
     [PaletteCategory.SCENERY_BIOME_PINE_PATCH]: [CGA_CYAN, CGA_BLACK],

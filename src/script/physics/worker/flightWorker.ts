@@ -56,6 +56,7 @@ function handleMessage(data: any) {
             flightModel.setThrottle(data.inputs.throttle);
             flightModel.setLandingGearDeployed(data.inputs.landingGearDeployed);
             flightModel.setFlapsExtended(data.inputs.flapsExtended);
+            flightModel.setAirbrakesExtended(data.inputs.airbrakesExtended ?? false);
             flightModel.setWheelBrakes(data.inputs.wheelBrakesApplied);
             if (data.inputs.pitchLimiterMode !== undefined) {
                 flightModel.setPitchLimiterMode(data.inputs.pitchLimiterMode);

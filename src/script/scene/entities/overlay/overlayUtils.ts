@@ -72,6 +72,9 @@ export function renderAircraftDeviceStatus(
     if (actor.flaps === AircraftDeviceState.EXTENDED || actor.flaps === AircraftDeviceState.EXTENDING) {
         labels.push('FLAPS');
     }
+    if (actor.airbrakes === AircraftDeviceState.EXTENDED || actor.airbrakes === AircraftDeviceState.EXTENDING) {
+        labels.push('AIRBRK');
+    }
     if (actor.wheelBrakesApplied) {
         labels.push('BRAKE');
     }

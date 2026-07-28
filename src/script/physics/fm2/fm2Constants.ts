@@ -369,6 +369,9 @@ export const FM2_FOREBODY = {
 /** Landing gear parasite drag increment (CD referenced to wing area). */
 export const FM2_GEAR_CD = 0.022;
 
+/** Speedbrake / airbrake parasite drag increment (CD referenced to wing area). */
+export const FM2_AIRBRAKE_CD = 0.085;
+
 /** Fuselage / miscellaneous parasite drag (CD referenced to wing area). */
 export const FM2_BODY_CD0 = 0.010;
 

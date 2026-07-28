@@ -491,7 +491,9 @@ export class Fm2FlightModel extends FlightModel {
     private addBodyDrag(dynamicPressure: number, speed: number, mach: number): void {
         if (speed < 1e-3) return;
         const waveDrag = this.config.waveDrag;
-        let cd0 = this.config.bodyCd0 + (this.landingGearDeployed ? this.config.gearCd : 0);
+        let cd0 = this.config.bodyCd0
+            + (this.landingGearDeployed ? this.config.gearCd : 0)
+            + (this.airbrakesExtended ? (this.config.airbrakeCd ?? 0) : 0);
         if (mach > waveDrag.machOnset) {
             const excess = (mach - waveDrag.machOnset) / waveDrag.machOnset;
             cd0 += waveDrag.scale * excess * excess;

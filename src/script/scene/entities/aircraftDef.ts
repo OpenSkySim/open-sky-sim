@@ -5,13 +5,14 @@ import { Fm2AircraftConfig } from '../../physics/fm2/fm2AircraftConfig';
  *   pitch/roll/yaw : signed stick/pedal input.
  *   flaps          : flap deployment progress [0,1].
  *   slats          : leading-edge slats — follow flaps and high AoA.
+ *   airbrake       : speedbrake / airbrake deployment progress [0,1].
  *   flaperonLeft/Right : the F-22's combined flap + roll blend (kept so the
  *                        default aircraft animates exactly as before).
  *   stabilatorLeft/Right : an all-moving tail that combines pitch with a
  *                        differential (taileron) roll deflection, so the roll
  *                        the tail actually flies is visible on the model.
  */
-export type ControlAxis = 'pitch' | 'roll' | 'yaw' | 'flaps' | 'slats'
+export type ControlAxis = 'pitch' | 'roll' | 'yaw' | 'flaps' | 'slats' | 'airbrake'
     | 'flaperonLeft' | 'flaperonRight' | 'stabilatorLeft' | 'stabilatorRight';
 
 /** A single animated control surface loaded as its own hinge-pivoted model. */

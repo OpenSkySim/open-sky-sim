@@ -28,7 +28,8 @@ const PROJECTILE_POOL_SIZE = 480;
 
 const NEUTRAL_INPUTS: SimControlInputs = {
     pitch: 0, roll: 0, yaw: 0, throttle: 0,
-    landingGearDeployed: true, flapsExtended: true, wheelBrakesApplied: false,
+    landingGearDeployed: true, flapsExtended: true, airbrakesExtended: false,
+    wheelBrakesApplied: false,
     pitchLimiterMode: FcsPitchLimiter.SOFT, limitersEnabled: true,
     wantForceVectors: false, firing: false,
 };
@@ -75,6 +76,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     private inThrottle = 0;
     private inGear = true;
     private inFlaps = true;
+    private inAirbrakes = false;
     private inBrakes = false;
     private inLimiterMode = FcsPitchLimiter.SOFT;
     private inLimiters = true;
@@ -142,6 +144,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.model.setLanded(spawn.landed);
         this.inGear = !spawn.airborne;
         this.inFlaps = !spawn.airborne;
+        this.inAirbrakes = false;
         if (spawn.airborne) {
             this.model.syncEffectiveThrottle();
             this.model.snapPhysicsState();
@@ -153,6 +156,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.health = this.maxHealth;
         this.inPitch = this.inRoll = this.inYaw = 0;
         this.inBrakes = false;
+        this.inAirbrakes = false;
         this.gun?.reset();
         this.applySpawn(spawn);
         this.enabled = true;
@@ -169,6 +173,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.inThrottle = inputs.throttle;
         this.inGear = inputs.landingGearDeployed;
         this.inFlaps = inputs.flapsExtended;
+        this.inAirbrakes = inputs.airbrakesExtended;
         this.inBrakes = inputs.wheelBrakesApplied;
         this.inLimiterMode = inputs.pitchLimiterMode;
         this.inLimiters = inputs.limitersEnabled;
@@ -193,6 +198,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         }
         this.model.setLandingGearDeployed(this.inGear);
         this.model.setFlapsExtended(this.inFlaps);
+        this.model.setAirbrakesExtended(this.inAirbrakes);
         this.model.setWheelBrakes(this.inBrakes);
         this.model.setPitchLimiterMode(this.inLimiterMode);
         this.model.setLimitersEnabled(this.inLimiters);
@@ -218,6 +224,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     setWheelBrakes(applied: boolean): void { this.inBrakes = applied; }
     setLandingGearDeployed(deployed: boolean): void { this.inGear = deployed; }
     setFlapsExtended(extended: boolean): void { this.inFlaps = extended; }
+    setAirbrakesExtended(extended: boolean): void { this.inAirbrakes = extended; }
 
     // --- SimPlayerInputSink (worker keyboard / gamepad) ------------------------
 
@@ -239,6 +246,10 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
 
     toggleFlaps(): void {
         this.inFlaps = !this.inFlaps;
+    }
+
+    toggleAirbrakes(): void {
+        this.inAirbrakes = !this.inAirbrakes;
     }
 
     toggleAutopilot(): void {
@@ -267,6 +278,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     isCrashed(): boolean { return this.model.isCrashed(); }
     isGearDeployed(): boolean { return this.inGear; }
     isFlapsExtended(): boolean { return this.inFlaps; }
+    isAirbrakesExtended(): boolean { return this.inAirbrakes; }
 
     // --- Combatant -----------------------------------------------------------
 
@@ -324,6 +336,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         out[base + AC.stall] = this.model.getStallStatus();
         out[base + AC.gearDeployed] = this.inGear ? 1 : 0;
         out[base + AC.flapsExtended] = this.inFlaps ? 1 : 0;
+        out[base + AC.airbrakesExtended] = this.inAirbrakes ? 1 : 0;
         out[base + AC.firing] = this.firing ? 1 : 0;
         out[base + AC.health] = this.health;
         out[base + AC.ammo] = this.gun?.ammoRemaining ?? 0;

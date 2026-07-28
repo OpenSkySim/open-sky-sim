@@ -113,15 +113,22 @@ export function manifestToDef(id: string, m: AircraftManifest): FlyableAircraftD
         cockpitOffset: m.cockpitOffset ?? [0, 1.0, 6.0],
         fx: { wingtips: m.fx?.wingtips ?? null, nozzles: m.fx?.nozzles ?? null, nozzleRadius: m.fx?.nozzleRadius ?? null },
         flight: m.flight ?? undefined,
-        surfaces: m.surfaces.map((s): ControlSurfaceConfig => ({
-            role: s.role,
-            model: s.path,
-            pivot: s.pivot,
-            axis: s.axis,
-            control: s.control as ControlSurfaceConfig['control'],
-            sign: s.sign,
-            rangeRad: s.rangeRad,
-        })),
+        surfaces: m.surfaces.map((s): ControlSurfaceConfig => {
+            const role = s.role;
+            // Older packs mapped speedbrakes to the flaps axis; drive them from airbrake.
+            const control = (role.startsWith('speedbrake') && s.control === 'flaps')
+                ? 'airbrake'
+                : s.control as ControlSurfaceConfig['control'];
+            return {
+                role,
+                model: s.path,
+                pivot: s.pivot,
+                axis: s.axis,
+                control,
+                sign: s.sign,
+                rangeRad: s.rangeRad,
+            };
+        }),
     };
 }
 

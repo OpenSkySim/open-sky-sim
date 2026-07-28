@@ -19,6 +19,7 @@ export class PlayerPilotAdapter implements PilotableAircraft {
     setWheelBrakes(applied: boolean): void { this.player.setWheelBrakes(applied); }
     setLandingGearDeployed(deployed: boolean): void { this.player.setLandingGearDeployed(deployed); }
     setFlapsExtended(extended: boolean): void { this.player.setFlapsExtended(extended); }
+    setAirbrakesExtended(extended: boolean): void { this.player.setAirbrakesExtended(extended); }
 
     getPosition(): THREE.Vector3 { return this.player.position; }
     getVelocity(): THREE.Vector3 { return this.player.velocityVector; }
@@ -32,4 +33,7 @@ export class PlayerPilotAdapter implements PilotableAircraft {
     isCrashed(): boolean { return this.player.isCrashed; }
     isGearDeployed(): boolean { return this.player.landingGear === AircraftDeviceState.EXTENDED; }
     isFlapsExtended(): boolean { return this.player.flaps === AircraftDeviceState.EXTENDED; }
+    isAirbrakesExtended(): boolean {
+        return this.player.airbrakes === AircraftDeviceState.EXTENDED;
+    }
 }

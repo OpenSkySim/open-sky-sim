@@ -297,10 +297,9 @@ export class SceneMaterialManager implements KernelTask {
     }
 
     private categoryUsesColorDither(category: PaletteCategory): boolean {
-        return category === PaletteCategory.FX_FIRE
-            || category === PaletteCategory.SCENERY_TREE_FOLIAGE
-            || category === PaletteCategory.SCENERY_TREE_SHADOW
-            || category === PaletteCategory.SCENERY_WOOD_PATCH;
+        // Fire keeps a forced two-tone stipple in every shading mode.
+        // Plane/ground shadows use alpha dither for semi-transparency instead.
+        return category === PaletteCategory.FX_FIRE;
     }
 
     private colorDitherUniform(properties: SceneMaterialProperties): number {

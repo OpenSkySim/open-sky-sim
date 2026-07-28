@@ -44,6 +44,7 @@ class FakeAircraft implements PilotableAircraft {
     setWheelBrakes(_applied: boolean): void { /* not modelled */ }
     setLandingGearDeployed(_deployed: boolean): void { /* not modelled */ }
     setFlapsExtended(_extended: boolean): void { /* not modelled */ }
+    setAirbrakesExtended(_extended: boolean): void { /* not modelled */ }
 
     getPosition(): THREE.Vector3 { return this.position; }
     getVelocity(): THREE.Vector3 { return this.velocity; }
@@ -57,6 +58,7 @@ class FakeAircraft implements PilotableAircraft {
     isCrashed(): boolean { return this.crashed; }
     isGearDeployed(): boolean { return false; }
     isFlapsExtended(): boolean { return false; }
+    isAirbrakesExtended(): boolean { return false; }
 
     /** Advance the fake dynamics by `delta` seconds. */
     step(delta: number): void {

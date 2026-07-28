@@ -32,6 +32,7 @@ export abstract class FlightModel {
     protected landed: boolean = true;
     protected landingGearDeployed: boolean = true;
     protected flapsExtended: boolean = true;
+    protected airbrakesExtended: boolean = false;
     protected wheelBrakesApplied: boolean = false;
     /**
      * Reynolds-number regime for high-alpha forebody flow (Ericsson, ICAS-92-4.6R).
@@ -123,6 +124,9 @@ export abstract class FlightModel {
     /** Sim-owned flaps state, or null when this model is not sim-owned. */
     getSimFlapsExtended(): boolean | null { return null; }
 
+    /** Sim-owned airbrake state, or null when this model is not sim-owned. */
+    getSimAirbrakesExtended(): boolean | null { return null; }
+
     reset() {
         this.obj.position.set(0, 0, 0);
         this.obj.quaternion.setFromAxisAngle(UP, 0);
@@ -131,6 +135,7 @@ export abstract class FlightModel {
         this.landed = true;
         this.landingGearDeployed = true;
         this.flapsExtended = true;
+        this.airbrakesExtended = false;
         this.wheelBrakesApplied = false;
         this.forebodyLaminar = false;
         this.pitchLimiterMode = FcsPitchLimiter.SOFT;
@@ -231,6 +236,10 @@ export abstract class FlightModel {
 
     setFlapsExtended(extended: boolean) {
         this.flapsExtended = extended;
+    }
+
+    setAirbrakesExtended(extended: boolean) {
+        this.airbrakesExtended = extended;
     }
 
     setWheelBrakes(applied: boolean) {

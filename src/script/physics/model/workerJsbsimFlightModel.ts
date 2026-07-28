@@ -68,6 +68,7 @@ export class WorkerJsbsimFlightModel extends FlightModel {
                 throttle: this.throttle,
                 landingGearDeployed: this.landingGearDeployed,
                 flapsExtended: this.flapsExtended,
+                airbrakesExtended: this.airbrakesExtended,
                 wheelBrakesApplied: this.wheelBrakesApplied,
                 wantForceVectors: this.forceVectorsRequested
             }

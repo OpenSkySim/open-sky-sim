@@ -52,8 +52,8 @@ const colors: PaletteColors = {
     [PaletteCategory.SCENERY_FIELD_OCHRE]: EGA_MAGENTA,
     [PaletteCategory.SCENERY_FIELD_RED]: EGA_RED,
 
-    [PaletteCategory.SCENERY_TREE_FOLIAGE]: [EGA_GREEN, EGA_BLACK],
-    [PaletteCategory.SCENERY_TREE_SHADOW]: [EGA_BLACK_BRIGHT, EGA_BLACK],
+    [PaletteCategory.SCENERY_TREE_FOLIAGE]: [EGA_GREEN_BRIGHT, EGA_GREEN],
+    [PaletteCategory.SCENERY_TREE_SHADOW]: [EGA_BLACK, EGA_BLACK_BRIGHT],
     [PaletteCategory.SCENERY_TREE_TRUNK]: EGA_YELLOW,
     [PaletteCategory.SCENERY_WOOD_PATCH]: [EGA_GREEN_BRIGHT, EGA_BLACK],
     [PaletteCategory.SCENERY_BIOME_PINE_PATCH]: [EGA_GREEN, EGA_BLACK],

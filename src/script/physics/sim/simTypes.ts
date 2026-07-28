@@ -25,6 +25,7 @@ export interface SimControlInputs {
     throttle: number;
     landingGearDeployed: boolean;
     flapsExtended: boolean;
+    airbrakesExtended: boolean;
     wheelBrakesApplied: boolean;
     pitchLimiterMode: number;
     limitersEnabled: boolean;
@@ -91,6 +92,7 @@ export interface SimAircraftState {
     forceVectors: ForceVectorSample[];
     gearDeployed: boolean;
     flapsExtended: boolean;
+    airbrakesExtended: boolean;
     firing: boolean;
     health: number;
     ammo: number;

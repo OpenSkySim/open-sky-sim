@@ -29,6 +29,8 @@ export type ModelLoadedListener = (url: string, model: Model) => void;
 // a higher value means a lighter, sparser dither. Both are easy to tweak.
 const GLASS_COLOR = '#333333';
 const GLASS_ALPHA_DITHER = 0.65;
+/** Ground-shadow opacity via screen-space stipple (higher = denser / more opaque). */
+const SHADOW_ALPHA_DITHER = 0.4;
 // Legacy mod imports tagged glass as the default import_mod.py hex instead of GLASS.
 const LEGACY_GLASS_MATERIAL_NAMES = new Set(['GLASS', '#d1f7ff']);
 
@@ -142,7 +144,7 @@ export class ModelManager {
 
     private getLoadFn(url: string, wrapper: ModelWrapper): (gltf: GLTF) => void {
         return (gltf: GLTF) => {
-            wrapper.model = this.processModel(gltf, wrapper.model);
+            wrapper.model = this.processModel(gltf, wrapper.model, url);
             wrapper.status = RequestStatus.COMPLETED;
             wrapper.pending.forEach(p => {
                 this.copyTo(wrapper.model, p.model);
@@ -160,9 +162,10 @@ export class ModelManager {
         }
     }
 
-    private processModel(gltf: GLTF, model: Model): Model {
+    private processModel(gltf: GLTF, model: Model, url: string = ''): Model {
         const scenes = [...gltf.scenes].sort(this.sortingFn);
         const AABBox = new THREE.Box3();
+        const isShadowModel = ModelManager.isShadowModelUrl(url);
         model.lod = scenes.map(scene => {
             const level: ModelLodLevel = {
                 flats: [],
@@ -189,8 +192,18 @@ export class ModelManager {
 
                 if ('isMesh' in obj) {
                     const matName = (obj.material as THREE.MeshStandardMaterial).name;
-                    const rawColor = ModelManager.rawColorFor(matName);
-                    if (isGlassMaterialName(matName)) {
+                    if (isShadowModel) {
+                        // Imported packs historically tagged shadows VEHICLE_PLANE_GREY;
+                        // always map *_shadow models to a black alpha-stippled silhouette.
+                        obj.material = this.materials.build({
+                            type: SceneMaterialPrimitiveType.MESH,
+                            category: PaletteCategory.SCENERY_TREE_SHADOW,
+                            shaded: false,
+                            depthWrite: false,
+                            colorDither: false,
+                            alphaDither: SHADOW_ALPHA_DITHER,
+                        });
+                    } else if (isGlassMaterialName(matName)) {
                         obj.material = this.materials.build({
                             type: SceneMaterialPrimitiveType.MESH,
                             category: PaletteCategory.GLASS,
@@ -201,6 +214,7 @@ export class ModelManager {
                         });
                         (obj.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
                     } else {
+                        const rawColor = ModelManager.rawColorFor(matName);
                         const category = rawColor
                             ? PaletteCategory.VEHICLE_PLANE_GREY
                             : ModelManager.paletteCategoryOrFallback(matName);
@@ -220,15 +234,19 @@ export class ModelManager {
                 } else if ('isLineSegments' in child) {
                     obj.material = this.materials.build({
                         type: SceneMaterialPrimitiveType.LINE,
-                        category: ModelManager.paletteCategoryOrFallback(
-                            (obj.material as THREE.LineBasicMaterial).name),
+                        category: isShadowModel
+                            ? PaletteCategory.SCENERY_TREE_SHADOW
+                            : ModelManager.paletteCategoryOrFallback(
+                                (obj.material as THREE.LineBasicMaterial).name),
                         depthWrite: !isFlat
                     });
                 } else if ('isPoints' in child) {
                     obj.material = this.materials.build({
                         type: SceneMaterialPrimitiveType.POINT,
-                        category: ModelManager.paletteCategoryOrFallback(
-                            (obj.material as THREE.PointsMaterial).name),
+                        category: isShadowModel
+                            ? PaletteCategory.SCENERY_TREE_SHADOW
+                            : ModelManager.paletteCategoryOrFallback(
+                                (obj.material as THREE.PointsMaterial).name),
                         depthWrite: !isFlat
                     });
                 }
@@ -242,6 +260,12 @@ export class ModelManager {
         model.maxSize = Math.max(...AABBox.getSize(new THREE.Vector3()).toArray());
         AABBox.getCenter(model.center);
         return model;
+    }
+
+    /** True for flyable-aircraft ground-shadow assets (`*_shadow.gltf` / `.glb`). */
+    private static isShadowModelUrl(url: string): boolean {
+        const path = isPackUrl(url) ? parsePackUrl(url).path : url;
+        return /_shadow\.(gltf|glb)(\?|#|$)/i.test(path);
     }
 
     private sortingFn(a: THREE.Object3D, b: THREE.Object3D) {

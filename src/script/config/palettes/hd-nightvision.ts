@@ -51,10 +51,10 @@ const colors: PaletteColors = {
     [PaletteCategory.SCENERY_FIELD_OCHRE]: '#707070',
     [PaletteCategory.SCENERY_FIELD_RED]: '#707070',
 
-    [PaletteCategory.SCENERY_TREE_FOLIAGE]: ['#606060', '#707070'],
-    [PaletteCategory.SCENERY_TREE_SHADOW]: ['#404040', '#242424'],
+    [PaletteCategory.SCENERY_TREE_FOLIAGE]: ['#707070', '#808080'],
+    [PaletteCategory.SCENERY_TREE_SHADOW]: ['#000000', '#303030'],
     [PaletteCategory.SCENERY_TREE_TRUNK]: '#585858',
-    [PaletteCategory.SCENERY_WOOD_PATCH]: ['#505050', '#606060'],
+    [PaletteCategory.SCENERY_WOOD_PATCH]: ['#606060', '#707070'],
     [PaletteCategory.SCENERY_BIOME_PINE_PATCH]: ['#505050', '#606060'],
     [PaletteCategory.SCENERY_BIOME_BUSH_PATCH]: ['#585858', '#686868'],
     [PaletteCategory.SCENERY_BIOME_BIRCH_PATCH]: ['#555555', '#656565'],

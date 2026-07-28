@@ -18,6 +18,7 @@ export interface AircraftControlChannel {
     setWheelBrakes(applied: boolean): void;
     setLandingGearDeployed(deployed: boolean): void;
     setFlapsExtended(extended: boolean): void;
+    setAirbrakesExtended(extended: boolean): void;
 }
 
 /**
@@ -46,6 +47,7 @@ export interface AircraftObservation {
     isCrashed(): boolean;
     isGearDeployed(): boolean;
     isFlapsExtended(): boolean;
+    isAirbrakesExtended(): boolean;
 }
 
 /** An aircraft an {@link AiPilot} can fully fly: it both accepts commands and reports state. */

@@ -91,6 +91,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     // Mirrored render/animation state (authoritative values live in the worker).
     private gearDeployed = true;
     private flapsExtended = true;
+    private airbrakesExtended = false;
     private health = 100;
     private readonly maxHealth = 100;
 
@@ -251,6 +252,10 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         if (flaps !== null) {
             this.flapsExtended = flaps;
         }
+        const airbrakes = this.flightModel.getSimAirbrakesExtended();
+        if (airbrakes !== null) {
+            this.airbrakesExtended = airbrakes;
+        }
         const health = this.flightModel.getSimHealth();
         if (health >= 0) {
             this.health = health;
@@ -298,6 +303,10 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         return this.flapsExtended ? 1 : 0;
     }
 
+    private get airbrakesProgressUnit(): number {
+        return this.airbrakesExtended ? 1 : 0;
+    }
+
     private slatDeploymentUnit(): number {
         const flapDeploy = this.flapsProgressUnit;
         const aoa = Math.abs(this.flightModel.getAngleOfAttack());
@@ -317,6 +326,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             case 'yaw': return sign * this.flightModel.getCommandedRudder();
             case 'flaps': return sign * this.flapsProgressUnit;
             case 'slats': return sign * this.slatDeploymentUnit();
+            case 'airbrake': return sign * this.airbrakesProgressUnit;
             case 'flaperonLeft':
                 return this.flapsProgressUnit * -FLAPS_EXTENDED_ANGLE
                     - (1.0 - this.flapsProgressUnit * 0.5) * ROLL_VIS_AILERON * roll;

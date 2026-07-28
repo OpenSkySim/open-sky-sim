@@ -8,6 +8,7 @@ export class SpawnPanel {
         onSelect: (index: number) => void,
         onApproach: () => void,
         onRunway: () => void,
+        onHeadOn: () => void,
     ) {
         this.panel = document.getElementById('spawn-panel')!;
         this.title = document.getElementById('spawn-title')!;
@@ -19,6 +20,7 @@ export class SpawnPanel {
 
         document.getElementById('spawn-approach')!.addEventListener('click', onApproach);
         document.getElementById('spawn-runway')!.addEventListener('click', onRunway);
+        document.getElementById('spawn-headon')!.addEventListener('click', onHeadOn);
     }
 
     setTitle(text: string): void {

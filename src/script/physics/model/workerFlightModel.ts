@@ -15,6 +15,7 @@ interface WorkerFlightInputs {
     throttle: number;
     landingGearDeployed: boolean;
     flapsExtended: boolean;
+    airbrakesExtended: boolean;
     wheelBrakesApplied: boolean;
     pitchLimiterMode: number;
     limitersEnabled: boolean;
@@ -104,6 +105,7 @@ export class WorkerFlightModel extends FlightModel {
             throttle: this.throttle,
             landingGearDeployed: this.landingGearDeployed,
             flapsExtended: this.flapsExtended,
+            airbrakesExtended: this.airbrakesExtended,
             wheelBrakesApplied: this.wheelBrakesApplied,
             pitchLimiterMode: this.pitchLimiterMode,
             limitersEnabled: this.limitersEnabled,

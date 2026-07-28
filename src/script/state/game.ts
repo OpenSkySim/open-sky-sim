@@ -77,8 +77,10 @@ import { AiPilotModels } from './gameDefs';
 const AI_OPPONENT_COUNT = 1;
 /** Seconds the AI flies straight before engaging. */
 const AI_STRAIGHT_DURATION_SEC = 1;
-/** Spawn distance ahead of the player when a merge begins (m). */
+/** Spawn distance ahead of the player when a same-heading merge begins (m). */
 const AI_ENGAGE_SPAWN_DISTANCE_M = 300;
+/** Spawn distance ahead of the player for a head-on merge (m). */
+const AI_HEADON_SPAWN_DISTANCE_M = 3000;
 
 /** Player/AI hit-sphere radius (m) — shared airframe. */
 const PLAYER_HIT_RADIUS_M = 10;
@@ -343,6 +345,7 @@ export class Game {
             (index) => this.selectAircraftByIndex(index),
             () => void this.beginFlight('approach'),
             () => void this.beginFlight('runway'),
+            () => void this.beginFlight('headon'),
         );
 
         this.cameraUpdaters.set(PlayerViewState.CRASHED, new CrashedCameraUpdater(this.player, this.playerCamera.main));
@@ -593,7 +596,7 @@ export class Game {
         await this.setupScene();
         this.refreshAircraftMenu();
         this.selectRandomAircraft();
-        await this.beginFlight('approach');
+        await this.beginFlight('headon');
         window.addEventListener('resize', () => this.onViewportResize());
     }
 
@@ -1375,7 +1378,7 @@ export class Game {
             if (event.code === 'KeyR') {
                 event.preventDefault();
                 this.flightRecorder.toggle(this.configService.flightModels.getActiveKey());
-            } else if (event.code === 'KeyB') {
+            } else if (event.code === 'KeyV') {
                 event.preventDefault();
                 this.player.setForceVectorsEnabled(!this.player.forceVectorsEnabled);
             } else if (event.code === 'Tab') {
@@ -1446,6 +1449,10 @@ export class Game {
                     }
                     case '2': {
                         void this.beginFlight('runway');
+                        break;
+                    }
+                    case '3': {
+                        void this.beginFlight('headon');
                         break;
                     }
                 }
@@ -1677,7 +1684,7 @@ export class Game {
         }
     }
 
-    private async beginFlight(spawn: 'approach' | 'runway') {
+    private async beginFlight(spawn: 'approach' | 'runway' | 'headon') {
         const list = this.aircraftRegistry.list();
         const def = list[this.selectedAircraft];
         if (def) {
@@ -1690,12 +1697,13 @@ export class Game {
         this.spawnPanel.hide();
         this.damageSmoke?.reset();
 
-        if (spawn === 'approach') {
-            this.player.reset(PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
-        } else {
+        if (spawn === 'runway') {
             this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
+        } else {
+            // Approach and head-on both start on the final approach path.
+            this.player.reset(PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
         }
-        this.spawnOpponent();
+        this.spawnOpponent(spawn === 'headon');
         this.setCockpitFrontView();
         if (this.aiOpponent?.enabled) {
             this.player.setWeaponsTarget(this.aiOpponent);
@@ -1830,8 +1838,11 @@ export class Game {
         };
     }
 
-    /** Spawn/enable the AI opponents matching the player's direction, speed, and altitude. */
-    private spawnOpponent() {
+    /**
+     * Spawn/enable AI opponents at the player's altitude/speed.
+     * Same-heading: ahead on the player's nose. Head-on: ahead facing the player.
+     */
+    private spawnOpponent(headOn = false) {
         if (this.aiOpponents.length === 0) {
             return;
         }
@@ -1843,25 +1854,30 @@ export class Game {
         const playerHeading = Math.atan2(playerForward.x, playerForward.z);
         const right = RIGHT.clone().applyAxisAngle(UP, playerHeading);
         const speed = this.player.velocityVector.length();
-        const velocity = playerForward.clone().multiplyScalar(speed);
+        const aiHeading = headOn ? playerHeading + Math.PI : playerHeading;
+        const aiForward = headOn
+            ? playerForward.clone().negate()
+            : playerForward.clone();
+        const velocity = aiForward.multiplyScalar(speed);
         // Preserve vertical speed so co-altitude spawn stays level with the player.
         velocity.y = this.player.velocityVector.y;
 
+        const standoff = headOn ? AI_HEADON_SPAWN_DISTANCE_M : AI_ENGAGE_SPAWN_DISTANCE_M;
         const pilotOptions = this.opponentPilotOptions();
         const LATERAL_SPACING_M = 80;
         for (let i = 0; i < this.aiOpponents.length; i++) {
             const ai = this.aiOpponents[i];
-            // 500 m ahead, same heading/speed/altitude; fan extras slightly aside.
+            // Ahead at standoff; fan extras slightly aside.
             const lateral = this.aiOpponents.length === 1 ? 0 : (i - (this.aiOpponents.length - 1) / 2) * LATERAL_SPACING_M;
             const position = new THREE.Vector3(p.x, p.y, p.z)
-                .addScaledVector(playerForward, AI_ENGAGE_SPAWN_DISTANCE_M)
+                .addScaledVector(playerForward, standoff)
                 .addScaledVector(right, lateral);
 
             // Rebuild pilot so OSD AI-model changes apply on this merge.
             this.combatSim.setPilotOptions(ai.simId, pilotOptions);
             ai.respawn({
                 position,
-                heading: playerHeading,
+                heading: aiHeading,
                 airborne: !this.player.isLanded,
                 throttle: this.player.throttleUnit,
                 velocity,

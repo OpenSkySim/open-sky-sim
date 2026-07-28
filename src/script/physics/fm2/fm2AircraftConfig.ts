@@ -11,7 +11,7 @@
  *   +X = RIGHT, +Y = UP, +Z = FORWARD. Right-handed: RIGHT × UP = FORWARD.
  */
 import {
-    FM2_AILERON, FM2_BODY_CD0, FM2_FCS, FM2_FLAPS, FM2_FOREBODY, FM2_GEAR_CD,
+    FM2_AILERON, FM2_AIRBRAKE_CD, FM2_BODY_CD0, FM2_FCS, FM2_FLAPS, FM2_FOREBODY, FM2_GEAR_CD,
     FM2_GEOMETRY, FM2_INERTIA, FM2_SURFACES, FM2_TRANSONIC_PITCH_DAMP, FM2_WAVE_DRAG,
     SurfaceGeometry,
 } from './fm2Constants';
@@ -379,6 +379,8 @@ export interface Fm2AircraftConfig {
     aileronMaxDeflectionRad: number;
     flaps: Fm2FlapsConfig;
     gearCd: number;
+    /** Extra parasite CD with speedbrakes / airbrakes deployed. */
+    airbrakeCd: number;
     bodyCd0: number;
     waveDrag: Fm2WaveDragConfig;
     gear: Fm2GearConfig;
@@ -431,6 +433,7 @@ export const defaultFm2Config: Fm2AircraftConfig = {
         extraCd: FM2_FLAPS.extraCd,
     },
     gearCd: FM2_GEAR_CD,
+    airbrakeCd: FM2_AIRBRAKE_CD,
     bodyCd0: FM2_BODY_CD0,
     waveDrag: { machOnset: FM2_WAVE_DRAG.machOnset, scale: FM2_WAVE_DRAG.scale },
     gear: {
