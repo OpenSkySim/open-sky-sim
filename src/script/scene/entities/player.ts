@@ -93,6 +93,8 @@ export class PlayerEntity implements Entity {
 
     private landingGearState: AircraftDeviceState = AircraftDeviceState.EXTENDED;
     private landingGearProgress = LANDING_GEAR_ANIM_DURATION;
+    /** True when the gear model carries a retract clip (doors stay visible when up). */
+    private gearAnimated = false;
 
     private flapsState: AircraftDeviceState = AircraftDeviceState.EXTENDED;
     private flapsProgress = FLAPS_ANIM_DURATION;
@@ -208,8 +210,10 @@ export class PlayerEntity implements Entity {
         this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
 
         this.modelLandingGear = undefined;
+        this.gearAnimated = false;
         if (def.gear) {
             const animated = def.gearAnimated ?? true;
+            this.gearAnimated = animated;
             this.models.getModel(def.gear, (_, model) => {
                 this.modelLandingGear = new LODHelper(model);
                 if (animated) {
@@ -716,7 +720,10 @@ export class PlayerEntity implements Entity {
             }
 
             if (lod === 0) {
+                // Animated gear keeps rendering when retracted so bay doors stay
+                // closed in-clip; static gear is simply hidden when up.
                 const showLandingGear = this._showcaseMode
+                    || this.gearAnimated
                     || this.landingGearState !== AircraftDeviceState.RETRACTED;
                 if (showLandingGear) {
                     this.modelLandingGear?.addToRenderList(
@@ -766,7 +773,9 @@ export class PlayerEntity implements Entity {
             targetWidth, camera, palette,
             'showcasePickFlats', 'showcasePickVolumes', this.showcasePickLists, 0);
 
-        const showLandingGear = this._showcaseMode || this.landingGearState !== AircraftDeviceState.RETRACTED;
+        const showLandingGear = this._showcaseMode
+            || this.gearAnimated
+            || this.landingGearState !== AircraftDeviceState.RETRACTED;
         if (showLandingGear) {
             this.modelLandingGear?.addToRenderList(
                 this.displayPosition, this.displayQuaternion, this.obj.scale,
