@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import { ShaderMaterial } from 'three';
 import { AudioClip } from '../../audio/audioSystem';
-import { Palette, PaletteCategory } from "../../config/palettes/palette";
+import { Palette } from "../../config/palettes/palette";
 import { AIRBASE_RUNWAY, PITCH_STICK_AFT_UNITS, PITCH_STICK_FWD_UNITS, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M } from '../../defs';
 import { FlightModel } from '../../physics/model/flightModel';
 import { FcsPitchLimiter } from '../../physics/fm2/fcs';
@@ -11,14 +10,11 @@ import { CanvasPainter } from "../../render/screen/canvasPainter";
 import { HUDFocusMode } from '../../state/gameDefs';
 import { clamp, easeOutQuad, easeOutQuint, FORWARD, RIGHT, UP } from '../../utils/math';
 import { Entity, ENTITY_TAGS } from "../entity";
-import { SceneMaterialData, SceneMaterialManager } from '../materials/materials';
-import { Model, ModelManager } from '../models/models';
-import { isPackUrl } from '../../state/aircraftPack';
+import { SceneMaterialManager } from '../materials/materials';
+import { ModelManager } from '../models/models';
 import { Scene, SceneLayers } from "../scene";
-import { AfterburnerCones } from './afterburnerCones';
-import { WingtipTrails } from './wingtipTrails';
+import { AircraftFx } from './aircraftFx';
 import { AircraftForceVectors } from './aircraftForceVectors';
-import { countBodyMeshVertices, deriveWingtipOriginsFromModel } from './wingtipOrigins';
 import { WeaponsTarget } from './weaponsTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { Combatant, Faction } from '../../weapons/combatant';
@@ -100,16 +96,9 @@ export class PlayerEntity implements Entity {
     private flapsProgress = FLAPS_ANIM_DURATION;
     private flapsProgressUnit = 1.0;
 
-    private afterburnerCones: AfterburnerCones;
-    private wingtipTrails: WingtipTrails;
+    private readonly fx: AircraftFx;
     private forceVectors: AircraftForceVectors;
     private _forceVectorsEnabled = false;
-    private afterburnerPanesBound = false;
-    private wingtipsReady = false;
-    /** True when the body model comes from an imported (pack) mod. */
-    private bodyIsImported = false;
-    /** True when the def provides nozzle exits (afterburner glow + plumes). */
-    private hasNozzles = false;
     /** Body-frame point where thrust is drawn (engine nozzle centroid). */
     private thrustOrigin = new THREE.Vector3();
     private hasThrustOrigin = false;
@@ -170,10 +159,9 @@ export class PlayerEntity implements Entity {
     private showcasePickSphere = new THREE.Sphere();
 
     // Heading increases CCW, radians
-    constructor(models: ModelManager, def: FlyableAircraftDef, flightModel: FlightModel, private materials: SceneMaterialManager, inEngineAudio: AudioClip, outEngineAudio: AudioClip, position: THREE.Vector3, heading: number) {
+    constructor(models: ModelManager, def: FlyableAircraftDef, flightModel: FlightModel, materials: SceneMaterialManager, inEngineAudio: AudioClip, outEngineAudio: AudioClip, position: THREE.Vector3, heading: number) {
         this.models = models;
-        this.afterburnerCones = new AfterburnerCones(materials);
-        this.wingtipTrails = new WingtipTrails(materials);
+        this.fx = new AircraftFx(materials);
         this.forceVectors = new AircraftForceVectors(materials);
 
         this.buildFromDef(def);
@@ -187,25 +175,19 @@ export class PlayerEntity implements Entity {
         this.inEngineAudio = inEngineAudio;
         this.outEngineAudio = outEngineAudio;
 
-        this.bindAfterburnerPaneMaterials();
+        this.fx.ensureBound(this.modelBody.model);
     }
 
     /** (Re)build all visual models and control surfaces from an aircraft def. */
     private buildFromDef(def: FlyableAircraftDef): void {
-        this.afterburnerPanesBound = false;
-        this.wingtipsReady = false;
-        this.bodyIsImported = isPackUrl(def.body);
-
-        this.wingtipTrails = new WingtipTrails(this.materials);
-        this.wingtipTrails.reset();
+        this.fx.configureFromDef(def);
 
         this.modelBody = new LODHelper(this.models.getModel(def.body, (_, model) => {
             // Operate on the model the loader hands back rather than this.modelBody:
             // for an already-cached body the listener fires synchronously, before
             // this.modelBody has been reassigned, so this.modelBody would still be
             // the previous aircraft.
-            this.bindAfterburnerNozzles(model);
-            this.bindWingtipOrigins(model);
+            this.fx.onBodyModelLoaded(model);
         }));
         this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
 
@@ -225,25 +207,8 @@ export class PlayerEntity implements Entity {
 
         this.cockpitOffset.fromArray(def.cockpitOffset);
 
-        // Auto-place afterburner exhaust plumes at the aircraft's own nozzle
-        // exits (importer-provided); falls back to the built-in twin layout.
-        const nozzles = def.fx?.nozzles ?? null;
-        this.hasNozzles = !!(nozzles && nozzles.length > 0);
-        this.afterburnerCones.setNozzles(
-            nozzles ? nozzles.map(n => new THREE.Vector3().fromArray(n)) : null,
-            def.fx?.nozzleRadius ?? null,
-        );
-
-        // Anchor the thrust force arrow at the nozzle exit(s): thrust physically
-        // acts at the tailpipe, not the CG. Use the centroid when several exist.
-        this.hasThrustOrigin = this.hasNozzles;
-        if (nozzles && nozzles.length > 0) {
-            this.thrustOrigin.set(0, 0, 0);
-            for (const n of nozzles) {
-                this.thrustOrigin.add(this._v.fromArray(n));
-            }
-            this.thrustOrigin.multiplyScalar(1 / nozzles.length);
-        }
+        // Anchor the thrust force arrow at the nozzle exit centroid when present.
+        this.hasThrustOrigin = this.fx.getThrustOrigin(this.thrustOrigin) !== null;
 
         this.controlSurfaceDescriptors = def.surfaces.map((s: ControlSurfaceConfig) => ({
             model: new LODHelper(this.models.getModel(s.model)),
@@ -257,7 +222,7 @@ export class PlayerEntity implements Entity {
     /** Swap the visual aircraft at runtime (flight model swapped separately). */
     loadAircraft(def: FlyableAircraftDef): void {
         this.buildFromDef(def);
-        this.bindAfterburnerPaneMaterials();
+        this.fx.ensureBound(this.modelBody.model);
     }
 
     /** Normalized [0, 1] slat deployment from flaps and high angle of attack. */
@@ -372,17 +337,16 @@ export class PlayerEntity implements Entity {
         this.velocity.copy(this.flightModel.velocityVector);
 
         this.updateAudio();
-        this.bindAfterburnerPaneMaterials();
-        this.updateAfterburnerPaneColors();
+        this.fx.ensureBound(this.modelBody.model);
         this.updateDisplayTransform();
-        if (this.wingtipsReady) {
-            this.wingtipTrails.update(
-                this.displayPosition,
-                this.displayQuaternion,
-                this.displayVelocity,
-                !this.isLanded && !this.isCrashed,
-            );
-        }
+        this.fx.update(
+            this.throttleUnit,
+            this.flightModel.useAfterburnerThrottleDetents(),
+            this.displayPosition,
+            this.displayQuaternion,
+            this.displayVelocity,
+            !this.isLanded && !this.isCrashed,
+        );
 
         if (!this.isCrashed) {
             this.updateLandingGear(delta);
@@ -451,7 +415,7 @@ export class PlayerEntity implements Entity {
 
         this.engineStarted = false;
 
-        this.wingtipTrails.reset();
+        this.fx.resetTrails();
 
         this.target = undefined;
 
@@ -498,85 +462,6 @@ export class PlayerEntity implements Entity {
         }
     }
 
-    /** Retry hook (from the update loop) once the body model has loaded. */
-    private bindAfterburnerPaneMaterials() {
-        if (this.modelBody.model.lod.length === 0) {
-            return;
-        }
-        if (!this.afterburnerPanesBound) {
-            this.bindAfterburnerNozzles(this.modelBody.model);
-        }
-        this.bindWingtipOrigins(this.modelBody.model);
-    }
-
-    private bindAfterburnerNozzles(model: Model) {
-        if (this.afterburnerPanesBound) {
-            return;
-        }
-        // Only imported (mod) jets get their nozzle glow removed; the built-in
-        // aircraft keep their authored FX_FIRE nozzle interiors.
-        if (this.bodyIsImported) {
-            this.hideNozzleFireMeshes(model);
-        }
-        this.afterburnerPanesBound = true;
-    }
-
-    private bindWingtipOrigins(model: Model): void {
-        if (this.wingtipsReady) {
-            return;
-        }
-        const vertexCount = countBodyMeshVertices(model);
-        if (vertexCount < 8) {
-            return;
-        }
-        const derived = deriveWingtipOriginsFromModel(model);
-        if (!derived) {
-            return;
-        }
-        this.wingtipTrails.setTipOrigins(derived.left, derived.right);
-        this.wingtipTrails.reset();
-        this.wingtipsReady = true;
-    }
-
-    /**
-     * Hide an imported jet's FX_FIRE nozzle-interior meshes (and any authored
-     * FireCone FX) so the nozzle itself does not glow; the exhaust is represented
-     * solely by the procedural afterburner plume.
-     */
-    private hideNozzleFireMeshes(model: Model) {
-        for (const level of model.lod) {
-            for (const obj of [...level.flats, ...level.volumes]) {
-                if (!('isMesh' in obj) && !('isPoints' in obj)) {
-                    continue;
-                }
-                const drawable = obj as THREE.Mesh | THREE.Points;
-                const material = drawable.material as ShaderMaterial;
-                const data = material.userData as SceneMaterialData;
-                if (data.category === PaletteCategory.FX_FIRE) {
-                    drawable.visible = false;
-                }
-            }
-        }
-    }
-
-    private updateAfterburnerPaneColors() {
-        const abDetents = this.flightModel.useAfterburnerThrottleDetents();
-        const lever = this.throttleUnit;
-        // An aircraft is afterburner-capable if the flight model runs the
-        // afterburner quadrant OR the model provides nozzle exits. The latter
-        // decouples the effect from the (possibly inherited) flight config so
-        // imported jets with plumes reliably light up regardless of what was
-        // flown before.
-        const hasAfterburner = abDetents || this.hasNozzles;
-
-        this.afterburnerCones.update(
-            lever,
-            hasAfterburner,
-            this.displayPosition,
-            this.displayQuaternion,
-        );
-    }
-
     private updateAudio() {
         const engineAudio = this._exteriorView ? this.outEngineAudio : this.inEngineAudio;
 
@@ -619,7 +504,14 @@ export class PlayerEntity implements Entity {
         this.flightModel.quaternion = this.obj.quaternion;
         this.flightModel.velocityVector = this.velocity;
         this.updateDisplayTransform();
-        this.updateAfterburnerPaneColors();
+        this.fx.update(
+            this.throttleUnit,
+            this.flightModel.useAfterburnerThrottleDetents(),
+            this.displayPosition,
+            this.displayQuaternion,
+            this.displayVelocity,
+            !this.isLanded && !this.isCrashed,
+        );
     }
 
     set exteriorView(isExteriorView: boolean) {
@@ -690,7 +582,14 @@ export class PlayerEntity implements Entity {
 
         if (this._exteriorView) {
             this.updateDisplayTransform();
-            this.updateAfterburnerPaneColors();
+            this.fx.update(
+                this.throttleUnit,
+                this.flightModel.useAfterburnerThrottleDetents(),
+                this.displayPosition,
+                this.displayQuaternion,
+                this.displayVelocity,
+                !this.isLanded && !this.isCrashed,
+            );
             const lodCount = this.modelBody.model.lod.length;
             const lod = lodCount === 0 ? 0 : Math.min(
                 getLodLevel(this.displayPosition, this.obj.scale, targetWidth, camera, this.modelBody.model.maxSize),
@@ -702,7 +601,7 @@ export class PlayerEntity implements Entity {
                 targetWidth, camera, palette,
                 SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, lod);
 
-            this.afterburnerCones.addToRenderList(SceneLayers.EntityVolumes, lists);
+            this.fx.addAfterburnerToRenderList(lists);
 
             if (this._forceVectorsEnabled) {
                 const samples = this.flightModel.getForceVectors();
@@ -745,8 +644,8 @@ export class PlayerEntity implements Entity {
                 }
             }
 
-            if (!this._showcaseMode && this.wingtipsReady) {
-                this.wingtipTrails.addToRenderList(SceneLayers.EntityFX, lists, camera);
+            if (!this._showcaseMode) {
+                this.fx.addTrailsToRenderList(lists, camera);
             }
         }
     }

@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { ShaderMaterial } from 'three';
-import { Palette, PaletteCategory } from '../../config/palettes/palette';
+import { Palette } from '../../config/palettes/palette';
 import { CanvasPainter } from '../../render/screen/canvasPainter';
 import { LODHelper, getLodLevel } from '../../render/helpers';
 import { SimProxyFlightModel } from '../../physics/model/simProxyFlightModel';
@@ -11,17 +10,15 @@ import { defaultFm2Config } from '../../physics/fm2/fm2AircraftConfig';
 import { clamp, FORWARD, UP } from '../../utils/math';
 import { AiPilotOptions } from '../../ai/aiPilot';
 import { Combatant, Faction } from '../../weapons/combatant';
-import { isPackUrl } from '../../state/aircraftPack';
 import { Entity, ENTITY_TAGS } from '../entity';
-import { SceneMaterialData, SceneMaterialManager } from '../materials/materials';
+import { SceneMaterialManager } from '../materials/materials';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
-import { AfterburnerCones } from './afterburnerCones';
-import { WingtipTrails } from './wingtipTrails';
-import { countBodyMeshVertices, deriveWingtipOriginsFromModel } from './wingtipOrigins';
-import { Model, ModelManager } from '../models/models';
+import { AircraftFx } from './aircraftFx';
+import { ModelManager } from '../models/models';
 import { Scene, SceneLayers } from '../scene';
 import { WeaponsTarget } from './weaponsTarget';
 
+/** Same hit sphere as the player — shared airframe, different input only. */
 const DEFAULT_HIT_RADIUS = 10;
 const LANDING_GEAR_ANIM_DURATION = 3; // Seconds — match PlayerEntity
 
@@ -55,10 +52,10 @@ export interface AiAircraftSpawn {
 }
 
 /**
- * An AI-flown opponent aircraft. Its FM2 flight model, {@link AiPilot} and gun
- * all live in the shared combat sim worker (keyed by {@link simId}); this entity
- * is a snapshot-driven render proxy plus a {@link Combatant}/{@link WeaponsTarget}
- * for the main thread's targeting and cameras.
+ * An AI-flown opponent aircraft. Same {@link FlyableAircraftDef} FX + FM2 as the
+ * player; only the control channel differs (`control: 'ai'` vs keyboard/joystick
+ * on `'external'`). Physics live in the combat sim worker; this entity is a
+ * snapshot-driven render proxy plus {@link Combatant}/{@link WeaponsTarget}.
  */
 export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
 
@@ -68,22 +65,17 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     readonly faction: Faction;
     readonly simId: string;
 
+    private readonly models: ModelManager;
     private readonly combatSim: CombatSimClient;
     private readonly flightModel: SimProxyFlightModel;
+    private readonly fx: AircraftFx;
 
-    private readonly modelBody: LODHelper;
-    private readonly modelShadow: LODHelper;
+    private modelBody!: LODHelper;
+    private modelShadow!: LODHelper;
     private modelLandingGear: LODHelper | undefined;
-    private readonly gearAnimated: boolean;
+    private gearAnimated = false;
     private gearAnimReady = false;
-    private readonly controlSurfaces: AiControlSurface[];
-
-    private readonly afterburnerCones: AfterburnerCones;
-    private readonly wingtipTrails: WingtipTrails;
-    private afterburnerPanesBound = false;
-    private wingtipsReady = false;
-    private readonly bodyIsImported: boolean;
-    private hasNozzles = false;
+    private controlSurfaces: AiControlSurface[] = [];
 
     private readonly obj = new THREE.Object3D();
     private readonly displayPosition = new THREE.Vector3();
@@ -110,59 +102,18 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         faction: Faction,
         spawn: AiAircraftSpawn,
         materials: SceneMaterialManager,
+        gun: SimGunConfig,
         pilotOptions: AiPilotOptions = {},
     ) {
+        this.models = models;
         this.faction = faction;
         this.simId = simId;
         this.combatSim = combatSim;
         this.flightModel = new SimProxyFlightModel(combatSim, simId, false);
-        this.afterburnerCones = new AfterburnerCones(materials);
-        this.wingtipTrails = new WingtipTrails(materials);
-        this.bodyIsImported = isPackUrl(def.body);
+        this.fx = new AircraftFx(materials);
 
-        this.modelBody = new LODHelper(models.getModel(def.body, (_, model) => {
-            this.bindAfterburnerNozzles(model);
-            this.bindWingtipOrigins(model);
-        }));
-        this.modelShadow = new LODHelper(models.getModel(def.shadow), 5);
-        this.gearAnimated = !!(def.gear && (def.gearAnimated ?? true));
-        this.modelLandingGear = undefined;
-        if (def.gear) {
-            // Build LODHelper in the load callback so AnimationClips exist (same
-            // as PlayerEntity). Sync construct would bind an empty placeholder.
-            models.getModel(def.gear, (_, model) => {
-                this.modelLandingGear = new LODHelper(model);
-                if (this.gearAnimated) {
-                    this.modelLandingGear.setPlaybackDuration(LANDING_GEAR_ANIM_DURATION);
-                    this.gearAnimReady = true;
-                    this.syncGearVisual(this.gearDeployed, false);
-                }
-            });
-        }
-        this.controlSurfaces = def.surfaces.map((s: ControlSurfaceConfig): AiControlSurface => ({
-            model: new LODHelper(models.getModel(s.model)),
-            pivot: new THREE.Vector3().fromArray(s.pivot),
-            axis: new THREE.Vector3().fromArray(s.axis),
-            control: s.control,
-            sign: s.sign,
-            range: s.rangeRad,
-        }));
+        this.buildFromDef(def);
 
-        const nozzles = def.fx?.nozzles ?? null;
-        this.hasNozzles = !!(nozzles && nozzles.length > 0);
-        this.afterburnerCones.setNozzles(
-            nozzles ? nozzles.map(n => new THREE.Vector3().fromArray(n)) : null,
-            def.fx?.nozzleRadius ?? null,
-        );
-
-        const gun: SimGunConfig = {
-            muzzleVelocity: pilotOptions.bulletSpeed ?? 1000,
-            roundsPerSecond: 20,
-            damage: 8,
-            ammo: 2400,
-            muzzleOffset: [0, 0, 9],
-            spread: 0.004,
-        };
         // Register this aircraft with the worker before pushing its spawn state.
         this.combatSim.addAircraft({
             id: simId,
@@ -178,7 +129,19 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             enabled: true,
         });
         this.applyRenderSpawn(spawn);
-        this.bindAfterburnerPaneMaterials();
+        this.fx.ensureBound(this.modelBody.model);
+    }
+
+    /** Swap visual + FM to match the player's aircraft (same def, AI input). */
+    loadAircraft(def: FlyableAircraftDef): void {
+        this.buildFromDef(def);
+        if (def.flight) {
+            this.flightModel.setAircraft(def.flight);
+        } else {
+            this.flightModel.setAircraft(defaultFm2Config);
+        }
+        this.fx.ensureBound(this.modelBody.model);
+        this.syncGearVisual(this.gearDeployed, false);
     }
 
     respawn(spawn: AiAircraftSpawn): void {
@@ -186,8 +149,42 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         this.flapsExtended = !(spawn.airborne ?? false);
         this.combatSim.respawn(this.simId, this.toSimSpawn(spawn));
         this.applyRenderSpawn(spawn);
-        this.wingtipTrails.reset();
+        this.fx.resetTrails();
         this.enabled = true;
+    }
+
+    private buildFromDef(def: FlyableAircraftDef): void {
+        this.fx.configureFromDef(def);
+
+        this.modelBody = new LODHelper(this.models.getModel(def.body, (_, model) => {
+            this.fx.onBodyModelLoaded(model);
+        }));
+        this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
+
+        this.modelLandingGear = undefined;
+        this.gearAnimated = false;
+        this.gearAnimReady = false;
+        if (def.gear) {
+            const animated = def.gearAnimated ?? true;
+            this.gearAnimated = animated;
+            this.models.getModel(def.gear, (_, model) => {
+                this.modelLandingGear = new LODHelper(model);
+                if (animated) {
+                    this.modelLandingGear.setPlaybackDuration(LANDING_GEAR_ANIM_DURATION);
+                    this.gearAnimReady = true;
+                    this.syncGearVisual(this.gearDeployed, false);
+                }
+            });
+        }
+
+        this.controlSurfaces = def.surfaces.map((s: ControlSurfaceConfig): AiControlSurface => ({
+            model: new LODHelper(this.models.getModel(s.model)),
+            pivot: new THREE.Vector3().fromArray(s.pivot),
+            axis: new THREE.Vector3().fromArray(s.axis),
+            control: s.control,
+            sign: s.sign,
+            range: s.rangeRad,
+        }));
     }
 
     /** Snap or play the gear clip to match deployed/retracted (F-22: t=1 extended). */
@@ -239,7 +236,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         this.syncGearVisual(this.gearDeployed, false);
     }
 
-    init(scene: Scene): void {
+    init(_scene: Scene): void {
         // Nothing
     }
 
@@ -264,86 +261,17 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         this.obj.position.copy(this.flightModel.position);
         this.obj.quaternion.copy(this.flightModel.quaternion);
 
-        this.bindAfterburnerPaneMaterials();
+        this.fx.ensureBound(this.modelBody.model);
         this.flightModel.getRenderPosition(this.displayPosition);
         this.flightModel.getRenderQuaternion(this.displayQuaternion);
         this.flightModel.getRenderVelocity(this.displayVelocity);
-        this.updateAfterburnerFx();
-        if (this.wingtipsReady) {
-            this.wingtipTrails.update(
-                this.displayPosition,
-                this.displayQuaternion,
-                this.displayVelocity,
-                !this.flightModel.isLanded() && !this.isCrashed(),
-            );
-        }
-    }
-
-    /** Retry hook once the body model has loaded (same as PlayerEntity). */
-    private bindAfterburnerPaneMaterials(): void {
-        if (this.modelBody.model.lod.length === 0) {
-            return;
-        }
-        if (!this.afterburnerPanesBound) {
-            this.bindAfterburnerNozzles(this.modelBody.model);
-        }
-        this.bindWingtipOrigins(this.modelBody.model);
-    }
-
-    private bindAfterburnerNozzles(model: Model): void {
-        if (this.afterburnerPanesBound) {
-            return;
-        }
-        // Imported (mod) jets: hide authored FX_FIRE nozzle interiors so only
-        // the procedural AB plume shows. Built-in aircraft keep authored FX.
-        if (this.bodyIsImported) {
-            this.hideNozzleFireMeshes(model);
-        }
-        this.afterburnerPanesBound = true;
-    }
-
-    private bindWingtipOrigins(model: Model): void {
-        if (this.wingtipsReady) {
-            return;
-        }
-        const vertexCount = countBodyMeshVertices(model);
-        if (vertexCount < 8) {
-            return;
-        }
-        const derived = deriveWingtipOriginsFromModel(model);
-        if (!derived) {
-            return;
-        }
-        this.wingtipTrails.setTipOrigins(derived.left, derived.right);
-        this.wingtipTrails.reset();
-        this.wingtipsReady = true;
-    }
-
-    private hideNozzleFireMeshes(model: Model): void {
-        for (const level of model.lod) {
-            for (const obj of [...level.flats, ...level.volumes]) {
-                if (!('isMesh' in obj) && !('isPoints' in obj)) {
-                    continue;
-                }
-                const drawable = obj as THREE.Mesh | THREE.Points;
-                const material = drawable.material as ShaderMaterial;
-                const data = material.userData as SceneMaterialData;
-                if (data.category === PaletteCategory.FX_FIRE) {
-                    drawable.visible = false;
-                }
-            }
-        }
-    }
-
-    private updateAfterburnerFx(): void {
-        const abDetents = this.flightModel.useAfterburnerThrottleDetents();
-        const lever = this.flightModel.getSimThrottleLever();
-        const hasAfterburner = abDetents || this.hasNozzles;
-        this.afterburnerCones.update(
-            lever,
-            hasAfterburner,
+        this.fx.update(
+            this.flightModel.getSimThrottleLever(),
+            this.flightModel.useAfterburnerThrottleDetents(),
             this.displayPosition,
             this.displayQuaternion,
+            this.displayVelocity,
+            !this.flightModel.isLanded() && !this.isCrashed(),
         );
     }
 
@@ -501,7 +429,15 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
         this.flightModel.getRenderPosition(this.displayPosition);
         this.flightModel.getRenderQuaternion(this.displayQuaternion);
-        this.updateAfterburnerFx();
+        this.flightModel.getRenderVelocity(this.displayVelocity);
+        this.fx.update(
+            this.flightModel.getSimThrottleLever(),
+            this.flightModel.useAfterburnerThrottleDetents(),
+            this.displayPosition,
+            this.displayQuaternion,
+            this.displayVelocity,
+            !this.flightModel.isLanded() && !this.isCrashed(),
+        );
 
         if (!this.isCrashed()) {
             this.shadowPosition.copy(this.displayPosition).setY(0);
@@ -523,7 +459,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             targetWidth, camera, palette,
             SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, lod);
 
-        this.afterburnerCones.addToRenderList(SceneLayers.EntityVolumes, lists);
+        this.fx.addAfterburnerToRenderList(lists);
 
         // Close up, add the articulated parts (gear + hinge-pivoted surfaces).
         if (lod === 0) {
@@ -553,12 +489,10 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             }
         }
 
-        if (this.wingtipsReady) {
-            this.wingtipTrails.addToRenderList(SceneLayers.EntityFX, lists, camera);
-        }
+        this.fx.addTrailsToRenderList(lists, camera);
     }
 
-    render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
+    render2D(_targetWidth: number, _targetHeight: number, _camera: THREE.Camera, _lists: Set<string>, _painter: CanvasPainter, _palette: Palette): void {
         // Nothing
     }
 }

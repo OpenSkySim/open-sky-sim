@@ -80,9 +80,9 @@ const AI_STRAIGHT_DURATION_SEC = 1;
 /** Spawn distance ahead of the player when a merge begins (m). */
 const AI_ENGAGE_SPAWN_DISTANCE_M = 300;
 
-/** Player hit-sphere radius (m) used by the combat sim's hit detection. */
+/** Player/AI hit-sphere radius (m) — shared airframe. */
 const PLAYER_HIT_RADIUS_M = 10;
-/** Player boresight gun, simulated in the combat worker. */
+/** Shared boresight gun for player and AI (same FM/FX airframe). */
 const PLAYER_GUN: SimGunConfig = {
     muzzleVelocity: 1000,
     roundsPerSecond: 20,
@@ -308,8 +308,6 @@ export class Game {
 
     private aircraftRegistry = new AircraftRegistry();
     private currentDef: FlyableAircraftDef;
-    /** Aircraft def used by AI opponents (chosen randomly at app start). */
-    private enemyDef: FlyableAircraftDef;
     private selectedAircraft = 0;
     private modUploadInput?: HTMLInputElement;
     private modImportInFlight = false;
@@ -332,7 +330,6 @@ export class Game {
         this.mapCamera.position.set(0, 500, 0);
 
         this.currentDef = buildF22Def();
-        this.enemyDef = buildF22Def();
         this.player = new PlayerEntity(this.models,
             this.currentDef,
             configService.flightModels.getActive(),
@@ -644,15 +641,6 @@ export class Game {
         this.spawnPanel.setSelectedIndex(index);
     }
 
-    /** Pick a random flyable aircraft, falling back to the built-in F-22. */
-    private pickRandomAircraftDef(): FlyableAircraftDef {
-        const list = this.aircraftRegistry.list();
-        if (list.length === 0) {
-            return buildF22Def();
-        }
-        return list[Math.floor(Math.random() * list.length)];
-    }
-
     /** Select a random aircraft in the spawn menu (used on app start). */
     private selectRandomAircraft(): void {
         const list = this.aircraftRegistry.list();
@@ -673,7 +661,7 @@ export class Game {
         }
     }
 
-    /** Swap the player to the aircraft chosen in the spawn menu, if different. */
+    /** Swap the player (and AI opponents) to the aircraft chosen in the spawn menu. */
     private applySelectedAircraft() {
         const list = this.aircraftRegistry.list();
         const def = list[this.selectedAircraft];
@@ -684,6 +672,10 @@ export class Game {
         this.player.loadAircraft(def);
         if (def.flight) {
             this.configService.flightModels.getActive().setAircraft(def.flight);
+        }
+        // Same airframe for AI — only the control channel differs.
+        for (let i = 0; i < this.aiOpponents.length; i++) {
+            this.aiOpponents[i].loadAircraft(def);
         }
     }
 
@@ -1688,10 +1680,9 @@ export class Game {
     private async beginFlight(spawn: 'approach' | 'runway') {
         const list = this.aircraftRegistry.list();
         const def = list[this.selectedAircraft];
-        const toPreload = [def, this.enemyDef].filter((d): d is FlyableAircraftDef => !!d);
-        // Deduplicate when player and enemy rolled the same type.
-        const unique = new Map(toPreload.map(d => [d.id, d]));
-        await Promise.all([...unique.values()].map(d => this.preloadAircraftModels(d)));
+        if (def) {
+            await this.preloadAircraftModels(def);
+        }
         this.applySelectedAircraft();
         this.state = GameState.PLAYER;
         this.player.setSimulationPaused(false);
@@ -1776,14 +1767,13 @@ export class Game {
 
         // Spawn N AI opponents (the snapshot + worker are already multi-aircraft;
         // each gets a distinct sim id ai0..aiN-1). They start disabled until the
-        // player triggers a merge (see spawnOpponent). Aircraft type is chosen
-        // randomly once at app start (same type for every opponent).
-        this.enemyDef = this.pickRandomAircraftDef();
+        // player triggers a merge (see spawnOpponent). Same FlyableAircraftDef /
+        // FM / FX as the player — only control: 'ai' vs keyboard/joystick.
         this.aiOpponents.length = 0;
         for (let i = 0; i < AI_OPPONENT_COUNT; i++) {
             const ai = new AiAircraftEntity(
                 this.models,
-                this.enemyDef,
+                this.currentDef,
                 this.combatSim,
                 aiSimId(i),
                 Faction.ENEMY,
@@ -1796,6 +1786,7 @@ export class Game {
                     velocity: PLAYER_APPROACH_SPAWN.velocity!.clone(),
                 },
                 this.materials,
+                PLAYER_GUN,
                 this.opponentPilotOptions(),
             );
             ai.enabled = false;
