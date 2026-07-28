@@ -1795,6 +1795,7 @@ export class Game {
                     throttle: PLAYER_APPROACH_SPAWN.throttle,
                     velocity: PLAYER_APPROACH_SPAWN.velocity!.clone(),
                 },
+                this.materials,
                 this.opponentPilotOptions(),
             );
             ai.enabled = false;
