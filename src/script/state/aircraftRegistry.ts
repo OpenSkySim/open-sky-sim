@@ -106,10 +106,61 @@ function rewriteManifestForPack(id: string, manifest: AircraftManifest): Aircraf
     };
 }
 
+function modelDisplayName(m: AircraftManifest): string {
+    const full = m.displayName ?? m.name ?? '';
+    const paren = full.lastIndexOf(' (');
+    if (paren > 0) {
+        return full.slice(0, paren);
+    }
+    return m.canonicalName ?? full;
+}
+
+function liveryDisplayName(m: AircraftManifest): string | undefined {
+    if (m.sourceMaterial) {
+        return m.sourceMaterial;
+    }
+    const full = m.displayName ?? m.name ?? '';
+    const paren = full.lastIndexOf(' (');
+    if (paren > 0 && full.endsWith(')')) {
+        return full.slice(paren + 2, -1);
+    }
+    return undefined;
+}
+
+export interface AircraftModelGroup {
+    key: string;
+    label: string;
+    variants: FlyableAircraftDef[];
+}
+
+/** Group flyable defs by airframe type for model + livery spawn selection. */
+export function groupAircraftByModel(defs: FlyableAircraftDef[]): AircraftModelGroup[] {
+    const groups = new Map<string, AircraftModelGroup>();
+    for (const def of defs) {
+        const key = def.canonicalName ?? def.id;
+        const label = def.modelName ?? def.name;
+        let group = groups.get(key);
+        if (!group) {
+            group = { key, label, variants: [] };
+            groups.set(key, group);
+        }
+        group.variants.push(def);
+    }
+    for (const group of groups.values()) {
+        group.variants.sort((a, b) =>
+            (a.liveryName ?? a.name).localeCompare(b.liveryName ?? b.name),
+        );
+    }
+    return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
 export function manifestToDef(id: string, m: AircraftManifest): FlyableAircraftDef {
     return {
         id: m.id ?? id,
         name: m.displayName ?? m.name ?? id,
+        canonicalName: m.canonicalName,
+        modelName: modelDisplayName(m),
+        liveryName: liveryDisplayName(m),
         body: m.body,
         shadow: m.shadow,
         gear: m.gear ?? undefined,

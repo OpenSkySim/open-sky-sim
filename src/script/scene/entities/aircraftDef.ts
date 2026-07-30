@@ -81,4 +81,10 @@ export interface FlyableAircraftDef {
     spawn?: AircraftSpawnConfig;
     /** FM2 flight-dynamics config; when set, the FM2 model flies this aircraft. */
     flight?: Fm2AircraftConfig;
+    /** TCA / mod canonical type name (groups liveries of the same airframe). */
+    canonicalName?: string;
+    /** Spawn-menu aircraft label without livery suffix. */
+    modelName?: string;
+    /** Livery / material label when multiple variants exist. */
+    liveryName?: string;
 }

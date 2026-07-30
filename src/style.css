@@ -201,7 +201,8 @@ a:hover {
     color: white;
 }
 
-#aircraft-select {
+#aircraft-select,
+#livery-select {
     display: block;
     width: 100%;
     min-width: 14rem;
@@ -215,7 +216,8 @@ a:hover {
     border: 1px rgb(138, 138, 138) solid;
 }
 
-#aircraft-select option {
+#aircraft-select option,
+#livery-select option {
     padding: 0.2rem 0.4rem;
 }
 
