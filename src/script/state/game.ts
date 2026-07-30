@@ -708,7 +708,12 @@ export class Game {
     /** Upload the mod to the dev server, register the imported plane(s), and open the menu. */
     private async importModFromFile(file: File): Promise<void> {
         this.modImportInFlight = true;
-        this.setModStatus(`Importing ${file.name}...`, 0);
+        this.setModStatus(
+            file.size > 20_000_000
+                ? `Importing ${file.name} (large collection — may take several minutes)...`
+                : `Importing ${file.name}...`,
+            0,
+        );
         try {
             const form = new FormData();
             form.append('mod', file);
@@ -918,9 +923,12 @@ export class Game {
 
     /** Runway spawn position; Y matches FM2 gear rest height when the aircraft has a flight config. */
     private runwaySpawnPosition(): THREE.Vector3 {
-        const y = this.currentDef.flight
+        let y = this.currentDef.flight
             ? fm2GroundRestHeight(this.currentDef.flight)
             : PLANE_DISTANCE_TO_GROUND;
+        if (this.currentDef.spawn?.offset !== undefined) {
+            y += this.currentDef.spawn.offset;
+        }
         return PLAYER_LAND_POSITION.clone().setY(y);
     }
 

@@ -31,6 +31,14 @@ export interface ControlSurfaceConfig {
     rangeRad: number;
 }
 
+/** TCA hardpoint / loadout attachment empty (body frame). */
+export interface AircraftAttachmentConfig {
+    name: string;
+    position: [number, number, number];
+    /** Local +Z forward axis in body frame. */
+    forward: [number, number, number];
+}
+
 /** Optional visual effects; omit fields to use auto-derived defaults. */
 export interface AircraftFxConfig {
     /** Wingtip vortex trail origins [left, right] (body frame); null/omit auto-derives. */
@@ -39,6 +47,16 @@ export interface AircraftFxConfig {
     nozzles?: [number, number, number][] | null;
     /** Representative nozzle radius (m) for sizing the plume/interior; null uses default. */
     nozzleRadius?: number | null;
+}
+
+/** TCA ramp/spawn metadata forwarded from Aircraft2 JSON (optional). */
+export interface AircraftSpawnConfig {
+    /** Ground-contact tweak from TCA SpawnOffset (metres). */
+    offset?: number;
+    /** Ramp heading offset from TCA SpawnRotation (degrees). */
+    rotation?: number;
+    /** Map/radar blip RGB from TCA DotColors. */
+    dotColors?: [number, number, number];
 }
 
 /** Everything needed to build and fly a player aircraft. */
@@ -55,8 +73,12 @@ export interface FlyableAircraftDef {
     gearAnimated?: boolean;
     surfaces: ControlSurfaceConfig[];
     fx?: AircraftFxConfig;
+    /** Hardpoint/loadout attachment empties from the source mod (optional). */
+    attachments?: AircraftAttachmentConfig[] | null;
     /** Cockpit eye offset from the aircraft origin (body frame, m): [x, y, z]. */
     cockpitOffset: [number, number, number];
+    /** Optional spawn metadata from the source mod. */
+    spawn?: AircraftSpawnConfig;
     /** FM2 flight-dynamics config; when set, the FM2 model flies this aircraft. */
     flight?: Fm2AircraftConfig;
 }

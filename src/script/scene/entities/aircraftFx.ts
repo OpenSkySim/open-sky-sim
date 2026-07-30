@@ -1,8 +1,5 @@
 import * as THREE from 'three';
-import { ShaderMaterial } from 'three';
-import { PaletteCategory } from '../../config/palettes/palette';
-import { isPackUrl } from '../../state/aircraftPack';
-import { SceneMaterialData, SceneMaterialManager } from '../materials/materials';
+import { SceneMaterialManager } from '../materials/materials';
 import { Model } from '../models/models';
 import { SceneLayers } from '../scene';
 import { AfterburnerCones } from './afterburnerCones';
@@ -20,7 +17,6 @@ export class AircraftFx {
     private wingtipTrails: WingtipTrails;
     private afterburnerPanesBound = false;
     private wingtipsReady = false;
-    private bodyIsImported = false;
     private hasNozzles = false;
     private readonly thrustOrigin = new THREE.Vector3();
     private hasThrustOrigin = false;
@@ -35,7 +31,6 @@ export class AircraftFx {
     configureFromDef(def: FlyableAircraftDef): void {
         this.afterburnerPanesBound = false;
         this.wingtipsReady = false;
-        this.bodyIsImported = isPackUrl(def.body);
 
         this.wingtipTrails = new WingtipTrails(this.materials);
         this.wingtipTrails.reset();
@@ -128,11 +123,6 @@ export class AircraftFx {
         if (this.afterburnerPanesBound) {
             return;
         }
-        // Imported (mod) jets: hide authored FX_FIRE nozzle interiors so only
-        // the procedural AB plume shows. Built-in aircraft keep authored FX.
-        if (this.bodyIsImported) {
-            this.hideNozzleFireMeshes(model);
-        }
         this.afterburnerPanesBound = true;
     }
 
@@ -150,21 +140,5 @@ export class AircraftFx {
         this.wingtipTrails.setTipOrigins(derived.left, derived.right);
         this.wingtipTrails.reset();
         this.wingtipsReady = true;
-    }
-
-    private hideNozzleFireMeshes(model: Model): void {
-        for (const level of model.lod) {
-            for (const obj of [...level.flats, ...level.volumes]) {
-                if (!('isMesh' in obj) && !('isPoints' in obj)) {
-                    continue;
-                }
-                const drawable = obj as THREE.Mesh | THREE.Points;
-                const material = drawable.material as ShaderMaterial;
-                const data = material.userData as SceneMaterialData;
-                if (data.category === PaletteCategory.FX_FIRE) {
-                    drawable.visible = false;
-                }
-            }
-        }
     }
 }

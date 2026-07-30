@@ -369,8 +369,12 @@ export const FM2_FOREBODY = {
 /** Landing gear parasite drag increment (CD referenced to wing area). */
 export const FM2_GEAR_CD = 0.022;
 
-/** Speedbrake / airbrake parasite drag increment (CD referenced to wing area). */
-export const FM2_AIRBRAKE_CD = 0.085;
+/**
+ * Speedbrake / airbrake parasite drag increment (CD referenced to wing area).
+ * Keep modest: enough to bleed energy, not so high that q̄ collapses into a
+ * spiral / dutch-roll feel. Applied at CG only (no intentional roll moment).
+ */
+export const FM2_AIRBRAKE_CD = 0.028;
 
 /** Fuselage / miscellaneous parasite drag (CD referenced to wing area). */
 export const FM2_BODY_CD0 = 0.010;

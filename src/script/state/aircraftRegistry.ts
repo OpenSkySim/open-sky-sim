@@ -83,7 +83,11 @@ export interface AircraftManifest {
         control: string; sign: number; rangeRad: number;
     }[];
     fx?: { wingtips?: [[number, number, number], [number, number, number]] | null; nozzles?: [number, number, number][] | null; nozzleRadius?: number | null };
+    attachments?: { name: string; position: [number, number, number]; forward: [number, number, number] }[] | null;
     cockpitOffset?: [number, number, number];
+    spawn?: { offset?: number; rotation?: number; dotColors?: [number, number, number] };
+    groundOffsetY?: number;
+    groundRestHeightM?: number;
     flight?: Fm2AircraftConfig | null;
 }
 
@@ -111,6 +115,8 @@ export function manifestToDef(id: string, m: AircraftManifest): FlyableAircraftD
         gear: m.gear ?? undefined,
         gearAnimated: m.gearAnimated ?? false,
         cockpitOffset: m.cockpitOffset ?? [0, 1.0, 6.0],
+        spawn: m.spawn ?? undefined,
+        attachments: m.attachments ?? undefined,
         fx: { wingtips: m.fx?.wingtips ?? null, nozzles: m.fx?.nozzles ?? null, nozzleRadius: m.fx?.nozzleRadius ?? null },
         flight: m.flight ?? undefined,
         surfaces: m.surfaces.map((s): ControlSurfaceConfig => {
