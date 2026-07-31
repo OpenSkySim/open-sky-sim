@@ -51,7 +51,7 @@ export interface AircraftFxConfig {
 
 /** TCA ramp/spawn metadata forwarded from Aircraft2 JSON (optional). */
 export interface AircraftSpawnConfig {
-    /** Ground-contact tweak from TCA SpawnOffset (metres). */
+    /** Ground-contact tweak from TCA SpawnOffset (metres). Not applied to FM2 runway spawn Y — see game.runwaySpawnPosition. */
     offset?: number;
     /** Ramp heading offset from TCA SpawnRotation (degrees). */
     rotation?: number;

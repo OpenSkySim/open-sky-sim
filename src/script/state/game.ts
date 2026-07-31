@@ -957,14 +957,16 @@ export class Game {
         this.clearShowcaseHighlight();
     }
 
-    /** Runway spawn position; Y matches FM2 gear rest height when the aircraft has a flight config. */
+    /** Runway spawn position; Y matches FM2 gear rest height (physics body origin). */
     private runwaySpawnPosition(): THREE.Vector3 {
-        let y = this.currentDef.flight
+        // Imported mods carry TCA SpawnOffset in spawn.offset (often large/negative,
+        // e.g. -1.925) relative to the Unity bundle origin. Adding it to FM2 rest
+        // height buried the body at ~0.08 m and caused violent gear-spring launch +
+        // backflip on throttle-up. Visual ground contact is already baked into the
+        // exported glTF via ground_offset_y; physics rest height comes from FM2 gear.
+        const y = this.currentDef.flight
             ? fm2GroundRestHeight(this.currentDef.flight)
             : PLANE_DISTANCE_TO_GROUND;
-        if (this.currentDef.spawn?.offset !== undefined) {
-            y += this.currentDef.spawn.offset;
-        }
         return PLAYER_LAND_POSITION.clone().setY(y);
     }
 
