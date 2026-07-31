@@ -50,6 +50,16 @@ export class AircraftFx {
             }
             this.thrustOrigin.multiplyScalar(1 / nozzles.length);
         }
+
+        const tips = def.fx?.wingtips ?? null;
+        if (tips && tips.length >= 2) {
+            this.wingtipTrails.setTipOrigins(
+                new THREE.Vector3().fromArray(tips[0]),
+                new THREE.Vector3().fromArray(tips[1]),
+            );
+            this.wingtipTrails.reset();
+            this.wingtipsReady = true;
+        }
     }
 
     /** Body-model load callback — bind nozzle glow + wingtip origins. */
