@@ -642,7 +642,10 @@ export class Game {
             await Promise.all(
                 packs
                     .filter(p => !EXCLUDED_PACK_IDS.has(p.id))
-                    .map(p => this.aircraftRegistry.loadPack(p.id, p.packUrl)),
+                    .map(async p => {
+                        this.models.invalidatePack(p.id);
+                        return this.aircraftRegistry.loadPack(p.id, p.packUrl);
+                    }),
             );
         } catch {
             // No modserver (static hosting) — built-in packs only.
@@ -789,6 +792,7 @@ export class Game {
         this.setModStatus(`Loading ${imported.length} aircraft pack(s)...`, 0);
         const registered: string[] = [];
         await Promise.all(imported.map(async (entry) => {
+            this.models.invalidatePack(entry.id);
             const id = await this.aircraftRegistry.loadPack(entry.id, entry.packUrl);
             if (id) {
                 registered.push(entry.name);

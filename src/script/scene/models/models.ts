@@ -135,12 +135,23 @@ export class ModelManager {
         return newModel;
     }
 
+    /** Drop cached models for a pack so a rebuilt archive is loaded fresh. */
+    invalidatePack(packId: string): void {
+        const prefix = `pack:${packId}/`;
+        for (const url of [...this.models.keys()]) {
+            if (url.startsWith(prefix)) {
+                this.models.delete(url);
+            }
+        }
+    }
+
     /** Resolves when the model at {@link url} has finished loading (no-op if cached). */
     waitForModel(url: string): Promise<void> {
         return new Promise((resolve) => {
             this.getModel(url, () => resolve());
         });
     }
+
 
     private getLoadFn(url: string, wrapper: ModelWrapper): (gltf: GLTF) => void {
         return (gltf: GLTF) => {
