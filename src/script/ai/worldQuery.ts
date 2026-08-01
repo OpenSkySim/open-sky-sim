@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { CarrierMeshCollider, sampleCarrierMeshSurfaceYMax } from '../scene/entities/carrierDeck';
 import { HillCollider, sampleHillSurfaceY } from '../scene/entities/hillCollider';
+import { SkiJumpCollider, sampleSkiJumpSurfaceYMax } from '../scene/entities/skiJump';
 
 /** A static world obstacle approximated as an upright cylinder for avoidance. */
 export interface Obstacle {
@@ -29,7 +31,7 @@ export interface Runway {
  * state so pilots do not depend on the game object.
  */
 export interface WorldQuery {
-    /** Highest solid ground Y at (x, z): max of the flat datum (0) and any hill/mountain surface. */
+    /** Highest solid ground Y at (x, z): flat datum, hills, ski jumps, carrier meshes. */
     groundHeightAt(x: number, z: number): number;
     /** True if (x, z) is over land rather than water. */
     isLand(x: number, z: number): boolean;
@@ -42,8 +44,8 @@ export interface WorldQuery {
 const TMP = new THREE.Vector3();
 
 /**
- * Concrete {@link WorldQuery} backed by the game's hill colliders, terrain
- * land/water sampler, static obstacle list and runway definition.
+ * Concrete {@link WorldQuery} backed by the game's hill colliders, ski jumps,
+ * carrier meshes, terrain land/water sampler, static obstacle list and runway.
  */
 export class SceneWorldQuery implements WorldQuery {
 
@@ -52,10 +54,17 @@ export class SceneWorldQuery implements WorldQuery {
         private readonly isLandFn: (x: number, z: number) => boolean,
         private readonly obstacleList: Obstacle[],
         private readonly runwayDef: Runway,
+        private readonly skiJumps: readonly SkiJumpCollider[] = [],
+        private readonly carrierMeshes: readonly CarrierMeshCollider[] = [],
     ) { }
 
     groundHeightAt(x: number, z: number): number {
-        return Math.max(0, sampleHillSurfaceY(x, z, this.hills));
+        return Math.max(
+            0,
+            sampleHillSurfaceY(x, z, this.hills),
+            sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
+            sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes),
+        );
     }
 
     isLand(x: number, z: number): boolean {

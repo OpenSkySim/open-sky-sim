@@ -182,19 +182,26 @@ export class ModelManager {
     private processModel(gltf: GLTF, model: Model, url: string = ''): Model {
         const scenes = [...gltf.scenes].sort(this.sortingFn);
         const AABBox = new THREE.Box3();
+        const worldAABB = new THREE.Box3();
         const isShadowModel = ModelManager.isShadowModelUrl(url);
         model.lod = scenes.map(scene => {
             const level: ModelLodLevel = {
                 flats: [],
                 volumes: []
             };
+            // Bake ancestor transforms before extracting meshes — LODHelper
+            // reparents each mesh into a fresh group, which would otherwise drop
+            // rotations on intermediate Groups (e.g. kuz carrier's 90° X tilt).
+            scene.updateWorldMatrix(true, true);
             scene.traverse(child => {
                 if ('isGroup' in child) return;
                 const obj = child as THREE.Mesh | THREE.LineSegments | THREE.Points;
+                if (!obj.geometry) return;
 
-                const matName = ('material' in obj && obj.material && !Array.isArray(obj.material))
-                    ? (obj.material as THREE.Material).name
-                    : '';
+                const srcMat = ('material' in obj && obj.material && !Array.isArray(obj.material))
+                    ? (obj.material as THREE.Material)
+                    : undefined;
+                const matName = srcMat?.name ?? '';
                 const isCollision = isCollisionMaterialName(matName)
                     || ModelManager.isCollisionModelUrl(url);
                 if (isCollision) {
@@ -203,14 +210,20 @@ export class ModelManager {
                     return;
                 }
 
+                obj.matrix.copy(obj.matrixWorld);
+                obj.matrix.decompose(obj.position, obj.quaternion, obj.scale);
+                obj.matrixAutoUpdate = true;
+
                 obj.geometry.computeBoundingBox();
                 obj.onBeforeRender = updateUniforms;
 
                 const localAABB = obj.geometry.boundingBox;
                 assertIsDefined(localAABB);
-                AABBox.union(localAABB);
+                worldAABB.copy(localAABB).applyMatrix4(obj.matrix);
+                AABBox.union(worldAABB);
 
-                const isFlat = isZero(localAABB.max.y || 0.0) && isZero(localAABB.min.y || 0.0);
+                // Flats are ground-aligned (zero thickness in world Y).
+                const isFlat = isZero(worldAABB.max.y || 0.0) && isZero(worldAABB.min.y || 0.0);
                 if (isFlat) {
                     level.flats.push(obj);
                 } else {
@@ -252,9 +265,9 @@ export class ModelManager {
                             shaded: !isFlat,
                             depthWrite: !isFlat
                         });
-                        // Mod imports often have open/inverted Unity meshes; draw both
-                        // sides so backface culling does not leave see-through holes.
-                        if (rawColor) {
+                        // Mod imports and textured scenery often need both sides
+                        // (original glTF doubleSided, or #rrggbb raw-color meshes).
+                        if (rawColor || srcMat?.side === THREE.DoubleSide) {
                             (obj.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
                         }
                     }

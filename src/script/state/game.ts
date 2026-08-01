@@ -29,7 +29,16 @@ import { HUDEntity } from '../scene/entities/overlay/hud';
 import { TelemetryGraph } from '../scene/entities/overlay/telemetryGraph';
 import { TelemetryGraphWindow } from '../scene/entities/overlay/telemetryGraphWindow';
 import { PlayerEntity, PlayerSpawnState } from '../scene/entities/player';
-import { createHillCollider, HillCollider } from '../scene/entities/hillCollider';
+import {
+    bakeCollisionMeshFromModel,
+    createCarrierMeshCollider,
+    sampleCarrierMeshSurfaceYMax,
+    CarrierMeshCollider,
+} from '../scene/entities/carrierDeck';
+import {
+    createSkiJumpCollider, sampleSkiJumpSurfaceYMax, SkiJumpCollider,
+} from '../scene/entities/skiJump';
+import { createHillCollider, HillCollider, sampleHillSurfaceY } from '../scene/entities/hillCollider';
 import { SceneryField, SceneryFieldSettings } from '../scene/entities/sceneryField';
 import { VegetationField } from '../scene/entities/vegetationField';
 import { VegetationKind } from '../scene/models/lib/vegetationModelBuilder';
@@ -116,6 +125,26 @@ const RUNWAY_SPAWN_INSET_M = 120;
 /** Paved runway strip only — biome patches fill the shoulders beside it. */
 const RUNWAY_STRIP_HALF_WIDTH = 75;
 const RUNWAY_STRIP_HALF_LENGTH = RUNWAY_HALF_LENGTH_M + 150;
+/** Kuznetsov carrier origin (matches {@link Game.addAirBase} placement). */
+const KUZ_POSITION = new THREE.Vector3(2500, 0, -2100);
+/**
+ * Carrier hull AABB from `assets/kuz.glb` (approx).
+ * Used for approach spawn alignment along the deck axis.
+ */
+const KUZ_HULL = {
+    minX: -34.33,
+    maxX: 43.83,
+    minZ: -177.88,
+    maxZ: 124.28,
+};
+/** Lateral centreline of the carrier deck relative to {@link KUZ_POSITION}. */
+const KUZ_DECK_MID_X = (KUZ_HULL.minX + KUZ_HULL.maxX) * 0.5;
+/** Approximate flat-deck height for approach altitude planning (m). */
+const CARRIER_DECK_Y = 14;
+/** Final approach distance to the carrier stern threshold (m). */
+const CARRIER_APPROACH_FINAL_DISTANCE_M = 2500;
+/** Carrier final altitude (m); ~3° glide to the deck over {@link CARRIER_APPROACH_FINAL_DISTANCE_M}. */
+const CARRIER_APPROACH_ALTITUDE_M = CARRIER_DECK_Y + 130;
 const VEGETATION_FIELD_OPTIONS = {
     cellSize: 75,
     fillRatio: 0.55,
@@ -149,6 +178,28 @@ const PLAYER_LAND_POSITION = new THREE.Vector3(
 );
 const PLAYER_LAND_HEADING = PLAYER_STARTING_HEADING;
 const PLAYER_LAND_SPAWN: PlayerSpawnState = {
+    throttle: 0,
+    airborne: false,
+};
+
+/** Carrier landing: final toward the ski-jump bow along -Z. */
+const PLAYER_CARRIER_HEADING = Math.PI;
+const PLAYER_CARRIER_POSITION = new THREE.Vector3(
+    KUZ_POSITION.x + KUZ_DECK_MID_X,
+    CARRIER_APPROACH_ALTITUDE_M,
+    KUZ_POSITION.z + KUZ_HULL.maxZ + CARRIER_APPROACH_FINAL_DISTANCE_M,
+);
+const PLAYER_CARRIER_SPAWN: PlayerSpawnState = {
+    velocity: FORWARD.clone().applyAxisAngle(UP, PLAYER_CARRIER_HEADING).multiplyScalar(APPROACH_SPEED_MPS),
+    throttle: 0.38,
+    airborne: true,
+};
+
+/** On-deck takeoff: 120 m aft of the bow tip, facing the ski jump (-Z). */
+const CARRIER_TAKEOFF_FROM_BOW_M = 120;
+const PLAYER_CARRIER_TAKEOFF_HEADING = Math.PI;
+const PLAYER_CARRIER_TAKEOFF_LOCAL_Z = KUZ_HULL.minZ + CARRIER_TAKEOFF_FROM_BOW_M;
+const PLAYER_CARRIER_TAKEOFF_SPAWN: PlayerSpawnState = {
     throttle: 0,
     airborne: false,
 };
@@ -238,6 +289,8 @@ export class Game {
     private readonly terrainRayOrigin = new THREE.Vector3();
     private readonly terrainRayDir = new THREE.Vector3(0, -1, 0);
     private readonly hillColliders: HillCollider[] = [];
+    private readonly skiJumps: SkiJumpCollider[] = [];
+    private readonly carrierMeshes: CarrierMeshCollider[] = [];
     private readonly obstacles: Obstacle[] = [];
     private weaponsField: WeaponsField | undefined;
     private debrisField: DebrisField | undefined;
@@ -347,6 +400,8 @@ export class Game {
             () => void this.beginFlight('approach'),
             () => void this.beginFlight('runway'),
             () => void this.beginFlight('headon'),
+            () => void this.beginFlight('carrier'),
+            () => void this.beginFlight('carrierTakeoff'),
         );
 
         this.cameraUpdaters.set(PlayerViewState.CRASHED, new CrashedCameraUpdater(this.player, this.playerCamera.main));
@@ -977,6 +1032,26 @@ export class Game {
         return PLAYER_LAND_POSITION.clone().setY(y);
     }
 
+    /** Highest solid ground Y at (x, z): flat datum, hills, ski jumps, carrier meshes. */
+    private groundHeightAt(x: number, z: number): number {
+        return Math.max(
+            0,
+            sampleHillSurfaceY(x, z, this.hillColliders),
+            sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
+            sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes),
+        );
+    }
+
+    /** On-deck carrier takeoff spawn; Y = deck surface + FM2 gear rest height. */
+    private carrierTakeoffSpawnPosition(): THREE.Vector3 {
+        const gearY = this.currentDef.flight
+            ? fm2GroundRestHeight(this.currentDef.flight)
+            : PLANE_DISTANCE_TO_GROUND;
+        const x = KUZ_POSITION.x + KUZ_DECK_MID_X;
+        const z = KUZ_POSITION.z + PLAYER_CARRIER_TAKEOFF_LOCAL_Z;
+        return new THREE.Vector3(x, this.groundHeightAt(x, z) + gearY, z);
+    }
+
     private onViewportResize() {
         if (this.configService.techProfiles.getActive().resolution === DisplayResolution.HD_RES) {
             this.updateHdResolution();
@@ -1508,6 +1583,14 @@ export class Game {
                         void this.beginFlight('headon');
                         break;
                     }
+                    case '4': {
+                        void this.beginFlight('carrier');
+                        break;
+                    }
+                    case '5': {
+                        void this.beginFlight('carrierTakeoff');
+                        break;
+                    }
                 }
             }
 
@@ -1738,7 +1821,7 @@ export class Game {
     }
 
     /** Begin a flight using the aircraft + livery chosen in the spawn menu. */
-    private async beginFlight(spawn: 'approach' | 'runway' | 'headon') {
+    private async beginFlight(spawn: 'approach' | 'runway' | 'headon' | 'carrier' | 'carrierTakeoff') {
         const def = this.selectedAircraftDef();
         if (def) {
             await this.preloadAircraftModels(def);
@@ -1752,6 +1835,14 @@ export class Game {
 
         if (spawn === 'runway') {
             this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
+        } else if (spawn === 'carrier') {
+            this.player.reset(PLAYER_CARRIER_POSITION, PLAYER_CARRIER_HEADING, PLAYER_CARRIER_SPAWN);
+        } else if (spawn === 'carrierTakeoff') {
+            this.player.reset(
+                this.carrierTakeoffSpawnPosition(),
+                PLAYER_CARRIER_TAKEOFF_HEADING,
+                PLAYER_CARRIER_TAKEOFF_SPAWN,
+            );
         } else {
             // Approach and head-on both start on the final approach path.
             this.player.reset(PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
@@ -1792,10 +1883,12 @@ export class Game {
             halfWidth: RUNWAY_STRIP_HALF_WIDTH,
         };
 
-        // Hand the static world (terrain hills, obstacles, runway) to the sim
-        // worker so its AI pilots can navigate; then register the player as a
+        // Hand the static world (terrain hills, ski jump, carrier deck, obstacles, runway)
+        // to the sim worker so its AI pilots can navigate; then register the player as a
         // sim-owned aircraft (its physics + gun + autopilot all live there).
-        this.combatSim.setWorld(serializeWorld(this.hillColliders, this.obstacles, runway));
+        this.combatSim.setWorld(serializeWorld(
+            this.hillColliders, this.obstacles, runway, this.skiJumps, this.carrierMeshes,
+        ));
         this.combatSim.addAircraft({
             id: PLAYER_SIM_ID,
             faction: Faction.PLAYER,
@@ -1812,6 +1905,7 @@ export class Game {
         });
         this.player.setCombatSimClient(this.combatSim);
         this.player.setHasGun(true);
+        this.player.setGroundHeightAt((x, z) => this.groundHeightAt(x, z));
 
         // The weapons field is now a pure renderer of the worker's projectile pool.
         this.weaponsField = new WeaponsField(this.models, this.combatSim);
@@ -1853,6 +1947,7 @@ export class Game {
             );
             ai.enabled = false;
             this.combatSim.setEnabled(ai.simId, false);
+            ai.setGroundHeightAt((x, z) => this.groundHeightAt(x, z));
             this.scene.add(ai);
             this.aiOpponents.push(ai);
         }
@@ -2055,7 +2150,7 @@ export class Game {
         const field2 = new SceneryField(this.models, new THREE.Box2().setFromCenterAndSize(new THREE.Vector2(-10000, -10000), new THREE.Vector2(10000, 15000)), fieldOptions);
         this.scene.add(field2);
 
-        this.addAirBase(this.scene, this.models);
+        await this.addAirBase(this.scene, this.models);
 
         this.addRefinery(this.scene, this.models);
 
@@ -2117,7 +2212,7 @@ export class Game {
         scene.add(depot02b);
     }
 
-    private addAirBase(scene: Scene, models: ModelManager) {
+    private async addAirBase(scene: Scene, models: ModelManager) {
         const hangarGround1 = new StaticSceneryEntity(models.getModel('lib:pavement'), 5);
         hangarGround1.position.set(1360, 0, -860);
         hangarGround1.scale.set(200, 1, 200);
@@ -2131,6 +2226,40 @@ export class Game {
         const runway = new GroundTargetEntity(models.getModel('assets/runway01.gltf'), 0, 'Airbase', 'Stosneehar');
         runway.position.copy(AIRBASE_RUNWAY);
         scene.add(runway);
+
+        // Kuznetsov carrier from data/kuz.blend (exported via tools/export_kuz.py).
+        // Collision soup is baked from the same GLB used for rendering.
+        await this.models.waitForModel('assets/kuz.glb');
+        const kuzModel = models.getModel('assets/kuz.glb');
+        this.carrierMeshes.length = 0;
+        const kuzCollision = bakeCollisionMeshFromModel(kuzModel);
+        if (kuzCollision) {
+            this.carrierMeshes.push(createCarrierMeshCollider(
+                KUZ_POSITION.x,
+                KUZ_POSITION.y,
+                KUZ_POSITION.z,
+                kuzCollision,
+            ));
+        }
+        const kuz = new GroundTargetEntity(kuzModel, 0, 'Carrier', 'Stosneehar');
+        kuz.position.copy(KUZ_POSITION);
+        scene.add(kuz);
+
+        // Carrier-style ski jump 90 m ahead of the runway spawn, rising toward +Z (takeoff).
+        this.skiJumps.length = 0;
+        const skiJumpAheadM = 90;
+        const skiJumpOrigin = PLAYER_LAND_POSITION.clone().setY(0).add(
+            FORWARD.clone().applyAxisAngle(UP, PLAYER_LAND_HEADING).multiplyScalar(skiJumpAheadM),
+        );
+        this.skiJumps.push(createSkiJumpCollider(
+            skiJumpOrigin.x,
+            skiJumpOrigin.z,
+            PLAYER_LAND_HEADING,
+        ));
+        const skiJump = new StaticSceneryEntity(models.getModel('lib:skiJump'));
+        skiJump.position.copy(skiJumpOrigin);
+        skiJump.quaternion.setFromAxisAngle(UP, PLAYER_LAND_HEADING);
+        scene.add(skiJump);
 
         const hangar1 = new StaticSceneryEntity(models.getModel('assets/hangar01.gltf'));
         hangar1.position.set(1330, 0, -800);

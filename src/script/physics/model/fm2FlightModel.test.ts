@@ -247,6 +247,50 @@ describe('FM2 rigid-body flight model', () => {
         );
     });
 
+    it('gear contacts stay on a rising ramp without tunnelling', () => {
+        // 12° linear incline along +Z — same order as the carrier ski jump tip.
+        const slope = Math.tan(12 * Math.PI / 180);
+        const groundAt = (_x: number, z: number) => Math.max(0, z * slope);
+        const model = new Fm2FlightModel();
+        model.setWorldQuery({
+            groundHeightAt: groundAt,
+            isLand: () => true,
+            obstacles: () => [],
+            runway: () => ({
+                center: new THREE.Vector3(),
+                heading: 0,
+                halfLength: 1000,
+                halfWidth: 20,
+            }),
+        });
+        model.reset();
+        model.position.set(0, PLANE_DISTANCE_TO_GROUND, 0);
+        model.setLanded(true);
+        model.setLandingGearDeployed(true);
+        model.setThrottle(0.85);
+        model.syncEffectiveThrottle();
+        model.velocityVector.set(0, 0, 45);
+        model.snapPhysicsState();
+
+        const contact = new THREE.Vector3();
+        let worstPen = 0;
+        for (let i = 0; i < 6 * 120; i++) {
+            model.update(1 / 120);
+            assert.ok(!model.isCrashed(), `crashed on ramp at z=${model.position.z.toFixed(1)}`);
+            for (const gp of defaultFm2Config.gear.points) {
+                contact.set(gp[0], gp[1], gp[2]).applyQuaternion(model.quaternion).add(model.position);
+                const pen = groundAt(contact.x, contact.z) - contact.y;
+                if (pen > worstPen) worstPen = pen;
+            }
+            if (model.position.z > 80) break;
+        }
+        assert.ok(model.position.z > 40, `did not climb ramp: z=${model.position.z.toFixed(1)}`);
+        assert.ok(worstPen <= 0.03,
+            `gear tunnelled into ramp: max penetration ${worstPen.toFixed(3)} m`);
+        assert.ok(model.position.y > groundAt(0, model.position.z) + 1.0,
+            `body below ramp deck: y=${model.position.y.toFixed(2)}`);
+    });
+
     it('accelerates down the runway and takes off', () => {
         const model = new Fm2FlightModel();
         model.reset();

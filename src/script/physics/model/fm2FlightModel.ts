@@ -39,6 +39,20 @@ const GRAVITY = 9.80665;
 const THROTTLE_UP_RATE = 0.10;
 const THROTTLE_DOWN_RATE = 0.07;
 
+/**
+ * Soft spring travel allowed below the local heightfield before a hard lift.
+ * Near-zero keeps tyres visually on the deck; springs still cushion via force.
+ */
+const MAX_GEAR_PENETRATION_M = 0.02;
+/**
+ * Half-extent (m) of the XZ samples around each gear point. A single point
+ * under the axle lets the tyre mesh dig into rising terrain by ~radius×slope;
+ * taking the max height in this footprint keeps the whole wheel above the deck.
+ */
+const GEAR_CONTACT_FOOTPRINT_M = 0.45;
+/** Finite-difference half-step (m) for heightfield surface normals. */
+const GROUND_NORMAL_EPS_M = 0.5;
+
 /** Optional per-model behaviour flags (orthogonal to the aircraft config). */
 export interface Fm2ModelOptions {
     /**
@@ -118,6 +132,8 @@ export class Fm2FlightModel extends FlightModel {
     private readonly _contactVel = new THREE.Vector3();
     private readonly _omegaWorld = new THREE.Vector3();
     private readonly _friction = new THREE.Vector3();
+    private readonly _groundNormal = new THREE.Vector3();
+    private readonly _vTan = new THREE.Vector3();
     /** Last forebody asymmetry side force (body frame, N); for the debug overlay. */
     private readonly forebodyForceBody = new THREE.Vector3();
 
@@ -168,6 +184,21 @@ export class Fm2FlightModel extends FlightModel {
         return this.world?.groundHeightAt(x, z) ?? 0;
     }
 
+    /**
+     * Highest solid ground under a gear tyre footprint (center + ±footprint on X/Z).
+     * Flat ground unchanged; on ramps/hills the uphill side of the tyre sets the contact.
+     */
+    private groundHeightUnderGear(x: number, z: number): number {
+        const r = GEAR_CONTACT_FOOTPRINT_M;
+        return Math.max(
+            this.groundHeightAt(x, z),
+            this.groundHeightAt(x + r, z),
+            this.groundHeightAt(x - r, z),
+            this.groundHeightAt(x, z + r),
+            this.groundHeightAt(x, z - r),
+        );
+    }
+
     reset(): void {
         super.reset();
         this.rb.reset();
@@ -176,6 +207,13 @@ export class Fm2FlightModel extends FlightModel {
         for (const s of this.allSurfaces) {
             s.resetState();
         }
+    }
+
+    /** Keep the rigid body in sync after external teleports / solid-world pushes. */
+    override snapPhysicsState(): void {
+        super.snapPhysicsState();
+        this.rb.orientation.copy(this.obj.quaternion);
+        this.rb.velocityWorld.copy(this.velocity);
     }
 
     step(delta: number): void {
@@ -317,6 +355,9 @@ export class Fm2FlightModel extends FlightModel {
         // Publish rigid-body state back to the base model.
         this.obj.quaternion.copy(this.rb.orientation);
         this.velocity.copy(this.rb.velocityWorld);
+        // Soft springs alone tunnel on rising terrain; clamp contacts to the
+        // heightfield (hills, ski jumps, flat datum — anything groundHeightAt returns).
+        this.resolveGearTerrainPenetration();
         this.clampParkedGroundSpeed();
 
         this.updateStallState(speed, aoa, altitude);
@@ -518,6 +559,19 @@ export class Fm2FlightModel extends FlightModel {
         this.forceBody.add(this._v);
     }
 
+    /**
+     * Upward unit normal of the solid heightfield at (x, z). Flat ground → +Y;
+     * ramps/hills tilt so gear spring/friction act along the local surface.
+     */
+    private sampleGroundNormal(x: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+        const e = GROUND_NORMAL_EPS_M;
+        const hL = this.groundHeightAt(x - e, z);
+        const hR = this.groundHeightAt(x + e, z);
+        const hD = this.groundHeightAt(x, z - e);
+        const hU = this.groundHeightAt(x, z + e);
+        return out.set(-(hR - hL) / (2 * e), 1, -(hU - hD) / (2 * e)).normalize();
+    }
+
     /** Spring-damper landing gear. Accumulates world force and body moment. */
     private computeGearForces(): void {
         this.gearForceWorld.set(0, 0, 0);
@@ -529,28 +583,29 @@ export class Fm2FlightModel extends FlightModel {
         for (const gp of gear.points) {
             this._v.set(gp[0], gp[1], gp[2]).applyQuaternion(this.rb.orientation);
             this._gearWorld.copy(this._v).add(this.obj.position);
-            const groundY = this.groundHeightAt(this._gearWorld.x, this._gearWorld.z);
+            const groundY = this.groundHeightUnderGear(this._gearWorld.x, this._gearWorld.z);
             const penetration = groundY - this._gearWorld.y;
             if (penetration <= 0) continue;
 
+            this.sampleGroundNormal(this._gearWorld.x, this._gearWorld.z, this._groundNormal);
+
             // Velocity of the contact point through the world.
             this._contactVel.crossVectors(this._omegaWorld, this._v).add(this.rb.velocityWorld);
+            const vIntoSurface = this._contactVel.dot(this._groundNormal);
 
-            // Normal (vertical) spring-damper reaction.
-            let normal = gear.stiffness * penetration - gear.damping * this._contactVel.y;
-            if (normal < 0) normal = 0;
+            // Spring-damper along the local heightfield normal (not always +Y).
+            let normalMag = gear.stiffness * penetration - gear.damping * vIntoSurface;
+            if (normalMag < 0) normalMag = 0;
 
-            // Horizontal friction opposing the contact ground velocity.
-            const vhx = this._contactVel.x;
-            const vhz = this._contactVel.z;
-            const vh = Math.hypot(vhx, vhz);
-            this._friction.set(0, normal, 0);
+            this._friction.copy(this._groundNormal).multiplyScalar(normalMag);
+
+            // Friction in the tangent plane, opposing sliding along the surface.
+            this._vTan.copy(this._contactVel).addScaledVector(this._groundNormal, -vIntoSurface);
+            const vh = this._vTan.length();
             if (vh > 1e-3) {
                 const rolling = this.wheelBrakesApplied ? gear.brakeFriction : gear.rollFriction;
-                const mu = Math.max(rolling, gear.sideFriction * this.sideSlipFraction(vhx, vhz));
-                const fMag = mu * normal;
-                this._friction.x = -fMag * vhx / vh;
-                this._friction.z = -fMag * vhz / vh;
+                const mu = Math.max(rolling, gear.sideFriction * this.sideSlipFraction(this._vTan.x, this._vTan.z));
+                this._friction.addScaledVector(this._vTan, -(mu * normalMag) / vh);
             }
 
             this.gearForceWorld.add(this._friction);
@@ -561,10 +616,36 @@ export class Fm2FlightModel extends FlightModel {
         }
     }
 
+    /**
+     * Lift the body so no gear contact tunnels deeper than
+     * {@link MAX_GEAR_PENETRATION_M} below the local heightfield.
+     * Correction is vertical: the solid constraint is y ≥ groundHeightAt(x,z)
+     * (hills, ramps, flat — anything WorldQuery returns).
+     */
+    private resolveGearTerrainPenetration(): void {
+        const gear = this.config.gear;
+        let maxPen = 0;
+        for (const gp of gear.points) {
+            this._v.set(gp[0], gp[1], gp[2]).applyQuaternion(this.rb.orientation);
+            this._gearWorld.copy(this._v).add(this.obj.position);
+            const pen = this.groundHeightUnderGear(this._gearWorld.x, this._gearWorld.z) - this._gearWorld.y;
+            if (pen > maxPen) maxPen = pen;
+        }
+        const excess = maxPen - MAX_GEAR_PENETRATION_M;
+        if (excess <= 0) return;
+
+        this.obj.position.y += excess;
+        if (this.velocity.y < 0) {
+            this.velocity.y = 0;
+            this.rb.velocityWorld.y = 0;
+        }
+    }
+
     /** Stop residual ground creep once the aircraft has settled on the runway. */
     private clampParkedGroundSpeed(): void {
         if (!this.landed) return;
-        if (this.obj.position.y > this.groundRestY + 0.25) return;
+        const terrainY = this.groundHeightAt(this.obj.position.x, this.obj.position.z);
+        if (this.obj.position.y > terrainY + this.groundRestY + 0.25) return;
         // Leave the rollout alone once the pilot advances the throttle.
         if (this.throttle > 0.01 || this.effectiveThrottle > 0.05) return;
 
@@ -622,11 +703,14 @@ export class Fm2FlightModel extends FlightModel {
             this.landed = false;
         }
 
-        // Hard floor so the gear spring can never let the body tunnel through.
-        const minY = restY - 0.6;
+        // CG hard floor (gear contacts already clamped in resolveGearTerrainPenetration).
+        const minY = restY - MAX_GEAR_PENETRATION_M;
         if (this.obj.position.y < minY) {
             this.obj.position.y = minY;
-            if (this.velocity.y < 0) this.velocity.y = 0;
+            if (this.velocity.y < 0) {
+                this.velocity.y = 0;
+                this.rb.velocityWorld.y = 0;
+            }
         }
 
         if (!onGround) return;

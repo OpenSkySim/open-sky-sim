@@ -14,6 +14,8 @@ export class SpawnPanel {
         onApproach: () => void,
         onRunway: () => void,
         onHeadOn: () => void,
+        onCarrier: () => void,
+        onCarrierTakeoff: () => void,
     ) {
         this.panel = document.getElementById('spawn-panel')!;
         this.title = document.getElementById('spawn-title')!;
@@ -31,6 +33,8 @@ export class SpawnPanel {
         document.getElementById('spawn-approach')!.addEventListener('click', onApproach);
         document.getElementById('spawn-runway')!.addEventListener('click', onRunway);
         document.getElementById('spawn-headon')!.addEventListener('click', onHeadOn);
+        document.getElementById('spawn-carrier')!.addEventListener('click', onCarrier);
+        document.getElementById('spawn-carrier-takeoff')!.addEventListener('click', onCarrierTakeoff);
     }
 
     setTitle(text: string): void {

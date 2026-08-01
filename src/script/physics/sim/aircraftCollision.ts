@@ -23,6 +23,18 @@ const _qvec = new THREE.Vector3();
 const _d = new THREE.Vector3();
 const _corner = new THREE.Vector3();
 const _world = new THREE.Vector3();
+const _best = new THREE.Vector3();
+const _normal = new THREE.Vector3();
+
+/** World-space solid contact against terrain or an obstacle cylinder. */
+export interface SolidWorldContact {
+    /** Deepest penetrating sample (world). */
+    point: THREE.Vector3;
+    /** Unit normal pointing out of the solid (into free air). */
+    normal: THREE.Vector3;
+    /** Metres the sample is past the allowed surface (margin already applied). */
+    penetration: number;
+}
 
 /**
  * Closest-point segment vs sphere for broadphase; writes the earliest surface
@@ -216,10 +228,48 @@ export function collisionMeshHitsTerrain(
     groundHeightAt: (x: number, z: number) => number,
     margin: number,
 ): boolean {
-    return forEachAabbWorldSample(position, quaternion, mesh.aabb, (w) => {
+    return findCollisionMeshTerrainContact(
+        position, quaternion, mesh, groundHeightAt, margin, _best, _normal,
+    ) !== null;
+}
+
+/**
+ * Deepest terrain penetration of the collision AABB, or null if clear.
+ * Writes into `outPoint` / `outNormal` (heightfield normal) when contacting.
+ */
+export function findCollisionMeshTerrainContact(
+    position: THREE.Vector3,
+    quaternion: THREE.Quaternion,
+    mesh: AircraftCollisionMesh,
+    groundHeightAt: (x: number, z: number) => number,
+    margin: number,
+    outPoint: THREE.Vector3,
+    outNormal: THREE.Vector3,
+): SolidWorldContact | null {
+    let bestPen = 0;
+    let bestX = 0;
+    let bestZ = 0;
+    forEachAabbWorldSample(position, quaternion, mesh.aabb, (w) => {
         const gy = groundHeightAt(w.x, w.z);
-        return w.y < gy - margin;
+        const pen = (gy - margin) - w.y;
+        if (pen > bestPen) {
+            bestPen = pen;
+            _best.copy(w);
+            bestX = w.x;
+            bestZ = w.z;
+        }
     });
+    if (bestPen <= 0) {
+        return null;
+    }
+    const e = 0.5;
+    const hL = groundHeightAt(bestX - e, bestZ);
+    const hR = groundHeightAt(bestX + e, bestZ);
+    const hD = groundHeightAt(bestX, bestZ - e);
+    const hU = groundHeightAt(bestX, bestZ + e);
+    outNormal.set(-(hR - hL) / (2 * e), 1, -(hU - hD) / (2 * e)).normalize();
+    outPoint.copy(_best);
+    return { point: outPoint, normal: outNormal, penetration: bestPen };
 }
 
 /** True when any AABB sample lies inside an upright obstacle cylinder. */
@@ -229,6 +279,23 @@ export function collisionMeshHitsObstacle(
     mesh: AircraftCollisionMesh,
     obstacle: Obstacle,
 ): boolean {
+    return findCollisionMeshObstacleContact(
+        position, quaternion, mesh, obstacle, _best, _normal,
+    ) !== null;
+}
+
+/**
+ * Deepest cylinder penetration of the collision AABB, or null if clear.
+ * Side hits use a horizontal outward normal; roof hits use +Y.
+ */
+export function findCollisionMeshObstacleContact(
+    position: THREE.Vector3,
+    quaternion: THREE.Quaternion,
+    mesh: AircraftCollisionMesh,
+    obstacle: Obstacle,
+    outPoint: THREE.Vector3,
+    outNormal: THREE.Vector3,
+): SolidWorldContact | null {
     const ox = obstacle.position.x;
     const oy = obstacle.position.y;
     const oz = obstacle.position.z;
@@ -238,19 +305,40 @@ export function collisionMeshHitsObstacle(
         Math.max(Math.abs(mesh.aabb.min[0]), Math.abs(mesh.aabb.max[0])),
         Math.max(Math.abs(mesh.aabb.min[2]), Math.abs(mesh.aabb.max[2])),
     );
-    const dx = position.x - ox;
-    const dz = position.z - oz;
-    if (Math.hypot(dx, dz) > r + reach) {
-        return false;
+    const dx0 = position.x - ox;
+    const dz0 = position.z - oz;
+    if (Math.hypot(dx0, dz0) > r + reach) {
+        return null;
     }
-    if (position.y + mesh.aabb.max[1] < oy || position.y + mesh.aabb.min[1] > top) {
-        // Cheap vertical reject using body Y extents (ignores tilt — broadphase only).
-        // Fall through to samples for tilted airframes.
-    }
-    return forEachAabbWorldSample(position, quaternion, mesh.aabb, (w) => {
-        if (w.y < oy || w.y > top) return false;
-        return Math.hypot(w.x - ox, w.z - oz) <= r;
+    let bestPen = 0;
+    forEachAabbWorldSample(position, quaternion, mesh.aabb, (w) => {
+        if (w.y < oy || w.y > top) return;
+        const dx = w.x - ox;
+        const dz = w.z - oz;
+        const dist = Math.hypot(dx, dz);
+        if (dist > r) return;
+        const sidePen = r - dist;
+        const roofPen = top - w.y;
+        const useRoof = dist < r * 0.25 && roofPen < sidePen;
+        const pen = useRoof ? roofPen : sidePen;
+        if (pen > bestPen) {
+            bestPen = pen;
+            _best.copy(w);
+            if (useRoof) {
+                _normal.set(0, 1, 0);
+            } else if (dist > 1e-4) {
+                _normal.set(dx / dist, 0, dz / dist);
+            } else {
+                _normal.set(1, 0, 0);
+            }
+        }
     });
+    if (bestPen <= 0) {
+        return null;
+    }
+    outPoint.copy(_best);
+    outNormal.copy(_normal);
+    return { point: outPoint, normal: outNormal, penetration: bestPen };
 }
 
 /** Sphere (hit-radius) vs upright cylinder — fallback when no collision mesh. */

@@ -89,7 +89,6 @@ export class AircraftFx {
         displayPosition: THREE.Vector3,
         displayQuaternion: THREE.Quaternion,
         displayVelocity: THREE.Vector3,
-        airborne: boolean,
     ): void {
         const hasAfterburner = abDetents || this.hasNozzles;
         this.afterburnerCones.update(
@@ -103,7 +102,6 @@ export class AircraftFx {
                 displayPosition,
                 displayQuaternion,
                 displayVelocity,
-                airborne,
             );
         }
     }

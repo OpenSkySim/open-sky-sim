@@ -1,11 +1,14 @@
 import * as THREE from 'three';
-import { HillCollider } from '../../scene/entities/hillCollider';
 import { Obstacle, Runway, SceneWorldQuery } from '../../ai/worldQuery';
+import { CarrierMeshCollider } from '../../scene/entities/carrierDeck';
+import { HillCollider } from '../../scene/entities/hillCollider';
+import { SkiJumpCollider } from '../../scene/entities/skiJump';
 
 /**
  * Plain, structured-clone-safe views of the static world the AI pilots need
- * (terrain hills, static obstacles, the runway). These are posted once to the
- * combat sim worker so it can rebuild a {@link SceneWorldQuery} on its side.
+ * (terrain hills, ski jumps, carrier meshes, static obstacles, the runway).
+ * These are posted once to the combat sim worker so it can rebuild a
+ * {@link SceneWorldQuery} on its side.
  *
  * `isLand` is deliberately not serialized: the {@link import('../../ai/aiPilot').AiPilot}
  * never calls it (only groundHeightAt / obstacles / runway), so the worker-side
@@ -34,13 +37,38 @@ export interface SerializedRunway {
     halfWidth: number;
 }
 
+export interface SerializedSkiJump {
+    originX: number;
+    originZ: number;
+    heading: number;
+    length: number;
+    height: number;
+    halfWidth: number;
+}
+
+export interface SerializedCarrierMesh {
+    originX: number;
+    originY: number;
+    originZ: number;
+    triangles: number[];
+    aabb: { min: [number, number, number]; max: [number, number, number] };
+}
+
 export interface SerializedWorld {
     hills: SerializedHill[];
     obstacles: SerializedObstacle[];
     runway: SerializedRunway;
+    skiJumps?: SerializedSkiJump[];
+    carrierMeshes?: SerializedCarrierMesh[];
 }
 
-export function serializeWorld(hills: HillCollider[], obstacles: Obstacle[], runway: Runway): SerializedWorld {
+export function serializeWorld(
+    hills: HillCollider[],
+    obstacles: Obstacle[],
+    runway: Runway,
+    skiJumps: readonly SkiJumpCollider[] = [],
+    carrierMeshes: readonly CarrierMeshCollider[] = [],
+): SerializedWorld {
     return {
         hills: hills.map(h => ({
             worldToLocal: h.worldToLocal.toArray(),
@@ -62,6 +90,21 @@ export function serializeWorld(hills: HillCollider[], obstacles: Obstacle[], run
             halfLength: runway.halfLength,
             halfWidth: runway.halfWidth,
         },
+        skiJumps: skiJumps.map(r => ({
+            originX: r.originX,
+            originZ: r.originZ,
+            heading: r.heading,
+            length: r.length,
+            height: r.height,
+            halfWidth: r.halfWidth,
+        })),
+        carrierMeshes: carrierMeshes.map(c => ({
+            originX: c.originX,
+            originY: c.originY,
+            originZ: c.originZ,
+            triangles: c.triangles,
+            aabb: c.aabb,
+        })),
     };
 }
 
@@ -87,6 +130,21 @@ export function deserializeWorldQuery(world: SerializedWorld): SceneWorldQuery {
         halfLength: world.runway.halfLength,
         halfWidth: world.runway.halfWidth,
     };
+    const skiJumps: SkiJumpCollider[] = (world.skiJumps ?? []).map(r => ({
+        originX: r.originX,
+        originZ: r.originZ,
+        heading: r.heading,
+        length: r.length,
+        height: r.height,
+        halfWidth: r.halfWidth,
+    }));
+    const carrierMeshes: CarrierMeshCollider[] = (world.carrierMeshes ?? []).map(c => ({
+        originX: c.originX,
+        originY: c.originY,
+        originZ: c.originZ,
+        triangles: c.triangles,
+        aabb: c.aabb,
+    }));
     // isLand is unused by the AI pilot; stub to land everywhere.
-    return new SceneWorldQuery(hills, () => true, obstacles, runway);
+    return new SceneWorldQuery(hills, () => true, obstacles, runway, skiJumps, carrierMeshes);
 }

@@ -228,13 +228,12 @@ export class WingtipTrails {
         displayPosition: THREE.Vector3,
         displayQuaternion: THREE.Quaternion,
         displayVelocity: THREE.Vector3,
-        airborne: boolean,
     ): void {
         const speed = displayVelocity.length();
         
         this.applyWhiteColors();
 
-        if (airborne && speed >= MIN_TRAIL_SPEED_MPS) {
+        if (speed >= MIN_TRAIL_SPEED_MPS) {
             const spacing = sampleSpacingM(speed);
             this._leftTip.copy(this.leftTipBody);
             this._leftTip.z -= WINGTIP_TRAIL_AFT_OFFSET_M;

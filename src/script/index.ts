@@ -23,6 +23,7 @@ import { SceneMaterialManager } from './scene/materials/materials';
 import { BackgroundModelLibBuilder } from './scene/models/lib/backgroundModelBuilder';
 import { FieldModelLibBuilder, FieldModelType } from './scene/models/lib/fieldModelBuilder';
 import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, MountainModelLibBuilder } from './scene/models/lib/mountainModelBuilder';
+import { SkiJumpModelLibBuilder } from './scene/models/lib/skiJumpModelBuilder';
 import { TracerModelLibBuilder } from './scene/models/lib/tracerModelBuilder';
 import { ModelManager } from './scene/models/models';
 import { Game, GameRenderTask, GameUpdateTask } from './state/game';
@@ -57,6 +58,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         new FieldModelLibBuilder('cropRed', FieldModelType.TRIANGLE, PaletteCategory.SCENERY_FIELD_RED, 400),
         new MountainModelLibBuilder('hill', HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
         new MountainModelLibBuilder('mountain', MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
+        new SkiJumpModelLibBuilder('skiJump'),
         new TracerModelLibBuilder('tracer'),
     ]);
     const audio = new AudioSystem();

@@ -7,6 +7,8 @@ import * as THREE from 'three';
 import {
     collisionMeshHitsObstacle,
     collisionMeshHitsTerrain,
+    findCollisionMeshObstacleContact,
+    findCollisionMeshTerrainContact,
     segmentHitsAabbBody,
     segmentHitsCollisionMesh,
     segmentHitsSphere,
@@ -169,5 +171,50 @@ describe('obstacles', () => {
     it('sphere hits when overlapping the cylinder', () => {
         assert.equal(sphereHitsObstacle(new THREE.Vector3(103, 5, 0), 10, building), true);
         assert.equal(sphereHitsObstacle(new THREE.Vector3(200, 5, 0), 10, building), false);
+    });
+
+    it('reports side contact normal pointing outward', () => {
+        const mesh = boxMesh([-2, -1, -2], [2, 1, 2]);
+        const pos = new THREE.Vector3(103, 5, 0);
+        const point = new THREE.Vector3();
+        const normal = new THREE.Vector3();
+        const hit = findCollisionMeshObstacleContact(
+            pos, new THREE.Quaternion(), mesh, building, point, normal,
+        );
+        assert.ok(hit, 'expected contact');
+        assert.ok(hit!.penetration > 0);
+        assert.ok(Math.abs(hit!.normal.y) < 0.25, `expected horizontal normal, got ${hit!.normal.toArray()}`);
+        // Outward from building axis at (100,0,0).
+        const away = (hit!.point.x - 100) * hit!.normal.x + (hit!.point.z - 0) * hit!.normal.z;
+        assert.ok(away > 0, `normal should point away from cylinder axis`);
+    });
+});
+
+describe('findCollisionMeshTerrainContact', () => {
+    it('returns deepest penetration and upward normal on a flat plateau', () => {
+        const mesh = boxMesh([-1, -1, -1], [1, 1, 1]);
+        const pos = new THREE.Vector3(0, 5, 0);
+        const point = new THREE.Vector3();
+        const normal = new THREE.Vector3();
+        const hit = findCollisionMeshTerrainContact(
+            pos, new THREE.Quaternion(), mesh, () => 10, 0.05, point, normal,
+        );
+        assert.ok(hit, 'expected terrain contact');
+        // Lowest sample is body y=4; plateau 10 − margin → pen ≈ 5.95
+        assert.ok(hit!.penetration > 5, `pen=${hit!.penetration}`);
+        assert.ok(hit!.normal.y > 0.9, `normal=${hit!.normal.toArray()}`);
+    });
+
+    it('returns null when clear of the surface', () => {
+        const mesh = boxMesh([-1, -1, -1], [1, 1, 1]);
+        const pos = new THREE.Vector3(0, 10, 0);
+        const point = new THREE.Vector3();
+        const normal = new THREE.Vector3();
+        assert.equal(
+            findCollisionMeshTerrainContact(
+                pos, new THREE.Quaternion(), mesh, () => 0, 0.05, point, normal,
+            ),
+            null,
+        );
     });
 });

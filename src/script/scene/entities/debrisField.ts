@@ -28,6 +28,14 @@ const DEBRIS_COLORS: PaletteCategory[] = [
     PaletteCategory.SCENERY_ROAD_SECONDARY,
 ];
 
+/** Hot sparks for airframe scrapes against terrain/buildings. */
+const SPARK_COLORS: PaletteCategory[] = [
+    PaletteCategory.FX_FIRE,
+    PaletteCategory.FX_FIRE__B,
+    PaletteCategory.LIGHT_YELLOW,
+    PaletteCategory.SCENERY_FIELD_YELLOW,
+];
+
 /**
  * Hit debris: small flat gray/brown plates that tumble as they fly.
  * Uses the same mesh material path as scenery (not the fire particle shader).
@@ -74,11 +82,12 @@ export class DebrisField implements Entity {
         // ~0.55 /s → terminal freefall ≈ 18 m/s; sheds inherited aircraft speed in ~2–3 s.
         this.system.addForce(new LinearDragForce(0.55));
 
+        const chipColors = [...DEBRIS_COLORS, ...SPARK_COLORS];
         const geo = new THREE.PlaneGeometry(1, 1);
         for (let i = 0; i < DEBRIS_PARTICLE_COUNT; i++) {
             const mat = materials.build({
                 type: SceneMaterialPrimitiveType.MESH,
-                category: DEBRIS_COLORS[i % DEBRIS_COLORS.length],
+                category: chipColors[i % chipColors.length],
                 depthWrite: false,
                 shaded: false,
             });
@@ -104,12 +113,15 @@ export class DebrisField implements Entity {
         for (let i = 0; i < n; i++) {
             const hit = hits[i];
             this.hitPos.set(hit.position[0], hit.position[1], hit.position[2]);
+            // Scrapes (low damage) kick sparks upward; gun hits peel sideways.
+            const scrape = hit.damage > 0 && hit.damage < 20;
+            const inherit = scrape ? 0.12 : DEBRIS_VELOCITY_INHERIT;
             this.hitVel.set(
-                hit.velocity[0] * DEBRIS_VELOCITY_INHERIT,
-                hit.velocity[1] * DEBRIS_VELOCITY_INHERIT,
-                hit.velocity[2] * DEBRIS_VELOCITY_INHERIT,
+                hit.velocity[0] * inherit,
+                hit.velocity[1] * inherit + (scrape ? 8 : 0),
+                hit.velocity[2] * inherit,
             );
-            this.burstAt(this.hitPos, this.hitVel);
+            this.burstAt(this.hitPos, this.hitVel, scrape ? DEBRIS_PER_HIT + 4 : DEBRIS_PER_HIT);
         }
         this.syncMeshes();
     }
@@ -125,10 +137,10 @@ export class DebrisField implements Entity {
         this.syncMeshes();
     }
 
-    private burstAt(position: THREE.Vector3, velocityBias: THREE.Vector3): void {
+    private burstAt(position: THREE.Vector3, velocityBias: THREE.Vector3, count = DEBRIS_PER_HIT): void {
         this.emitter.setVelocityBias(velocityBias);
         this.system.position = position;
-        this.system.burst(DEBRIS_PER_HIT, true);
+        this.system.burst(count, true);
     }
 
     private syncMeshes(): void {

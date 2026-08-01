@@ -17,10 +17,11 @@ import { deserializeWorldQuery, SerializedWorld } from './serializedWorld';
 import { AC, AC_STRIDE, PROJ_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
     AircraftCollisionMesh,
-    collisionMeshHitsObstacle,
-    collisionMeshHitsTerrain,
+    findCollisionMeshObstacleContact,
+    findCollisionMeshTerrainContact,
     segmentHitsCollisionMesh,
     segmentHitsSphere,
+    SolidWorldContact,
     sphereHitsObstacle,
 } from './aircraftCollision';
 import {
@@ -35,8 +36,24 @@ const PROJECTILE_GRAVITY = 9.80665;
 const PROJECTILE_POOL_SIZE = 480;
 /** Allow this much mesh–terrain overlap (m) when gear is down (spring travel). */
 const GEAR_TERRAIN_MARGIN_M = 0.8;
-/** Belly/wingtip crash margin when gear is up (m). */
+/** Belly/wingtip scrape margin when gear is up (m). */
 const BELLY_TERRAIN_MARGIN_M = 0.05;
+/** Impact speed into a solid that still destroys the airframe (m/s). */
+const SOLID_CRASH_IMPACT_MPS = 55;
+/** Penetration past the margin that forces a wreck (m). */
+const SOLID_CRASH_PENETRATION_M = 3.5;
+/** Bounce coefficient along the contact normal. */
+const SOLID_RESTITUTION = 0.18;
+/** Fraction of tangential speed removed on scrape. */
+const SOLID_TANGENT_FRICTION = 0.4;
+/** Minimum inward speed (m/s) before scrape FX / damage. */
+const SOLID_SCRAPE_FX_MPS = 6;
+/** Health lost per (m/s) of inward impact on a non-fatal scrape. */
+const SOLID_SCRAPE_DAMAGE_PER_MPS = 0.35;
+/** Min seconds between scrape FX bursts per aircraft. */
+const SOLID_SCRAPE_FX_COOLDOWN_S = 0.1;
+/** Extra separation along the normal after resolving penetration (m). */
+const SOLID_SLOP_M = 0.05;
 
 const NEUTRAL_INPUTS: SimControlInputs = {
     pitch: 0, roll: 0, yaw: 0, throttle: 0,
@@ -81,6 +98,9 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
 
     /** Firing decision resolved this frame (pilot solution or external trigger). */
     firing = false;
+
+    /** Seconds since last solid-world scrape FX (smoke/sparks). */
+    scrapeFxCooldown = 0;
 
     // Normalized command buffer, written by the pilot (ai) or the client (external).
     private inPitch = 0;
@@ -436,6 +456,9 @@ export class CombatSim implements ProjectileSink {
     private readonly bodyEnd = new THREE.Vector3();
     private readonly segEnd = new THREE.Vector3();
     private readonly cQuat = new THREE.Quaternion();
+    private readonly contactPoint = new THREE.Vector3();
+    private readonly contactNormal = new THREE.Vector3();
+    private readonly scrapeTangent = new THREE.Vector3();
 
     constructor() {
         for (let i = 0; i < PROJECTILE_POOL_SIZE; i++) {
@@ -656,6 +679,7 @@ export class CombatSim implements ProjectileSink {
     }
 
     step(delta: number, inputs: Record<string, SimControlInputs>): void {
+        this.hits.length = 0;
         // 0. Worker-side player input → control inputs for externally-flown aircraft.
         for (const [id, input] of this.playerInputs) {
             const a = this.aircraft.get(id);
@@ -685,14 +709,16 @@ export class CombatSim implements ProjectileSink {
         // 3. Advance every model from the now-consistent command buffers.
         for (const a of this.aircraft.values()) {
             if (!a.enabled) continue;
+            if (a.scrapeFxCooldown > 0) {
+                a.scrapeFxCooldown = Math.max(0, a.scrapeFxCooldown - delta);
+            }
             a.applyInputsToModel();
             a.model.update(delta);
-            this.checkSolidWorldCrash(a);
+            this.resolveSolidWorldContact(a);
             a.resolveFiring();
             this.wrapBounds(a);
         }
-        // 4. Guns + projectiles.
-        this.hits.length = 0;
+        // 4. Guns + projectiles (hits already cleared; scrapes may have appended).
         for (const a of this.aircraft.values()) {
             if (!a.enabled || !a.gun) continue;
             a.gun.update(delta);
@@ -757,67 +783,144 @@ export class CombatSim implements ProjectileSink {
     }
 
     /**
-     * Crash when the airframe collider (or hit-sphere fallback) intersects
-     * terrain/hills or a building cylinder. Gear springs handle soft landings;
-     * this is the hard solid-world killer.
+     * Solid-world contact: push the airframe out of terrain/buildings, shed
+     * inward speed (soft bounce), and emit scrape smoke/sparks. Only very hard
+     * impacts or deep tunnelling still destroy the aircraft.
      */
-    private checkSolidWorldCrash(a: SimAircraft): void {
+    private resolveSolidWorldContact(a: SimAircraft): void {
         if (a.model.isCrashed() || !this.world) return;
+
+        const contact = this.findSolidWorldContact(a);
+        if (!contact) return;
+
+        this.applySolidWorldResponse(a, contact);
+    }
+
+    private findSolidWorldContact(a: SimAircraft): SolidWorldContact | null {
         const pos = a.model.position;
         const quat = a.model.quaternion;
         const gearDown = a.isGearDeployed();
+        const groundAt = (x: number, z: number) => this.world!.groundHeightAt(x, z);
 
         if (a.collision) {
-            // Deep penetration always kills (hillside / inverted / tunnel).
-            const deepMargin = gearDown
-                ? GEAR_TERRAIN_MARGIN_M + 1.5
-                : BELLY_TERRAIN_MARGIN_M;
-            if (collisionMeshHitsTerrain(
-                pos, quat, a.collision,
-                (x, z) => this.world!.groundHeightAt(x, z),
-                deepMargin,
-            )) {
-                a.model.setCrashed(true);
-                return;
-            }
-            // Gear-up: any belly/wingtip scrape against terrain or hills.
-            if (!gearDown && collisionMeshHitsTerrain(
-                pos, quat, a.collision,
-                (x, z) => this.world!.groundHeightAt(x, z),
-                BELLY_TERRAIN_MARGIN_M,
-            )) {
-                a.model.setCrashed(true);
-                return;
-            }
-            const obstacles = this.world.obstacles();
+            const terrainMargin = gearDown ? GEAR_TERRAIN_MARGIN_M : BELLY_TERRAIN_MARGIN_M;
+            const terrain = findCollisionMeshTerrainContact(
+                pos, quat, a.collision, groundAt, terrainMargin,
+                this.contactPoint, this.contactNormal,
+            );
+            let best: SolidWorldContact | null = terrain;
+
+            const obstacles = this.world!.obstacles();
             for (let i = 0; i < obstacles.length; i++) {
-                if (collisionMeshHitsObstacle(pos, quat, a.collision, obstacles[i])) {
-                    a.model.setCrashed(true);
-                    return;
+                const hit = findCollisionMeshObstacleContact(
+                    pos, quat, a.collision, obstacles[i],
+                    this.closest, this.scrapeTangent,
+                );
+                if (hit && (!best || hit.penetration > best.penetration)) {
+                    this.contactPoint.copy(hit.point);
+                    this.contactNormal.copy(hit.normal);
+                    best = {
+                        point: this.contactPoint,
+                        normal: this.contactNormal,
+                        penetration: hit.penetration,
+                    };
                 }
             }
+            return best;
+        }
+
+        // No baked mesh: CG belly vs terrain + sphere vs buildings.
+        const groundY = groundAt(pos.x, pos.z);
+        const margin = gearDown ? GEAR_TERRAIN_MARGIN_M : BELLY_TERRAIN_MARGIN_M;
+        const bellyY = pos.y - (gearDown ? PLANE_DISTANCE_TO_GROUND : a.hitRadius * 0.35);
+        const terrainPen = (groundY - margin) - bellyY;
+        let best: SolidWorldContact | null = null;
+        if (terrainPen > 0) {
+            this.contactPoint.set(pos.x, bellyY, pos.z);
+            this.contactNormal.set(0, 1, 0);
+            best = {
+                point: this.contactPoint,
+                normal: this.contactNormal,
+                penetration: terrainPen,
+            };
+        }
+        const obstacles = this.world!.obstacles();
+        for (let i = 0; i < obstacles.length; i++) {
+            const o = obstacles[i];
+            if (!sphereHitsObstacle(pos, a.hitRadius, o)) continue;
+            const dx = pos.x - o.position.x;
+            const dz = pos.z - o.position.z;
+            const dist = Math.hypot(dx, dz) || 1e-4;
+            const sidePen = (o.radius + a.hitRadius) - dist;
+            if (sidePen <= 0) continue;
+            if (!best || sidePen > best.penetration) {
+                this.contactPoint.copy(pos);
+                this.contactNormal.set(dx / dist, 0, dz / dist);
+                best = {
+                    point: this.contactPoint,
+                    normal: this.contactNormal,
+                    penetration: sidePen,
+                };
+            }
+        }
+        return best;
+    }
+
+    private applySolidWorldResponse(a: SimAircraft, contact: SolidWorldContact): void {
+        const n = contact.normal;
+        const pos = a.model.position;
+        const vel = a.model.velocityVector;
+
+        // Separate so the collider sits just outside the solid.
+        pos.addScaledVector(n, contact.penetration + SOLID_SLOP_M);
+
+        const vn = vel.dot(n);
+        const impactSpeed = vn < 0 ? -vn : 0;
+        if (vn < 0) {
+            // Bounce along the normal, then scrub sliding speed.
+            vel.addScaledVector(n, -vn * (1 + SOLID_RESTITUTION));
+            this.scrapeTangent.copy(vel).addScaledVector(n, -vel.dot(n));
+            vel.addScaledVector(this.scrapeTangent, -SOLID_TANGENT_FRICTION);
+        }
+        a.model.snapPhysicsState();
+
+        const fatal = impactSpeed >= SOLID_CRASH_IMPACT_MPS
+            || contact.penetration >= SOLID_CRASH_PENETRATION_M;
+        if (fatal) {
+            a.model.setCrashed(true);
+            a.applyDamage(a.health);
+            this.emitScrapeFx(a, contact.point, /*force*/ true);
             return;
         }
 
-        // No baked mesh: CG vs terrain + sphere vs buildings.
-        const groundY = this.world.groundHeightAt(pos.x, pos.z);
-        const margin = gearDown ? GEAR_TERRAIN_MARGIN_M + 1.5 : BELLY_TERRAIN_MARGIN_M;
-        const bellyY = pos.y - (gearDown ? PLANE_DISTANCE_TO_GROUND : a.hitRadius * 0.35);
-        if (bellyY < groundY - margin) {
-            a.model.setCrashed(true);
+        // Soft contact while rolling with gear — springs already carry weight.
+        if (a.isGearDeployed() && impactSpeed < SOLID_SCRAPE_FX_MPS && contact.penetration < 0.35) {
             return;
         }
-        if (!gearDown && bellyY < groundY - BELLY_TERRAIN_MARGIN_M) {
-            a.model.setCrashed(true);
-            return;
-        }
-        const obstacles = this.world.obstacles();
-        for (let i = 0; i < obstacles.length; i++) {
-            if (sphereHitsObstacle(pos, a.hitRadius, obstacles[i])) {
+
+        if (impactSpeed >= SOLID_SCRAPE_FX_MPS) {
+            const dmg = impactSpeed * SOLID_SCRAPE_DAMAGE_PER_MPS;
+            a.applyDamage(dmg);
+            if (a.health <= 0) {
                 a.model.setCrashed(true);
-                return;
             }
+            this.emitScrapeFx(a, contact.point, false);
+        } else if (contact.penetration > 0.15) {
+            // Slow grind / wingtip drag — sparks without big damage.
+            this.emitScrapeFx(a, contact.point, false);
         }
+    }
+
+    private emitScrapeFx(a: SimAircraft, point: THREE.Vector3, force: boolean): void {
+        if (!force && a.scrapeFxCooldown > 0) return;
+        a.scrapeFxCooldown = SOLID_SCRAPE_FX_COOLDOWN_S;
+        const vel = a.model.velocityVector;
+        this.hits.push({
+            position: [point.x, point.y, point.z],
+            velocity: [vel.x, vel.y, vel.z],
+            targetId: a.id,
+            damage: force ? 50 : 5,
+        });
     }
 
     private checkHit(slot: ProjectileSlot, combatants: Combatant[]): void {

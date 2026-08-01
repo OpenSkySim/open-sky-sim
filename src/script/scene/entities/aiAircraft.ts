@@ -7,13 +7,14 @@ import { CombatSimClient } from '../../physics/sim/combatSimClient';
 import { SimAircraftSpawn, SimGunConfig } from '../../physics/sim/simTypes';
 import { FlightSample } from '../../physics/flightRecorder';
 import { defaultFm2Config } from '../../physics/fm2/fm2AircraftConfig';
-import { clamp, FORWARD, UP } from '../../utils/math';
+import { clamp, UP } from '../../utils/math';
 import { AiPilotOptions } from '../../ai/aiPilot';
 import { Combatant, Faction } from '../../weapons/combatant';
 import { Entity, ENTITY_TAGS } from '../entity';
 import { SceneMaterialManager } from '../materials/materials';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { AircraftFx } from './aircraftFx';
+import { setAircraftShadowPose } from './aircraftShadow';
 import { ModelManager } from '../models/models';
 import { Scene, SceneLayers } from '../scene';
 import { WeaponsTarget } from './weaponsTarget';
@@ -87,6 +88,8 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     private readonly scale = new THREE.Vector3(1, 1, 1);
     private readonly _v = new THREE.Vector3();
     private readonly _q = new THREE.Quaternion();
+    /** Solid-ground Y under the aircraft (flat datum, hills, decks). Defaults to water/flat Y=0. */
+    private groundHeightAt: (x: number, z: number) => number = () => 0;
 
     // Mirrored render/animation state (authoritative values live in the worker).
     private gearDeployed = true;
@@ -144,6 +147,11 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         }
         this.fx.ensureBound(this.modelBody.model);
         this.syncGearVisual(this.gearDeployed, false);
+    }
+
+    /** Solid-ground sampler used to place the planform shadow (carrier/hills/flat). */
+    setGroundHeightAt(fn: (x: number, z: number) => number): void {
+        this.groundHeightAt = fn;
     }
 
     respawn(spawn: AiAircraftSpawn): void {
@@ -282,7 +290,6 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             this.displayPosition,
             this.displayQuaternion,
             this.displayVelocity,
-            !this.flightModel.isLanded() && !this.isCrashed(),
         );
     }
 
@@ -452,17 +459,17 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             this.displayPosition,
             this.displayQuaternion,
             this.displayVelocity,
-            !this.flightModel.isLanded() && !this.isCrashed(),
         );
 
         if (!this.isCrashed()) {
-            this.shadowPosition.copy(this.displayPosition).setY(0);
-            this._v.copy(FORWARD).applyQuaternion(this.displayQuaternion).setY(0).normalize();
-            this.shadowQuaternion.setFromUnitVectors(FORWARD, this._v);
+            setAircraftShadowPose(
+                this.displayPosition, this.displayQuaternion, this.groundHeightAt,
+                this.shadowPosition, this.shadowQuaternion, this.shadowScale, this._v);
             this.modelShadow.addToRenderList(
                 this.shadowPosition, this.shadowQuaternion, this.shadowScale,
                 targetWidth, camera, palette,
-                SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
+                // After EntityVolumes so deck/hull meshes do not overwrite the silhouette.
+                SceneLayers.EntityFX, SceneLayers.EntityFX, lists);
         }
 
         const lodCount = this.modelBody.model.lod.length;

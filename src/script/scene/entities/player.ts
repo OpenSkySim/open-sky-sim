@@ -15,6 +15,7 @@ import { ModelManager } from '../models/models';
 import { Scene, SceneLayers } from "../scene";
 import { AircraftFx } from './aircraftFx';
 import { AircraftForceVectors } from './aircraftForceVectors';
+import { setAircraftShadowPose } from './aircraftShadow';
 import { WeaponsTarget } from './weaponsTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { Combatant, Faction } from '../../weapons/combatant';
@@ -79,6 +80,8 @@ export class PlayerEntity implements Entity {
     private shadowPosition = new THREE.Vector3();
     private shadowQuaternion = new THREE.Quaternion();
     private shadowScale = new THREE.Vector3();
+    /** Solid-ground Y under the aircraft (flat datum, hills, decks). Defaults to water/flat Y=0. */
+    private groundHeightAt: (x: number, z: number) => number = () => 0;
 
     private controlSurfaceDescriptors: ControlSurfaceDescriptor[] = [];
     private cockpitOffset = new THREE.Vector3();
@@ -363,7 +366,6 @@ export class PlayerEntity implements Entity {
             this.displayPosition,
             this.displayQuaternion,
             this.displayVelocity,
-            !this.isLanded && !this.isCrashed,
         );
 
         if (!this.isCrashed) {
@@ -553,7 +555,6 @@ export class PlayerEntity implements Entity {
             this.displayPosition,
             this.displayQuaternion,
             this.displayVelocity,
-            !this.isLanded && !this.isCrashed,
         );
     }
 
@@ -612,15 +613,14 @@ export class PlayerEntity implements Entity {
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
 
         if (!this.isCrashed && !this._showcaseMode) {
-            this.shadowPosition.copy(this.displayPosition).setY(0);
-            this.shadowQuaternion.setFromUnitVectors(FORWARD, this.getDisplayWorldDirection(this._v).setY(0).normalize());
-            const shadowLength = Math.max(0.2, this._v.copy(FORWARD).applyQuaternion(this.displayQuaternion).setY(0).length());
-            const shadowWidth = Math.max(0.2, this._v.copy(RIGHT).applyQuaternion(this.displayQuaternion).setY(0).length());
-            this.shadowScale.set(shadowWidth, 1, shadowLength);
+            setAircraftShadowPose(
+                this.displayPosition, this.displayQuaternion, this.groundHeightAt,
+                this.shadowPosition, this.shadowQuaternion, this.shadowScale, this._v);
             this.modelShadow.addToRenderList(
                 this.shadowPosition, this.shadowQuaternion, this.shadowScale,
                 targetWidth, camera, palette,
-                SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
+                // After EntityVolumes so deck/hull meshes do not overwrite the silhouette.
+                SceneLayers.EntityFX, SceneLayers.EntityFX, lists);
         }
 
         if (this._exteriorView) {
@@ -631,7 +631,6 @@ export class PlayerEntity implements Entity {
                 this.displayPosition,
                 this.displayQuaternion,
                 this.displayVelocity,
-                !this.isLanded && !this.isCrashed,
             );
             const lodCount = this.modelBody.model.lod.length;
             const lod = lodCount === 0 ? 0 : Math.min(
@@ -884,6 +883,11 @@ export class PlayerEntity implements Entity {
     /** Wire the shared combat sim client (physics/gun/autopilot run in its worker). */
     setCombatSimClient(client: CombatSimClient) {
         this.combatSim = client;
+    }
+
+    /** Solid-ground sampler used to place the planform shadow (carrier/hills/flat). */
+    setGroundHeightAt(fn: (x: number, z: number) => number): void {
+        this.groundHeightAt = fn;
     }
 
     /** Mark that this aircraft carries a gun (config lives in the sim descriptor). */
