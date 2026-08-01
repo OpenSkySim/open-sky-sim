@@ -16,6 +16,14 @@ import { ForceVectorSample } from '../model/flightModel';
 import { deserializeWorldQuery, SerializedWorld } from './serializedWorld';
 import { AC, AC_STRIDE, PROJ_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
+    AircraftCollisionMesh,
+    collisionMeshHitsObstacle,
+    collisionMeshHitsTerrain,
+    segmentHitsCollisionMesh,
+    segmentHitsSphere,
+    sphereHitsObstacle,
+} from './aircraftCollision';
+import {
     SimAircraftDesc, SimAircraftSpawn, SimControlInputs,
     SimControlMode, SimHitEvent,
 } from './simTypes';
@@ -25,6 +33,10 @@ import { fm2UsesAfterburner, SimPlayerInput, SimPlayerInputSink } from './simPla
 const PROJECTILE_LIFESPAN = 2.5;
 const PROJECTILE_GRAVITY = 9.80665;
 const PROJECTILE_POOL_SIZE = 480;
+/** Allow this much mesh–terrain overlap (m) when gear is down (spring travel). */
+const GEAR_TERRAIN_MARGIN_M = 0.8;
+/** Belly/wingtip crash margin when gear is up (m). */
+const BELLY_TERRAIN_MARGIN_M = 0.05;
 
 const NEUTRAL_INPUTS: SimControlInputs = {
     pitch: 0, roll: 0, yaw: 0, throttle: 0,
@@ -64,6 +76,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     health: number;
     maxHealth: number;
     readonly hitRadius: number;
+    collision: AircraftCollisionMesh | undefined;
     private afterburner = false;
 
     /** Firing decision resolved this frame (pilot solution or external trigger). */
@@ -92,10 +105,12 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.enabled = desc.enabled;
         this.kinematic = desc.kinematic;
         this.hitRadius = desc.hitRadius;
+        this.collision = desc.collision;
         this.maxHealth = desc.maxHealth;
         this.health = desc.maxHealth;
         this.afterburner = fm2UsesAfterburner(desc.aircraftConfig);
         this.model = new Fm2FlightModel(desc.aircraftConfig, { kinematic: desc.kinematic });
+        this.bindWorld(world);
         if (desc.gun) {
             const cfg: GunConfig = {
                 muzzleVelocity: desc.gun.muzzleVelocity,
@@ -109,6 +124,11 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         }
         this.buildPilot(desc.pilotOptions, world);
         this.applySpawn(desc.spawn);
+    }
+
+    /** Push terrain/obstacle query into the flight model. */
+    bindWorld(world: SceneWorldQuery | undefined): void {
+        this.model.setWorldQuery(world);
     }
 
     private pilotOptions: AiPilotOptions | undefined;
@@ -412,6 +432,10 @@ export class CombatSim implements ProjectileSink {
     private readonly closest = new THREE.Vector3();
     private readonly cPos = new THREE.Vector3();
     private readonly cVel = new THREE.Vector3();
+    private readonly bodyStart = new THREE.Vector3();
+    private readonly bodyEnd = new THREE.Vector3();
+    private readonly segEnd = new THREE.Vector3();
+    private readonly cQuat = new THREE.Quaternion();
 
     constructor() {
         for (let i = 0; i < PROJECTILE_POOL_SIZE; i++) {
@@ -425,8 +449,9 @@ export class CombatSim implements ProjectileSink {
 
     setWorld(world: SerializedWorld): void {
         this.world = deserializeWorldQuery(world);
-        // Any aircraft added before the world arrived can now get its pilot.
+        // Any aircraft added before the world arrived can now get its pilot + terrain.
         for (const a of this.aircraft.values()) {
+            a.bindWorld(this.world);
             a.buildPilot(undefined, this.world);
         }
     }
@@ -540,7 +565,12 @@ export class CombatSim implements ProjectileSink {
         this.playerInputs.get(id)?.syncThrottle(throttle);
     }
 
-    setAircraftConfig(id: string, config: Fm2AircraftConfig, kinematic: boolean): void {
+    setAircraftConfig(
+        id: string,
+        config: Fm2AircraftConfig,
+        kinematic: boolean,
+        collision?: AircraftCollisionMesh,
+    ): void {
         const a = this.aircraft.get(id);
         if (!a) return;
         // Carry over the live rigid-body state across the model swap.
@@ -553,7 +583,14 @@ export class CombatSim implements ProjectileSink {
         next.velocityVector = a.model.velocityVector;
         a.model = next;
         a.kinematic = kinematic;
+        a.collision = collision;
         a.setAfterburnerFromConfig(config);
+        a.bindWorld(this.world);
+    }
+
+    setCollision(id: string, collision: AircraftCollisionMesh | undefined): void {
+        const a = this.aircraft.get(id);
+        if (a) a.collision = collision;
     }
 
     private rebuildIfKinematicChanged(a: SimAircraft, kinematic: boolean): void {
@@ -566,6 +603,7 @@ export class CombatSim implements ProjectileSink {
         next.velocityVector = a.model.velocityVector;
         a.model = next;
         a.kinematic = kinematic;
+        a.bindWorld(this.world);
     }
 
     setPosition(id: string, position: THREE.Vector3): void {
@@ -649,6 +687,7 @@ export class CombatSim implements ProjectileSink {
             if (!a.enabled) continue;
             a.applyInputsToModel();
             a.model.update(delta);
+            this.checkSolidWorldCrash(a);
             a.resolveFiring();
             this.wrapBounds(a);
         }
@@ -717,30 +756,109 @@ export class CombatSim implements ProjectileSink {
         }
     }
 
+    /**
+     * Crash when the airframe collider (or hit-sphere fallback) intersects
+     * terrain/hills or a building cylinder. Gear springs handle soft landings;
+     * this is the hard solid-world killer.
+     */
+    private checkSolidWorldCrash(a: SimAircraft): void {
+        if (a.model.isCrashed() || !this.world) return;
+        const pos = a.model.position;
+        const quat = a.model.quaternion;
+        const gearDown = a.isGearDeployed();
+
+        if (a.collision) {
+            // Deep penetration always kills (hillside / inverted / tunnel).
+            const deepMargin = gearDown
+                ? GEAR_TERRAIN_MARGIN_M + 1.5
+                : BELLY_TERRAIN_MARGIN_M;
+            if (collisionMeshHitsTerrain(
+                pos, quat, a.collision,
+                (x, z) => this.world!.groundHeightAt(x, z),
+                deepMargin,
+            )) {
+                a.model.setCrashed(true);
+                return;
+            }
+            // Gear-up: any belly/wingtip scrape against terrain or hills.
+            if (!gearDown && collisionMeshHitsTerrain(
+                pos, quat, a.collision,
+                (x, z) => this.world!.groundHeightAt(x, z),
+                BELLY_TERRAIN_MARGIN_M,
+            )) {
+                a.model.setCrashed(true);
+                return;
+            }
+            const obstacles = this.world.obstacles();
+            for (let i = 0; i < obstacles.length; i++) {
+                if (collisionMeshHitsObstacle(pos, quat, a.collision, obstacles[i])) {
+                    a.model.setCrashed(true);
+                    return;
+                }
+            }
+            return;
+        }
+
+        // No baked mesh: CG vs terrain + sphere vs buildings.
+        const groundY = this.world.groundHeightAt(pos.x, pos.z);
+        const margin = gearDown ? GEAR_TERRAIN_MARGIN_M + 1.5 : BELLY_TERRAIN_MARGIN_M;
+        const bellyY = pos.y - (gearDown ? PLANE_DISTANCE_TO_GROUND : a.hitRadius * 0.35);
+        if (bellyY < groundY - margin) {
+            a.model.setCrashed(true);
+            return;
+        }
+        if (!gearDown && bellyY < groundY - BELLY_TERRAIN_MARGIN_M) {
+            a.model.setCrashed(true);
+            return;
+        }
+        const obstacles = this.world.obstacles();
+        for (let i = 0; i < obstacles.length; i++) {
+            if (sphereHitsObstacle(pos, a.hitRadius, obstacles[i])) {
+                a.model.setCrashed(true);
+                return;
+            }
+        }
+    }
+
     private checkHit(slot: ProjectileSlot, combatants: Combatant[]): void {
         this.seg.copy(slot.pos).sub(slot.prevPos);
         const segLenSq = this.seg.lengthSq();
+        this.segEnd.copy(slot.pos);
         for (let i = 0; i < combatants.length; i++) {
             const c = combatants[i];
             if (c.faction === slot.faction || !c.isAlive()) continue;
             c.readPosition(this.cPos);
-            const radius = c.getHitRadius();
-            this.toCenter.copy(this.cPos).sub(slot.prevPos);
-            let t = segLenSq > 1e-6 ? this.toCenter.dot(this.seg) / segLenSq : 0;
-            t = Math.max(0, Math.min(1, t));
-            this.closest.copy(this.seg).multiplyScalar(t).add(slot.prevPos);
-            if (this.closest.distanceToSquared(this.cPos) <= radius * radius) {
-                c.applyDamage(slot.damage);
-                c.readVelocity(this.cVel);
-                this.hits.push({
-                    position: [this.cPos.x, this.cPos.y, this.cPos.z],
-                    velocity: [this.cVel.x, this.cVel.y, this.cVel.z],
-                    targetId: this.combatantId(c),
-                    damage: slot.damage,
-                });
-                slot.active = false;
-                return;
+
+            let hit = false;
+            const simA = c instanceof SimAircraft ? c : undefined;
+            if (simA?.collision) {
+                this.cQuat.copy(simA.model.quaternion);
+                hit = segmentHitsCollisionMesh(
+                    slot.prevPos, this.segEnd,
+                    this.cPos, this.cQuat, simA.collision,
+                    this.bodyStart, this.bodyEnd,
+                    this.closest,
+                );
+            } else {
+                const radius = c.getHitRadius();
+                hit = segmentHitsSphere(
+                    slot.prevPos, this.seg, segLenSq,
+                    this.cPos, radius,
+                    this.closest, this.toCenter,
+                );
             }
+            if (!hit) continue;
+
+            c.applyDamage(slot.damage);
+            c.readVelocity(this.cVel);
+            this.hits.push({
+                position: [this.closest.x, this.closest.y, this.closest.z],
+                velocity: [this.cVel.x, this.cVel.y, this.cVel.z],
+                targetId: this.combatantId(c),
+                damage: slot.damage,
+            });
+            slot.active = false;
+            return;
         }
     }
 

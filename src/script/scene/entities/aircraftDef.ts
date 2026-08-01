@@ -49,7 +49,7 @@ export interface AircraftFxConfig {
     nozzleRadius?: number | null;
 }
 
-/** TCA ramp/spawn metadata forwarded from Aircraft2 JSON (optional). */
+/** Optional spawn metadata from TCA Aircraft2 JSON. */
 export interface AircraftSpawnConfig {
     /** Ground-contact tweak from TCA SpawnOffset (metres). Not applied to FM2 runway spawn Y — see game.runwaySpawnPosition. */
     offset?: number;
@@ -57,6 +57,13 @@ export interface AircraftSpawnConfig {
     rotation?: number;
     /** Map/radar blip RGB from TCA DotColors. */
     dotColors?: [number, number, number];
+}
+
+/** Baked TCA collider geometry in the aircraft body frame (same as body glTF). */
+export interface AircraftCollisionMesh {
+    /** Flat triangle soup: 9 floats per triangle (v0xyz, v1xyz, v2xyz). */
+    triangles: number[];
+    aabb: { min: [number, number, number]; max: [number, number, number] };
 }
 
 /** Everything needed to build and fly a player aircraft. */
@@ -67,6 +74,10 @@ export interface FlyableAircraftDef {
     body: string;
     /** Flattened shadow silhouette model path. */
     shadow: string;
+    /** Invisible TCA collider / hitbox mesh (optional). */
+    collision?: string;
+    /** Baked body-frame collision triangles + AABB for the combat worker. */
+    collisionMesh?: AircraftCollisionMesh;
     /** Landing-gear model path (optional). */
     gear?: string;
     /** True when the gear model carries a retract/extend animation clip. */

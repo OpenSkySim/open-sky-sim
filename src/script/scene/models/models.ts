@@ -33,9 +33,15 @@ const GLASS_ALPHA_DITHER = 0.65;
 const SHADOW_ALPHA_DITHER = 0.4;
 // Legacy mod imports tagged glass as the default import_mod.py hex instead of GLASS.
 const LEGACY_GLASS_MATERIAL_NAMES = new Set(['GLASS', '#d1f7ff']);
+/** Reserved material token from import_mod.py for TCA collider meshes. */
+const COLLISION_MATERIAL = 'COLLISION';
 
 function isGlassMaterialName(matName: string): boolean {
     return LEGACY_GLASS_MATERIAL_NAMES.has(matName);
+}
+
+function isCollisionMaterialName(matName: string): boolean {
+    return matName === COLLISION_MATERIAL;
 }
 
 export interface ModelLibBuilder {
@@ -186,6 +192,17 @@ export class ModelManager {
                 if ('isGroup' in child) return;
                 const obj = child as THREE.Mesh | THREE.LineSegments | THREE.Points;
 
+                const matName = ('material' in obj && obj.material && !Array.isArray(obj.material))
+                    ? (obj.material as THREE.Material).name
+                    : '';
+                const isCollision = isCollisionMaterialName(matName)
+                    || ModelManager.isCollisionModelUrl(url);
+                if (isCollision) {
+                    // Keep the mesh in the loaded graph for debugging, but never draw it.
+                    obj.visible = false;
+                    return;
+                }
+
                 obj.geometry.computeBoundingBox();
                 obj.onBeforeRender = updateUniforms;
 
@@ -202,7 +219,6 @@ export class ModelManager {
                 }
 
                 if ('isMesh' in obj) {
-                    const matName = (obj.material as THREE.MeshStandardMaterial).name;
                     if (isShadowModel) {
                         // Imported packs historically tagged shadows VEHICLE_PLANE_GREY;
                         // always map *_shadow models to a black alpha-stippled silhouette.
@@ -277,6 +293,12 @@ export class ModelManager {
     private static isShadowModelUrl(url: string): boolean {
         const path = isPackUrl(url) ? parsePackUrl(url).path : url;
         return /_shadow\.(gltf|glb)(\?|#|$)/i.test(path);
+    }
+
+    /** True for flyable-aircraft collider assets (`*_collision.gltf` / `.glb`). */
+    private static isCollisionModelUrl(url: string): boolean {
+        const path = isPackUrl(url) ? parsePackUrl(url).path : url;
+        return /_collision\.(gltf|glb)(\?|#|$)/i.test(path);
     }
 
     private sortingFn(a: THREE.Object3D, b: THREE.Object3D) {

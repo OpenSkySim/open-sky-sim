@@ -658,6 +658,7 @@ export class Game {
             def.body,
             def.shadow,
             ...(def.gear ? [def.gear] : []),
+            ...(def.collision ? [def.collision] : []),
             ...def.surfaces.map(s => s.model),
         ];
         await Promise.all(urls.map(url => this.models.waitForModel(url)));
@@ -711,9 +712,11 @@ export class Game {
         if (def.flight) {
             this.configService.flightModels.getActive().setAircraft(def.flight);
         }
+        this.combatSim.setCollision(PLAYER_SIM_ID, def.collisionMesh);
         // Same airframe for AI — only the control channel differs.
         for (let i = 0; i < this.aiOpponents.length; i++) {
             this.aiOpponents[i].loadAircraft(def);
+            this.combatSim.setCollision(this.aiOpponents[i].simId, def.collisionMesh);
         }
     }
 
@@ -1803,6 +1806,7 @@ export class Game {
             hitRadius: PLAYER_HIT_RADIUS_M,
             maxHealth: 100,
             gun: PLAYER_GUN,
+            collision: this.currentDef.collisionMesh,
             spawn: this.playerSimSpawn(),
             enabled: true,
         });

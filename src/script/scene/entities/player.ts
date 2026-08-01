@@ -74,6 +74,8 @@ export class PlayerEntity implements Entity {
     private modelBody!: LODHelper;
     private modelShadow!: LODHelper;
     private modelLandingGear: LODHelper | undefined;
+    /** Prefetched invisible collider mesh (not drawn; combat uses baked triangles). */
+    private modelCollision: LODHelper | undefined;
     private shadowPosition = new THREE.Vector3();
     private shadowQuaternion = new THREE.Quaternion();
     private shadowScale = new THREE.Vector3();
@@ -194,6 +196,12 @@ export class PlayerEntity implements Entity {
             this.fx.onBodyModelLoaded(model);
         }));
         this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
+
+        this.modelCollision = undefined;
+        if (def.collision) {
+            // Prefetch so the asset is resident; meshes stay visible=false in ModelManager.
+            this.modelCollision = new LODHelper(this.models.getModel(def.collision));
+        }
 
         this.modelLandingGear = undefined;
         this.gearAnimated = false;

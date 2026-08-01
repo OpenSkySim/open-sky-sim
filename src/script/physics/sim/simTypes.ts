@@ -2,6 +2,7 @@ import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { AiPilotOptions } from '../../ai/aiPilot';
 import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
+import { AircraftCollisionMesh } from '../../scene/entities/aircraftDef';
 import { SerializedWorld } from './serializedWorld';
 
 /**
@@ -16,6 +17,8 @@ export type SimControlMode = 'external' | 'ai';
 
 export type Vec3 = [number, number, number];
 export type Quat = [number, number, number, number];
+
+export type { AircraftCollisionMesh };
 
 /** The normalized command channel for one externally-controlled aircraft. */
 export interface SimControlInputs {
@@ -64,6 +67,8 @@ export interface SimAircraftDesc {
     hitRadius: number;
     maxHealth: number;
     gun?: SimGunConfig;
+    /** Baked TCA collider triangles (body frame); omit → sphere hitRadius. */
+    collision?: AircraftCollisionMesh;
     spawn: SimAircraftSpawn;
     enabled: boolean;
 }
@@ -106,6 +111,7 @@ export interface SimProjectileState {
 
 /** A confirmed hit this frame, for SFX / feedback on the main thread. */
 export interface SimHitEvent {
+    /** World-space impact point (mesh surface or hit-sphere entry). */
     position: Vec3;
     /** Target world velocity at impact (m/s) — debris should inherit this. */
     velocity: Vec3;
@@ -134,7 +140,8 @@ export type SimToWorkerMessage =
     | { type: 'setPilotOptions'; id: string; options: AiPilotOptions }
     | { type: 'respawn'; id: string; spawn: SimAircraftSpawn }
     | { type: 'reset'; id: string; position: Vec3; quaternion: Quat; velocity: Vec3; landed: boolean; throttle: number; kinematic: boolean }
-    | { type: 'setAircraftConfig'; id: string; aircraftConfig: Fm2AircraftConfig; kinematic: boolean }
+    | { type: 'setAircraftConfig'; id: string; aircraftConfig: Fm2AircraftConfig; kinematic: boolean; collision?: AircraftCollisionMesh }
+    | { type: 'setCollision'; id: string; collision?: AircraftCollisionMesh }
     | { type: 'setPosition'; id: string; position: Vec3 }
     | { type: 'setQuaternion'; id: string; quaternion: Quat }
     | { type: 'setVelocity'; id: string; velocity: Vec3 }

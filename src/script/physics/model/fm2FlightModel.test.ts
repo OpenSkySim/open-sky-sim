@@ -217,6 +217,36 @@ describe('FM2 rigid-body flight model', () => {
             `drifted on the ground: ${model.velocityVector.length().toFixed(1)} m/s`);
     });
 
+    it('gear springs rest relative to raised terrain height', () => {
+        const model = new Fm2FlightModel();
+        const plateau = 40;
+        model.setWorldQuery({
+            groundHeightAt: () => plateau,
+            isLand: () => true,
+            obstacles: () => [],
+            runway: () => ({
+                center: new THREE.Vector3(),
+                heading: 0,
+                halfLength: 1000,
+                halfWidth: 20,
+            }),
+        });
+        model.reset();
+        model.position.set(0, plateau + PLANE_DISTANCE_TO_GROUND, 0);
+        model.setLanded(true);
+        model.setThrottle(0);
+
+        for (let i = 0; i < 4 * 120; i++) {
+            model.update(1 / 120);
+        }
+
+        assert.ok(!model.isCrashed(), 'should not crash on plateau');
+        assert.ok(
+            model.position.y > plateau + 1.0 && model.position.y < plateau + 2.6,
+            `did not rest above plateau: y=${model.position.y.toFixed(2)} (plateau=${plateau})`,
+        );
+    });
+
     it('accelerates down the runway and takes off', () => {
         const model = new Fm2FlightModel();
         model.reset();

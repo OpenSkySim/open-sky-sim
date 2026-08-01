@@ -8,7 +8,7 @@
  * {@link FlyableAircraftDef} shape.
  */
 import { Fm2AircraftConfig, defaultFm2Config } from '../physics/fm2/fm2AircraftConfig';
-import { ControlSurfaceConfig, FlyableAircraftDef } from '../scene/entities/aircraftDef';
+import { ControlSurfaceConfig, FlyableAircraftDef, AircraftCollisionMesh } from '../scene/entities/aircraftDef';
 import { aircraftPackStore, toPackUrl } from './aircraftPack';
 
 const HINGE_RANGE = Math.PI / 6;
@@ -77,6 +77,8 @@ export interface AircraftManifest {
     gear?: string | null;
     gearAnimated?: boolean;
     static?: string | null;
+    collision?: string | null;
+    collisionMesh?: AircraftCollisionMesh | null;
     surfaces: {
         role: string; path: string;
         pivot: [number, number, number]; axis: [number, number, number];
@@ -92,13 +94,17 @@ export interface AircraftManifest {
 }
 
 function rewriteManifestForPack(id: string, manifest: AircraftManifest): AircraftManifest {
-    const packPath = (path: string) => toPackUrl(id, path);
+    // Packs store assets by basename. Tolerate legacy manifests that still list
+    // import-relative paths (e.g. tools/mods/imports/…_collision.gltf).
+    const packEntry = (path: string) => path.replace(/\\/g, '/').split('/').pop() ?? path;
+    const packPath = (path: string) => toPackUrl(id, packEntry(path));
     return {
         ...manifest,
         body: packPath(manifest.body),
         shadow: packPath(manifest.shadow),
         gear: manifest.gear ? packPath(manifest.gear) : manifest.gear,
         static: manifest.static ? packPath(manifest.static) : manifest.static,
+        collision: manifest.collision ? packPath(manifest.collision) : manifest.collision,
         surfaces: manifest.surfaces.map(surface => ({
             ...surface,
             path: packPath(surface.path),
@@ -165,6 +171,8 @@ export function manifestToDef(id: string, m: AircraftManifest): FlyableAircraftD
         shadow: m.shadow,
         gear: m.gear ?? undefined,
         gearAnimated: m.gearAnimated ?? false,
+        collision: m.collision ?? undefined,
+        collisionMesh: m.collisionMesh ?? undefined,
         cockpitOffset: m.cockpitOffset ?? [0, 1.0, 6.0],
         spawn: m.spawn ?? undefined,
         attachments: m.attachments ?? undefined,

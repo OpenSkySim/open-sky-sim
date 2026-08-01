@@ -126,6 +126,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             hitRadius: DEFAULT_HIT_RADIUS,
             maxHealth: this.maxHealth,
             gun,
+            collision: def.collisionMesh,
             spawn: this.toSimSpawn(spawn),
             enabled: true,
         });
@@ -161,6 +162,11 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             this.fx.onBodyModelLoaded(model);
         }));
         this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
+
+        if (def.collision) {
+            // Prefetch invisible collider glTF; combat uses baked collisionMesh.
+            this.models.getModel(def.collision);
+        }
 
         this.modelLandingGear = undefined;
         this.gearAnimated = false;

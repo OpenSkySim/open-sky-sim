@@ -32,6 +32,7 @@ import { Fm2AircraftConfig, defaultFm2Config, fm2GroundRestHeight } from '../fm2
 import { forebodyAsymmetryCy } from '../fm2/forebodyAsymmetry';
 import { RigidBody } from '../fm2/rigidBody';
 import { FlightModel, ForceVectorSample } from './flightModel';
+import { WorldQuery } from '../../ai/worldQuery';
 
 const GRAVITY = 9.80665;
 
@@ -97,6 +98,9 @@ export class Fm2FlightModel extends FlightModel {
         return fm2GroundRestHeight(this.config);
     }
 
+    /** Terrain / obstacle query from the combat worker (optional). */
+    private world: WorldQuery | undefined;
+
     // Scratch vectors (avoid per-step allocation in the worker).
     private readonly velBody = new THREE.Vector3();
     private readonly forceBody = new THREE.Vector3();
@@ -152,6 +156,16 @@ export class Fm2FlightModel extends FlightModel {
         this.qRef = 0.5 * computeIsaAirDensity(config.envelope.cruiseAltitudeM)
             * config.envelope.cruiseSpeedMps ** 2;
         this.obj.up.copy(UP);
+    }
+
+    /** Terrain height + obstacles for gear contact (flat Y=0 when unset). */
+    setWorldQuery(world: WorldQuery | undefined): void {
+        this.world = world;
+    }
+
+    /** Solid ground Y under a world XZ (hills + flat datum). */
+    private groundHeightAt(x: number, z: number): number {
+        return this.world?.groundHeightAt(x, z) ?? 0;
     }
 
     reset(): void {
@@ -515,7 +529,8 @@ export class Fm2FlightModel extends FlightModel {
         for (const gp of gear.points) {
             this._v.set(gp[0], gp[1], gp[2]).applyQuaternion(this.rb.orientation);
             this._gearWorld.copy(this._v).add(this.obj.position);
-            const penetration = -this._gearWorld.y; // ground plane at world y = 0
+            const groundY = this.groundHeightAt(this._gearWorld.x, this._gearWorld.z);
+            const penetration = groundY - this._gearWorld.y;
             if (penetration <= 0) continue;
 
             // Velocity of the contact point through the world.
@@ -599,7 +614,8 @@ export class Fm2FlightModel extends FlightModel {
     }
 
     private handleGroundState(): void {
-        const restY = this.groundRestY;
+        const terrainY = this.groundHeightAt(this.obj.position.x, this.obj.position.z);
+        const restY = terrainY + this.groundRestY;
         const onGround = this.obj.position.y <= restY + 0.25;
 
         if (this.obj.position.y > restY + 0.3) {

@@ -16,6 +16,7 @@ import { AiPilotOptions } from '../../ai/aiPilot';
 import {
     SimAircraftDesc, SimAircraftSpawn, SimControlInputs,
     SimControlMode, SimHitEvent, SimToWorkerMessage, WorkerToSimMessage,
+    AircraftCollisionMesh,
 } from './simTypes';
 
 const EMPTY_FORCE_VECTORS: ForceVectorSample[] = [];
@@ -169,6 +170,10 @@ export class CombatSimClient {
 
     setAircraftConfig(id: string, aircraftConfig: Fm2AircraftConfig, kinematic: boolean): void {
         this.post({ type: 'setAircraftConfig', id, aircraftConfig, kinematic });
+    }
+
+    setCollision(id: string, collision: AircraftCollisionMesh | undefined): void {
+        this.post({ type: 'setCollision', id, collision });
     }
 
     setPosition(id: string, position: THREE.Vector3): void {
