@@ -17,12 +17,10 @@ import { deserializeWorldQuery, SerializedWorld } from './serializedWorld';
 import { AC, AC_STRIDE, PROJ_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
     AircraftCollisionMesh,
-    findCollisionMeshObstacleContact,
     findCollisionMeshTerrainContact,
     segmentHitsCollisionMesh,
     segmentHitsSphere,
     SolidWorldContact,
-    sphereHitsObstacle,
 } from './aircraftCollision';
 import {
     SimAircraftDesc, SimAircraftSpawn, SimControlInputs,
@@ -783,9 +781,10 @@ export class CombatSim implements ProjectileSink {
     }
 
     /**
-     * Solid-world contact: push the airframe out of terrain/buildings, shed
-     * inward speed (soft bounce), and emit scrape smoke/sparks. Only very hard
-     * impacts or deep tunnelling still destroy the aircraft.
+     * Solid-world contact against the heightfield (flat ground, hills, ski jump,
+     * carrier deck). Building cylinders are AI avoidance only — they do not stop
+     * the airframe. Soft gear-down scrapes defer to gear springs so taxi/landing
+     * is not scrubbed to a halt by the collision mesh.
      */
     private resolveSolidWorldContact(a: SimAircraft): void {
         if (a.model.isCrashed() || !this.world) return;
@@ -804,66 +803,27 @@ export class CombatSim implements ProjectileSink {
 
         if (a.collision) {
             const terrainMargin = gearDown ? GEAR_TERRAIN_MARGIN_M : BELLY_TERRAIN_MARGIN_M;
-            const terrain = findCollisionMeshTerrainContact(
+            return findCollisionMeshTerrainContact(
                 pos, quat, a.collision, groundAt, terrainMargin,
                 this.contactPoint, this.contactNormal,
             );
-            let best: SolidWorldContact | null = terrain;
-
-            const obstacles = this.world!.obstacles();
-            for (let i = 0; i < obstacles.length; i++) {
-                const hit = findCollisionMeshObstacleContact(
-                    pos, quat, a.collision, obstacles[i],
-                    this.closest, this.scrapeTangent,
-                );
-                if (hit && (!best || hit.penetration > best.penetration)) {
-                    this.contactPoint.copy(hit.point);
-                    this.contactNormal.copy(hit.normal);
-                    best = {
-                        point: this.contactPoint,
-                        normal: this.contactNormal,
-                        penetration: hit.penetration,
-                    };
-                }
-            }
-            return best;
         }
 
-        // No baked mesh: CG belly vs terrain + sphere vs buildings.
+        // No baked mesh: CG belly vs terrain only.
         const groundY = groundAt(pos.x, pos.z);
         const margin = gearDown ? GEAR_TERRAIN_MARGIN_M : BELLY_TERRAIN_MARGIN_M;
         const bellyY = pos.y - (gearDown ? PLANE_DISTANCE_TO_GROUND : a.hitRadius * 0.35);
         const terrainPen = (groundY - margin) - bellyY;
-        let best: SolidWorldContact | null = null;
-        if (terrainPen > 0) {
-            this.contactPoint.set(pos.x, bellyY, pos.z);
-            this.contactNormal.set(0, 1, 0);
-            best = {
-                point: this.contactPoint,
-                normal: this.contactNormal,
-                penetration: terrainPen,
-            };
+        if (terrainPen <= 0) {
+            return null;
         }
-        const obstacles = this.world!.obstacles();
-        for (let i = 0; i < obstacles.length; i++) {
-            const o = obstacles[i];
-            if (!sphereHitsObstacle(pos, a.hitRadius, o)) continue;
-            const dx = pos.x - o.position.x;
-            const dz = pos.z - o.position.z;
-            const dist = Math.hypot(dx, dz) || 1e-4;
-            const sidePen = (o.radius + a.hitRadius) - dist;
-            if (sidePen <= 0) continue;
-            if (!best || sidePen > best.penetration) {
-                this.contactPoint.copy(pos);
-                this.contactNormal.set(dx / dist, 0, dz / dist);
-                best = {
-                    point: this.contactPoint,
-                    normal: this.contactNormal,
-                    penetration: sidePen,
-                };
-            }
-        }
-        return best;
+        this.contactPoint.set(pos.x, bellyY, pos.z);
+        this.contactNormal.set(0, 1, 0);
+        return {
+            point: this.contactPoint,
+            normal: this.contactNormal,
+            penetration: terrainPen,
+        };
     }
 
     private applySolidWorldResponse(a: SimAircraft, contact: SolidWorldContact): void {
@@ -871,11 +831,18 @@ export class CombatSim implements ProjectileSink {
         const pos = a.model.position;
         const vel = a.model.velocityVector;
 
+        const vn = vel.dot(n);
+        const impactSpeed = vn < 0 ? -vn : 0;
+
+        // Soft rolling contact: gear springs own the vertical constraint — do not
+        // push the body or scrub groundspeed (that used to freeze taxi on deck).
+        if (a.isGearDeployed() && impactSpeed < SOLID_SCRAPE_FX_MPS && contact.penetration < 0.35) {
+            return;
+        }
+
         // Separate so the collider sits just outside the solid.
         pos.addScaledVector(n, contact.penetration + SOLID_SLOP_M);
 
-        const vn = vel.dot(n);
-        const impactSpeed = vn < 0 ? -vn : 0;
         if (vn < 0) {
             // Bounce along the normal, then scrub sliding speed.
             vel.addScaledVector(n, -vn * (1 + SOLID_RESTITUTION));
@@ -890,11 +857,6 @@ export class CombatSim implements ProjectileSink {
             a.model.setCrashed(true);
             a.applyDamage(a.health);
             this.emitScrapeFx(a, contact.point, /*force*/ true);
-            return;
-        }
-
-        // Soft contact while rolling with gear — springs already carry weight.
-        if (a.isGearDeployed() && impactSpeed < SOLID_SCRAPE_FX_MPS && contact.penetration < 0.35) {
             return;
         }
 
