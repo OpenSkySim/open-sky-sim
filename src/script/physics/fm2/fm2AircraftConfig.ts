@@ -388,6 +388,11 @@ export interface Fm2AircraftConfig {
     fcs: Fm2FcsConfig;
     envelope: Fm2EnvelopeConfig;
     /**
+     * Optional body-frame arrestor hook point (m). When absent, combat-sim trap
+     * physics uses the default aft hook from arrestorCables.
+     */
+    hook?: [number, number, number];
+    /**
      * Optional forebody vortex asymmetry (high-alpha nose slice), after Ericsson
      * (ICAS-92-4.6R). Only applied in the subscale/laminar Reynolds regime (see
      * {@link FlightModel.setForebodyLaminar}); at full-scale it is suppressed and
@@ -448,6 +453,8 @@ export const defaultFm2Config: Fm2AircraftConfig = {
         brakeFriction: 0.55,
         sideFriction: 0.8,
     },
+    // Hook tip is resolved per airframe (fuselage aft) at spawn — see
+    // arrestorHookPlacementForAircraft / flightConfigWithArrestorHook.
     engine: {
         afterburner: true,
         idleThrustKn: 0.5,

@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { Obstacle, Runway, SceneWorldQuery } from '../../ai/worldQuery';
 import { CarrierMeshCollider } from '../../scene/entities/carrierDeck';
+import {
+    ArrestorCableField,
+    ArrestorCableLocal,
+    arrestorCableLocals,
+    buildArrestorCableField,
+} from '../../scene/entities/arrestorCables';
 import { HillCollider } from '../../scene/entities/hillCollider';
 import { SkiJumpCollider } from '../../scene/entities/skiJump';
 
@@ -54,12 +60,24 @@ export interface SerializedCarrierMesh {
     aabb: { min: [number, number, number]; max: [number, number, number] };
 }
 
+/** Structured-clone-safe arrestor cable field (one carrier). */
+export interface SerializedArrestorCables {
+    originX: number;
+    originY: number;
+    originZ: number;
+    /** Unit landing/roll-out direction. */
+    deckAxis: [number, number, number];
+    /** Local endpoints [ax, ay, az, bx, by, bz] per cable. */
+    segmentsLocal: [number, number, number, number, number, number][];
+}
+
 export interface SerializedWorld {
     hills: SerializedHill[];
     obstacles: SerializedObstacle[];
     runway: SerializedRunway;
     skiJumps?: SerializedSkiJump[];
     carrierMeshes?: SerializedCarrierMesh[];
+    arrestorCables?: SerializedArrestorCables[];
 }
 
 export function serializeWorld(
@@ -68,6 +86,7 @@ export function serializeWorld(
     runway: Runway,
     skiJumps: readonly SkiJumpCollider[] = [],
     carrierMeshes: readonly CarrierMeshCollider[] = [],
+    arrestorCables: readonly ArrestorCableField[] = [],
 ): SerializedWorld {
     return {
         hills: hills.map(h => ({
@@ -104,6 +123,16 @@ export function serializeWorld(
             originZ: c.originZ,
             triangles: c.triangles,
             aabb: c.aabb,
+        })),
+        arrestorCables: arrestorCables.map(f => ({
+            originX: f.originX,
+            originY: f.originY,
+            originZ: f.originZ,
+            deckAxis: [f.deckAxis.x, f.deckAxis.y, f.deckAxis.z],
+            segmentsLocal: f.segments.map(s => [
+                s.a.x - f.originX, s.a.y - f.originY, s.a.z - f.originZ,
+                s.b.x - f.originX, s.b.y - f.originY, s.b.z - f.originZ,
+            ] as [number, number, number, number, number, number]),
         })),
     };
 }
@@ -147,4 +176,40 @@ export function deserializeWorldQuery(world: SerializedWorld): SceneWorldQuery {
     }));
     // isLand is unused by the AI pilot; stub to land everywhere.
     return new SceneWorldQuery(hills, () => true, obstacles, runway, skiJumps, carrierMeshes);
+}
+
+/** Rebuild arrestor cable fields for combat-sim trap physics. */
+export function deserializeArrestorCables(world: SerializedWorld): ArrestorCableField[] {
+    const list = world.arrestorCables ?? [];
+    return list.map(s => {
+        const field = buildArrestorCableField(
+            s.originX, s.originY, s.originZ,
+            new THREE.Vector3(s.deckAxis[0], s.deckAxis[1], s.deckAxis[2]),
+        );
+        // Prefer serialized local endpoints when present (keeps worker in sync with author).
+        if (s.segmentsLocal.length > 0) {
+            field.segments.length = 0;
+            for (const seg of s.segmentsLocal) {
+                field.segments.push({
+                    a: new THREE.Vector3(s.originX + seg[0], s.originY + seg[1], s.originZ + seg[2]),
+                    b: new THREE.Vector3(s.originX + seg[3], s.originY + seg[4], s.originZ + seg[5]),
+                });
+            }
+        }
+        return field;
+    });
+}
+
+/** Helper: default Kuznetsov cable field at an origin (for game-side serialize). */
+export function defaultArrestorCableField(
+    originX: number,
+    originY: number,
+    originZ: number,
+): ArrestorCableField {
+    return buildArrestorCableField(originX, originY, originZ);
+}
+
+/** Expose locals for callers that need to inspect layout without THREE world build. */
+export function defaultArrestorLocals(): ArrestorCableLocal[] {
+    return arrestorCableLocals();
 }

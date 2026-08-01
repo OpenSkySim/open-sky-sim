@@ -13,7 +13,7 @@ import { SimHitEvent } from './simTypes';
  */
 
 /** Floats per aircraft row. Keep in sync with the AC_* offsets below. */
-export const AC_STRIDE = 49;
+export const AC_STRIDE = 53;
 
 export const AC = {
     posX: 0, posY: 1, posZ: 2,
@@ -50,6 +50,11 @@ export const AC = {
     pitchLimiterMode: 46,
     autopilot: 47,
     airbrakesExtended: 48,
+    /** Latched arrestor cable index, or -1 when free. */
+    arrestorLatch: 49,
+    hookX: 50,
+    hookY: 51,
+    hookZ: 52,
 } as const;
 
 /** Floats per projectile row: position (3) + quaternion (4). */

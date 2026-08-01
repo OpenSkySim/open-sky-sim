@@ -19,6 +19,14 @@ import {
 } from '../../../weapons/gunPipper';
 import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout, toFeet } from './overlayUtils';
 import { DisplayUnits } from './displayUnits';
+import {
+    aoaIndexerCue,
+    carrierApproachTargetSink,
+    carrierApproachTargetSpeed,
+    computeIlsDeviation,
+    ILS_GLIDESLOPE_DEG,
+    isIlsApproachTarget,
+} from './approachAids';
 
 
 const ALTITUDE_HEIGHT = 32;
@@ -248,6 +256,7 @@ export class HUDEntity implements Entity {
         }
 
         this.renderFlightDataIndicators(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor, fontSmall);
+        this.renderAoaIndexer(airSpeedX, airSpeedY, geomScale, painter, hudColor, hudWarnColor, hudSecondaryColor, palette);
 
         const stickArm = Math.max(8, Math.round(11 * geomScale));
         const stickGap = Math.round(10 * geomScale);
@@ -261,9 +270,23 @@ export class HUDEntity implements Entity {
         this.renderGunReticle(dx, dy, targetHeight, painter, geomScale, hudColor, hudWarnColor, font);
         // FPM / gun pipper live on the combiner glass: project in the nose frame, then
         // apply the same padlock HUD offset as the rest of the symbology.
-        this.renderGunAimIndicator(targetWidth, targetHeight, halfWidth, halfHeight, dx, dy, painter, camera, geomScale, hudColor);
+        const ilsTarget = isIlsApproachTarget(this.weaponsTarget);
+        if (ilsTarget && this.weaponsTarget) {
+            this.renderIlsIndicator(
+                targetWidth, targetHeight, halfWidth, halfHeight, dx, dy,
+                painter, camera, geomScale, hudColor, hudSecondaryColor, palette,
+            );
+            this.renderApproachTargets(
+                layout, airSpeedX, airSpeedY, painter, hudColor, hudSecondaryColor, fontSmall,
+            );
+        } else {
+            this.renderGunAimIndicator(targetWidth, targetHeight, halfWidth, halfHeight, dx, dy, painter, camera, geomScale, hudColor);
+        }
         this.renderBoresight(hudX, hudY, painter, geomScale, hudColor);
-        this.renderFlightPathMarker(targetWidth, targetHeight, halfWidth, halfHeight, dx, dy, painter, camera, geomScale);
+        this.renderFlightPathMarker(
+            targetWidth, targetHeight, halfWidth, halfHeight, dx, dy,
+            painter, camera, geomScale, ilsTarget, hudColor, hudSecondaryColor, palette,
+        );
         this.renderStallWarning(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor, font);
 
         if (this.actor.hudFocusMode === HUDFocusMode.DISABLED) {
@@ -801,6 +824,140 @@ export class HUDEntity implements Entity {
             .commit();
     }
 
+    /**
+     * ILS / OLS-style localizer + glideslope when the weapons target is the
+     * airfield or carrier. Glideslope uses a meatball between green datum ticks
+     * on a fixed 3° path. Replaces the gun pipper for approach.
+     */
+    private renderIlsIndicator(
+        width: number, height: number, halfWidth: number, halfHeight: number,
+        dx: number, dy: number,
+        painter: CanvasPainter, camera: THREE.Camera, geomScale: number,
+        hudColor: string, hudSecondaryColor: string, palette: Palette,
+    ) {
+        if (!this.weaponsTarget) return;
+        const dev = computeIlsDeviation(this.actor.getDisplayPosition(), this.weaponsTarget.targetType);
+        if (!dev) return;
+
+        const cx = Math.round(halfWidth + dx);
+        const cy = Math.round(halfHeight + dy);
+        const u = Math.max(1, Math.round(geomScale));
+        const arm = Math.max(18, Math.round(22 * geomScale));
+        const tick = Math.max(2, Math.round(3 * geomScale));
+        const needleTravel = arm - 2 * u;
+        const datumColor = PaletteColor(palette, PaletteCategory.LIGHT_GREEN);
+        const ballColor = PaletteColor(palette, PaletteCategory.LIGHT_YELLOW);
+
+        // Reference box + center cross.
+        painter.setColor(hudSecondaryColor);
+        painter.batch()
+            .hLine(cx - arm, cx + arm, cy - arm)
+            .hLine(cx - arm, cx + arm, cy + arm)
+            .vLine(cx - arm, cy - arm, cy + arm)
+            .vLine(cx + arm, cy - arm, cy + arm)
+            .hLine(cx - tick, cx + tick, cy)
+            .vLine(cx, cy - tick, cy + tick)
+            .commit();
+
+        // Green datum lights (OLS reference) flanking the glideslope midline.
+        const datumX = arm + Math.round(4 * geomScale);
+        painter.setColor(datumColor);
+        painter.batch()
+            .hLine(cx - datumX - tick, cx - datumX + tick, cy)
+            .hLine(cx + datumX - tick, cx + datumX + tick, cy)
+            .commit();
+
+        // Localizer (vertical needle).
+        const locX = Math.round(cx + dev.localizer * needleTravel);
+        painter.setColor(hudColor);
+        painter.batch()
+            .vLine(locX, cy - arm + u, cy + arm - u)
+            .commit();
+
+        // Meatball: yellow ball rides the 3° glideslope relative to the datums.
+        const ballY = Math.round(cy - dev.glideslope * needleTravel);
+        const ballR = Math.max(2, Math.round(3 * geomScale));
+        painter.setColor(ballColor);
+        painter.circle(cx, ballY, ballR);
+
+        // Glideslope needle through the ball.
+        painter.setColor(hudColor);
+        painter.batch()
+            .hLine(cx - arm + u, cx + arm - u, ballY)
+            .commit();
+
+        void width;
+        void camera;
+        void height;
+    }
+
+    /**
+     * Approach cues beside the airspeed tape: target IAS and sink for the groove.
+     */
+    private renderApproachTargets(
+        layout: OverlayLayout,
+        airSpeedX: number,
+        airSpeedY: number,
+        painter: CanvasPainter,
+        hudColor: string,
+        hudSecondaryColor: string,
+        font: Font,
+    ) {
+        const imperial = this.displayUnits.getSystem() === UnitSystems.IMPERIAL;
+        const tgtSpeed = carrierApproachTargetSpeed(imperial);
+        const tgtSink = carrierApproachTargetSink(imperial);
+        const speedUnit = this.displayUnits.speedUnitLabel();
+        const sinkUnit = imperial ? 'FPM' : 'M/S';
+        const lineHeight = font.charHeight + font.charSpacing;
+        const geomScale = layout.layoutScale / Math.max(1, layout.detailScale);
+        const x = airSpeedX - Math.round(14 * geomScale);
+        const y = airSpeedY + Math.round(16 * geomScale);
+
+        painter.text(font, x, y, `TGT ${tgtSpeed}${speedUnit}`, hudColor, TextAlignment.RIGHT);
+        painter.text(font, x, y + lineHeight, `VS ${tgtSink}${sinkUnit}`, hudSecondaryColor, TextAlignment.RIGHT);
+        painter.text(font, x, y + lineHeight * 2, `GS ${ILS_GLIDESLOPE_DEG.toFixed(1)}`, hudSecondaryColor, TextAlignment.RIGHT);
+    }
+
+    /**
+     * Navy-style AoA indexer: slow (high AoA) / on-speed 8.0°–8.5° / fast.
+     * On-speed lights a yellow center donut.
+     */
+    private renderAoaIndexer(
+        airSpeedX: number, airSpeedY: number, geomScale: number,
+        painter: CanvasPainter, hudColor: string, hudWarnColor: string, hudSecondaryColor: string,
+        palette: Palette,
+    ) {
+        const u = Math.max(1, Math.round(geomScale));
+        const cx = airSpeedX - Math.round(14 * geomScale);
+        const cy = airSpeedY;
+        const gap = Math.round(7 * geomScale);
+        const aoaDeg = toDegrees(this.angleOfAttack);
+        const cue = aoaIndexerCue(aoaDeg);
+        const nearStall = aoaDeg >= AOA_STALL_DEG - 2;
+        const donutColor = PaletteColor(palette, PaletteCategory.LIGHT_YELLOW);
+
+        // Upper chevron (slow / high AoA).
+        painter.setColor(cue === 'slow' ? (nearStall ? hudWarnColor : hudColor) : hudSecondaryColor);
+        painter.batch()
+            .line(cx, cy - gap - 2 * u, cx - 4 * u, cy - gap + 3 * u)
+            .line(cx, cy - gap - 2 * u, cx + 4 * u, cy - gap + 3 * u)
+            .commit();
+
+        // Center donut (on speed 8.0°–8.5°).
+        painter.setColor(cue === 'onSpeed' ? donutColor : hudSecondaryColor);
+        const r = Math.max(2, Math.round(3 * geomScale));
+        painter.circle(cx, cy, r);
+
+        // Lower chevron (fast / low AoA).
+        painter.setColor(cue === 'fast' ? hudColor : hudSecondaryColor);
+        painter.batch()
+            .line(cx, cy + gap + 2 * u, cx - 4 * u, cy + gap - 3 * u)
+            .line(cx, cy + gap + 2 * u, cx + 4 * u, cy + gap - 3 * u)
+            .commit();
+
+        painter.setColor(hudColor);
+    }
+
     /** HUD boresight cross at the airframe combiner (gun axis / nozzle aim point). */
     private renderBoresight(hudX: number, hudY: number, painter: CanvasPainter, geomScale: number, hudColor: string) {
         painter.setColor(hudColor);
@@ -821,6 +978,10 @@ export class HUDEntity implements Entity {
         width: number, height: number, halfWidth: number, halfHeight: number,
         dx: number, dy: number,
         painter: CanvasPainter, camera: THREE.Camera, geomScale: number,
+        approachAids: boolean,
+        hudColor: string,
+        hudSecondaryColor: string,
+        palette: Palette,
     ) {
         const u = geomScale;
         this._aim.copy(camera.position).add(this.velocityDirection);
@@ -842,6 +1003,25 @@ export class HUDEntity implements Entity {
                 .hLine(x + 3 * u, x + 5 * u, y)
                 .vLine(x, y - 4 * u, y - 3 * u)
                 .commit();
+
+            // E-bracket centered on the velocity vector during ILS approach.
+            if (approachAids) {
+                const cue = aoaIndexerCue(toDegrees(this.angleOfAttack));
+                const bracketColor = cue === 'onSpeed'
+                    ? PaletteColor(palette, PaletteCategory.LIGHT_YELLOW)
+                    : hudSecondaryColor;
+                const bx = Math.round(x - 9 * u);
+                const arm = Math.round(4 * u);
+                const gap = Math.round(5 * u);
+                painter.setColor(bracketColor);
+                painter.batch()
+                    .hLine(bx - arm, bx, y - gap)
+                    .hLine(bx - arm, bx, y)
+                    .hLine(bx - arm, bx, y + gap)
+                    .vLine(bx - arm, y - gap, y + gap)
+                    .commit();
+                painter.setColor(hudColor);
+            }
         }
     }
 

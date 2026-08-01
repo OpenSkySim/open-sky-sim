@@ -13,7 +13,16 @@ import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { FcsPitchLimiter } from '../fm2/fcs';
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { ForceVectorSample } from '../model/flightModel';
-import { deserializeWorldQuery, SerializedWorld } from './serializedWorld';
+import { deserializeWorldQuery, deserializeArrestorCables, SerializedWorld } from './serializedWorld';
+import {
+    applyArrestorVelocity,
+    ArrestorCableField,
+    ARRESTOR_PULL_OUT_M,
+    ARRESTOR_RELEASE_SPEED_MPS,
+    DEFAULT_ARRESTOR_HOOK_BODY,
+    hookWorldPos,
+    trySnag,
+} from '../../scene/entities/arrestorCables';
 import { AC, AC_STRIDE, PROJ_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
     AircraftCollisionMesh,
@@ -100,6 +109,19 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     /** Seconds since last solid-world scrape FX (smoke/sparks). */
     scrapeFxCooldown = 0;
 
+    /** Latched arrestor cable index within the active field, or -1. */
+    arrestorLatch = -1;
+    /** Which arrestor field is latched (carrier index), or -1. */
+    arrestorFieldIndex = -1;
+    /** Deck-axis projection of the hook at snag time (for pull-out distance). */
+    arrestorSnagAlong = 0;
+    /** True after pull-out finished; cable stays bent until the plane taxis away. */
+    arrestorHeld = false;
+    readonly hookBody = new THREE.Vector3();
+    readonly prevHook = new THREE.Vector3();
+    hasPrevHook = false;
+    readonly hookNow = new THREE.Vector3();
+
     // Normalized command buffer, written by the pilot (ai) or the client (external).
     private inPitch = 0;
     private inRoll = 0;
@@ -127,6 +149,8 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.maxHealth = desc.maxHealth;
         this.health = desc.maxHealth;
         this.afterburner = fm2UsesAfterburner(desc.aircraftConfig);
+        const hook = desc.aircraftConfig?.hook ?? DEFAULT_ARRESTOR_HOOK_BODY;
+        this.hookBody.set(hook[0], hook[1], hook[2]);
         this.model = new Fm2FlightModel(desc.aircraftConfig, { kinematic: desc.kinematic });
         this.bindWorld(world);
         if (desc.gun) {
@@ -172,6 +196,11 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     }
 
     applySpawn(spawn: SimAircraftSpawn): void {
+        this.arrestorLatch = -1;
+        this.arrestorFieldIndex = -1;
+        this.arrestorSnagAlong = 0;
+        this.arrestorHeld = false;
+        this.hasPrevHook = false;
         this.model.position = this.tmp.fromArray(spawn.position);
         this.model.quaternion = new THREE.Quaternion().fromArray(spawn.quaternion);
         if (spawn.velocity) {
@@ -395,6 +424,10 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         out[base + AC.limitersEnabled] = mirror.limitersEnabled ? 1 : 0;
         out[base + AC.pitchLimiterMode] = mirror.pitchLimiterMode;
         out[base + AC.autopilot] = mirror.autopilot ? 1 : 0;
+        out[base + AC.arrestorLatch] = this.arrestorLatch;
+        out[base + AC.hookX] = this.hookNow.x;
+        out[base + AC.hookY] = this.hookNow.y;
+        out[base + AC.hookZ] = this.hookNow.z;
     }
 }
 
@@ -433,6 +466,7 @@ class ExternalCombatant implements Combatant {
 export class CombatSim implements ProjectileSink {
 
     private world: SceneWorldQuery | undefined;
+    private arrestorFields: ArrestorCableField[] = [];
     private readonly aircraft = new Map<string, SimAircraft>();
     private readonly order: string[] = [];
     private readonly external = new Map<string, ExternalCombatant>();
@@ -470,6 +504,7 @@ export class CombatSim implements ProjectileSink {
 
     setWorld(world: SerializedWorld): void {
         this.world = deserializeWorldQuery(world);
+        this.arrestorFields = deserializeArrestorCables(world);
         // Any aircraft added before the world arrived can now get its pilot + terrain.
         for (const a of this.aircraft.values()) {
             a.bindWorld(this.world);
@@ -575,12 +610,20 @@ export class CombatSim implements ProjectileSink {
         const a = this.aircraft.get(id);
         if (!a) return;
         this.rebuildIfKinematicChanged(a, kinematic);
+        a.arrestorLatch = -1;
+        a.arrestorFieldIndex = -1;
+        a.arrestorSnagAlong = 0;
+        a.arrestorHeld = false;
+        a.hasPrevHook = false;
         a.model.reset();
         a.model.position = position;
         a.model.quaternion = quaternion;
         a.model.velocityVector = velocity;
         a.model.setLanded(landed);
         a.model.setThrottle(throttle);
+        // Match PlayerEntity.reset: gear/flaps down on every spawn/teleport.
+        a.setLandingGearDeployed(true);
+        a.setFlapsExtended(true);
         a.health = a.maxHealth;
         a.resetGun();
         this.playerInputs.get(id)?.syncThrottle(throttle);
@@ -606,6 +649,8 @@ export class CombatSim implements ProjectileSink {
         a.kinematic = kinematic;
         a.collision = collision;
         a.setAfterburnerFromConfig(config);
+        const hook = config.hook ?? DEFAULT_ARRESTOR_HOOK_BODY;
+        a.hookBody.set(hook[0], hook[1], hook[2]);
         a.bindWorld(this.world);
     }
 
@@ -713,6 +758,7 @@ export class CombatSim implements ProjectileSink {
             a.applyInputsToModel();
             a.model.update(delta);
             this.resolveSolidWorldContact(a);
+            this.resolveArrestor(a, delta);
             a.resolveFiring();
             this.wrapBounds(a);
         }
@@ -793,6 +839,63 @@ export class CombatSim implements ProjectileSink {
         if (!contact) return;
 
         this.applySolidWorldResponse(a, contact);
+    }
+
+    /**
+     * Arrestor-cable snag + deck-axis deceleration. Auto-hook when gear is down;
+     * once latched, scrub along-deck speed to stop over {@link ARRESTOR_PULL_OUT_M}.
+     * After stop the cable stays bent until the aircraft taxis away.
+     */
+    private resolveArrestor(a: SimAircraft, delta: number): void {
+        if (a.model.isCrashed() || this.arrestorFields.length === 0) return;
+
+        hookWorldPos(a.model.position, a.model.quaternion, a.hookBody, a.hookNow);
+
+        if (a.arrestorLatch < 0) {
+            for (let fi = 0; fi < this.arrestorFields.length; fi++) {
+                const field = this.arrestorFields[fi];
+                const idx = trySnag(
+                    a.hookNow,
+                    a.hasPrevHook ? a.prevHook : null,
+                    a.model.velocityVector,
+                    field,
+                    a.isGearDeployed(),
+                );
+                if (idx >= 0) {
+                    a.arrestorLatch = idx;
+                    a.arrestorFieldIndex = fi;
+                    a.arrestorSnagAlong = a.hookNow.dot(field.deckAxis);
+                    a.arrestorHeld = false;
+                    break;
+                }
+            }
+        }
+
+        if (a.arrestorLatch >= 0 && a.arrestorFieldIndex >= 0) {
+            const field = this.arrestorFields[a.arrestorFieldIndex];
+            const vel = a.model.velocityVector;
+            if (!a.arrestorHeld) {
+                const traveled = a.hookNow.dot(field.deckAxis) - a.arrestorSnagAlong;
+                const remaining = ARRESTOR_PULL_OUT_M - traveled;
+                const stillPulling = applyArrestorVelocity(vel, field.deckAxis, delta, remaining);
+                a.model.snapPhysicsState();
+                if (!stillPulling) {
+                    a.model.setLanded(true);
+                    a.arrestorHeld = true;
+                }
+            } else {
+                // Cable stays on the hook while parked; release once taxiing.
+                const groundSpeed = Math.hypot(vel.x, vel.z);
+                if (groundSpeed > ARRESTOR_RELEASE_SPEED_MPS || !a.isGearDeployed()) {
+                    a.arrestorLatch = -1;
+                    a.arrestorFieldIndex = -1;
+                    a.arrestorHeld = false;
+                }
+            }
+        }
+
+        a.prevHook.copy(a.hookNow);
+        a.hasPrevHook = true;
     }
 
     private findSolidWorldContact(a: SimAircraft): SolidWorldContact | null {

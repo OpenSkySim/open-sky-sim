@@ -6,7 +6,6 @@ import { SimProxyFlightModel } from '../../physics/model/simProxyFlightModel';
 import { CombatSimClient } from '../../physics/sim/combatSimClient';
 import { SimAircraftSpawn, SimGunConfig } from '../../physics/sim/simTypes';
 import { FlightSample } from '../../physics/flightRecorder';
-import { defaultFm2Config } from '../../physics/fm2/fm2AircraftConfig';
 import { clamp, UP } from '../../utils/math';
 import { AiPilotOptions } from '../../ai/aiPilot';
 import { Combatant, Faction } from '../../weapons/combatant';
@@ -18,6 +17,7 @@ import { setAircraftShadowPose } from './aircraftShadow';
 import { ModelManager } from '../models/models';
 import { Scene, SceneLayers } from '../scene';
 import { WeaponsTarget } from './weaponsTarget';
+import { flightConfigWithArrestorHook } from './arrestorCables';
 
 /** Same hit sphere as the player — shared airframe, different input only. */
 const DEFAULT_HIT_RADIUS = 10;
@@ -124,7 +124,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             faction,
             control: 'ai',
             kinematic: false,
-            aircraftConfig: def.flight ?? defaultFm2Config,
+            aircraftConfig: flightConfigWithArrestorHook(def),
             pilotOptions,
             hitRadius: DEFAULT_HIT_RADIUS,
             maxHealth: this.maxHealth,
@@ -140,11 +140,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     /** Swap visual + FM to match the player's aircraft (same def, AI input). */
     loadAircraft(def: FlyableAircraftDef): void {
         this.buildFromDef(def);
-        if (def.flight) {
-            this.flightModel.setAircraft(def.flight);
-        } else {
-            this.flightModel.setAircraft(defaultFm2Config);
-        }
+        this.flightModel.setAircraft(flightConfigWithArrestorHook(def));
         this.fx.ensureBound(this.modelBody.model);
         this.syncGearVisual(this.gearDeployed, false);
     }

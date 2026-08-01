@@ -14,6 +14,7 @@ import { HDNoonPalette } from '../config/palettes/hd-noon';
 import { VGAMidnightPalette } from '../config/palettes/vga-midnight';
 import { VGANoonPalette } from '../config/palettes/vga-noon';
 import { DisplayResolution, getDisplayResolutionSize } from '../config/profiles/profile';
+import { loadSettings, SpawnMode, updateSettings } from '../config/settingsStorage';
 import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { FlightRecorder } from '../physics/flightRecorder';
 import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
@@ -23,6 +24,7 @@ import { SceneCamera } from '../scene/cameras/camera';
 import { DebrisField } from '../scene/entities/debrisField';
 import { DamageSmokeField } from '../scene/entities/damageSmokeField';
 import { GroundTargetEntity } from '../scene/entities/groundTarget';
+import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
 import { CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize } from '../scene/entities/overlay/cockpit';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
 import { HUDEntity } from '../scene/entities/overlay/hud';
@@ -69,6 +71,7 @@ import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def, groupAircraftByModel } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
+import { flightConfigWithArrestorHook } from '../scene/entities/arrestorCables';
 import { Obstacle, Runway } from '../ai/worldQuery';
 import { AiFlightPhase, AiPilotOptions, AiSkillLevel } from '../ai/aiPilot';
 import { AiAircraftEntity } from '../scene/entities/aiAircraft';
@@ -76,10 +79,9 @@ import { WeaponsField } from '../scene/entities/weaponsField';
 import { Faction } from '../weapons/combatant';
 import { CombatSimClient } from '../physics/sim/combatSimClient';
 import { SimProxyFlightModel } from '../physics/model/simProxyFlightModel';
-import { serializeWorld } from '../physics/sim/serializedWorld';
+import { serializeWorld, defaultArrestorCableField } from '../physics/sim/serializedWorld';
 import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/simTypes';
 import { PLAYER_SIM_ID, aiSimId } from '../physics/sim/simIds';
-import { defaultFm2Config } from '../physics/fm2/fm2AircraftConfig';
 import { AiPilotModels } from './gameDefs';
 
 /** How many AI opponents the combat sim spawns. */
@@ -436,9 +438,7 @@ export class Game {
         });
         this.configService.flightModels.addChangeListener(flightModel => {
             this.player.setFlightModel(flightModel);
-            if (this.currentDef.flight) {
-                flightModel.setAircraft(this.currentDef.flight);
-            }
+            flightModel.setAircraft(flightConfigWithArrestorHook(this.currentDef));
             // FM2/DEBUG are simulated in the combat worker; JSBSim runs in its own
             // worker, so the sim-owned player aircraft is disabled and its state is
             // injected as an external combatant (see update) for AI targeting.
@@ -650,9 +650,9 @@ export class Game {
         this.setupControls();
         await this.loadPersistedPacks();
         await this.setupScene();
-        this.refreshAircraftMenu();
-        this.selectRandomAircraft();
-        await this.beginFlight('headon');
+        const settings = loadSettings();
+        this.selectAircraftById(settings.aircraftId, 'f22');
+        await this.beginFlight(settings.spawnMode);
         window.addEventListener('resize', () => this.onViewportResize());
     }
 
@@ -728,23 +728,12 @@ export class Game {
         const variant = group.variants[Math.min(liveryIndex, group.variants.length - 1)];
         this.selectedAircraftId = variant.id;
         this.refreshAircraftMenu();
+        this.persistSpawnSelection();
     }
 
     private selectAircraftLivery(liveryIndex: number): void {
         const { modelIndex } = this.findSelectionIndices(this.selectedAircraftId);
         this.selectAircraftModel(modelIndex, liveryIndex);
-    }
-
-    /** Select a random aircraft in the spawn menu (used on app start). */
-    private selectRandomAircraft(): void {
-        const groups = this.aircraftModelGroups();
-        if (groups.length === 0) {
-            return;
-        }
-        const group = groups[Math.floor(Math.random() * groups.length)];
-        const variant = group.variants[Math.floor(Math.random() * group.variants.length)];
-        this.selectedAircraftId = variant.id;
-        this.refreshAircraftMenu();
     }
 
     private selectAircraftById(id: string, fallbackId?: string): void {
@@ -754,6 +743,14 @@ export class Game {
             this.selectedAircraftId = fallbackId;
         }
         this.refreshAircraftMenu();
+        this.persistSpawnSelection();
+    }
+
+    private persistSpawnSelection(spawnMode?: SpawnMode): void {
+        updateSettings({
+            aircraftId: this.selectedAircraftId,
+            ...(spawnMode !== undefined ? { spawnMode } : {}),
+        });
     }
 
     /** Swap the player (and AI opponents) to the aircraft chosen in the spawn menu. */
@@ -764,9 +761,7 @@ export class Game {
         }
         this.currentDef = def;
         this.player.loadAircraft(def);
-        if (def.flight) {
-            this.configService.flightModels.getActive().setAircraft(def.flight);
-        }
+        this.configService.flightModels.getActive().setAircraft(flightConfigWithArrestorHook(def));
         this.combatSim.setCollision(PLAYER_SIM_ID, def.collisionMesh);
         // Same airframe for AI — only the control channel differs.
         for (let i = 0; i < this.aiOpponents.length; i++) {
@@ -870,7 +865,7 @@ export class Game {
             await this.preloadAircraftModels(firstDef);
         }
         this.setModStatus(`Imported: ${registered.join(', ')}. Select and fly from the menu.`, 20000);
-        this.enterSpawnMenu(false);
+        this.enterSpawnMenu();
     }
 
     /** Show a transient status message in the #mod-status overlay. */
@@ -1463,7 +1458,7 @@ export class Game {
             }
             if (event.code === 'Escape') {
                 event.preventDefault();
-                this.enterSpawnMenu(false);
+                this.enterSpawnMenu();
                 return;
             }
             switch (event.key) {
@@ -1788,40 +1783,42 @@ export class Game {
     }
 
     transitionFromPlayerToCrashed() {
+        if (this.view === PlayerViewState.CRASHED) {
+            return;
+        }
         this.damageSmoke?.ensureCrashPlume(PLAYER_SIM_ID);
-        this.enterSpawnMenu(true);
-    }
-
-    private enterSpawnMenu(afterCrash: boolean) {
-        this.state = GameState.SPAWN_MENU;
-        this.flightRecorder.stop();
-        this.player.setSimulationPaused(true);
-        this.spawnMenu.afterCrash = afterCrash;
-        this.spawnMenu.enabled = true;
-        this.spawnPanel.setTitle(afterCrash ? 'The plane crashed.' : 'Retro Flight Sim');
-        this.refreshAircraftMenu();
-        this.spawnPanel.show();
-
-        if (afterCrash) {
-            restoreMainCameraParameters(this.playerCamera.main);
-            this.view = PlayerViewState.CRASHED;
-            this.player.exteriorView = true;
-            this.cameraUpdater = this.getCameraUpdater(this.view);
-            for (let i = 0; i < this.cockpitEntities.length; i++) {
-                this.cockpitEntities[i].enabled = false;
-            }
-            for (let i = 0; i < this.exteriorEntities.length; i++) {
-                this.exteriorEntities[i].enabled = false;
-            }
-        } else {
-            this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
-            this.damageSmoke?.reset();
-            this.setCockpitFrontView();
+        this.leaveShowcaseIfActive();
+        this.resetOrbit();
+        restoreMainCameraParameters(this.playerCamera.main);
+        this.view = PlayerViewState.CRASHED;
+        this.player.exteriorView = true;
+        this.cameraUpdater = this.getCameraUpdater(this.view);
+        for (let i = 0; i < this.cockpitEntities.length; i++) {
+            this.cockpitEntities[i].enabled = false;
+        }
+        for (let i = 0; i < this.exteriorEntities.length; i++) {
+            this.exteriorEntities[i].enabled = false;
         }
     }
 
+    private enterSpawnMenu() {
+        this.state = GameState.SPAWN_MENU;
+        this.flightRecorder.stop();
+        this.player.setSimulationPaused(true);
+        this.spawnMenu.afterCrash = false;
+        this.spawnMenu.enabled = true;
+        this.spawnPanel.setTitle('Retro Flight Sim');
+        this.refreshAircraftMenu();
+        this.spawnPanel.show();
+
+        this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
+        this.damageSmoke?.reset();
+        this.setCockpitFrontView();
+    }
+
     /** Begin a flight using the aircraft + livery chosen in the spawn menu. */
-    private async beginFlight(spawn: 'approach' | 'runway' | 'headon' | 'carrier' | 'carrierTakeoff') {
+    private async beginFlight(spawn: SpawnMode) {
+        this.persistSpawnSelection(spawn);
         const def = this.selectedAircraftDef();
         if (def) {
             await this.preloadAircraftModels(def);
@@ -1888,13 +1885,14 @@ export class Game {
         // sim-owned aircraft (its physics + gun + autopilot all live there).
         this.combatSim.setWorld(serializeWorld(
             this.hillColliders, this.obstacles, runway, this.skiJumps, this.carrierMeshes,
+            [defaultArrestorCableField(KUZ_POSITION.x, KUZ_POSITION.y, KUZ_POSITION.z)],
         ));
         this.combatSim.addAircraft({
             id: PLAYER_SIM_ID,
             faction: Faction.PLAYER,
             control: 'external',
             kinematic: false,
-            aircraftConfig: this.currentDef.flight ?? defaultFm2Config,
+            aircraftConfig: flightConfigWithArrestorHook(this.currentDef),
             pilotOptions: { cruiseAltitude: 3000, cruiseSpeed: 220, hardDeck: 150 },
             hitRadius: PLAYER_HIT_RADIUS_M,
             maxHealth: 100,
@@ -2244,6 +2242,13 @@ export class Game {
         const kuz = new GroundTargetEntity(kuzModel, 0, 'Carrier', 'Stosneehar');
         kuz.position.copy(KUZ_POSITION);
         scene.add(kuz);
+
+        const arrestorCables = new ArrestorCablesEntity(
+            this.materials,
+            KUZ_POSITION.clone(),
+            () => this.player,
+        );
+        scene.add(arrestorCables);
 
         // Carrier-style ski jump 90 m ahead of the runway spawn, rising toward +Z (takeoff).
         this.skiJumps.length = 0;

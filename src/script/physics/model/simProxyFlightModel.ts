@@ -35,6 +35,8 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     private simWheelBrakes = false;
     private simLimitersEnabled = true;
     private simPitchLimiterMode = 0;
+    private simArrestorLatch = -1;
+    private readonly simArrestorHook = new THREE.Vector3();
 
     constructor(
         private readonly client: CombatSimClient,
@@ -107,6 +109,12 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
         this.wheelBrakesApplied = this.simWheelBrakes;
         this.pitchLimiterMode = this.simPitchLimiterMode as FcsPitchLimiter;
         this.limitersEnabled = this.simLimitersEnabled;
+        this.simArrestorLatch = buf[base + AC.arrestorLatch] ?? -1;
+        this.simArrestorHook.set(
+            buf[base + AC.hookX] ?? 0,
+            buf[base + AC.hookY] ?? 0,
+            buf[base + AC.hookZ] ?? 0,
+        );
 
         // @ts-ignore - private on the base, written for render interpolation.
         this.prevPosition.set(buf[base + AC.ppX], buf[base + AC.ppY], buf[base + AC.ppZ]);
@@ -170,6 +178,16 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
 
     getSimWheelBrakes(): boolean {
         return this.simWheelBrakes;
+    }
+
+    /** Latched arrestor cable index, or -1 when free. */
+    getArrestorLatch(): number {
+        return this.simArrestorLatch;
+    }
+
+    /** World-space hook position from the latest worker snapshot. */
+    getArrestorHookWorld(out: THREE.Vector3): THREE.Vector3 {
+        return out.copy(this.simArrestorHook);
     }
 
     // --- FlightModel overrides ------------------------------------------------

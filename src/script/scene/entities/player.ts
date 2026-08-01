@@ -22,7 +22,13 @@ import { Combatant, Faction } from '../../weapons/combatant';
 import { CombatSimClient } from '../../physics/sim/combatSimClient';
 import { SimProxyFlightModel } from '../../physics/model/simProxyFlightModel';
 import { PLAYER_SIM_ID } from '../../physics/sim/simIds';
-
+import {
+    arrestorCableStartWorld,
+    arrestorHookPlacementForAircraft,
+    DEFAULT_ARRESTOR_HOOK_BODY,
+    DEFAULT_ARRESTOR_HOOK_HINGE,
+    latchedHookTipWorld,
+} from './arrestorCables';
 
 const ENGINE_LOWEST_VOLUME = 0.05; // [0,1]
 
@@ -75,6 +81,7 @@ export class PlayerEntity implements Entity {
     private modelBody!: LODHelper;
     private modelShadow!: LODHelper;
     private modelLandingGear: LODHelper | undefined;
+    private modelTailhook: LODHelper | undefined;
     /** Prefetched invisible collider mesh (not drawn; combat uses baked triangles). */
     private modelCollision: LODHelper | undefined;
     private shadowPosition = new THREE.Vector3();
@@ -150,6 +157,11 @@ export class PlayerEntity implements Entity {
 
     private _v = new THREE.Vector3();
     private _q = new THREE.Quaternion();
+    private readonly _hinge = new THREE.Vector3();
+    private readonly _hookDir = new THREE.Vector3();
+    private readonly _hookTip = new THREE.Vector3();
+    private readonly _hookTipBody = new THREE.Vector3(...DEFAULT_ARRESTOR_HOOK_BODY);
+    private readonly _hookHingeBody = new THREE.Vector3(...DEFAULT_ARRESTOR_HOOK_HINGE);
 
     readonly tags: string[] = [ENTITY_TAGS.AIRCRAFT];
 
@@ -219,6 +231,12 @@ export class PlayerEntity implements Entity {
                 }
             });
         }
+
+        this.modelTailhook = new LODHelper(this.models.getModel('lib:tailhook'));
+
+        const hook = arrestorHookPlacementForAircraft(def);
+        this._hookTipBody.fromArray(hook.tip);
+        this._hookHingeBody.fromArray(hook.hinge);
 
         this.cockpitOffset.fromArray(def.cockpitOffset);
 
@@ -672,6 +690,12 @@ export class PlayerEntity implements Entity {
                         targetWidth, camera, palette,
                         SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
                 }
+                // Tailhook only when gear is down (not while animated bay doors play retracted).
+                const showTailhook = this._showcaseMode
+                    || this.landingGearState !== AircraftDeviceState.RETRACTED;
+                if (showTailhook && this.modelTailhook) {
+                    this.renderTailhook(targetWidth, camera, palette, lists);
+                }
 
                 for (let i = 0; i < this.controlSurfaceDescriptors.length; i++) {
                     const d = this.controlSurfaceDescriptors[i];
@@ -690,6 +714,48 @@ export class PlayerEntity implements Entity {
                 this.fx.addTrailsToRenderList(lists, camera);
             }
         }
+    }
+
+    /**
+     * Place the tailhook at the belly hinge. Idle: points aft along the body
+     * hinge→tip. Latched: tip on hinge→sheave ray so arm and cable leg align.
+     */
+    private renderTailhook(
+        targetWidth: number,
+        camera: THREE.Camera,
+        palette: Palette,
+        lists: Map<string, THREE.Scene>,
+    ): void {
+        if (!this.modelTailhook) return;
+
+        this._hinge.copy(this._hookHingeBody)
+            .applyQuaternion(this.displayQuaternion)
+            .add(this.displayPosition);
+
+        let latch = -1;
+        if (!this._showcaseMode && this.flightModel instanceof SimProxyFlightModel) {
+            latch = this.flightModel.getArrestorLatch();
+        }
+
+        if (latch >= 0) {
+            // Shared tip with the bent wire: colinear hinge → tip → left sheave.
+            this._hookTip.copy(this._hookTipBody).sub(this._hookHingeBody)
+                .applyQuaternion(this.displayQuaternion);
+            arrestorCableStartWorld(latch, undefined, this._v);
+            latchedHookTipWorld(
+                this._hinge, this._v, this._v, this._hookDir, this._hookTip,
+            );
+        } else {
+            this._hookDir.copy(this._hookTipBody).sub(this._hookHingeBody)
+                .applyQuaternion(this.displayQuaternion);
+            this._hookDir.normalize();
+        }
+        this._q.setFromUnitVectors(FORWARD, this._hookDir);
+
+        this.modelTailhook.addToRenderList(
+            this._hinge, this._q, this.obj.scale,
+            targetWidth, camera, palette,
+            SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
     }
 
     render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
@@ -985,6 +1051,11 @@ export class PlayerEntity implements Entity {
 
     getDisplayQuaternion(): THREE.Quaternion {
         return this.displayQuaternion;
+    }
+
+    /** Body-frame arrestor hook hinge (matches the visible tailhook). */
+    getArrestorHookHingeBody(out: THREE.Vector3): THREE.Vector3 {
+        return out.copy(this._hookHingeBody);
     }
 
     getDisplayVelocity(): THREE.Vector3 {

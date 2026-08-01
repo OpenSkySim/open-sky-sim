@@ -10,10 +10,14 @@ import { attachToRenderList } from '../../render/renderList';
  * Default twin nozzle origins in aircraft body space (+Z forward, exhaust −Z).
  * Used for the built-in F-22 and any aircraft whose def carries no `fx.nozzles`.
  */
-const DEFAULT_NOZZLES: readonly THREE.Vector3[] = [
-    new THREE.Vector3(-0.75, 0.05, -4.85),
-    new THREE.Vector3(0.75, 0.05, -4.85),
+export const DEFAULT_ENGINE_NOZZLES: readonly (readonly [number, number, number])[] = [
+    [-0.75, 0.05, -4.85],
+    [0.75, 0.05, -4.85],
 ];
+
+const DEFAULT_NOZZLES: readonly THREE.Vector3[] = DEFAULT_ENGINE_NOZZLES.map(
+    ([x, y, z]) => new THREE.Vector3(x, y, z),
+);
 
 /** Nozzle radius (m) assumed when a def provides none. */
 const DEFAULT_RADIUS = 0.3;

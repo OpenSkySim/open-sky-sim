@@ -23,6 +23,8 @@ import { SceneMaterialManager } from './scene/materials/materials';
 import { BackgroundModelLibBuilder } from './scene/models/lib/backgroundModelBuilder';
 import { FieldModelLibBuilder, FieldModelType } from './scene/models/lib/fieldModelBuilder';
 import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, MountainModelLibBuilder } from './scene/models/lib/mountainModelBuilder';
+import { ArrestorCablesModelLibBuilder } from './scene/models/lib/arrestorCablesModelBuilder';
+import { TailhookModelLibBuilder } from './scene/models/lib/tailhookModelBuilder';
 import { SkiJumpModelLibBuilder } from './scene/models/lib/skiJumpModelBuilder';
 import { TracerModelLibBuilder } from './scene/models/lib/tracerModelBuilder';
 import { ModelManager } from './scene/models/models';
@@ -59,6 +61,8 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         new MountainModelLibBuilder('hill', HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
         new MountainModelLibBuilder('mountain', MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
         new SkiJumpModelLibBuilder('skiJump'),
+        new ArrestorCablesModelLibBuilder('arrestorCables'),
+        new TailhookModelLibBuilder('tailhook'),
         new TracerModelLibBuilder('tracer'),
     ]);
     const audio = new AudioSystem();
