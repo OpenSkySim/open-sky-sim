@@ -22,6 +22,8 @@ import { flightConfigWithArrestorHook } from './arrestorCables';
 /** Same hit sphere as the player — shared airframe, different input only. */
 const DEFAULT_HIT_RADIUS = 10;
 const LANDING_GEAR_ANIM_DURATION = 3; // Seconds — match PlayerEntity
+/** Low-pass time constant for oleo visual compression (s). */
+const GEAR_COMPRESSION_SMOOTH_TAU_S = 0.08;
 
 // Enemy aircraft are centred on their own origin when framed by the target camera.
 const AI_TARGET_LOCAL_CENTER = new THREE.Vector3(0, 0, 0);
@@ -97,6 +99,9 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     private airbrakesExtended = false;
     private health = 100;
     private readonly maxHealth = 100;
+    /** Smoothed mean oleo compression for strut visual offset (m). */
+    private gearCompressionSmooth = 0;
+    private readonly gearDisplayPosition = new THREE.Vector3();
 
     constructor(
         models: ModelManager,
@@ -275,6 +280,13 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         }
         this.obj.position.copy(this.flightModel.position);
         this.obj.quaternion.copy(this.flightModel.quaternion);
+
+        const compressTarget = this.gearDeployed && !this.isCrashed()
+            ? this.flightModel.getGearCompressionMean()
+            : 0;
+        const compressAlpha = 1 - Math.exp(-delta / GEAR_COMPRESSION_SMOOTH_TAU_S);
+        this.gearCompressionSmooth += (compressTarget - this.gearCompressionSmooth) * compressAlpha;
+        if (this.gearCompressionSmooth < 1e-4) this.gearCompressionSmooth = 0;
 
         this.fx.ensureBound(this.modelBody.model);
         this.flightModel.getRenderPosition(this.displayPosition);
@@ -488,8 +500,15 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             const showLandingGear = this.gearDeployed
                 || (this.gearAnimated && this.gearAnimReady);
             if (showLandingGear) {
+                this.gearDisplayPosition.copy(this.displayPosition);
+                if (this.gearCompressionSmooth > 0 && this.gearDeployed) {
+                    this.gearDisplayPosition.addScaledVector(
+                        this._v.copy(UP).applyQuaternion(this.displayQuaternion),
+                        this.gearCompressionSmooth,
+                    );
+                }
                 this.modelLandingGear?.addToRenderList(
-                    this.displayPosition, this.displayQuaternion, this.scale,
+                    this.gearDisplayPosition, this.displayQuaternion, this.scale,
                     targetWidth, camera, palette,
                     SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
             }

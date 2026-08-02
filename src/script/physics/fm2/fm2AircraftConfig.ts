@@ -79,6 +79,12 @@ export interface Fm2WaveDragConfig {
 export interface Fm2GearConfig {
     /** Contact points in the body frame (m); Y ≈ -PLANE_DISTANCE_TO_GROUND. */
     points: [number, number, number][];
+    /**
+     * Soft oleo travel (m) before the hard terrain lift. Static 1g sag should
+     * land around 30–45% of this stroke so landings and taxi settle visibly.
+     * Optional for older packs — FM2 falls back to 0.35 m.
+     */
+    maxStrokeM?: number;
     stiffness: number;   // N/m
     damping: number;     // N·s/m
     rollFriction: number;
@@ -447,8 +453,11 @@ export const defaultFm2Config: Fm2AircraftConfig = {
             [-1.2, -PLANE_DISTANCE_TO_GROUND, -0.6], // left main
             [1.2, -PLANE_DISTANCE_TO_GROUND, -0.6],  // right main
         ],
-        stiffness: 4.0e6,
-        damping: 1.6e5,
+        // ~0.045 m static sag at 1g (~13% of stroke) with three equal springs;
+        // soft enough for visible oleo settle, stiff enough to absorb landings.
+        maxStrokeM: 0.35,
+        stiffness: 1.0e6,
+        damping: 1.5e5,
         rollFriction: 0.04,
         brakeFriction: 0.55,
         sideFriction: 0.8,

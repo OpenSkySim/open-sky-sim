@@ -40,11 +40,6 @@ const THROTTLE_UP_RATE = 0.10;
 const THROTTLE_DOWN_RATE = 0.07;
 
 /**
- * Soft spring travel allowed below the local heightfield before a hard lift.
- * Near-zero keeps tyres visually on the deck; springs still cushion via force.
- */
-const MAX_GEAR_PENETRATION_M = 0.02;
-/**
  * Half-extent (m) of the XZ samples around each gear point. A single point
  * under the axle lets the tyre mesh dig into rising terrain by ~radius×slope;
  * taking the max height in this footprint keeps the whole wheel above the deck.
@@ -107,9 +102,16 @@ export class Fm2FlightModel extends FlightModel {
 
     private stall = -1;
 
+    /** Per-leg oleo compression from the last gear-force step (m). */
+    private readonly gearCompression: number[];
+
     /** Body Y when level on flat ground (deepest gear contact at world y=0). */
     private get groundRestY(): number {
         return fm2GroundRestHeight(this.config);
+    }
+
+    private get maxGearStrokeM(): number {
+        return this.config.gear.maxStrokeM ?? 0.35;
     }
 
     /** Terrain / obstacle query from the combat worker (optional). */
@@ -171,6 +173,7 @@ export class Fm2FlightModel extends FlightModel {
         ];
         this.qRef = 0.5 * computeIsaAirDensity(config.envelope.cruiseAltitudeM)
             * config.envelope.cruiseSpeedMps ** 2;
+        this.gearCompression = new Array(config.gear.points.length).fill(0);
         this.obj.up.copy(UP);
     }
 
@@ -204,6 +207,9 @@ export class Fm2FlightModel extends FlightModel {
         this.rb.reset();
         this.fcs.reset();
         this.stall = -1;
+        for (let i = 0; i < this.gearCompression.length; i++) {
+            this.gearCompression[i] = 0;
+        }
         for (const s of this.allSurfaces) {
             s.resetState();
         }
@@ -576,16 +582,26 @@ export class Fm2FlightModel extends FlightModel {
     private computeGearForces(): void {
         this.gearForceWorld.set(0, 0, 0);
         this.gearMomentBody.set(0, 0, 0);
+        for (let i = 0; i < this.gearCompression.length; i++) {
+            this.gearCompression[i] = 0;
+        }
+
+        if (!this.landingGearDeployed) return;
 
         this._omegaWorld.copy(this.rb.angularVelocityBody).applyQuaternion(this.rb.orientation);
 
         const gear = this.config.gear;
-        for (const gp of gear.points) {
+        const maxStroke = this.maxGearStrokeM;
+        for (let i = 0; i < gear.points.length; i++) {
+            const gp = gear.points[i];
             this._v.set(gp[0], gp[1], gp[2]).applyQuaternion(this.rb.orientation);
             this._gearWorld.copy(this._v).add(this.obj.position);
             const groundY = this.groundHeightUnderGear(this._gearWorld.x, this._gearWorld.z);
             const penetration = groundY - this._gearWorld.y;
             if (penetration <= 0) continue;
+
+            const compression = penetration < maxStroke ? penetration : maxStroke;
+            this.gearCompression[i] = compression;
 
             this.sampleGroundNormal(this._gearWorld.x, this._gearWorld.z, this._groundNormal);
 
@@ -617,13 +633,15 @@ export class Fm2FlightModel extends FlightModel {
     }
 
     /**
-     * Lift the body so no gear contact tunnels deeper than
-     * {@link MAX_GEAR_PENETRATION_M} below the local heightfield.
-     * Correction is vertical: the solid constraint is y ≥ groundHeightAt(x,z)
-     * (hills, ramps, flat — anything WorldQuery returns).
+     * Lift the body so no gear contact tunnels deeper than the oleo stroke
+     * below the local heightfield. Correction is vertical: the solid constraint
+     * is y ≥ groundHeightAt(x,z) (hills, ramps, flat — anything WorldQuery returns).
      */
     private resolveGearTerrainPenetration(): void {
+        if (!this.landingGearDeployed) return;
+
         const gear = this.config.gear;
+        const maxStroke = this.maxGearStrokeM;
         let maxPen = 0;
         for (const gp of gear.points) {
             this._v.set(gp[0], gp[1], gp[2]).applyQuaternion(this.rb.orientation);
@@ -631,7 +649,7 @@ export class Fm2FlightModel extends FlightModel {
             const pen = this.groundHeightUnderGear(this._gearWorld.x, this._gearWorld.z) - this._gearWorld.y;
             if (pen > maxPen) maxPen = pen;
         }
-        const excess = maxPen - MAX_GEAR_PENETRATION_M;
+        const excess = maxPen - maxStroke;
         if (excess <= 0) return;
 
         this.obj.position.y += excess;
@@ -704,12 +722,14 @@ export class Fm2FlightModel extends FlightModel {
         }
 
         // CG hard floor (gear contacts already clamped in resolveGearTerrainPenetration).
-        const minY = restY - MAX_GEAR_PENETRATION_M;
-        if (this.obj.position.y < minY) {
-            this.obj.position.y = minY;
-            if (this.velocity.y < 0) {
-                this.velocity.y = 0;
-                this.rb.velocityWorld.y = 0;
+        if (this.landingGearDeployed) {
+            const minY = restY - this.maxGearStrokeM;
+            if (this.obj.position.y < minY) {
+                this.obj.position.y = minY;
+                if (this.velocity.y < 0) {
+                    this.velocity.y = 0;
+                    this.rb.velocityWorld.y = 0;
+                }
             }
         }
 
@@ -722,7 +742,16 @@ export class Fm2FlightModel extends FlightModel {
         const rollAngle = Math.asin(clamp(this._right.y, -1, 1));
 
         const env = this.config.envelope;
-        const hardContact = this.velocity.y < -env.landingMaxVerticalSpeedMps;
+        // Sink-rate crashes only count once the oleo is bottomed (or gear is up).
+        // Mid-stroke compression is normal spring travel, not a hard deck strike.
+        let maxCompress = 0;
+        for (let i = 0; i < this.gearCompression.length; i++) {
+            if (this.gearCompression[i] > maxCompress) maxCompress = this.gearCompression[i];
+        }
+        const oleoBottomed = !this.landingGearDeployed
+            || maxCompress >= this.maxGearStrokeM * 0.95;
+        const hardContact = oleoBottomed
+            && this.velocity.y < -env.landingMaxVerticalSpeedMps;
         const badAttitude = Math.abs(rollAngle) > env.landingMaxRollRad || pitchAngle < env.landingMinPitchRad;
 
         if (!this.landed && (hardContact || speed > env.landingMaxSpeedMps)) {
@@ -749,6 +778,10 @@ export class Fm2FlightModel extends FlightModel {
     }
 
     getStallStatus(): number { return this.stall; }
+
+    getGearCompression(): ReadonlyArray<number> {
+        return this.gearCompression;
+    }
 
     /**
      * Build a body-frame snapshot of the net force on each body part for the

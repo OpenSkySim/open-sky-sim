@@ -6,6 +6,8 @@ import { FcsPitchLimiter } from '../fm2/fcs';
 export const SIM_FPS = 120;
 const SIM_DELTA = 1.0 / SIM_FPS;
 
+const EMPTY_GEAR_COMPRESSION: ReadonlyArray<number> = Object.freeze([]);
+
 /**
  * The net force acting on a single body part, serialised for the debug overlay.
  * Origin and vector are both expressed in the aircraft body frame (metres and
@@ -374,6 +376,24 @@ export abstract class FlightModel {
 
     getEngineThrustKn(): number {
         return this.engineThrustN / 1000;
+    }
+
+    /**
+     * Per-leg oleo compression (m), one entry per gear contact point.
+     * Zero when gear is up or a leg is unloaded. FM2 fills this; other models
+     * return an empty array.
+     */
+    getGearCompression(): ReadonlyArray<number> {
+        return EMPTY_GEAR_COMPRESSION;
+    }
+
+    /** Mean oleo compression across contact points (m). */
+    getGearCompressionMean(): number {
+        const c = this.getGearCompression();
+        if (c.length === 0) return 0;
+        let sum = 0;
+        for (let i = 0; i < c.length; i++) sum += c[i];
+        return sum / c.length;
     }
 
     /** Enable/disable production of the debug force-vector snapshot each step. */

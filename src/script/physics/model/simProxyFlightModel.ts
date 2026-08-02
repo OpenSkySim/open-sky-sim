@@ -37,6 +37,7 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     private simPitchLimiterMode = 0;
     private simArrestorLatch = -1;
     private readonly simArrestorHook = new THREE.Vector3();
+    private readonly simGearCompression = [0, 0, 0];
 
     constructor(
         private readonly client: CombatSimClient,
@@ -115,6 +116,9 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
             buf[base + AC.hookY] ?? 0,
             buf[base + AC.hookZ] ?? 0,
         );
+        this.simGearCompression[0] = buf[base + AC.gearCompress0] ?? 0;
+        this.simGearCompression[1] = buf[base + AC.gearCompress1] ?? 0;
+        this.simGearCompression[2] = buf[base + AC.gearCompress2] ?? 0;
 
         // @ts-ignore - private on the base, written for render interpolation.
         this.prevPosition.set(buf[base + AC.ppX], buf[base + AC.ppY], buf[base + AC.ppZ]);
@@ -188,6 +192,10 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     /** World-space hook position from the latest worker snapshot. */
     getArrestorHookWorld(out: THREE.Vector3): THREE.Vector3 {
         return out.copy(this.simArrestorHook);
+    }
+
+    getGearCompression(): ReadonlyArray<number> {
+        return this.simGearCompression;
     }
 
     // --- FlightModel overrides ------------------------------------------------

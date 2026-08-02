@@ -428,6 +428,10 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         out[base + AC.hookX] = this.hookNow.x;
         out[base + AC.hookY] = this.hookNow.y;
         out[base + AC.hookZ] = this.hookNow.z;
+        const gearCompress = this.model.getGearCompression();
+        out[base + AC.gearCompress0] = gearCompress[0] ?? 0;
+        out[base + AC.gearCompress1] = gearCompress[1] ?? 0;
+        out[base + AC.gearCompress2] = gearCompress[2] ?? 0;
     }
 }
 

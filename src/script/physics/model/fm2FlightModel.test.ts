@@ -204,17 +204,26 @@ describe('FM2 rigid-body flight model', () => {
         model.reset();
         model.position.set(1500, PLANE_DISTANCE_TO_GROUND, -800);
         model.setLanded(true);
+        model.setLandingGearDeployed(true);
         model.setThrottle(0);
 
         for (let i = 0; i < 4 * 120; i++) {
             model.update(1 / 120);
         }
 
+        const maxStroke = defaultFm2Config.gear.maxStrokeM ?? 0.35;
+        const meanCompress = model.getGearCompressionMean();
         assert.ok(!model.isCrashed(), 'should not crash sitting on the ground');
         assert.ok(model.position.y > 1.0 && model.position.y < 2.6,
             `did not rest at ground height: ${model.position.y.toFixed(2)} m`);
         assert.ok(model.velocityVector.length() < 6,
             `drifted on the ground: ${model.velocityVector.length().toFixed(1)} m/s`);
+        assert.ok(meanCompress > 0.015 && meanCompress <= maxStroke,
+            `expected static oleo sag, got mean=${meanCompress.toFixed(3)} m`);
+        for (const c of model.getGearCompression()) {
+            assert.ok(c >= 0 && c <= maxStroke,
+                `leg compression out of stroke: ${c.toFixed(3)} m`);
+        }
     });
 
     it('gear springs rest relative to raised terrain height', () => {
@@ -234,6 +243,7 @@ describe('FM2 rigid-body flight model', () => {
         model.reset();
         model.position.set(0, plateau + PLANE_DISTANCE_TO_GROUND, 0);
         model.setLanded(true);
+        model.setLandingGearDeployed(true);
         model.setThrottle(0);
 
         for (let i = 0; i < 4 * 120; i++) {
@@ -245,13 +255,16 @@ describe('FM2 rigid-body flight model', () => {
             model.position.y > plateau + 1.0 && model.position.y < plateau + 2.6,
             `did not rest above plateau: y=${model.position.y.toFixed(2)} (plateau=${plateau})`,
         );
+        assert.ok(model.getGearCompressionMean() > 0.015,
+            `expected oleo sag on plateau, got ${model.getGearCompressionMean().toFixed(3)} m`);
     });
 
-    it('gear contacts stay on a rising ramp without tunnelling', () => {
+    it('gear contacts stay on a rising ramp without tunnelling past stroke', () => {
         // 12° linear incline along +Z — same order as the carrier ski jump tip.
         const slope = Math.tan(12 * Math.PI / 180);
         const groundAt = (_x: number, z: number) => Math.max(0, z * slope);
         const model = new Fm2FlightModel();
+        const maxStroke = defaultFm2Config.gear.maxStrokeM ?? 0.35;
         model.setWorldQuery({
             groundHeightAt: groundAt,
             isLand: () => true,
@@ -285,10 +298,32 @@ describe('FM2 rigid-body flight model', () => {
             if (model.position.z > 80) break;
         }
         assert.ok(model.position.z > 40, `did not climb ramp: z=${model.position.z.toFixed(1)}`);
-        assert.ok(worstPen <= 0.03,
-            `gear tunnelled into ramp: max penetration ${worstPen.toFixed(3)} m`);
+        assert.ok(worstPen <= maxStroke + 0.01,
+            `gear tunnelled past oleo stroke: max penetration ${worstPen.toFixed(3)} m`);
         assert.ok(model.position.y > groundAt(0, model.position.z) + 1.0,
             `body below ramp deck: y=${model.position.y.toFixed(2)}`);
+    });
+
+    it('gear-up produces no oleo compression or spring support', () => {
+        const model = new Fm2FlightModel();
+        model.reset();
+        model.position.set(1500, PLANE_DISTANCE_TO_GROUND, -800);
+        model.setLanded(true);
+        model.setLandingGearDeployed(true);
+        model.setThrottle(0);
+        for (let i = 0; i < 2 * 120; i++) {
+            model.update(1 / 120);
+        }
+        assert.ok(model.getGearCompressionMean() > 0.015, 'precondition: gear-down sag');
+
+        model.setLandingGearDeployed(false);
+        for (let i = 0; i < 30; i++) {
+            model.update(1 / 120);
+        }
+        assert.equal(model.getGearCompressionMean(), 0, 'gear-up should clear oleo compression');
+        for (const c of model.getGearCompression()) {
+            assert.equal(c, 0);
+        }
     });
 
     it('accelerates down the runway and takes off', () => {
@@ -312,7 +347,7 @@ describe('FM2 rigid-body flight model', () => {
         assert.ok(airborneNow, 'did not get airborne within time limit');
     });
 
-    it('imported mod roll and yaw match the default input convention', () => {
+    it('imported mod roll and yaw match the default input convention', { skip: !fs.existsSync('assets/mod.aircraft.json') }, () => {
         const manifest = JSON.parse(fs.readFileSync('assets/mod.aircraft.json', 'utf8'));
         const mod = new Fm2FlightModel(manifest.flight);
         const base = new Fm2FlightModel();
@@ -425,10 +460,11 @@ describe('FM2 rigid-body flight model', () => {
         }
     });
 
-    it('imported mod rests on mesh-derived gear contacts', () => {
+    it('imported mod rests on mesh-derived gear contacts', { skip: !fs.existsSync('assets/mod.aircraft.json') }, () => {
         const manifest = JSON.parse(fs.readFileSync('assets/mod.aircraft.json', 'utf8'));
         const config = manifest.flight;
         const restY = fm2GroundRestHeight(config);
+        const maxStroke = config.gear.maxStrokeM ?? 0.35;
         assert.ok(restY > PLANE_DISTANCE_TO_GROUND,
             `expected deeper nose contact than default rest height: ${restY.toFixed(3)} m`);
 
@@ -436,6 +472,7 @@ describe('FM2 rigid-body flight model', () => {
         model.reset();
         model.position.set(1500, restY, -800);
         model.setLanded(true);
+        model.setLandingGearDeployed(true);
         model.setThrottle(0);
 
         for (let i = 0; i < 4 * 120; i++) {
@@ -455,10 +492,15 @@ describe('FM2 rigid-body flight model', () => {
             minContactWorldY = Math.min(minContactWorldY, worldY);
             maxContactWorldY = Math.max(maxContactWorldY, worldY);
         }
+        // Soft oleo stroke lets contact points sit below the deck by up to maxStroke.
         assert.ok(minContactWorldY <= 0.05,
-            `deepest gear should touch ground: min world y=${minContactWorldY.toFixed(3)} m`);
-        assert.ok(maxContactWorldY < 0.2,
-            `no gear should float far above ground: max world y=${maxContactWorldY.toFixed(3)} m`);
+            `deepest gear should reach ground: min world y=${minContactWorldY.toFixed(3)} m`);
+        assert.ok(minContactWorldY >= -maxStroke - 0.01,
+            `gear tunnelled past stroke: min world y=${minContactWorldY.toFixed(3)} m`);
+        assert.ok(maxContactWorldY < maxStroke + 0.05,
+            `gear floated above stroke band: max world y=${maxContactWorldY.toFixed(3)} m`);
+        assert.ok(model.getGearCompressionMean() > 0,
+            `expected oleo compression on imported gear`);
     });
 });
 
