@@ -7,6 +7,7 @@ import { defaultFm2Config } from '../fm2/fm2AircraftConfig';
 import {
     ARRESTOR_CABLE_LOCAL_Z,
     ARRESTOR_CABLE_Y,
+    ARRESTOR_CARRIER_ORIGIN,
     ARRESTOR_DECK_MID_X,
     DEFAULT_ARRESTOR_HOOK_BODY,
 } from '../../scene/entities/arrestorCables';
@@ -15,7 +16,7 @@ import { defaultArrestorCableField, serializeWorld } from './serializedWorld';
 
 describe('CombatSim arrestor trap', () => {
     it('snags a cable and stops along the deck', () => {
-        const origin = { x: 2500, y: 0, z: -2100 };
+        const origin = ARRESTOR_CARRIER_ORIGIN;
         const field = defaultArrestorCableField(origin.x, origin.y, origin.z);
         const sim = new CombatSim();
         sim.setWorld(serializeWorld([], [], {

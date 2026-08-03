@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { AIRBASE_RUNWAY, RUNWAY_HALF_LENGTH_M } from '../../../defs';
 import { WeaponsTarget } from '../weaponsTarget';
+import { ARRESTOR_CARRIER_ORIGIN } from '../arrestorCables';
 
 /** Visual / ILS glideslope angle (degrees). */
 export const ILS_GLIDESLOPE_DEG = 3.0;
@@ -42,8 +43,7 @@ const LOC_FULL_SCALE_M = 90;
 /** Full-scale glideslope deflection ≈ this altitude miss (m). */
 const GS_FULL_SCALE_M = 40;
 
-/** Kuznetsov placement (matches game.ts). */
-const KUZ_ORIGIN = { x: 2500, y: 0, z: -2100 };
+/** Kuznetsov hull extents in carrier-local space (matches game.ts). */
 const KUZ_HULL = { minX: -34.33, maxX: 43.83, minZ: -177.88, maxZ: 124.28 };
 const KUZ_DECK_MID_X = (KUZ_HULL.minX + KUZ_HULL.maxX) * 0.5;
 /** Touchdown aiming point near the stern threshold. */
@@ -90,16 +90,18 @@ export interface IlsDeviation {
 /**
  * ILS needle deviations in [-1, 1] for the given aircraft world position.
  * Returns null when the target type is not an approach aid.
+ * For carriers, pass the live carrier world origin so the needles track the ship.
  */
 export function computeIlsDeviation(
     position: THREE.Vector3,
     targetType: string,
+    carrierOrigin: { x: number; y: number; z: number } = ARRESTOR_CARRIER_ORIGIN,
 ): IlsDeviation | null {
     if (targetType === 'Airbase') {
         return airbaseIls(position);
     }
     if (targetType === 'Carrier') {
-        return carrierIls(position);
+        return carrierIls(position, carrierOrigin);
     }
     return null;
 }
@@ -119,12 +121,15 @@ function airbaseIls(position: THREE.Vector3): IlsDeviation {
     };
 }
 
-function carrierIls(position: THREE.Vector3): IlsDeviation {
+function carrierIls(
+    position: THREE.Vector3,
+    origin: { x: number; y: number; z: number },
+): IlsDeviation {
     // Approach along −Z (heading π); touchdown near stern.
-    const centerX = KUZ_ORIGIN.x + KUZ_DECK_MID_X;
-    const touchZ = KUZ_ORIGIN.z + KUZ_TOUCHDOWN_LOCAL_Z;
+    const centerX = origin.x + KUZ_DECK_MID_X;
+    const touchZ = origin.z + KUZ_TOUCHDOWN_LOCAL_Z;
     const distToTouch = Math.max(0, position.z - touchZ);
-    const desiredAlt = KUZ_DECK_Y + distToTouch * ILS_GLIDESLOPE_TAN;
+    const desiredAlt = origin.y + KUZ_DECK_Y + distToTouch * ILS_GLIDESLOPE_TAN;
     // Facing −Z: world +X is left of aircraft → invert lateral sense.
     const lateral = position.x - centerX;
     const altErr = position.y - desiredAlt;

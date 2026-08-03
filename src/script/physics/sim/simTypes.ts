@@ -3,7 +3,7 @@ import { AiPilotOptions } from '../../ai/aiPilot';
 import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { AircraftCollisionMesh } from '../../scene/entities/aircraftDef';
-import { SerializedWorld } from './serializedWorld';
+import { SerializedArrestorCables, SerializedWorld } from './serializedWorld';
 
 /**
  * Serializable protocol for the unified combat sim worker. One worker owns the
@@ -117,6 +117,11 @@ export interface SimHitEvent {
     velocity: Vec3;
     targetId: string;
     damage: number;
+    /**
+     * `gun` (default): airframe fire/smoke + debris.
+     * `scrape`: ground-contact puff at the impact point only (no hull fire).
+     */
+    source?: 'gun' | 'scrape';
 }
 
 export interface SimSnapshot {
@@ -131,6 +136,8 @@ export type SimToWorkerMessage =
     | { type: 'init' }
     | { type: 'attachSharedState'; buffer: SharedArrayBuffer }
     | { type: 'setWorld'; world: SerializedWorld }
+    | { type: 'setArrestorCables'; cables: SerializedArrestorCables[] }
+    | { type: 'setCarrierMeshOrigins'; origins: { originX: number; originY: number; originZ: number }[] }
     | { type: 'addAircraft'; desc: SimAircraftDesc }
     | { type: 'removeAircraft'; id: string }
     | { type: 'setEnabled'; id: string; enabled: boolean }

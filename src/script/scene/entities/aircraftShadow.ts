@@ -3,6 +3,8 @@ import { FORWARD, RIGHT } from '../../utils/math';
 
 /** Lift above solid ground so the silhouette clears coplanar deck/terrain depth. */
 export const SHADOW_SURFACE_EPSILON_M = 0.08;
+/** Ground-shadow opacity via screen-space stipple (higher = denser / more opaque). */
+export const SHADOW_ALPHA_DITHER = 0.4;
 
 /**
  * Places a planform shadow on solid ground under the aircraft and squashes it

@@ -79,6 +79,17 @@ export class SceneWorldQuery implements WorldQuery {
         return this.runwayDef;
     }
 
+    /** Move carrier collision soups when the ship translates (local mesh frame unchanged). */
+    setCarrierMeshOrigins(origins: readonly { originX: number; originY: number; originZ: number }[]): void {
+        for (let i = 0; i < this.carrierMeshes.length && i < origins.length; i++) {
+            const c = this.carrierMeshes[i];
+            const o = origins[i];
+            c.originX = o.originX;
+            c.originY = o.originY;
+            c.originZ = o.originZ;
+        }
+    }
+
     /**
      * Nearest obstacle whose safety cylinder the point is within `horizon`
      * metres of (horizontally). Returns undefined when clear. Used by the

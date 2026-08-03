@@ -24,7 +24,7 @@ import {
 import { DEFAULT_ENGINE_NOZZLES } from './afterburnerCones';
 
 describe('arrestorCables', () => {
-    const origin = { x: 2500, y: 0, z: -2100 };
+    const origin = { x: 0, y: 0, z: -5500 };
     const field = buildArrestorCableField(origin.x, origin.y, origin.z);
 
     it('builds four lateral segments on the landing deck', () => {
@@ -38,6 +38,18 @@ describe('arrestorCables', () => {
             assert.ok(Math.abs(seg.a.x - (origin.x + ARRESTOR_DECK_MID_X - ARRESTOR_HALF_SPAN_M)) < 1e-6);
             assert.ok(Math.abs(seg.b.x - (origin.x + ARRESTOR_DECK_MID_X + ARRESTOR_HALF_SPAN_M)) < 1e-6);
         }
+    });
+
+    it('rotates cable field with carrier yaw', () => {
+        const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+        const yawed = buildArrestorCableField(100, 0, 200, undefined, yaw);
+        // Local +X becomes world −Z after +90° yaw about Y.
+        const localAx = ARRESTOR_DECK_MID_X - ARRESTOR_HALF_SPAN_M;
+        const expected = new THREE.Vector3(localAx, ARRESTOR_CABLE_Y, ARRESTOR_CABLE_LOCAL_Z[0])
+            .applyQuaternion(yaw)
+            .add(new THREE.Vector3(100, 0, 200));
+        assert.ok(yawed.segments[0].a.distanceTo(expected) < 1e-5);
+        assert.ok(Math.abs(yawed.deckAxis.x - (-1)) < 1e-5, 'deck axis should face −X');
     });
 
     it('hookWorldPos transforms body offset by pose', () => {
@@ -205,7 +217,7 @@ describe('arrestorCables serialize', () => {
     it('round-trips through SerializedWorld', async () => {
         const { serializeWorld, deserializeArrestorCables, defaultArrestorCableField } =
             await import('../../physics/sim/serializedWorld');
-        const origin = { x: 2500, y: 0, z: -2100 };
+        const origin = { x: 0, y: 0, z: -5500 };
         const field = defaultArrestorCableField(origin.x, origin.y, origin.z);
         const world = serializeWorld([], [], {
             center: new THREE.Vector3(),

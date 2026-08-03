@@ -3,7 +3,7 @@ import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { Faction } from '../../weapons/combatant';
 import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
-import { SerializedWorld } from './serializedWorld';
+import { SerializedArrestorCables, SerializedWorld } from './serializedWorld';
 import { AC_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
     createSimSharedState,
@@ -114,6 +114,14 @@ export class CombatSimClient {
 
     setWorld(world: SerializedWorld): void {
         this.post({ type: 'setWorld', world });
+    }
+
+    setArrestorCables(cables: SerializedArrestorCables[]): void {
+        this.post({ type: 'setArrestorCables', cables });
+    }
+
+    setCarrierMeshOrigins(origins: { originX: number; originY: number; originZ: number }[]): void {
+        this.post({ type: 'setCarrierMeshOrigins', origins });
     }
 
     registerProxy(proxy: SimAircraftProxy): void {

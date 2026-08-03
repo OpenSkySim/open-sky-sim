@@ -43,6 +43,12 @@ function handleMessage(data: SimToWorkerMessage): void {
         case 'setWorld':
             sim.setWorld(data.world);
             break;
+        case 'setArrestorCables':
+            sim.setArrestorCables(data.cables);
+            break;
+        case 'setCarrierMeshOrigins':
+            sim.setCarrierMeshOrigins(data.origins);
+            break;
         case 'addAircraft':
             sim.addAircraft(data.desc);
             break;

@@ -25,6 +25,7 @@ import { PLAYER_SIM_ID } from '../../physics/sim/simIds';
 import {
     arrestorCableStartWorld,
     arrestorHookPlacementForAircraft,
+    ArrestorCarrierPose,
     DEFAULT_ARRESTOR_HOOK_BODY,
     DEFAULT_ARRESTOR_HOOK_HINGE,
     latchedHookTipWorld,
@@ -33,8 +34,6 @@ import {
 const ENGINE_LOWEST_VOLUME = 0.05; // [0,1]
 
 const LANDING_GEAR_ANIM_DURATION = 3; // Seconds
-/** Low-pass time constant for oleo visual compression (s). */
-const GEAR_COMPRESSION_SMOOTH_TAU_S = 0.08;
 
 const FLAPS_ANIM_DURATION = 2; // Seconds
 const FLAPS_EXTENDED_ANGLE = Math.PI / 5; // Radians
@@ -106,9 +105,6 @@ export class PlayerEntity implements Entity {
     private landingGearProgress = LANDING_GEAR_ANIM_DURATION;
     /** True when the gear model carries a retract clip (doors stay visible when up). */
     private gearAnimated = false;
-    /** Smoothed mean oleo compression for strut visual offset (m). */
-    private gearCompressionSmooth = 0;
-    private readonly gearDisplayPosition = new THREE.Vector3();
 
     private flapsState: AircraftDeviceState = AircraftDeviceState.EXTENDED;
     private flapsProgress = FLAPS_ANIM_DURATION;
@@ -166,6 +162,8 @@ export class PlayerEntity implements Entity {
     private readonly _hookDir = new THREE.Vector3();
     private readonly _hookTip = new THREE.Vector3();
     private readonly _hookTipBody = new THREE.Vector3(...DEFAULT_ARRESTOR_HOOK_BODY);
+    /** Live carrier pose for latched-hook sheave aiming; falls back to default origin. */
+    private getArrestorCarrierPose: (() => ArrestorCarrierPose) | undefined;
     private readonly _hookHingeBody = new THREE.Vector3(...DEFAULT_ARRESTOR_HOOK_HINGE);
 
     readonly tags: string[] = [ENTITY_TAGS.AIRCRAFT];
@@ -395,37 +393,7 @@ export class PlayerEntity implements Entity {
             this.updateLandingGear(delta);
             this.updateFlaps(delta);
             this.updateAirbrakes(delta);
-            this.updateGearCompressionVisual(delta);
-        } else {
-            this.gearCompressionSmooth = 0;
         }
-    }
-
-    /** Low-pass mean oleo compression used to offset the gear mesh along body +Y. */
-    private updateGearCompressionVisual(delta: number): void {
-        const target = this.landingGearState === AircraftDeviceState.EXTENDED
-            ? this.flightModel.getGearCompressionMean()
-            : 0;
-        const alpha = 1 - Math.exp(-delta / GEAR_COMPRESSION_SMOOTH_TAU_S);
-        this.gearCompressionSmooth += (target - this.gearCompressionSmooth) * alpha;
-        if (this.gearCompressionSmooth < 1e-4) this.gearCompressionSmooth = 0;
-    }
-
-    /**
-     * Gear render pose: body pose plus oleo offset along body +Y so tyres stay
-     * planted while the airframe settles into the spring stroke.
-     */
-    private gearRenderPosition(out: THREE.Vector3): THREE.Vector3 {
-        out.copy(this.displayPosition);
-        if (this.gearCompressionSmooth > 0
-            && this.landingGearState === AircraftDeviceState.EXTENDED
-            && !this._showcaseMode) {
-            out.addScaledVector(
-                this._v.copy(UP).applyQuaternion(this.displayQuaternion),
-                this.gearCompressionSmooth,
-            );
-        }
-        return out;
     }
 
     private isWorkerControlled(): boolean {
@@ -482,7 +450,6 @@ export class PlayerEntity implements Entity {
         this.landingGearState = AircraftDeviceState.EXTENDED;
         this.modelLandingGear?.setPlaybackPosition(1);
         this.landingGearProgress = LANDING_GEAR_ANIM_DURATION;
-        this.gearCompressionSmooth = 0;
 
         this.flapsState = AircraftDeviceState.EXTENDED;
         this.flapsProgress = FLAPS_ANIM_DURATION;
@@ -722,8 +689,7 @@ export class PlayerEntity implements Entity {
                     || this.landingGearState !== AircraftDeviceState.RETRACTED;
                 if (showLandingGear) {
                     this.modelLandingGear?.addToRenderList(
-                        this.gearRenderPosition(this.gearDisplayPosition),
-                        this.displayQuaternion, this.obj.scale,
+                        this.displayPosition, this.displayQuaternion, this.obj.scale,
                         targetWidth, camera, palette,
                         SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
                 }
@@ -778,7 +744,11 @@ export class PlayerEntity implements Entity {
             // Shared tip with the bent wire: colinear hinge → tip → left sheave.
             this._hookTip.copy(this._hookTipBody).sub(this._hookHingeBody)
                 .applyQuaternion(this.displayQuaternion);
-            arrestorCableStartWorld(latch, undefined, this._v);
+            arrestorCableStartWorld(
+                latch,
+                this.getArrestorCarrierPose?.() ?? undefined,
+                this._v,
+            );
             latchedHookTipWorld(
                 this._hinge, this._v, this._v, this._hookDir, this._hookTip,
             );
@@ -822,8 +792,7 @@ export class PlayerEntity implements Entity {
             || this.landingGearState !== AircraftDeviceState.RETRACTED;
         if (showLandingGear) {
             this.modelLandingGear?.addToRenderList(
-                this.gearRenderPosition(this.gearDisplayPosition),
-                this.displayQuaternion, this.obj.scale,
+                this.displayPosition, this.displayQuaternion, this.obj.scale,
                 targetWidth, camera, palette,
                 'showcasePickFlats', 'showcasePickVolumes', this.showcasePickLists, 0);
         }
@@ -1094,6 +1063,11 @@ export class PlayerEntity implements Entity {
     /** Body-frame arrestor hook hinge (matches the visible tailhook). */
     getArrestorHookHingeBody(out: THREE.Vector3): THREE.Vector3 {
         return out.copy(this._hookHingeBody);
+    }
+
+    /** Provide the live carrier pose so a latched hook aims at the moving sheave. */
+    setArrestorCarrierPoseProvider(getPose: () => ArrestorCarrierPose): void {
+        this.getArrestorCarrierPose = getPose;
     }
 
     getDisplayVelocity(): THREE.Vector3 {

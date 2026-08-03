@@ -155,12 +155,33 @@ export class DamageSmokeField implements Entity {
         const n = Math.min(hits.length, MAX_HITS_PER_FRAME);
         for (let i = 0; i < n; i++) {
             const hit = hits[i];
+            if (hit.source === 'scrape') {
+                continue;
+            }
             const pose = this.poseProvider(hit.targetId);
             if (!pose) {
                 continue;
             }
             this.worldPos.set(hit.position[0], hit.position[1], hit.position[2]);
             this.openLeak(hit.targetId, pose, this.worldPos);
+        }
+    }
+
+    /**
+     * Gray smoke puffs pinned at world impact points (terrain scrapes).
+     * No hull leak / no fire phase — smoke only on the ground.
+     */
+    spawnGroundScrapes(hits: SimHitEvent[]): void {
+        let spawned = 0;
+        for (let i = 0; i < hits.length && spawned < MAX_HITS_PER_FRAME; i++) {
+            const hit = hits[i];
+            if (hit.source !== 'scrape') {
+                continue;
+            }
+            this.worldPos.set(hit.position[0], hit.position[1], hit.position[2]);
+            this.system.position = this.worldPos;
+            this.emitGroundSmokePuffs(3 + (hit.damage >= 20 ? 3 : 0));
+            spawned++;
         }
     }
 
@@ -398,6 +419,30 @@ export class DamageSmokeField implements Entity {
                     p.sizeStart = Math.max(p.sizeStart, 2.2 + Math.random() * 1.2);
                 }
                 p.sizeEnd = 16 + Math.random() * 8;
+            }
+        }
+    }
+
+    /** Short gray puffs at a ground scrape — skips the yellow/red fire phase. */
+    private emitGroundSmokePuffs(count: number): void {
+        const prevSpawns: number[] = [];
+        for (let i = 0; i < this.system.particles.length; i++) {
+            prevSpawns.push(this.system.particles[i].spawns);
+        }
+        this.system.burst(count, true);
+        for (let i = 0; i < this.system.particles.length; i++) {
+            const p = this.system.particles[i];
+            if (p.isActive && p.spawns !== prevSpawns[i]) {
+                p.velocity.set(
+                    (Math.random() * 2 - 1) * DRIFT_MPS * 1.4,
+                    RISE_MPS * (0.35 + Math.random() * 0.25),
+                    (Math.random() * 2 - 1) * DRIFT_MPS * 1.4,
+                );
+                p.lifespan = 4 + Math.random() * 3;
+                // Start past the fire phase so syncPuffs colours as gray smoke only.
+                p.life = Math.max(p.life, FIRE_PHASE_END * p.lifespan + 1e-3);
+                p.sizeStart = 1.2 + Math.random() * 0.8;
+                p.sizeEnd = 6 + Math.random() * 4;
             }
         }
     }

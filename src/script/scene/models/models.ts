@@ -6,6 +6,7 @@ import { isZero } from '../../utils/math';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/materials';
 import { updateUniforms } from '../utils';
 import { aircraftPackStore, isPackUrl, parsePackUrl } from '../../state/aircraftPack';
+import { SHADOW_ALPHA_DITHER } from '../entities/aircraftShadow';
 
 
 export interface ModelLodLevel {
@@ -29,8 +30,6 @@ export type ModelLoadedListener = (url: string, model: Model) => void;
 // a higher value means a lighter, sparser dither. Both are easy to tweak.
 const GLASS_COLOR = '#333333';
 const GLASS_ALPHA_DITHER = 0.65;
-/** Ground-shadow opacity via screen-space stipple (higher = denser / more opaque). */
-const SHADOW_ALPHA_DITHER = 0.4;
 // Legacy mod imports tagged glass as the default import_mod.py hex instead of GLASS.
 const LEGACY_GLASS_MATERIAL_NAMES = new Set(['GLASS', '#d1f7ff']);
 /** Reserved material token from import_mod.py for TCA collider meshes. */
@@ -184,6 +183,7 @@ export class ModelManager {
         const AABBox = new THREE.Box3();
         const worldAABB = new THREE.Box3();
         const isShadowModel = ModelManager.isShadowModelUrl(url);
+        const isKuzModel = ModelManager.isKuzModelUrl(url);
         model.lod = scenes.map(scene => {
             const level: ModelLodLevel = {
                 flats: [],
@@ -255,9 +255,14 @@ export class ModelManager {
                         (obj.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
                     } else {
                         const rawColor = ModelManager.rawColorFor(matName);
-                        const category = rawColor
+                        let category = rawColor
                             ? PaletteCategory.VEHICLE_PLANE_GREY
                             : ModelManager.paletteCategoryOrFallback(matName);
+                        // Kuz hull exports as building metal (light grey); use navy
+                        // engine charcoal so the carrier reads darker at sea.
+                        if (isKuzModel && category === PaletteCategory.SCENERY_BUILDING_METAL) {
+                            category = PaletteCategory.VEHICLE_PLANE_ENGINE;
+                        }
                         obj.material = this.materials.build({
                             type: SceneMaterialPrimitiveType.MESH,
                             category,
@@ -306,6 +311,12 @@ export class ModelManager {
     private static isShadowModelUrl(url: string): boolean {
         const path = isPackUrl(url) ? parsePackUrl(url).path : url;
         return /_shadow\.(gltf|glb)(\?|#|$)/i.test(path);
+    }
+
+    /** True for the Kuznetsov carrier hull (`kuz.glb`). */
+    private static isKuzModelUrl(url: string): boolean {
+        const path = isPackUrl(url) ? parsePackUrl(url).path : url;
+        return /(^|\/)kuz\.(gltf|glb)(\?|#|$)/i.test(path);
     }
 
     /** True for flyable-aircraft collider assets (`*_collision.gltf` / `.glb`). */

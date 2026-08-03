@@ -836,7 +836,11 @@ export class HUDEntity implements Entity {
         hudColor: string, hudSecondaryColor: string, palette: Palette,
     ) {
         if (!this.weaponsTarget) return;
-        const dev = computeIlsDeviation(this.actor.getDisplayPosition(), this.weaponsTarget.targetType);
+        const dev = computeIlsDeviation(
+            this.actor.getDisplayPosition(),
+            this.weaponsTarget.targetType,
+            this.weaponsTarget.targetType === 'Carrier' ? this.weaponsTarget.position : undefined,
+        );
         if (!dev) return;
 
         const cx = Math.round(halfWidth + dx);

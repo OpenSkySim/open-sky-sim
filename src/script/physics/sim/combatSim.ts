@@ -13,7 +13,7 @@ import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { FcsPitchLimiter } from '../fm2/fcs';
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { ForceVectorSample } from '../model/flightModel';
-import { deserializeWorldQuery, deserializeArrestorCables, SerializedWorld } from './serializedWorld';
+import { deserializeWorldQuery, deserializeArrestorCables, SerializedArrestorCables, SerializedWorld } from './serializedWorld';
 import {
     applyArrestorVelocity,
     ArrestorCableField,
@@ -49,18 +49,23 @@ const BELLY_TERRAIN_MARGIN_M = 0.05;
 const SOLID_CRASH_IMPACT_MPS = 55;
 /** Penetration past the margin that forces a wreck (m). */
 const SOLID_CRASH_PENETRATION_M = 3.5;
-/** Bounce coefficient along the contact normal. */
-const SOLID_RESTITUTION = 0.18;
-/** Fraction of tangential speed removed on scrape. */
-const SOLID_TANGENT_FRICTION = 0.4;
 /** Minimum inward speed (m/s) before scrape FX / damage. */
 const SOLID_SCRAPE_FX_MPS = 6;
 /** Health lost per (m/s) of inward impact on a non-fatal scrape. */
 const SOLID_SCRAPE_DAMAGE_PER_MPS = 0.35;
 /** Min seconds between scrape FX bursts per aircraft. */
 const SOLID_SCRAPE_FX_COOLDOWN_S = 0.1;
-/** Extra separation along the normal after resolving penetration (m). */
+/** Extra separation after resolving penetration (m). */
 const SOLID_SLOP_M = 0.05;
+/**
+ * Contact-point drag rate (1/s) while the collider scrapes a solid.
+ * Mild on purpose — only bleeds speed at the hit part (with torque), no bounce.
+ */
+const SOLID_CONTACT_DRAG_PER_S = 0.45;
+/** Fraction of aircraft mass used when converting contact drag to an impulse. */
+const SOLID_CONTACT_DRAG_MASS_FRAC = 0.12;
+/** Cap on per-step contact-velocity bleed (keeps scrapes from slamming the brakes). */
+const SOLID_CONTACT_DRAG_MAX_FRAC = 0.01;
 
 const NEUTRAL_INPUTS: SimControlInputs = {
     pitch: 0, roll: 0, yaw: 0, throttle: 0,
@@ -428,10 +433,6 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         out[base + AC.hookX] = this.hookNow.x;
         out[base + AC.hookY] = this.hookNow.y;
         out[base + AC.hookZ] = this.hookNow.z;
-        const gearCompress = this.model.getGearCompression();
-        out[base + AC.gearCompress0] = gearCompress[0] ?? 0;
-        out[base + AC.gearCompress1] = gearCompress[1] ?? 0;
-        out[base + AC.gearCompress2] = gearCompress[2] ?? 0;
     }
 }
 
@@ -494,7 +495,6 @@ export class CombatSim implements ProjectileSink {
     private readonly cQuat = new THREE.Quaternion();
     private readonly contactPoint = new THREE.Vector3();
     private readonly contactNormal = new THREE.Vector3();
-    private readonly scrapeTangent = new THREE.Vector3();
 
     constructor() {
         for (let i = 0; i < PROJECTILE_POOL_SIZE; i++) {
@@ -514,6 +514,16 @@ export class CombatSim implements ProjectileSink {
             a.bindWorld(this.world);
             a.buildPilot(undefined, this.world);
         }
+    }
+
+    /** Update trap-cable world segments when the carrier moves. */
+    setArrestorCables(cables: SerializedArrestorCables[]): void {
+        this.arrestorFields = deserializeArrestorCables({ arrestorCables: cables } as SerializedWorld);
+    }
+
+    /** Update carrier mesh origins for ground contact when the ship moves. */
+    setCarrierMeshOrigins(origins: { originX: number; originY: number; originZ: number }[]): void {
+        this.world?.setCarrierMeshOrigins(origins);
     }
 
     addAircraft(desc: SimAircraftDesc): void {
@@ -761,7 +771,7 @@ export class CombatSim implements ProjectileSink {
             }
             a.applyInputsToModel();
             a.model.update(delta);
-            this.resolveSolidWorldContact(a);
+            this.resolveSolidWorldContact(a, delta);
             this.resolveArrestor(a, delta);
             a.resolveFiring();
             this.wrapBounds(a);
@@ -836,13 +846,13 @@ export class CombatSim implements ProjectileSink {
      * the airframe. Soft gear-down scrapes defer to gear springs so taxi/landing
      * is not scrubbed to a halt by the collision mesh.
      */
-    private resolveSolidWorldContact(a: SimAircraft): void {
+    private resolveSolidWorldContact(a: SimAircraft, delta: number): void {
         if (a.model.isCrashed() || !this.world) return;
 
         const contact = this.findSolidWorldContact(a);
         if (!contact) return;
 
-        this.applySolidWorldResponse(a, contact);
+        this.applySolidWorldResponse(a, contact, delta);
     }
 
     /**
@@ -933,29 +943,30 @@ export class CombatSim implements ProjectileSink {
         };
     }
 
-    private applySolidWorldResponse(a: SimAircraft, contact: SolidWorldContact): void {
+    private applySolidWorldResponse(a: SimAircraft, contact: SolidWorldContact, delta: number): void {
         const n = contact.normal;
         const pos = a.model.position;
-        const vel = a.model.velocityVector;
 
-        const vn = vel.dot(n);
-        const impactSpeed = vn < 0 ? -vn : 0;
+        // Contact-point speed into the surface (CG + spin), for FX / fatality.
+        const impactSpeed = a.model.contactSpeedIntoNormal(contact.point, n);
 
         // Soft rolling contact: gear springs own the vertical constraint — do not
-        // push the body or scrub groundspeed (that used to freeze taxi on deck).
+        // push the body or apply scrapes that fight taxi on deck.
         if (a.isGearDeployed() && impactSpeed < SOLID_SCRAPE_FX_MPS && contact.penetration < 0.35) {
             return;
         }
 
-        // Separate so the collider sits just outside the solid.
-        pos.addScaledVector(n, contact.penetration + SOLID_SLOP_M);
+        // Heightfield penetration is vertical depth — lift in Y only.
+        pos.y += contact.penetration + SOLID_SLOP_M;
 
-        if (vn < 0) {
-            // Bounce along the normal, then scrub sliding speed.
-            vel.addScaledVector(n, -vn * (1 + SOLID_RESTITUTION));
-            this.scrapeTangent.copy(vel).addScaledVector(n, -vel.dot(n));
-            vel.addScaledVector(this.scrapeTangent, -SOLID_TANGENT_FRICTION);
-        }
+        // Mild drag at the hit point (linear + torque). No bounce / no velocity dump.
+        a.model.applyContactDragAt(
+            contact.point,
+            delta,
+            SOLID_CONTACT_DRAG_PER_S,
+            SOLID_CONTACT_DRAG_MASS_FRAC,
+            SOLID_CONTACT_DRAG_MAX_FRAC,
+        );
         a.model.snapPhysicsState();
 
         const fatal = impactSpeed >= SOLID_CRASH_IMPACT_MPS
@@ -975,7 +986,6 @@ export class CombatSim implements ProjectileSink {
             }
             this.emitScrapeFx(a, contact.point, false);
         } else if (contact.penetration > 0.15) {
-            // Slow grind / wingtip drag — sparks without big damage.
             this.emitScrapeFx(a, contact.point, false);
         }
     }
@@ -989,6 +999,7 @@ export class CombatSim implements ProjectileSink {
             velocity: [vel.x, vel.y, vel.z],
             targetId: a.id,
             damage: force ? 50 : 5,
+            source: 'scrape',
         });
     }
 

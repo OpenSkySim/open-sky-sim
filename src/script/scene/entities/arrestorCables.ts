@@ -143,35 +143,69 @@ export function flightConfigWithArrestorHook(def: {
     return { ...base, hook: tip };
 }
 
-/** Kuznetsov origin for cable world placement (matches game.ts). */
-export const ARRESTOR_CARRIER_ORIGIN = { x: 2500, y: 0, z: -2100 };
+/** Kuznetsov origin for cable world placement (matches game.ts). Open water. */
+export const ARRESTOR_CARRIER_ORIGIN = { x: 0, y: 0, z: -5500 };
+
+/** Live carrier placement used to transform cable locals into world space. */
+export interface ArrestorCarrierPose {
+    position: { x: number; y: number; z: number };
+    /** Identity when omitted (carrier yaw = 0). */
+    quaternion?: THREE.Quaternion;
+}
+
+/** Map a carrier-local point into world space using {@link pose}. */
+export function carrierLocalToWorld(
+    localX: number,
+    localY: number,
+    localZ: number,
+    pose: ArrestorCarrierPose,
+    out: THREE.Vector3,
+): THREE.Vector3 {
+    out.set(localX, localY, localZ);
+    if (pose.quaternion) {
+        out.applyQuaternion(pose.quaternion);
+    }
+    return out.add(pose.position as THREE.Vector3);
+}
 
 /** World-space midpoint of cable `index` (rest position / tension target). */
 export function arrestorCableMidWorld(
     index: number,
-    origin: { x: number; y: number; z: number } = ARRESTOR_CARRIER_ORIGIN,
+    origin: ArrestorCarrierPose | { x: number; y: number; z: number } = ARRESTOR_CARRIER_ORIGIN,
     out: THREE.Vector3,
 ): THREE.Vector3 {
     const locals = arrestorCableLocals();
     const i = Math.max(0, Math.min(locals.length - 1, index | 0));
     const c = locals[i];
-    return out.set(
-        origin.x + (c.ax + c.bx) * 0.5,
-        origin.y + (c.ay + c.by) * 0.5,
-        origin.z + (c.az + c.bz) * 0.5,
+    const pose = normalizeCarrierPose(origin);
+    return carrierLocalToWorld(
+        (c.ax + c.bx) * 0.5,
+        (c.ay + c.by) * 0.5,
+        (c.az + c.bz) * 0.5,
+        pose,
+        out,
     );
 }
 
 /** World position of the left sheave ("start") of cable `index`. */
 export function arrestorCableStartWorld(
     index: number,
-    origin: { x: number; y: number; z: number } = ARRESTOR_CARRIER_ORIGIN,
+    origin: ArrestorCarrierPose | { x: number; y: number; z: number } = ARRESTOR_CARRIER_ORIGIN,
     out: THREE.Vector3,
 ): THREE.Vector3 {
     const locals = arrestorCableLocals();
     const i = Math.max(0, Math.min(locals.length - 1, index | 0));
     const c = locals[i];
-    return out.set(origin.x + c.ax, origin.y + c.ay, origin.z + c.az);
+    return carrierLocalToWorld(c.ax, c.ay, c.az, normalizeCarrierPose(origin), out);
+}
+
+function normalizeCarrierPose(
+    origin: ArrestorCarrierPose | { x: number; y: number; z: number },
+): ArrestorCarrierPose {
+    if ('position' in origin) {
+        return origin;
+    }
+    return { position: origin };
 }
 
 /**
@@ -237,23 +271,32 @@ export function arrestorCableLocals(): ArrestorCableLocal[] {
     }));
 }
 
-/** Build world segments from a carrier origin (identity yaw). */
+/** Build world segments from a carrier origin (optional yaw/orientation). */
 export function buildArrestorCableField(
     originX: number,
     originY: number,
     originZ: number,
     deckAxis: THREE.Vector3 = new THREE.Vector3(0, 0, -1),
+    orientation?: THREE.Quaternion,
 ): ArrestorCableField {
     const locals = arrestorCableLocals();
+    const pose: ArrestorCarrierPose = {
+        position: { x: originX, y: originY, z: originZ },
+        quaternion: orientation,
+    };
     const segments: ArrestorCableSegment[] = locals.map(c => ({
-        a: new THREE.Vector3(originX + c.ax, originY + c.ay, originZ + c.az),
-        b: new THREE.Vector3(originX + c.bx, originY + c.by, originZ + c.bz),
+        a: carrierLocalToWorld(c.ax, c.ay, c.az, pose, new THREE.Vector3()),
+        b: carrierLocalToWorld(c.bx, c.by, c.bz, pose, new THREE.Vector3()),
     }));
+    const axis = deckAxis.clone();
+    if (orientation) {
+        axis.applyQuaternion(orientation);
+    }
     return {
         originX,
         originY,
         originZ,
-        deckAxis: deckAxis.clone().normalize(),
+        deckAxis: axis.normalize(),
         segments,
     };
 }

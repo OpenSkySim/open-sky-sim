@@ -136,6 +136,9 @@ export class Fm2FlightModel extends FlightModel {
     private readonly _friction = new THREE.Vector3();
     private readonly _groundNormal = new THREE.Vector3();
     private readonly _vTan = new THREE.Vector3();
+    private readonly _impulseR = new THREE.Vector3();
+    private readonly _impulseK = new THREE.Vector3();
+    private readonly _impulseT = new THREE.Vector3();
     /** Last forebody asymmetry side force (body frame, N); for the debug overlay. */
     private readonly forebodyForceBody = new THREE.Vector3();
 
@@ -220,6 +223,65 @@ export class Fm2FlightModel extends FlightModel {
         super.snapPhysicsState();
         this.rb.orientation.copy(this.obj.quaternion);
         this.rb.velocityWorld.copy(this.velocity);
+    }
+
+    /**
+     * Inward speed of the body at `pointWorld` along `normalWorld` (m/s).
+     * Zero when the contact is separating or sliding purely tangentially.
+     */
+    contactSpeedIntoNormal(pointWorld: THREE.Vector3, normalWorld: THREE.Vector3): number {
+        this.rb.orientation.copy(this.obj.quaternion);
+        this.rb.velocityWorld.copy(this.velocity);
+        this._impulseR.subVectors(pointWorld, this.obj.position);
+        this._omegaWorld.copy(this.rb.angularVelocityBody).applyQuaternion(this.rb.orientation);
+        this._contactVel.crossVectors(this._omegaWorld, this._impulseR).add(this.rb.velocityWorld);
+        const vn = this._contactVel.dot(normalWorld);
+        return vn < 0 ? -vn : 0;
+    }
+
+    /**
+     * Mild drag at a world contact point while scraping a solid.
+     * Bleeds a fraction of the contact-point velocity into an impulse at that
+     * point (linear + angular) — no bounce, no whole-body speed dump.
+     */
+    applyContactDragAt(
+        pointWorld: THREE.Vector3,
+        dt: number,
+        dragPerSec: number,
+        massFraction: number,
+        maxFrac: number,
+    ): void {
+        if (this.kinematic || dt <= 0) return;
+
+        this.rb.orientation.copy(this.obj.quaternion);
+        this.rb.velocityWorld.copy(this.velocity);
+        this.invOrient.copy(this.rb.orientation).invert();
+
+        this._impulseR.subVectors(pointWorld, this.obj.position);
+        this._omegaWorld.copy(this.rb.angularVelocityBody).applyQuaternion(this.rb.orientation);
+        this._contactVel.crossVectors(this._omegaWorld, this._impulseR).add(this.rb.velocityWorld);
+
+        const speed = this._contactVel.length();
+        if (speed < 1e-3) {
+            this.velocity.copy(this.rb.velocityWorld);
+            return;
+        }
+
+        let frac = 1 - Math.exp(-dragPerSec * dt);
+        if (frac > maxFrac) frac = maxFrac;
+        // Impulse opposing contact velocity; scaled so a tip scrape does not act like full-mass braking.
+        const jScale = -frac * this.rb.mass * massFraction;
+        this._friction.copy(this._contactVel).multiplyScalar(jScale);
+
+        this.rb.velocityWorld.addScaledVector(this._friction, 1 / this.rb.mass);
+        this._v.crossVectors(this._impulseR, this._friction).applyQuaternion(this.invOrient);
+        const I = this.rb.inertia;
+        this.rb.angularVelocityBody.x += this._v.x / I.x;
+        this.rb.angularVelocityBody.y += this._v.y / I.y;
+        this.rb.angularVelocityBody.z += this._v.z / I.z;
+
+        this.velocity.copy(this.rb.velocityWorld);
+        this.obj.quaternion.copy(this.rb.orientation);
     }
 
     step(delta: number): void {

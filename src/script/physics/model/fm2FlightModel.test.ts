@@ -259,6 +259,30 @@ describe('FM2 rigid-body flight model', () => {
             `expected oleo sag on plateau, got ${model.getGearCompressionMean().toFixed(3)} m`);
     });
 
+    it('contact drag at a wingtip bleeds speed gently and yaws the airframe', () => {
+        const model = new Fm2FlightModel();
+        model.reset();
+        model.position.set(0, 1000, 0);
+        model.velocityVector.set(0, 0, 120);
+        model.setLanded(false);
+        model.snapPhysicsState();
+
+        const tip = new THREE.Vector3(5, 1000, 0);
+        const speedBefore = model.velocityVector.length();
+        // ~0.5 s of scrape at 120 Hz.
+        for (let i = 0; i < 60; i++) {
+            model.applyContactDragAt(tip, 1 / 120, 0.45, 0.12, 0.01);
+        }
+
+        const speedAfter = model.velocityVector.length();
+        assert.ok(speedAfter < speedBefore,
+            `expected some drag: ${speedBefore.toFixed(1)} → ${speedAfter.toFixed(1)} m/s`);
+        assert.ok(speedAfter > speedBefore * 0.9,
+            `drag too harsh: ${speedBefore.toFixed(1)} → ${speedAfter.toFixed(1)} m/s`);
+        assert.ok(model.velocityVector.z > 108,
+            `forward speed scrubbed: vz=${model.velocityVector.z.toFixed(1)}`);
+    });
+
     it('gear contacts stay on a rising ramp without tunnelling past stroke', () => {
         // 12° linear incline along +Z — same order as the carrier ski jump tip.
         const slope = Math.tan(12 * Math.PI / 180);

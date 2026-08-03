@@ -205,8 +205,9 @@ export function defaultArrestorCableField(
     originX: number,
     originY: number,
     originZ: number,
+    orientation?: THREE.Quaternion,
 ): ArrestorCableField {
-    return buildArrestorCableField(originX, originY, originZ);
+    return buildArrestorCableField(originX, originY, originZ, undefined, orientation);
 }
 
 /** Expose locals for callers that need to inspect layout without THREE world build. */

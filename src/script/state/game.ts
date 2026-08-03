@@ -25,6 +25,7 @@ import { DebrisField } from '../scene/entities/debrisField';
 import { DamageSmokeField } from '../scene/entities/damageSmokeField';
 import { GroundTargetEntity } from '../scene/entities/groundTarget';
 import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
+import { ARRESTOR_CARRIER_ORIGIN } from '../scene/entities/arrestorCables';
 import { CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize } from '../scene/entities/overlay/cockpit';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
 import { HUDEntity } from '../scene/entities/overlay/hud';
@@ -127,8 +128,13 @@ const RUNWAY_SPAWN_INSET_M = 120;
 /** Paved runway strip only — biome patches fill the shoulders beside it. */
 const RUNWAY_STRIP_HALF_WIDTH = 75;
 const RUNWAY_STRIP_HALF_LENGTH = RUNWAY_HALF_LENGTH_M + 150;
-/** Kuznetsov carrier origin (matches {@link Game.addAirBase} placement). */
-const KUZ_POSITION = new THREE.Vector3(2500, 0, -2100);
+/** Kuznetsov carrier origin — open water (matches {@link ARRESTOR_CARRIER_ORIGIN}). */
+const KUZ_POSITION = new THREE.Vector3(
+    ARRESTOR_CARRIER_ORIGIN.x,
+    ARRESTOR_CARRIER_ORIGIN.y,
+    ARRESTOR_CARRIER_ORIGIN.z,
+);
+const KUZ_IDENTITY_QUAT = new THREE.Quaternion();
 /**
  * Carrier hull AABB from `assets/kuz.glb` (approx).
  * Used for approach spawn alignment along the deck axis.
@@ -293,6 +299,10 @@ export class Game {
     private readonly hillColliders: HillCollider[] = [];
     private readonly skiJumps: SkiJumpCollider[] = [];
     private readonly carrierMeshes: CarrierMeshCollider[] = [];
+    /** Live Kuznetsov entity; cables / trap physics / ILS follow its pose. */
+    private kuz: GroundTargetEntity | undefined;
+    private readonly syncedCarrierPos = new THREE.Vector3(Number.NaN, Number.NaN, Number.NaN);
+    private readonly syncedCarrierQuat = new THREE.Quaternion(Number.NaN, Number.NaN, Number.NaN, Number.NaN);
     private readonly obstacles: Obstacle[] = [];
     private weaponsField: WeaponsField | undefined;
     private debrisField: DebrisField | undefined;
@@ -1120,6 +1130,7 @@ export class Game {
             }
             this.updateOrbitFromKeys(delta);
             this.recordTelemetry(delta);
+            this.syncCarrierSystems();
             this.scene.update(delta);
             this.pumpCombatSim(delta);
             this.updateAiStraightTimer(delta);
@@ -1132,9 +1143,64 @@ export class Game {
                 this.transitionFromPlayerToCrashed();
             }
         } else if (this.state === GameState.SPAWN_MENU) {
+            this.syncCarrierSystems();
             this.scene.update(delta);
             this.pumpCombatSim(delta);
         }
+    }
+
+    /** Carrier pose for arrestor visuals / latched hook (always live). */
+    private carrierPose(): { position: THREE.Vector3; quaternion: THREE.Quaternion } {
+        if (this.kuz) {
+            return { position: this.kuz.position, quaternion: this.kuz.quaternion };
+        }
+        return { position: KUZ_POSITION, quaternion: KUZ_IDENTITY_QUAT };
+    }
+
+    /**
+     * When the Kuznetsov moves, keep trap cables, deck collision, and the
+     * combat-sim worker in sync with its world pose.
+     */
+    private syncCarrierSystems(): void {
+        if (!this.kuz) return;
+        const p = this.kuz.position;
+        const q = this.kuz.quaternion;
+        if (
+            Math.abs(p.x - this.syncedCarrierPos.x) < 1e-4 &&
+            Math.abs(p.y - this.syncedCarrierPos.y) < 1e-4 &&
+            Math.abs(p.z - this.syncedCarrierPos.z) < 1e-4 &&
+            Math.abs(q.x - this.syncedCarrierQuat.x) < 1e-6 &&
+            Math.abs(q.y - this.syncedCarrierQuat.y) < 1e-6 &&
+            Math.abs(q.z - this.syncedCarrierQuat.z) < 1e-6 &&
+            Math.abs(q.w - this.syncedCarrierQuat.w) < 1e-6
+        ) {
+            return;
+        }
+        this.syncedCarrierPos.copy(p);
+        this.syncedCarrierQuat.copy(q);
+
+        for (const m of this.carrierMeshes) {
+            m.originX = p.x;
+            m.originY = p.y;
+            m.originZ = p.z;
+        }
+
+        const field = defaultArrestorCableField(p.x, p.y, p.z, q);
+        this.combatSim.setArrestorCables([{
+            originX: field.originX,
+            originY: field.originY,
+            originZ: field.originZ,
+            deckAxis: [field.deckAxis.x, field.deckAxis.y, field.deckAxis.z],
+            segmentsLocal: field.segments.map(s => [
+                s.a.x - field.originX, s.a.y - field.originY, s.a.z - field.originZ,
+                s.b.x - field.originX, s.b.y - field.originY, s.b.z - field.originZ,
+            ] as [number, number, number, number, number, number]),
+        }]);
+        this.combatSim.setCarrierMeshOrigins(
+            this.carrierMeshes.map(c => ({
+                originX: c.originX, originY: c.originY, originZ: c.originZ,
+            })),
+        );
     }
 
     /**
@@ -1885,7 +1951,12 @@ export class Game {
         // sim-owned aircraft (its physics + gun + autopilot all live there).
         this.combatSim.setWorld(serializeWorld(
             this.hillColliders, this.obstacles, runway, this.skiJumps, this.carrierMeshes,
-            [defaultArrestorCableField(KUZ_POSITION.x, KUZ_POSITION.y, KUZ_POSITION.z)],
+            (() => {
+                const pose = this.carrierPose();
+                return [defaultArrestorCableField(
+                    pose.position.x, pose.position.y, pose.position.z, pose.quaternion,
+                )];
+            })(),
         ));
         this.combatSim.addAircraft({
             id: PLAYER_SIM_ID,
@@ -1915,8 +1986,15 @@ export class Game {
         this.damageSmoke.setPoseProvider((targetId) => this.getDamageSmokePose(targetId));
         this.scene.add(this.damageSmoke);
         this.combatSim.onHits = (hits) => {
-            this.debrisField?.spawnFromHits(hits);
-            this.damageSmoke?.spawnFromHits(hits);
+            const gunHits = hits.filter(h => h.source !== 'scrape');
+            const scrapes = hits.filter(h => h.source === 'scrape');
+            if (gunHits.length > 0) {
+                this.debrisField?.spawnFromHits(gunHits);
+                this.damageSmoke?.spawnFromHits(gunHits);
+            }
+            if (scrapes.length > 0) {
+                this.damageSmoke?.spawnGroundScrapes(scrapes);
+            }
         };
 
         // Spawn N AI opponents (the snapshot + worker are already multi-aircraft;
@@ -2241,14 +2319,17 @@ export class Game {
         }
         const kuz = new GroundTargetEntity(kuzModel, 0, 'Carrier', 'Stosneehar');
         kuz.position.copy(KUZ_POSITION);
+        this.kuz = kuz;
         scene.add(kuz);
 
         const arrestorCables = new ArrestorCablesEntity(
             this.materials,
-            KUZ_POSITION.clone(),
+            () => this.carrierPose(),
             () => this.player,
+            (x, z) => this.groundHeightAt(x, z),
         );
         scene.add(arrestorCables);
+        this.player.setArrestorCarrierPoseProvider(() => this.carrierPose());
 
         // Carrier-style ski jump 90 m ahead of the runway spawn, rising toward +Z (takeoff).
         this.skiJumps.length = 0;

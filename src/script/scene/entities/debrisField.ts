@@ -112,16 +112,16 @@ export class DebrisField implements Entity {
         const n = Math.min(hits.length, DEBRIS_MAX_HITS_PER_FRAME);
         for (let i = 0; i < n; i++) {
             const hit = hits[i];
+            if (hit.source === 'scrape') {
+                continue;
+            }
             this.hitPos.set(hit.position[0], hit.position[1], hit.position[2]);
-            // Scrapes (low damage) kick sparks upward; gun hits peel sideways.
-            const scrape = hit.damage > 0 && hit.damage < 20;
-            const inherit = scrape ? 0.12 : DEBRIS_VELOCITY_INHERIT;
             this.hitVel.set(
-                hit.velocity[0] * inherit,
-                hit.velocity[1] * inherit + (scrape ? 8 : 0),
-                hit.velocity[2] * inherit,
+                hit.velocity[0] * DEBRIS_VELOCITY_INHERIT,
+                hit.velocity[1] * DEBRIS_VELOCITY_INHERIT,
+                hit.velocity[2] * DEBRIS_VELOCITY_INHERIT,
             );
-            this.burstAt(this.hitPos, this.hitVel, scrape ? DEBRIS_PER_HIT + 4 : DEBRIS_PER_HIT);
+            this.burstAt(this.hitPos, this.hitVel);
         }
         this.syncMeshes();
     }
