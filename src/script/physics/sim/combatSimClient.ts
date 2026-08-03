@@ -124,6 +124,10 @@ export class CombatSimClient {
         this.post({ type: 'setCarrierMeshOrigins', origins });
     }
 
+    setCarrierVelocity(vx: number, vy: number, vz: number): void {
+        this.post({ type: 'setCarrierVelocity', velocity: [vx, vy, vz] });
+    }
+
     registerProxy(proxy: SimAircraftProxy): void {
         this.proxies.set(proxy.simId, proxy);
     }

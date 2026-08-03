@@ -143,8 +143,8 @@ export function flightConfigWithArrestorHook(def: {
     return { ...base, hook: tip };
 }
 
-/** Kuznetsov origin for cable world placement (matches game.ts). Open water. */
-export const ARRESTOR_CARRIER_ORIGIN = { x: 0, y: 0, z: -5500 };
+/** Kuznetsov origin: centre of the largest open-water body (SE ocean). */
+export const ARRESTOR_CARRIER_ORIGIN = { x: 6000, y: 0, z: -6500 };
 
 /** Live carrier placement used to transform cable locals into world space. */
 export interface ArrestorCarrierPose {
@@ -383,27 +383,29 @@ export function trySnag(
 }
 
 /**
- * Scrub along-deck speed to reach a stop in {@link remainingDist} metres
- * (constant-decel profile a = v² / 2s, capped by {@link ARRESTOR_MAX_DECEL_MPS2}).
- * @returns true while still trapping (along-speed above stop threshold).
+ * Scrub along-deck speed to reach {@link targetAlong} in {@link remainingDist}
+ * metres (constant-decel profile a = v² / 2s, capped by {@link ARRESTOR_MAX_DECEL_MPS2}).
+ * @returns true while still trapping (relative along-speed above stop threshold).
  */
 export function applyArrestorVelocity(
     vel: THREE.Vector3,
     deckAxis: THREE.Vector3,
     dt: number,
     remainingDist: number = ARRESTOR_PULL_OUT_M,
+    targetAlong: number = 0,
 ): boolean {
     const along = vel.dot(deckAxis);
-    if (along <= ARRESTOR_STOP_SPEED_MPS || remainingDist <= 0) {
-        if (along !== 0) {
-            vel.addScaledVector(deckAxis, -along);
+    const rel = along - targetAlong;
+    if (Math.abs(rel) <= ARRESTOR_STOP_SPEED_MPS || remainingDist <= 0) {
+        if (rel !== 0) {
+            vel.addScaledVector(deckAxis, -rel);
         }
         return false;
     }
-    // Target stop in remainingDist: a = v² / (2 s).
-    const aNeeded = (along * along) / (2 * Math.max(remainingDist, 0.25));
+    // Target stop in remainingDist: a = v_rel² / (2 s).
+    const aNeeded = (rel * rel) / (2 * Math.max(remainingDist, 0.25));
     const a = Math.min(aNeeded, ARRESTOR_MAX_DECEL_MPS2);
-    const dv = Math.min(along, a * dt);
+    const dv = Math.sign(rel) * Math.min(Math.abs(rel), a * dt);
     vel.addScaledVector(deckAxis, -dv);
     return true;
 }

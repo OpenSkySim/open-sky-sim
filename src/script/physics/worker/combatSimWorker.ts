@@ -49,6 +49,9 @@ function handleMessage(data: SimToWorkerMessage): void {
         case 'setCarrierMeshOrigins':
             sim.setCarrierMeshOrigins(data.origins);
             break;
+        case 'setCarrierVelocity':
+            sim.setCarrierVelocity(data.velocity[0], data.velocity[1], data.velocity[2]);
+            break;
         case 'addAircraft':
             sim.addAircraft(data.desc);
             break;

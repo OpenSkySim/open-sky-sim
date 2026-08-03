@@ -26,6 +26,7 @@ import { DamageSmokeField } from '../scene/entities/damageSmokeField';
 import { GroundTargetEntity } from '../scene/entities/groundTarget';
 import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
 import { ARRESTOR_CARRIER_ORIGIN } from '../scene/entities/arrestorCables';
+import { ShipWakeEntity } from '../scene/entities/shipWake';
 import { CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize } from '../scene/entities/overlay/cockpit';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
 import { HUDEntity } from '../scene/entities/overlay/hud';
@@ -190,18 +191,12 @@ const PLAYER_LAND_SPAWN: PlayerSpawnState = {
     airborne: false,
 };
 
+/** Kuznetsov cruise speed (45 km/h → m/s), bow heading world −Z at identity. */
+const CARRIER_SPEED_KMH = 45;
+const CARRIER_SPEED_MPS = CARRIER_SPEED_KMH / 3.6;
+
 /** Carrier landing: final toward the ski-jump bow along -Z. */
 const PLAYER_CARRIER_HEADING = Math.PI;
-const PLAYER_CARRIER_POSITION = new THREE.Vector3(
-    KUZ_POSITION.x + KUZ_DECK_MID_X,
-    CARRIER_APPROACH_ALTITUDE_M,
-    KUZ_POSITION.z + KUZ_HULL.maxZ + CARRIER_APPROACH_FINAL_DISTANCE_M,
-);
-const PLAYER_CARRIER_SPAWN: PlayerSpawnState = {
-    velocity: FORWARD.clone().applyAxisAngle(UP, PLAYER_CARRIER_HEADING).multiplyScalar(APPROACH_SPEED_MPS),
-    throttle: 0.38,
-    airborne: true,
-};
 
 /** On-deck takeoff: 120 m aft of the bow tip, facing the ski jump (-Z). */
 const CARRIER_TAKEOFF_FROM_BOW_M = 120;
@@ -303,6 +298,9 @@ export class Game {
     private kuz: GroundTargetEntity | undefined;
     private readonly syncedCarrierPos = new THREE.Vector3(Number.NaN, Number.NaN, Number.NaN);
     private readonly syncedCarrierQuat = new THREE.Quaternion(Number.NaN, Number.NaN, Number.NaN, Number.NaN);
+    /** World bow direction and velocity for the steaming carrier. */
+    private readonly carrierBowDir = new THREE.Vector3(0, 0, -1);
+    private readonly carrierVelocity = new THREE.Vector3();
     private readonly obstacles: Obstacle[] = [];
     private weaponsField: WeaponsField | undefined;
     private debrisField: DebrisField | undefined;
@@ -1052,9 +1050,30 @@ export class Game {
         const gearY = this.currentDef.flight
             ? fm2GroundRestHeight(this.currentDef.flight)
             : PLANE_DISTANCE_TO_GROUND;
-        const x = KUZ_POSITION.x + KUZ_DECK_MID_X;
-        const z = KUZ_POSITION.z + PLAYER_CARRIER_TAKEOFF_LOCAL_Z;
+        const pose = this.carrierPose();
+        const x = pose.position.x + KUZ_DECK_MID_X;
+        const z = pose.position.z + PLAYER_CARRIER_TAKEOFF_LOCAL_Z;
         return new THREE.Vector3(x, this.groundHeightAt(x, z) + gearY, z);
+    }
+
+    /** Final approach spawn relative to the live carrier stern. */
+    private carrierApproachSpawnPosition(): THREE.Vector3 {
+        const pose = this.carrierPose();
+        return new THREE.Vector3(
+            pose.position.x + KUZ_DECK_MID_X,
+            CARRIER_APPROACH_ALTITUDE_M,
+            pose.position.z + KUZ_HULL.maxZ + CARRIER_APPROACH_FINAL_DISTANCE_M,
+        );
+    }
+
+    /** Approach airspeed in world frame (ship speed + relative groove speed). */
+    private carrierApproachSpawn(): PlayerSpawnState {
+        const speed = CARRIER_SPEED_MPS + APPROACH_SPEED_MPS;
+        return {
+            velocity: FORWARD.clone().applyAxisAngle(UP, PLAYER_CARRIER_HEADING).multiplyScalar(speed),
+            throttle: 0.38,
+            airborne: true,
+        };
     }
 
     private onViewportResize() {
@@ -1130,6 +1149,7 @@ export class Game {
             }
             this.updateOrbitFromKeys(delta);
             this.recordTelemetry(delta);
+            this.advanceCarrier(delta);
             this.syncCarrierSystems();
             this.scene.update(delta);
             this.pumpCombatSim(delta);
@@ -1143,10 +1163,19 @@ export class Game {
                 this.transitionFromPlayerToCrashed();
             }
         } else if (this.state === GameState.SPAWN_MENU) {
+            this.advanceCarrier(delta);
             this.syncCarrierSystems();
             this.scene.update(delta);
             this.pumpCombatSim(delta);
         }
+    }
+
+    /** Steam the Kuznetsov at {@link CARRIER_SPEED_MPS} along its bow (−Z at identity). */
+    private advanceCarrier(delta: number): void {
+        if (!this.kuz) return;
+        this.carrierBowDir.set(0, 0, -1).applyQuaternion(this.kuz.quaternion);
+        this.carrierVelocity.copy(this.carrierBowDir).multiplyScalar(CARRIER_SPEED_MPS);
+        this.kuz.position.addScaledVector(this.carrierVelocity, delta);
     }
 
     /** Carrier pose for arrestor visuals / latched hook (always live). */
@@ -1200,6 +1229,9 @@ export class Game {
             this.carrierMeshes.map(c => ({
                 originX: c.originX, originY: c.originY, originZ: c.originZ,
             })),
+        );
+        this.combatSim.setCarrierVelocity(
+            this.carrierVelocity.x, this.carrierVelocity.y, this.carrierVelocity.z,
         );
     }
 
@@ -1899,7 +1931,11 @@ export class Game {
         if (spawn === 'runway') {
             this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
         } else if (spawn === 'carrier') {
-            this.player.reset(PLAYER_CARRIER_POSITION, PLAYER_CARRIER_HEADING, PLAYER_CARRIER_SPAWN);
+            this.player.reset(
+                this.carrierApproachSpawnPosition(),
+                PLAYER_CARRIER_HEADING,
+                this.carrierApproachSpawn(),
+            );
         } else if (spawn === 'carrierTakeoff') {
             this.player.reset(
                 this.carrierTakeoffSpawnPosition(),
@@ -1994,6 +2030,7 @@ export class Game {
             }
             if (scrapes.length > 0) {
                 this.damageSmoke?.spawnGroundScrapes(scrapes);
+                this.debrisField?.spawnGroundScrapes(scrapes);
             }
         };
 
@@ -2330,6 +2367,9 @@ export class Game {
         );
         scene.add(arrestorCables);
         this.player.setArrestorCarrierPoseProvider(() => this.carrierPose());
+
+        const shipWake = new ShipWakeEntity(this.materials, () => this.carrierPose());
+        scene.add(shipWake);
 
         // Carrier-style ski jump 90 m ahead of the runway spawn, rising toward +Z (takeoff).
         this.skiJumps.length = 0;

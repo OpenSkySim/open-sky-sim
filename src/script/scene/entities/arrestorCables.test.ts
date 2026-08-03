@@ -5,6 +5,7 @@ import {
     ARRESTOR_CABLE_LOCAL_Z,
     ARRESTOR_CABLE_Y,
     ARRESTOR_CATCH_RADIUS_M,
+    ARRESTOR_CARRIER_ORIGIN,
     ARRESTOR_DECK_MID_X,
     ARRESTOR_HALF_SPAN_M,
     ARRESTOR_HOOK_HINGE_FWD_M,
@@ -24,7 +25,7 @@ import {
 import { DEFAULT_ENGINE_NOZZLES } from './afterburnerCones';
 
 describe('arrestorCables', () => {
-    const origin = { x: 0, y: 0, z: -5500 };
+    const origin = { ...ARRESTOR_CARRIER_ORIGIN };
     const field = buildArrestorCableField(origin.x, origin.y, origin.z);
 
     it('builds four lateral segments on the landing deck', () => {
@@ -217,7 +218,7 @@ describe('arrestorCables serialize', () => {
     it('round-trips through SerializedWorld', async () => {
         const { serializeWorld, deserializeArrestorCables, defaultArrestorCableField } =
             await import('../../physics/sim/serializedWorld');
-        const origin = { x: 0, y: 0, z: -5500 };
+        const origin = { ...ARRESTOR_CARRIER_ORIGIN };
         const field = defaultArrestorCableField(origin.x, origin.y, origin.z);
         const world = serializeWorld([], [], {
             center: new THREE.Vector3(),

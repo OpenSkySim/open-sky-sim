@@ -472,6 +472,8 @@ export class CombatSim implements ProjectileSink {
 
     private world: SceneWorldQuery | undefined;
     private arrestorFields: ArrestorCableField[] = [];
+    /** World velocity of the moving carrier (m/s); trap scrub is relative to this. */
+    private readonly carrierVel = new THREE.Vector3();
     private readonly aircraft = new Map<string, SimAircraft>();
     private readonly order: string[] = [];
     private readonly external = new Map<string, ExternalCombatant>();
@@ -524,6 +526,11 @@ export class CombatSim implements ProjectileSink {
     /** Update carrier mesh origins for ground contact when the ship moves. */
     setCarrierMeshOrigins(origins: { originX: number; originY: number; originZ: number }[]): void {
         this.world?.setCarrierMeshOrigins(origins);
+    }
+
+    /** World-frame carrier velocity for ship-relative arrestor scrub. */
+    setCarrierVelocity(vx: number, vy: number, vz: number): void {
+        this.carrierVel.set(vx, vy, vz);
     }
 
     addAircraft(desc: SimAircraftDesc): void {
@@ -888,19 +895,28 @@ export class CombatSim implements ProjectileSink {
         if (a.arrestorLatch >= 0 && a.arrestorFieldIndex >= 0) {
             const field = this.arrestorFields[a.arrestorFieldIndex];
             const vel = a.model.velocityVector;
+            const shipAlong = this.carrierVel.dot(field.deckAxis);
             if (!a.arrestorHeld) {
                 const traveled = a.hookNow.dot(field.deckAxis) - a.arrestorSnagAlong;
                 const remaining = ARRESTOR_PULL_OUT_M - traveled;
-                const stillPulling = applyArrestorVelocity(vel, field.deckAxis, delta, remaining);
+                const stillPulling = applyArrestorVelocity(
+                    vel, field.deckAxis, delta, remaining, shipAlong,
+                );
                 a.model.snapPhysicsState();
                 if (!stillPulling) {
                     a.model.setLanded(true);
                     a.arrestorHeld = true;
                 }
             } else {
-                // Cable stays on the hook while parked; release once taxiing.
-                const groundSpeed = Math.hypot(vel.x, vel.z);
-                if (groundSpeed > ARRESTOR_RELEASE_SPEED_MPS || !a.isGearDeployed()) {
+                // Ride with the ship along-deck; taxi relative speed can release.
+                const along = vel.dot(field.deckAxis);
+                vel.addScaledVector(field.deckAxis, shipAlong - along);
+                a.model.snapPhysicsState();
+                const relSpeed = Math.hypot(
+                    vel.x - this.carrierVel.x,
+                    vel.z - this.carrierVel.z,
+                );
+                if (relSpeed > ARRESTOR_RELEASE_SPEED_MPS || !a.isGearDeployed()) {
                     a.arrestorLatch = -1;
                     a.arrestorFieldIndex = -1;
                     a.arrestorHeld = false;

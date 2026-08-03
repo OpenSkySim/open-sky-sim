@@ -138,6 +138,7 @@ export type SimToWorkerMessage =
     | { type: 'setWorld'; world: SerializedWorld }
     | { type: 'setArrestorCables'; cables: SerializedArrestorCables[] }
     | { type: 'setCarrierMeshOrigins'; origins: { originX: number; originY: number; originZ: number }[] }
+    | { type: 'setCarrierVelocity'; velocity: Vec3 }
     | { type: 'addAircraft'; desc: SimAircraftDesc }
     | { type: 'removeAircraft'; id: string }
     | { type: 'setEnabled'; id: string; enabled: boolean }
