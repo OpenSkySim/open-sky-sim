@@ -23,7 +23,7 @@ const colors: PaletteColors = {
     [PaletteCategory.TERRAIN_DEFAULT]: CGA_MAGENTA,
     [PaletteCategory.TERRAIN_SAND]: CGA_MAGENTA,
     [PaletteCategory.TERRAIN_BARE]: CGA_BLACK,
-    [PaletteCategory.TERRAIN_GRASS]: CGA_BLACK,
+    [PaletteCategory.TERRAIN_GRASS]: [CGA_MAGENTA, CGA_BLACK],
     [PaletteCategory.TERRAIN_WATER]: [CGA_CYAN, CGA_BLACK],
     [PaletteCategory.TERRAIN_SHALLOW_WATER]: [CGA_CYAN, CGA_BLACK],
     [PaletteCategory.SCENERY_MOUNTAIN_GRASS]: [CGA_MAGENTA, CGA_BLACK],

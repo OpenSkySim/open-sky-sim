@@ -1,3 +1,5 @@
+import { LOG_DEPTH_PARS_VERTEX, LOG_DEPTH_VERTEX } from './logDepth';
+
 /**
  * Billboarded impostor for distant vegetation. Each instance is placed at its
  * tree base via instanceMatrix; the 2D shape (position.xy, in world units at
@@ -12,7 +14,7 @@ export const ImpostorVertProgram: string = `
   uniform int shadingType;
 
   varying vec3 vPosition;
-
+${LOG_DEPTH_PARS_VERTEX}
   void main() {
     vec4 worldBase = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
     float s = length(instanceMatrix[0].xyz);
@@ -28,5 +30,6 @@ export const ImpostorVertProgram: string = `
       pos.y = floor(pos.y / pos.w * halfHeight + 0.5) / halfHeight * pos.w;
     }
     gl_Position = pos;
+${LOG_DEPTH_VERTEX}
   }
 `;

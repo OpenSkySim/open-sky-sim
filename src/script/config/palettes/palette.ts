@@ -124,6 +124,9 @@ const FogValueCategoryMap: Map<PaletteCategory, PaletteFogCategories> = new Map(
     [PaletteCategory.LIGHT_GREEN, PaletteCategory.FOG_LIGHT],
     [PaletteCategory.LIGHT_YELLOW, PaletteCategory.FOG_LIGHT],
     [PaletteCategory.FX_FIRE, PaletteCategory.FOG_LIGHT],
+    // Ocean keeps reading farther than land fog would allow.
+    [PaletteCategory.TERRAIN_WATER, PaletteCategory.FOG_LIGHT],
+    [PaletteCategory.TERRAIN_SHALLOW_WATER, PaletteCategory.FOG_LIGHT],
 ]);
 
 export function FogColorCategory(cat: PaletteCategory): PaletteFogCategories {

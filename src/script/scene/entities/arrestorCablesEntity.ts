@@ -26,7 +26,7 @@ import {
     arrestorCableLocals,
     ArrestorCableLocal,
     ArrestorCarrierPose,
-    carrierLocalToWorld,
+    arrestorCableStartWorld,
     latchedHookTipWorld,
 } from './arrestorCables';
 
@@ -69,13 +69,13 @@ export class ArrestorCablesEntity implements Entity {
 
     private readonly root = new THREE.Object3D();
     private readonly cables: CableRibbon[] = [];
-    private readonly hingeBody = new THREE.Vector3();
-    private readonly hingeWorld = new THREE.Vector3();
-    private readonly sheaveWorld = new THREE.Vector3();
     private readonly tipWorld = new THREE.Vector3();
     private readonly tipLocal = new THREE.Vector3();
+    private readonly hingeWorld = new THREE.Vector3();
+    private readonly sheaveWorld = new THREE.Vector3();
+    private readonly hingeBody = new THREE.Vector3();
     private readonly fallbackDir = new THREE.Vector3();
-    private readonly invRoot = new THREE.Matrix4();
+    private readonly invQuat = new THREE.Quaternion();
     private readonly sampleWorld = new THREE.Vector3();
     private readonly lodAnchorLocal = new THREE.Vector3();
     private readonly lodAnchorWorld = new THREE.Vector3();
@@ -320,27 +320,38 @@ export class ArrestorCablesEntity implements Entity {
     }
 
     update(_delta: number): void {
+        this.syncRootPose();
+        this.rebuildCableGeometry();
+    }
+
+    /**
+     * Bend/rest layout for all cables. Call after the player display pose is
+     * current — also from render3D because pumpCombatSim runs after scene.update
+     * and would otherwise leave the V-mid a snapshot behind the hook.
+     */
+    private rebuildCableGeometry(): void {
         const pose = this.syncRootPose();
+
         const player = this.getPlayer();
         const fm = player.getFlightModel();
         let latch = -1;
         if (fm instanceof SimProxyFlightModel) {
             latch = fm.getArrestorLatch();
             if (latch >= 0) {
+                // Same tip as the rendered tailhook (hinge → sheave ray), converted
+                // with explicit pose math (matrixWorld invert was placing the apex
+                // in the wrong frame and stretching ribbons across the ocean).
+                player.updateDisplayTransform();
                 player.getArrestorHookHingeBody(this.hingeBody);
                 this.hingeWorld.copy(this.hingeBody)
                     .applyQuaternion(player.getDisplayQuaternion())
                     .add(player.getDisplayPosition());
-                const locals = arrestorCableLocals();
-                const c = locals[Math.max(0, Math.min(locals.length - 1, latch))];
-                carrierLocalToWorld(c.ax, c.ay, c.az, pose, this.sheaveWorld);
+                arrestorCableStartWorld(latch, pose, this.sheaveWorld);
                 this.fallbackDir.set(0, -1, -1);
                 latchedHookTipWorld(
                     this.hingeWorld, this.sheaveWorld, this.tipWorld, undefined, this.fallbackDir,
                 );
-                this.root.updateMatrixWorld(true);
-                this.invRoot.copy(this.root.matrixWorld).invert();
-                this.tipLocal.copy(this.tipWorld).applyMatrix4(this.invRoot);
+                this.worldHookToCarrierLocal(this.tipWorld, pose, this.tipLocal);
             }
         }
 
@@ -370,8 +381,21 @@ export class ArrestorCablesEntity implements Entity {
             this.placeCableLine(c.linePos, L.ax, L.az, midX, midZ, L.bx, L.bz, midY);
             c.line.geometry.computeBoundingSphere();
         }
-        // Re-apply LOD after geometry updates (placeShadowQuad may flip shadow visibility).
         this.applyLodVisibility();
+    }
+
+    /** Inverse of {@link carrierLocalToWorld} (translation + optional yaw). */
+    private worldHookToCarrierLocal(
+        world: THREE.Vector3,
+        pose: ArrestorCarrierPose,
+        out: THREE.Vector3,
+    ): THREE.Vector3 {
+        out.copy(world).sub(pose.position as THREE.Vector3);
+        if (pose.quaternion) {
+            this.invQuat.copy(pose.quaternion).invert();
+            out.applyQuaternion(this.invQuat);
+        }
+        return out;
     }
 
     private raiseQuadEnd(pos: THREE.BufferAttribute, i0: number, i1: number, y: number): void {
@@ -393,6 +417,8 @@ export class ArrestorCablesEntity implements Entity {
         lists: Map<string, THREE.Scene>,
         _palette: Palette,
     ): void {
+        // Rebuild after combat-sim pump so the V-mid tracks the live hook tip.
+        this.rebuildCableGeometry();
         this.updateLodFromCamera(camera);
         const list = lists.get(SceneLayers.EntityFX);
         if (list) {

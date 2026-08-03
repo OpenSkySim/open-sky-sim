@@ -43,6 +43,15 @@ function isCollisionMaterialName(matName: string): boolean {
     return matName === COLLISION_MATERIAL;
 }
 
+/** Land/water flats must write depth so entities under the ground are occluded. */
+function isTerrainCategory(category: PaletteCategory): boolean {
+    return (category as string).startsWith('TERRAIN_');
+}
+
+function shouldDepthWrite(isFlat: boolean, category: PaletteCategory): boolean {
+    return !isFlat || isTerrainCategory(category);
+}
+
 export interface ModelLibBuilder {
     readonly type: string;
     build(materials: SceneMaterialManager): Model;
@@ -268,7 +277,9 @@ export class ModelManager {
                             category,
                             rawColor,
                             shaded: !isFlat,
-                            depthWrite: !isFlat
+                            depthWrite: shouldDepthWrite(isFlat, category),
+                            // Hide kuz hull below sea level (opaque water alone cannot occlude it).
+                            ...(isKuzModel && !isFlat ? { clipBelowY: 0.05 } : {}),
                         });
                         // Mod imports and textured scenery often need both sides
                         // (original glTF doubleSided, or #rrggbb raw-color meshes).
@@ -277,22 +288,24 @@ export class ModelManager {
                         }
                     }
                 } else if ('isLineSegments' in child) {
+                    const lineCategory = isShadowModel
+                        ? PaletteCategory.SCENERY_TREE_SHADOW
+                        : ModelManager.paletteCategoryOrFallback(
+                            (obj.material as THREE.LineBasicMaterial).name);
                     obj.material = this.materials.build({
                         type: SceneMaterialPrimitiveType.LINE,
-                        category: isShadowModel
-                            ? PaletteCategory.SCENERY_TREE_SHADOW
-                            : ModelManager.paletteCategoryOrFallback(
-                                (obj.material as THREE.LineBasicMaterial).name),
-                        depthWrite: !isFlat
+                        category: lineCategory,
+                        depthWrite: shouldDepthWrite(isFlat, lineCategory)
                     });
                 } else if ('isPoints' in child) {
+                    const pointCategory = isShadowModel
+                        ? PaletteCategory.SCENERY_TREE_SHADOW
+                        : ModelManager.paletteCategoryOrFallback(
+                            (obj.material as THREE.PointsMaterial).name);
                     obj.material = this.materials.build({
                         type: SceneMaterialPrimitiveType.POINT,
-                        category: isShadowModel
-                            ? PaletteCategory.SCENERY_TREE_SHADOW
-                            : ModelManager.paletteCategoryOrFallback(
-                                (obj.material as THREE.PointsMaterial).name),
-                        depthWrite: !isFlat
+                        category: pointCategory,
+                        depthWrite: shouldDepthWrite(isFlat, pointCategory)
                     });
                 }
             });

@@ -56,15 +56,35 @@ export class SceneWorldQuery implements WorldQuery {
         private readonly runwayDef: Runway,
         private readonly skiJumps: readonly SkiJumpCollider[] = [],
         private readonly carrierMeshes: readonly CarrierMeshCollider[] = [],
+        /** Optional DEM / base terrain height under hills and decks. */
+        private readonly baseHeightAt: (x: number, z: number) => number = () => 0,
     ) { }
 
     groundHeightAt(x: number, z: number): number {
         return Math.max(
-            0,
+            this.baseHeightAt(x, z),
             sampleHillSurfaceY(x, z, this.hills),
             sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
-            sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes),
+            this.carrierHeightAt(x, z),
         );
+    }
+
+    /**
+     * Carrier-deck surface Y at (x, z), or 0 if no carrier triangle covers that point.
+     * Used to detect gear-on-deck for riding a steaming ship.
+     */
+    carrierHeightAt(x: number, z: number): number {
+        return sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes);
+    }
+
+    /** First carrier mesh origin, or false if none. */
+    carrierOrigin(out: { x: number; y: number; z: number }): boolean {
+        if (this.carrierMeshes.length === 0) return false;
+        const c = this.carrierMeshes[0];
+        out.x = c.originX;
+        out.y = c.originY;
+        out.z = c.originZ;
+        return true;
     }
 
     isLand(x: number, z: number): boolean {

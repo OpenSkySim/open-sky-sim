@@ -48,6 +48,10 @@ const AIRBRAKE_ANIM_DURATION = 1.5; // Seconds
  */
 const ROLL_VIS_TAILERON = 0.6;
 const ROLL_VIS_AILERON = 0.15;
+/** Horizontal radius (m) around Kuz origin to treat as on-deck for display ride. */
+const CARRIER_DISPLAY_RIDE_RADIUS_M = 200;
+/** Max ship-relative groundspeed (m/s) before frozen display glue engages. */
+const CARRIER_DISPLAY_PARK_REL_SPEED_MPS = 2.0;
 
 /** Slats begin deploying above this absolute AoA (rad). */
 const SLAT_AOA_ONSET_RAD = 10 * Math.PI / 180;
@@ -165,6 +169,12 @@ export class PlayerEntity implements Entity {
     /** Live carrier pose for latched-hook sheave aiming; falls back to default origin. */
     private getArrestorCarrierPose: (() => ArrestorCarrierPose) | undefined;
     private readonly _hookHingeBody = new THREE.Vector3(...DEFAULT_ARRESTOR_HOOK_HINGE);
+    /**
+     * Visual ride with the steaming Kuznetsov: frozen ship-local offset captured
+     * once on park, then display = kuz.position + rideLocal every frame.
+     */
+    private carrierRideActive = false;
+    private readonly carrierRideLocal = new THREE.Vector3();
 
     readonly tags: string[] = [ENTITY_TAGS.AIRCRAFT];
 
@@ -380,6 +390,7 @@ export class PlayerEntity implements Entity {
 
         this.updateAudio();
         this.fx.ensureBound(this.modelBody.model);
+        this.syncCarrierDisplayRide();
         this.updateDisplayTransform();
         this.fx.update(
             this.throttleUnit,
@@ -414,6 +425,56 @@ export class PlayerEntity implements Entity {
         this.flightModel.getRenderPosition(this.displayPosition);
         this.flightModel.getRenderQuaternion(this.displayQuaternion);
         this.flightModel.getRenderVelocity(this.displayVelocity);
+        if (this.carrierRideActive && this.getArrestorCarrierPose) {
+            const pose = this.getArrestorCarrierPose();
+            this.displayPosition.set(
+                pose.position.x + this.carrierRideLocal.x,
+                pose.position.y + this.carrierRideLocal.y,
+                pose.position.z + this.carrierRideLocal.z,
+            );
+        }
+    }
+
+    /**
+     * Capture a frozen ship-local offset once when nearly stopped on deck.
+     * Do not engage during landing rollout — that felt like instant glue.
+     */
+    private syncCarrierDisplayRide(): void {
+        const poseFn = this.getArrestorCarrierPose;
+        if (!poseFn || !this.isLanded || this.throttleUnit > 0.05 || this.isCrashed) {
+            this.carrierRideActive = false;
+            return;
+        }
+        // While a cable is on the hook, follow physics display so the V-bend
+        // tracks the moving tip (frozen ride would desync during pull-out).
+        if (this.flightModel instanceof SimProxyFlightModel
+            && this.flightModel.getArrestorLatch() >= 0) {
+            this.carrierRideActive = false;
+            return;
+        }
+        const pose = poseFn();
+        const dx = this.obj.position.x - pose.position.x;
+        const dz = this.obj.position.z - pose.position.z;
+        if (dx * dx + dz * dz > CARRIER_DISPLAY_RIDE_RADIUS_M * CARRIER_DISPLAY_RIDE_RADIUS_M) {
+            this.carrierRideActive = false;
+            return;
+        }
+        const cv = pose.velocity;
+        const relSpd = cv
+            ? Math.hypot(this.velocity.x - cv.x, this.velocity.z - cv.z)
+            : Math.hypot(this.velocity.x, this.velocity.z);
+        if (relSpd > CARRIER_DISPLAY_PARK_REL_SPEED_MPS) {
+            this.carrierRideActive = false;
+            return;
+        }
+        if (!this.carrierRideActive) {
+            this.carrierRideLocal.set(
+                this.obj.position.x - pose.position.x,
+                this.obj.position.y - pose.position.y,
+                this.obj.position.z - pose.position.z,
+            );
+            this.carrierRideActive = true;
+        }
     }
 
     reset(position: THREE.Vector3, heading: number, spawn?: PlayerSpawnState) {
@@ -440,6 +501,7 @@ export class PlayerEntity implements Entity {
         this.wheelBrakes = false;
         this.limitersEnabled = true;
         this.pitchLimiterMode = FcsPitchLimiter.SOFT;
+        this.carrierRideActive = false;
         this.flightModel.setThrottle(this.throttle);
         if (airborne) {
             this.flightModel.syncEffectiveThrottle();
@@ -1063,6 +1125,13 @@ export class PlayerEntity implements Entity {
     /** Body-frame arrestor hook hinge (matches the visible tailhook). */
     getArrestorHookHingeBody(out: THREE.Vector3): THREE.Vector3 {
         return out.copy(this._hookHingeBody);
+    }
+
+    /** World-space hook tip matching the rendered tailhook / cable V-mid. */
+    getArrestorHookTipWorld(out: THREE.Vector3): THREE.Vector3 {
+        return out.copy(this._hookTipBody)
+            .applyQuaternion(this.displayQuaternion)
+            .add(this.displayPosition);
     }
 
     /** Provide the live carrier pose so a latched hook aims at the moving sheave. */

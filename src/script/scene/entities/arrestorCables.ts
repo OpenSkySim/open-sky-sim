@@ -143,14 +143,18 @@ export function flightConfigWithArrestorHook(def: {
     return { ...base, hook: tip };
 }
 
-/** Kuznetsov origin: centre of the largest open-water body (SE ocean). */
-export const ARRESTOR_CARRIER_ORIGIN = { x: 6000, y: 0, z: -6500 };
+import { CARRIER_ORIGIN } from '../../state/worldLayout';
+
+/** Default carrier origin (local ENU — see worldLayout). */
+export const ARRESTOR_CARRIER_ORIGIN = CARRIER_ORIGIN;
 
 /** Live carrier placement used to transform cable locals into world space. */
 export interface ArrestorCarrierPose {
     position: { x: number; y: number; z: number };
     /** Identity when omitted (carrier yaw = 0). */
     quaternion?: THREE.Quaternion;
+    /** World-frame ship velocity (m/s); used for parked display glue gating. */
+    velocity?: { x: number; y: number; z: number };
 }
 
 /** Map a carrier-local point into world space using {@link pose}. */

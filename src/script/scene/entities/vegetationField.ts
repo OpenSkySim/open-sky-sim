@@ -12,6 +12,8 @@ import { attachToRenderList } from '../../render/renderList';
 
 export interface TerrainSampler {
     isLand(worldX: number, worldZ: number): boolean;
+    /** Base DEM / ground height in world Y (defaults to 0). */
+    heightAt?(worldX: number, worldZ: number): number;
 }
 
 /** Per-species LOD view distances. All fall back to the field-wide defaults. */
@@ -498,7 +500,9 @@ export class VegetationField implements Entity {
             if (sampleHills < 0) {
                 sampleHills = anyHillNear(centerX, centerZ, this.hills) ? 1 : 0;
             }
-            const surfaceY = sampleHills !== 0 ? sampleHillSurfaceY(wx, wz, this.hills) : 0;
+            const demY = this.terrain.heightAt ? this.terrain.heightAt(wx, wz) : 0;
+            const hillY = sampleHills !== 0 ? sampleHillSurfaceY(wx, wz, this.hills) : 0;
+            const surfaceY = Math.max(demY, hillY);
 
             if (cellDist > batch.impostorRange) {
                 // LOD2: a bare point. No scale/rotation/matrix needed.

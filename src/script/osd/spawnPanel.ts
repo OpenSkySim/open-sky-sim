@@ -16,6 +16,7 @@ export class SpawnPanel {
         onHeadOn: () => void,
         onCarrier: () => void,
         onCarrierTakeoff: () => void,
+        onSpace: () => void,
     ) {
         this.panel = document.getElementById('spawn-panel')!;
         this.title = document.getElementById('spawn-title')!;
@@ -35,6 +36,7 @@ export class SpawnPanel {
         document.getElementById('spawn-headon')!.addEventListener('click', onHeadOn);
         document.getElementById('spawn-carrier')!.addEventListener('click', onCarrier);
         document.getElementById('spawn-carrier-takeoff')!.addEventListener('click', onCarrierTakeoff);
+        document.getElementById('spawn-space')!.addEventListener('click', onSpace);
     }
 
     setTitle(text: string): void {

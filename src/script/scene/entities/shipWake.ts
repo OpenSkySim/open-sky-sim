@@ -1,6 +1,6 @@
 /**
- * Ship wake + bow wave: foam at the stern streams aft; brighter spray at the
- * bow fans outward into a V as the carrier advances on the flat ocean.
+ * Ship wake + four bow-wave arms (Kelvin inner ±19.47°, outer ±38.94°).
+ * Stern foam is left in world space; bow spray drifts along each arm.
  */
 import * as THREE from 'three';
 import { Palette, PaletteCategory } from '../../config/palettes/palette';
@@ -12,7 +12,7 @@ import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/m
 import { updateUniforms } from '../utils';
 import { Entity } from '../entity';
 import { Scene, SceneLayers } from '../scene';
-import { ArrestorCarrierPose } from './arrestorCables';
+import { ARRESTOR_DECK_MID_X, ArrestorCarrierPose } from './arrestorCables';
 
 type FoamKind = 'stern' | 'bow';
 
@@ -20,41 +20,61 @@ type FoamEmitter = {
     local: readonly [number, number, number];
     kind: FoamKind;
     rate: number;
+    /**
+     * Bow only: signed angle from the aft track (deg).
+     * Negative = port, positive = starboard.
+     */
+    armDeg?: number;
 };
 
-/** Stern wake emitters (carrier-local; stern ≈ +Z). */
+/**
+ * Kelvin full apex 38.94°. Four bow arms:
+ *   inner  ±19.47° (half of 38.94° each side)
+ *   outer  ±38.94° (full Kelvin angle each side — wider V)
+ */
+const KELVIN_FULL_ANGLE_DEG = 38.94;
+const KELVIN_HALF_ANGLE_DEG = KELVIN_FULL_ANGLE_DEG * 0.5;
+
+/** Lateral centreline of the kuz hull / landing deck (not model X=0). */
+const MID_X = ARRESTOR_DECK_MID_X;
+
+/** One big stern wake on the hull centreline (carrier-local; stern ≈ +Z). */
 const STERN_EMITTERS: FoamEmitter[] = [
-    { local: [0, 0.2, 120], kind: 'stern', rate: 6 },
-    { local: [-18, 0.2, 118], kind: 'stern', rate: 5 },
-    { local: [18, 0.2, 118], kind: 'stern', rate: 5 },
-    { local: [-10, 0.15, 122], kind: 'stern', rate: 4 },
-    { local: [10, 0.15, 122], kind: 'stern', rate: 4 },
+    { local: [MID_X, 0.25, 122], kind: 'stern', rate: 22 },
 ];
 
-/** Bow wave emitters near the ski-jump tip (carrier-local; bow ≈ −Z). */
+/** Four bow-wave arms from the tip on the sailing centreline. */
 const BOW_EMITTERS: FoamEmitter[] = [
-    { local: [0, 0.3, -176], kind: 'bow', rate: 10 },
-    { local: [-8, 0.25, -172], kind: 'bow', rate: 8 },
-    { local: [8, 0.25, -172], kind: 'bow', rate: 8 },
-    { local: [-16, 0.22, -165], kind: 'bow', rate: 7 },
-    { local: [16, 0.22, -165], kind: 'bow', rate: 7 },
-    { local: [-24, 0.2, -155], kind: 'bow', rate: 5 },
-    { local: [24, 0.2, -155], kind: 'bow', rate: 5 },
+    { local: [MID_X, 0.3, -176], kind: 'bow', rate: 12, armDeg: -KELVIN_FULL_ANGLE_DEG },
+    { local: [MID_X, 0.3, -176], kind: 'bow', rate: 12, armDeg: -KELVIN_HALF_ANGLE_DEG },
+    { local: [MID_X, 0.3, -176], kind: 'bow', rate: 12, armDeg: KELVIN_HALF_ANGLE_DEG },
+    { local: [MID_X, 0.3, -176], kind: 'bow', rate: 12, armDeg: KELVIN_FULL_ANGLE_DEG },
 ];
 
 const ALL_EMITTERS: FoamEmitter[] = [...STERN_EMITTERS, ...BOW_EMITTERS];
 
-/** Combined foam pool for stern trail + bow V. */
-const FOAM_PARTICLE_COUNT = 200;
-/** Slight surface lift so foam clears the water flat. */
+/**
+ * Pool for a long single stern trail (~270–420 s = 3× prior) plus four bow arms.
+ */
+const FOAM_PARTICLE_COUNT = 2000;
 const FOAM_SURFACE_Y = 0.18;
 
+/** Matches game carrier cruise (45 km/h) so the seeded trail length is correct. */
+const CARRIER_SPEED_MPS = 45 / 3.6;
+/** How many stern puffs to plant along the full wake on first frame. */
+const STERN_SEED_COUNT = 1200;
+const STERN_LIFE_MIN = 270;
+const STERN_LIFE_SPAN = 150;
+
+/** Speed of foam along each Kelvin arm (m/s), world frame. */
+const BOW_ARM_SPEED_MPS = 4.5;
+
 const STERN_DITHER_START = 0.55;
-const STERN_DITHER_END = 0.06;
+/** Keep stern foam denser for longer — fade stays high until late life. */
+const STERN_DITHER_END = 0.28;
 const BOW_DITHER_START = 0.7;
 const BOW_DITHER_END = 0.1;
 
-/** Per-particle kind (parallel to ParticleSystem.particles). */
 type FoamParticleExtra = {
     kind: FoamKind;
 };
@@ -70,7 +90,11 @@ export class ShipWakeEntity implements Entity {
     private readonly root = new THREE.Object3D();
     private readonly emitPos = new THREE.Vector3();
     private readonly emitAccum = new Float32Array(ALL_EMITTERS.length);
-    private readonly lateral = new THREE.Vector3();
+    /** Local aft-out arm direction before quaternion. */
+    private readonly armLocal = new THREE.Vector3();
+    private readonly armWorld = new THREE.Vector3();
+    private readonly aftWorld = new THREE.Vector3();
+    private sternSeeded = false;
 
     constructor(
         materials: SceneMaterialManager,
@@ -81,13 +105,12 @@ export class ShipWakeEntity implements Entity {
                 systemMaxParticles: FOAM_PARTICLE_COUNT,
                 systemReSpawn: true,
                 emitterSpawnRatePerSecond: 0,
-                // Defaults used only as fallback; spawn overrides life/size per kind.
-                particleLifeMin: 8,
-                particleLifeMax: 14,
-                particleSizeStartMin: 1.5,
-                particleSizeStartMax: 3.0,
-                particleSizeEndMin: 10,
-                particleSizeEndMax: 18,
+                particleLifeMin: STERN_LIFE_MIN,
+                particleLifeMax: STERN_LIFE_MIN + STERN_LIFE_SPAN,
+                particleSizeStartMin: 4,
+                particleSizeStartMax: 7,
+                particleSizeEndMin: 28,
+                particleSizeEndMax: 48,
                 particleRotationStartMin: 0,
                 particleRotationStartMax: Math.PI * 2,
                 particleRotationEndMin: -Math.PI,
@@ -122,9 +145,73 @@ export class ShipWakeEntity implements Entity {
         //
     }
 
+    /**
+     * Plant the full stern trail behind the ship so it is complete on the first
+     * frame (age ∝ distance aft at cruise speed).
+     */
+    private seedFullSternWake(pose: ArrestorCarrierPose): void {
+        if (this.sternSeeded) {
+            return;
+        }
+        this.sternSeeded = true;
+
+        const q = pose.quaternion;
+        const [lx, , lz] = STERN_EMITTERS[0].local;
+        this.emitPos.set(lx, 0, lz);
+        if (q) {
+            this.emitPos.applyQuaternion(q);
+        }
+        this.emitPos.add(pose.position as THREE.Vector3);
+        this.emitPos.y = FOAM_SURFACE_Y;
+
+        // Aft along the wake = opposite bow (−Z local → world).
+        this.aftWorld.set(0, 0, 1);
+        if (q) {
+            this.aftWorld.applyQuaternion(q);
+        }
+
+        this.system.position.copy(this.emitPos);
+        const want = Math.min(STERN_SEED_COUNT, FOAM_PARTICLE_COUNT - 400);
+        const spawned = this.system.burst(want, true);
+        let n = 0;
+        for (let i = 0; i < this.system.particles.length && n < spawned; i++) {
+            const p = this.system.particles[i];
+            if (!p.isActive || p.life > 1e-6) {
+                continue;
+            }
+            this.extras[i].kind = 'stern';
+            // t=0 at the stern (fresh), t=1 at the far end (oldest).
+            const t = spawned <= 1 ? 0 : n / (spawned - 1);
+            const lifespan = STERN_LIFE_MIN + Math.random() * STERN_LIFE_SPAN;
+            const age = t * lifespan * 0.98;
+            const dist = age * CARRIER_SPEED_MPS;
+            p.lifespan = lifespan;
+            p.life = age;
+            p.sizeStart = 4 + Math.random() * 3;
+            p.sizeEnd = 32 + Math.random() * 20;
+            p.rotationStart = Math.random() * Math.PI * 2;
+            p.rotationEnd = p.rotationStart + (Math.random() - 0.5) * Math.PI;
+            p.position.copy(this.emitPos).addScaledVector(this.aftWorld, dist);
+            p.position.x += (Math.random() - 0.5) * 3;
+            p.position.z += (Math.random() - 0.5) * 3;
+            p.position.y = FOAM_SURFACE_Y;
+            p.velocity.set(
+                (Math.random() - 0.5) * 0.2,
+                0,
+                (Math.random() - 0.5) * 0.2,
+            );
+            const colorU = (this.puffs[i].material as THREE.ShaderMaterial).uniforms as {
+                color: { value: THREE.Color };
+            };
+            colorU.color.value.set('#e8f0f4');
+            n++;
+        }
+    }
+
     update(delta: number): void {
         const pose = this.getCarrierPose();
         const q = pose.quaternion;
+        this.seedFullSternWake(pose);
 
         for (let e = 0; e < ALL_EMITTERS.length; e++) {
             const emitter = ALL_EMITTERS[e];
@@ -154,41 +241,36 @@ export class ShipWakeEntity implements Entity {
                 }
                 this.extras[i].kind = emitter.kind;
                 p.position.y = FOAM_SURFACE_Y;
+                const colorU = (this.puffs[i].material as THREE.ShaderMaterial).uniforms as {
+                    color: { value: THREE.Color };
+                };
                 if (emitter.kind === 'bow') {
-                    // Shorter, denser spray; fan outward into a V.
-                    p.lifespan = 3.5 + Math.random() * 3.5;
+                    // ~4× prior bow life → long arms.
+                    p.lifespan = 14 + Math.random() * 14;
                     p.sizeStart = 2.0 + Math.random() * 1.5;
-                    p.sizeEnd = 6 + Math.random() * 5;
-                    const side = lx === 0 ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(lx);
-                    this.lateral.set(side, 0, 0);
+                    p.sizeEnd = 8 + Math.random() * 6;
+                    const armDeg = emitter.armDeg ?? KELVIN_HALF_ANGLE_DEG;
+                    const armRad = armDeg * Math.PI / 180;
+                    // Aft = +Z local; rotate about Y so |armDeg| is off the track.
+                    this.armLocal.set(Math.sin(armRad), 0, Math.cos(armRad));
+                    this.armWorld.copy(this.armLocal);
                     if (q) {
-                        this.lateral.applyQuaternion(q);
+                        this.armWorld.applyQuaternion(q);
                     }
-                    const out = 2.0 + Math.random() * 3.5;
-                    const drift = (Math.random() - 0.5) * 1.2;
-                    p.velocity.set(
-                        this.lateral.x * out + this.lateral.z * drift * 0.2,
-                        0,
-                        this.lateral.z * out + this.lateral.x * drift * 0.2,
-                    );
-                    // Brighter bow foam.
-                    const u = (this.puffs[i].material as THREE.ShaderMaterial).uniforms as {
-                        color: { value: THREE.Color };
-                    };
-                    u.color.value.set('#ffffff');
+                    const speed = BOW_ARM_SPEED_MPS * (0.85 + Math.random() * 0.3);
+                    p.velocity.copy(this.armWorld).multiplyScalar(speed);
+                    colorU.color.value.set('#ffffff');
                 } else {
-                    p.lifespan = 10 + Math.random() * 6;
-                    p.sizeStart = 1.5 + Math.random() * 1.5;
-                    p.sizeEnd = 10 + Math.random() * 8;
+                    // Continuous stern emit (trail already seeded to full length).
+                    p.lifespan = STERN_LIFE_MIN + Math.random() * STERN_LIFE_SPAN;
+                    p.sizeStart = 4 + Math.random() * 3;
+                    p.sizeEnd = 32 + Math.random() * 20;
                     p.velocity.set(
-                        (Math.random() - 0.5) * 0.4,
+                        (Math.random() - 0.5) * 0.25,
                         0,
-                        (Math.random() - 0.5) * 0.4,
+                        (Math.random() - 0.5) * 0.25,
                     );
-                    const u = (this.puffs[i].material as THREE.ShaderMaterial).uniforms as {
-                        color: { value: THREE.Color };
-                    };
-                    u.color.value.set('#e8f0f4');
+                    colorU.color.value.set('#e8f0f4');
                 }
                 left--;
             }
@@ -213,9 +295,13 @@ export class ShipWakeEntity implements Entity {
             mesh.rotation.set(-Math.PI / 2, 0, p.rotationStart + (p.rotationEnd - p.rotationStart) * t);
             const u = (mesh.material as THREE.ShaderMaterial).uniforms as { alphaDither: { value: number } };
             const bow = this.extras[i].kind === 'bow';
-            const d0 = bow ? BOW_DITHER_START : STERN_DITHER_START;
-            const d1 = bow ? BOW_DITHER_END : STERN_DITHER_END;
-            u.alphaDither.value = d0 + (d1 - d0) * t;
+            if (bow) {
+                u.alphaDither.value = BOW_DITHER_START + (BOW_DITHER_END - BOW_DITHER_START) * t;
+            } else {
+                // Ease-in fade: stay opaque most of life, drop only near the end.
+                const fadeT = t * t * t;
+                u.alphaDither.value = STERN_DITHER_START + (STERN_DITHER_END - STERN_DITHER_START) * fadeT;
+            }
         }
     }
 

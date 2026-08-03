@@ -1,3 +1,5 @@
+import { LOG_DEPTH_FRAGMENT, LOG_DEPTH_PARS_FRAGMENT } from './logDepth';
+
 export const DepthFragProgram: string = `
   precision lowp float;
 
@@ -14,7 +16,7 @@ export const DepthFragProgram: string = `
   uniform float colorDither;
 
   varying vec3 vPosition;
-
+${LOG_DEPTH_PARS_FRAGMENT}
   void main() {
     vec2 screen = gl_FragCoord.xy;
 
@@ -67,5 +69,6 @@ export const DepthFragProgram: string = `
     }
 
     gl_FragColor = mix(vec4(diffuse, 1.0), vec4(fogColor, 1.0), fogFactor * 0.92);
+${LOG_DEPTH_FRAGMENT}
   }
 `;

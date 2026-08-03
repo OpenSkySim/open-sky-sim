@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FogQuality } from '../config/profiles/profile';
 import { COCKPIT_FOV, H_RES, V_RES } from '../defs';
 import { visibleWidthAtDistance } from '../render/helpers';
+import { RENDER_ORIGIN } from '../render/renderOrigin';
 import { WeaponsTarget } from './entities/weaponsTarget';
 import { PlayerEntity } from './entities/player';
 import { SceneMaterialData, SceneMaterialUniforms } from './materials/materials';
@@ -24,6 +25,10 @@ export function updateUniforms(this: THREE.Mesh, renderer: THREE.WebGLRenderer, 
     const camD = camPos.negate().dot(camDir);
     const fogType = data ? data.fog : FogQuality.LOW;
 
+    if (u.uRenderOrigin) {
+        (u.uRenderOrigin.value as THREE.Vector3).copy(RENDER_ORIGIN);
+    }
+
     if (data?.shaded) {
         this.getWorldPosition(pos.copy(this.position));
 
@@ -36,6 +41,9 @@ export function updateUniforms(this: THREE.Mesh, renderer: THREE.WebGLRenderer, 
         }
 
         (u.normalModelMatrix.value as THREE.Matrix3).getNormalMatrix(this.matrixWorld);
+        if (u.clipBelowY && data.clipBelowYAbs > -1e20) {
+            u.clipBelowY.value = data.clipBelowYAbs - RENDER_ORIGIN.y;
+        }
     } else {
         (u.vCameraPos.value as THREE.Vector3).copy(camera.position);
         (u.vCameraNormal.value as THREE.Vector3).copy(camDir);

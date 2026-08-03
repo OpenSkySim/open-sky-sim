@@ -18,14 +18,14 @@ import { loadSettings, SpawnMode, updateSettings } from '../config/settingsStora
 import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { FlightRecorder } from '../physics/flightRecorder';
 import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
-import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
+import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, SPACE_ALTITUDE_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
 import { DebrisField } from '../scene/entities/debrisField';
 import { DamageSmokeField } from '../scene/entities/damageSmokeField';
 import { GroundTargetEntity } from '../scene/entities/groundTarget';
 import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
-import { ARRESTOR_CARRIER_ORIGIN } from '../scene/entities/arrestorCables';
+import { ARRESTOR_CARRIER_ORIGIN, ArrestorCarrierPose } from '../scene/entities/arrestorCables';
 import { ShipWakeEntity } from '../scene/entities/shipWake';
 import { CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize } from '../scene/entities/overlay/cockpit';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
@@ -81,10 +81,17 @@ import { WeaponsField } from '../scene/entities/weaponsField';
 import { Faction } from '../weapons/combatant';
 import { CombatSimClient } from '../physics/sim/combatSimClient';
 import { SimProxyFlightModel } from '../physics/model/simProxyFlightModel';
-import { serializeWorld, defaultArrestorCableField } from '../physics/sim/serializedWorld';
+import { serializeWorld, defaultArrestorCableField, sampleHeightGrid } from '../physics/sim/serializedWorld';
 import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/simTypes';
 import { PLAYER_SIM_ID, aiSimId } from '../physics/sim/simIds';
 import { AiPilotModels } from './gameDefs';
+import {
+    PlanetTerrainEntity, SPACE_SKY_ALTITUDE_M, cameraFarForAltitudeM, loadManifest, resolveTerrainMode,
+} from '../terrain';
+import { OsmMapEntity } from '../scene/entities/osmMap';
+import {
+    AIRBASE_FLATTEN_PAD, AIRBASE_LOCAL, TARGET_LOCAL, airbaseOffset, PLAY_ORIGIN, SCENERY_SURFACE_EPS_M,
+} from './worldLayout';
 
 /** How many AI opponents the combat sim spawns. */
 const AI_OPPONENT_COUNT = 1;
@@ -169,17 +176,14 @@ const VEGETATION_FIELD_OPTIONS = {
     scaleMax: 1.35,
 };
 const PLAYER_STARTING_HEADING = 0;
+/** Land approach final distance — keep the airport in view at spawn. */
+const LAND_APPROACH_FINAL_M = 3500;
+/** Nominal approach spawn (Y updated at flight start from DEM). */
 const PLAYER_STARTING_POSITION = new THREE.Vector3(
     AIRBASE_RUNWAY.x,
     APPROACH_ALTITUDE_M,
-    AIRBASE_RUNWAY.z - APPROACH_FINAL_DISTANCE_M,
+    AIRBASE_RUNWAY.z - LAND_APPROACH_FINAL_M,
 );
-const PLAYER_APPROACH_SPAWN: PlayerSpawnState = {
-    velocity: FORWARD.clone().applyAxisAngle(UP, PLAYER_STARTING_HEADING).multiplyScalar(APPROACH_SPEED_MPS),
-    throttle: 0.38,
-    airborne: true,
-};
-
 const PLAYER_LAND_POSITION = new THREE.Vector3(
     AIRBASE_RUNWAY.x,
     PLANE_DISTANCE_TO_GROUND,
@@ -189,6 +193,16 @@ const PLAYER_LAND_HEADING = PLAYER_STARTING_HEADING;
 const PLAYER_LAND_SPAWN: PlayerSpawnState = {
     throttle: 0,
     airborne: false,
+};
+const PLAYER_APPROACH_SPAWN: PlayerSpawnState = {
+    velocity: FORWARD.clone().applyAxisAngle(UP, PLAYER_STARTING_HEADING).multiplyScalar(APPROACH_SPEED_MPS),
+    throttle: 0.38,
+    airborne: true,
+};
+const PLAYER_SPACE_SPAWN: PlayerSpawnState = {
+    velocity: FORWARD.clone().applyAxisAngle(UP, PLAYER_STARTING_HEADING).multiplyScalar(APPROACH_SPEED_MPS),
+    throttle: 1,
+    airborne: true,
 };
 
 /** Kuznetsov cruise speed (45 km/h → m/s), bow heading world −Z at identity. */
@@ -202,10 +216,6 @@ const PLAYER_CARRIER_HEADING = Math.PI;
 const CARRIER_TAKEOFF_FROM_BOW_M = 120;
 const PLAYER_CARRIER_TAKEOFF_HEADING = Math.PI;
 const PLAYER_CARRIER_TAKEOFF_LOCAL_Z = KUZ_HULL.minZ + CARRIER_TAKEOFF_FROM_BOW_M;
-const PLAYER_CARRIER_TAKEOFF_SPAWN: PlayerSpawnState = {
-    throttle: 0,
-    airborne: false,
-};
 
 enum PlayerViewState {
     CRASHED,
@@ -294,6 +304,13 @@ export class Game {
     private readonly hillColliders: HillCollider[] = [];
     private readonly skiJumps: SkiJumpCollider[] = [];
     private readonly carrierMeshes: CarrierMeshCollider[] = [];
+    /** Geographic DEM / ocean terrain when `terrain=planet` (default). */
+    private planetTerrain: PlanetTerrainEntity | undefined;
+    /** Canvas OSM for left MFD; when set, WebGL MAP target is skipped. */
+    private osmMapEntity: OsmMapEntity | undefined;
+    /** Atmospheric sky billboard; disabled above {@link SPACE_SKY_ALTITUDE_M}. */
+    private skyEntity: SimpleEntity | undefined;
+
     /** Live Kuznetsov entity; cables / trap physics / ILS follow its pose. */
     private kuz: GroundTargetEntity | undefined;
     private readonly syncedCarrierPos = new THREE.Vector3(Number.NaN, Number.NaN, Number.NaN);
@@ -412,6 +429,7 @@ export class Game {
             () => void this.beginFlight('headon'),
             () => void this.beginFlight('carrier'),
             () => void this.beginFlight('carrierTakeoff'),
+            () => void this.beginFlight('space'),
         );
 
         this.cameraUpdaters.set(PlayerViewState.CRASHED, new CrashedCameraUpdater(this.player, this.playerCamera.main));
@@ -529,14 +547,14 @@ export class Game {
             {
                 target: MAP_RENDER_TARGET_LO,
                 camera: this.mapCamera,
-                lists: [SceneLayers.Terrain]
+                lists: [SceneLayers.MapBasemap]
             }
         ];
         const mapLayersHi: RenderLayer[] = [
             {
                 target: MAP_RENDER_TARGET_HI,
                 camera: this.mapCamera,
-                lists: [SceneLayers.Terrain]
+                lists: [SceneLayers.MapBasemap]
             }
         ];
         const canvasLayersLo: RenderLayer[] = [
@@ -616,7 +634,7 @@ export class Game {
             {
                 target: MAP_RENDER_TARGET_HD,
                 camera: this.mapCamera,
-                lists: [SceneLayers.Terrain]
+                lists: [SceneLayers.MapBasemap]
             }
         ];
         const canvasLayersHd: RenderLayer[] = [
@@ -1022,27 +1040,70 @@ export class Game {
         this.clearShowcaseHighlight();
     }
 
-    /** Runway spawn position; Y matches FM2 gear rest height (physics body origin). */
+    /** Runway spawn position; Y matches FM2 gear rest height above local ground. */
     private runwaySpawnPosition(): THREE.Vector3 {
-        // Imported mods carry TCA SpawnOffset in spawn.offset (often large/negative,
-        // e.g. -1.925) relative to the Unity bundle origin. Adding it to FM2 rest
-        // height buried the body at ~0.08 m and caused violent gear-spring launch +
-        // backflip on throttle-up. Visual ground contact is already baked into the
-        // exported glTF via ground_offset_y; physics rest height comes from FM2 gear.
-        const y = this.currentDef.flight
+        const gearY = this.currentDef.flight
             ? fm2GroundRestHeight(this.currentDef.flight)
             : PLANE_DISTANCE_TO_GROUND;
-        return PLAYER_LAND_POSITION.clone().setY(y);
+        const pos = PLAYER_LAND_POSITION.clone();
+        pos.y = this.groundHeightAt(pos.x, pos.z) + gearY;
+        return pos;
     }
 
-    /** Highest solid ground Y at (x, z): flat datum, hills, ski jumps, carrier meshes. */
+    /** Short final toward the runway, AGL above DEM. */
+    private landApproachSpawnPosition(): THREE.Vector3 {
+        const x = AIRBASE_RUNWAY.x;
+        const z = AIRBASE_RUNWAY.z - LAND_APPROACH_FINAL_M;
+        const groundY = this.groundHeightAt(x, z);
+        return new THREE.Vector3(x, groundY + APPROACH_ALTITUDE_M, z);
+    }
+
+    /** Overhead the airbase at LEO altitude. */
+    private spaceSpawnPosition(): THREE.Vector3 {
+        const x = AIRBASE_RUNWAY.x;
+        const z = AIRBASE_RUNWAY.z;
+        return new THREE.Vector3(x, this.groundHeightAt(x, z) + SPACE_ALTITUDE_M, z);
+    }
+
+    /** Highest solid ground Y at (x, z): DEM/flat datum, hills, ski jumps, carrier meshes. */
     private groundHeightAt(x: number, z: number): number {
+        const demY = this.planetTerrain ? this.planetTerrain.heightAtEnu(x, z) : 0;
         return Math.max(
-            0,
+            demY,
             sampleHillSurfaceY(x, z, this.hillColliders),
             sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
             sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes),
         );
+    }
+
+    /**
+     * Max ground Y under a footprint so wide buildings are not buried by DEM relief.
+     * Samples a grid in [x±halfW]×[z±halfD].
+     */
+    private groundHeightMaxUnder(
+        x: number,
+        z: number,
+        halfW: number,
+        halfD: number,
+        step: number = 20,
+    ): number {
+        const sx = Math.max(5, step);
+        const sz = Math.max(5, step);
+        let y = this.groundHeightAt(x, z);
+        for (let dz = -halfD; dz <= halfD; dz += sz) {
+            for (let dx = -halfW; dx <= halfW; dx += sx) {
+                y = Math.max(y, this.groundHeightAt(x + dx, z + dz));
+            }
+        }
+        // Include corners even when half extents are not multiples of step.
+        y = Math.max(
+            y,
+            this.groundHeightAt(x - halfW, z - halfD),
+            this.groundHeightAt(x + halfW, z - halfD),
+            this.groundHeightAt(x - halfW, z + halfD),
+            this.groundHeightAt(x + halfW, z + halfD),
+        );
+        return y;
     }
 
     /** On-deck carrier takeoff spawn; Y = deck surface + FM2 gear rest height. */
@@ -1073,6 +1134,15 @@ export class Game {
             velocity: FORWARD.clone().applyAxisAngle(UP, PLAYER_CARRIER_HEADING).multiplyScalar(speed),
             throttle: 0.38,
             airborne: true,
+        };
+    }
+
+    /** On-deck takeoff: world velocity matches ship cruise along the bow. */
+    private carrierTakeoffSpawn(): PlayerSpawnState {
+        return {
+            velocity: FORWARD.clone().applyAxisAngle(UP, PLAYER_CARRIER_TAKEOFF_HEADING).multiplyScalar(CARRIER_SPEED_MPS),
+            throttle: 0,
+            airborne: false,
         };
     }
 
@@ -1179,11 +1249,15 @@ export class Game {
     }
 
     /** Carrier pose for arrestor visuals / latched hook (always live). */
-    private carrierPose(): { position: THREE.Vector3; quaternion: THREE.Quaternion } {
+    private carrierPose(): ArrestorCarrierPose {
         if (this.kuz) {
-            return { position: this.kuz.position, quaternion: this.kuz.quaternion };
+            return {
+                position: this.kuz.position,
+                quaternion: this.kuz.quaternion,
+                velocity: this.carrierVelocity,
+            };
         }
-        return { position: KUZ_POSITION, quaternion: KUZ_IDENTITY_QUAT };
+        return { position: KUZ_POSITION, quaternion: KUZ_IDENTITY_QUAT, velocity: this.carrierVelocity };
     }
 
     /**
@@ -1263,6 +1337,7 @@ export class Game {
                 this.orbitCameraAroundAircraft();
             }
             this.playerCamera.update();
+            this.applyAltitudeCameraFar();
             // Aim the target-window camera before the MFD's 3D layer is drawn (and
             // before its orientation is copied to the background cameras), so a
             // moving target stays centred instead of lagging a frame and stuttering.
@@ -1270,6 +1345,7 @@ export class Game {
                 updateTargetCamera(this.player, this.playerCamera.main, this.targetCamera.main);
             }
             this.targetCamera.update();
+            this.applySpaceSkyState();
         }
         const resolution = this.configService.techProfiles.getActive().resolution;
         if (resolution === DisplayResolution.HD_RES) {
@@ -1357,7 +1433,54 @@ export class Game {
                 }
             }
         }
+        // Canvas OSM paints MFD1; empty WebGL MAP target would cover it (compose order).
+        if (this.osmMapEntity) {
+            layers = layers.filter(l =>
+                l.target !== MAP_RENDER_TARGET_LO
+                && l.target !== MAP_RENDER_TARGET_HI
+                && l.target !== MAP_RENDER_TARGET_HD);
+        }
+        this.applySpaceClearColor(layers);
         this.renderer.render(this.scene, layers);
+    }
+
+    /** Raise main / target far planes with altitude so the planetary limb stays in range. */
+    private applyAltitudeCameraFar(): void {
+        const far = cameraFarForAltitudeM(this.playerCamera.main.position.y);
+        if (Math.abs(this.playerCamera.main.far - far) > 1) {
+            this.playerCamera.main.far = far;
+            this.playerCamera.main.updateProjectionMatrix();
+        }
+        if (Math.abs(this.targetCamera.main.far - far) > 1) {
+            this.targetCamera.main.far = far;
+            this.targetCamera.main.updateProjectionMatrix();
+        }
+    }
+
+    /** Hide the flat sky billboard in space; restore it in atmosphere. */
+    private applySpaceSkyState(): void {
+        if (!this.skyEntity) {
+            return;
+        }
+        const inSpace = this.playerCamera.main.position.y >= SPACE_SKY_ALTITUDE_M
+            && this.view !== PlayerViewState.SHOWCASE;
+        this.skyEntity.enabled = !inSpace;
+    }
+
+    /** Black clear behind terrain when above the atmosphere threshold. */
+    private applySpaceClearColor(layers: RenderLayer[]): void {
+        const inSpace = this.skyEntity !== undefined
+            && !this.skyEntity.enabled
+            && this.view !== PlayerViewState.SHOWCASE;
+        const mainTargets = new Set([MAIN_RENDER_TARGET_LO, MAIN_RENDER_TARGET_HI, MAIN_RENDER_TARGET_HD]);
+        for (let i = 0; i < layers.length; i++) {
+            const layer = layers[i];
+            if (inSpace && mainTargets.has(layer.target)) {
+                layer.clearColor = '#000000';
+            } else {
+                layer.clearColor = undefined;
+            }
+        }
     }
 
     getPlayer(): PlayerEntity {
@@ -1684,6 +1807,10 @@ export class Game {
                         void this.beginFlight('carrierTakeoff');
                         break;
                     }
+                    case '6': {
+                        void this.beginFlight('space');
+                        break;
+                    }
                 }
             }
 
@@ -1940,11 +2067,13 @@ export class Game {
             this.player.reset(
                 this.carrierTakeoffSpawnPosition(),
                 PLAYER_CARRIER_TAKEOFF_HEADING,
-                PLAYER_CARRIER_TAKEOFF_SPAWN,
+                this.carrierTakeoffSpawn(),
             );
+        } else if (spawn === 'space') {
+            this.player.reset(this.spaceSpawnPosition(), PLAYER_STARTING_HEADING, PLAYER_SPACE_SPAWN);
         } else {
-            // Approach and head-on both start on the final approach path.
-            this.player.reset(PLAYER_STARTING_POSITION, PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
+            // Approach and head-on both start on a short final toward the runway.
+            this.player.reset(this.landApproachSpawnPosition(), PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
         }
         this.spawnOpponent(spawn === 'headon');
         this.setCockpitFrontView();
@@ -1963,17 +2092,24 @@ export class Game {
         const addObstacle = (x: number, z: number, radius: number, height: number) =>
             this.obstacles.push({ position: new THREE.Vector3(x, 0, z), radius, height });
         // Airbase hangars + control tower.
-        addObstacle(1330, -800, 45, 22);
-        addObstacle(1330, -860, 45, 22);
-        addObstacle(1330, -920, 45, 22);
-        addObstacle(1670, -810, 45, 22);
-        addObstacle(1580, -500, 25, 45);
-        // Oil refinery.
-        addObstacle(-1200, 1500, 70, 60);
-        // SAM radar.
-        addObstacle(500, -400, 20, 25);
-        // Warehouse.
-        addObstacle(-16000, 11000, 45, 22);
+        {
+            const h1 = airbaseOffset(AIRBASE_LOCAL.hangar1.x, AIRBASE_LOCAL.hangar1.z);
+            const h2 = airbaseOffset(AIRBASE_LOCAL.hangar2.x, AIRBASE_LOCAL.hangar2.z);
+            const h3 = airbaseOffset(AIRBASE_LOCAL.hangar3.x, AIRBASE_LOCAL.hangar3.z);
+            const h4 = airbaseOffset(AIRBASE_LOCAL.hangar4.x, AIRBASE_LOCAL.hangar4.z);
+            const tw = airbaseOffset(AIRBASE_LOCAL.tower.x, AIRBASE_LOCAL.tower.z);
+            addObstacle(h1.x, h1.z, 45, 22);
+            addObstacle(h2.x, h2.z, 45, 22);
+            addObstacle(h3.x, h3.z, 45, 22);
+            addObstacle(h4.x, h4.z, 45, 22);
+            addObstacle(tw.x, tw.z, 25, 45);
+            const ref = airbaseOffset(TARGET_LOCAL.refinery.x, TARGET_LOCAL.refinery.z);
+            addObstacle(ref.x, ref.z, 70, 60);
+            const sam = airbaseOffset(TARGET_LOCAL.sam.x, TARGET_LOCAL.sam.z);
+            addObstacle(sam.x, sam.z, 20, 25);
+            const wh = airbaseOffset(TARGET_LOCAL.warehouse.x, TARGET_LOCAL.warehouse.z);
+            addObstacle(wh.x, wh.z, 45, 22);
+        }
 
         const runway: Runway = {
             center: AIRBASE_RUNWAY.clone(),
@@ -1993,6 +2129,9 @@ export class Game {
                     pose.position.x, pose.position.y, pose.position.z, pose.quaternion,
                 )];
             })(),
+            this.planetTerrain
+                ? sampleHeightGrid((x, z) => this.planetTerrain!.heightAtEnu(x, z), AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z)
+                : undefined,
         ));
         this.combatSim.addAircraft({
             id: PLAYER_SIM_ID,
@@ -2174,29 +2313,52 @@ export class Game {
     }
 
     private async setupScene() {
-        const ground = new SimpleEntity(this.models.getModel('lib:GROUND'), SceneLayers.BackgroundGround, SceneLayers.BackgroundGround);
-        this.scene.add(ground);
+        const terrainMode = resolveTerrainMode();
+        const manifest = terrainMode === 'planet' ? await loadManifest() : undefined;
 
-        const sky = new SimpleEntity(this.models.getModel('lib:SKY'), SceneLayers.BackgroundSky, SceneLayers.BackgroundSky);
-        sky.position.set(0, 7, 0);
-        this.scene.add(sky);
-
-        for (let x = -2; x <= 2; x++) {
-            for (let z = -2; z <= 2; z++) {
-                const model = this.models.getModel('assets/map.gltf');
-                const map = new SimpleEntity(model, SceneLayers.Terrain, SceneLayers.Terrain);
-                map.position.x = x * TERRAIN_MODEL_SIZE * TERRAIN_SCALE;
-                map.position.z = z * TERRAIN_MODEL_SIZE * TERRAIN_SCALE;
-                map.scale.x = TERRAIN_SCALE * (Math.abs(x) % 2 === 0 ? 1 : -1);
-                map.scale.z = TERRAIN_SCALE * (Math.abs(z) % 2 === 0 ? 1 : -1);
-                this.scene.add(map);
-            }
+        // Infinite green ground plane fights DEM relief — only use it for legacy mosaic.
+        if (!manifest) {
+            const ground = new SimpleEntity(this.models.getModel('lib:GROUND'), SceneLayers.BackgroundGround, SceneLayers.BackgroundGround);
+            this.scene.add(ground);
         }
 
-        await this.models.waitForModel('assets/map.gltf');
-        const mapModel = this.models.getModel('assets/map.gltf');
-        this.setupTerrainSampler(mapModel);
-        this.scatterHillsAndMountains(mapModel);
+        this.skyEntity = new SimpleEntity(this.models.getModel('lib:SKY'), SceneLayers.BackgroundSky, SceneLayers.BackgroundSky);
+        this.skyEntity.position.set(0, 7, 0);
+        this.scene.add(this.skyEntity);
+
+        if (manifest) {
+            this.planetTerrain = new PlanetTerrainEntity(manifest, this.materials, {
+                enuOrigin: PLAY_ORIGIN,
+            });
+            this.scene.add(this.planetTerrain);
+            await this.planetTerrain.prefetchPlayArea(80000, AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z);
+            await this.planetTerrain.prefetchDemCoverage();
+            this.planetTerrain.lockAirbaseFlattenPad(
+                { ...AIRBASE_FLATTEN_PAD },
+                AIRBASE_RUNWAY.x,
+                AIRBASE_RUNWAY.z,
+                35000,
+            );
+            this.osmMapEntity = new OsmMapEntity(this.planetTerrain.frame.basis);
+            this.scene.add(this.osmMapEntity);
+        } else {
+            for (let x = -2; x <= 2; x++) {
+                for (let z = -2; z <= 2; z++) {
+                    const model = this.models.getModel('assets/map.gltf');
+                    const map = new SimpleEntity(model, SceneLayers.Terrain, SceneLayers.Terrain);
+                    map.position.x = x * TERRAIN_MODEL_SIZE * TERRAIN_SCALE;
+                    map.position.z = z * TERRAIN_MODEL_SIZE * TERRAIN_SCALE;
+                    map.scale.x = TERRAIN_SCALE * (Math.abs(x) % 2 === 0 ? 1 : -1);
+                    map.scale.z = TERRAIN_SCALE * (Math.abs(z) % 2 === 0 ? 1 : -1);
+                    this.scene.add(map);
+                }
+            }
+
+            await this.models.waitForModel('assets/map.gltf');
+            const mapModel = this.models.getModel('assets/map.gltf');
+            this.setupTerrainSampler(mapModel);
+            this.scatterHillsAndMountains(mapModel);
+        }
 
         const treeKinds = [
             VegetationKind.OAK,
@@ -2209,7 +2371,10 @@ export class Game {
             new THREE.Vector2(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z),
             new THREE.Vector2(RUNWAY_STRIP_HALF_WIDTH * 2, RUNWAY_STRIP_HALF_LENGTH * 2),
         );
-        const terrainSampler = { isLand: (x: number, z: number) => this.isLandAt(x, z) };
+        const terrainSampler = {
+            isLand: (x: number, z: number) => this.isLandAt(x, z),
+            heightAt: (x: number, z: number) => this.groundHeightAt(x, z),
+        };
         this.scene.add(new VegetationField(
             terrainSampler,
             this.hillColliders,
@@ -2258,9 +2423,16 @@ export class Game {
                 }
             ]
         };
-        const field1 = new SceneryField(this.models, new THREE.Box2().setFromCenterAndSize(new THREE.Vector2(0, 10000), new THREE.Vector2(80000, 10000)), fieldOptions);
+        const sceneryHeight = (x: number, z: number) => this.groundHeightAt(x, z);
+        const field1 = new SceneryField(this.models, new THREE.Box2().setFromCenterAndSize(
+            new THREE.Vector2(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z + 10000),
+            new THREE.Vector2(80000, 10000),
+        ), fieldOptions, sceneryHeight);
         this.scene.add(field1);
-        const field2 = new SceneryField(this.models, new THREE.Box2().setFromCenterAndSize(new THREE.Vector2(-10000, -10000), new THREE.Vector2(10000, 15000)), fieldOptions);
+        const field2 = new SceneryField(this.models, new THREE.Box2().setFromCenterAndSize(
+            new THREE.Vector2(AIRBASE_RUNWAY.x - 10000, AIRBASE_RUNWAY.z - 10000),
+            new THREE.Vector2(10000, 15000),
+        ), fieldOptions, sceneryHeight);
         this.scene.add(field2);
 
         await this.addAirBase(this.scene, this.models);
@@ -2268,11 +2440,17 @@ export class Game {
         this.addRefinery(this.scene, this.models);
 
         const samradar = new GroundTargetEntity(this.models.getModel('assets/samradar01.glb'), 0, 'SAM Radar', 'Stosneehar');
-        samradar.position.set(500, 0, -400);
+        {
+            const p = airbaseOffset(TARGET_LOCAL.sam.x, TARGET_LOCAL.sam.z);
+            samradar.position.set(p.x, this.groundHeightMaxUnder(p.x, p.z, 25, 25), p.z);
+        }
         this.scene.add(samradar);
 
         const warehouse = new GroundTargetEntity(this.models.getModel('assets/hangar01.gltf'), undefined, 'Warehouse', 'Radlydd');
-        warehouse.position.set(-16000, 0, 11000);
+        {
+            const p = airbaseOffset(TARGET_LOCAL.warehouse.x, TARGET_LOCAL.warehouse.z);
+            warehouse.position.set(p.x, this.groundHeightMaxUnder(p.x, p.z, 30, 40), p.z);
+        }
         warehouse.quaternion.setFromAxisAngle(UP, Math.PI / 2);
         this.scene.add(warehouse);
 
@@ -2284,7 +2462,9 @@ export class Game {
         this.cockpitEntities.push(hud);
         this.scene.add(hud);
 
-        const cockpit = new CockpitEntity(this.player, this.playerCamera.main, this.targetCamera.main, this.mapCamera);
+        const cockpit = new CockpitEntity(
+            this.player, this.playerCamera.main, this.targetCamera.main, this.mapCamera, this.osmMapEntity,
+        );
         this.cockpitEntities.push(cockpit);
         this.scene.add(cockpit);
 
@@ -2297,47 +2477,65 @@ export class Game {
     }
 
     private addRefinery(scene: Scene, models: ModelManager) {
-        const x = -1200;
-        const z = 1500;
+        const base = airbaseOffset(TARGET_LOCAL.refinery.x, TARGET_LOCAL.refinery.z);
+        const x = base.x;
+        const z = base.z;
+        const yAt = (px: number, pz: number, halfW = 40, halfD = 40) =>
+            this.groundHeightMaxUnder(px, pz, halfW, halfD);
+
         const refinery = new GroundTargetEntity(models.getModel('assets/refinery_towers01.gltf'), 2, 'Oil Refinery', 'Radlydd');
-        refinery.position.set(x, 0, z);
+        refinery.position.set(x, yAt(x, z, 80, 80), z);
         scene.add(refinery);
 
         const depot01a = new StaticSceneryEntity(models.getModel('assets/refinery_depot01.gltf'), 2);
-        depot01a.position.set(x, 0, z - 100);
+        depot01a.position.set(x, yAt(x, z - 100), z - 100);
         scene.add(depot01a);
 
         const depot01b = new StaticSceneryEntity(models.getModel('assets/refinery_depot01.gltf'), 2);
-        depot01b.position.set(x, 0, z + 100);
+        depot01b.position.set(x, yAt(x, z + 100), z + 100);
         depot01b.quaternion.setFromAxisAngle(UP, Math.PI);
         scene.add(depot01b);
 
         const depot01c = new StaticSceneryEntity(models.getModel('assets/refinery_depot01.gltf'), 2);
-        depot01c.position.set(x + 100, 0, z - 100);
+        depot01c.position.set(x + 100, yAt(x + 100, z - 100), z - 100);
         scene.add(depot01c);
 
         const depot02a = new StaticSceneryEntity(models.getModel('assets/refinery_depot02.gltf'), 2);
-        depot02a.position.set(x - 150, 0, z - 50);
+        depot02a.position.set(x - 150, yAt(x - 150, z - 50), z - 50);
         scene.add(depot02a);
 
         const depot02b = new StaticSceneryEntity(models.getModel('assets/refinery_depot02.gltf'), 2);
-        depot02b.position.set(x + 150, 0, z + 50);
+        depot02b.position.set(x + 150, yAt(x + 150, z + 50), z + 50);
         scene.add(depot02b);
     }
 
     private async addAirBase(scene: Scene, models: ModelManager) {
+        const yAt = (px: number, pz: number, halfW = 40, halfD = 40) =>
+            this.groundHeightMaxUnder(px, pz, halfW, halfD);
+        const place = (dx: number, dz: number, halfW = 40, halfD = 40) => {
+            const p = airbaseOffset(dx, dz);
+            return { x: p.x, y: yAt(p.x, p.z, halfW, halfD), z: p.z };
+        };
+
         const hangarGround1 = new StaticSceneryEntity(models.getModel('lib:pavement'), 5);
-        hangarGround1.position.set(1360, 0, -860);
+        {
+            const p = place(AIRBASE_LOCAL.hangarGround1.x, AIRBASE_LOCAL.hangarGround1.z, 100, 100);
+            hangarGround1.position.set(p.x, p.y + SCENERY_SURFACE_EPS_M, p.z);
+        }
         hangarGround1.scale.set(200, 1, 200);
         scene.add(hangarGround1);
 
         const hangarGround2 = new StaticSceneryEntity(models.getModel('lib:pavement'), 5);
-        hangarGround2.position.set(1640, 0, -860);
+        {
+            const p = place(AIRBASE_LOCAL.hangarGround2.x, AIRBASE_LOCAL.hangarGround2.z, 100, 100);
+            hangarGround2.position.set(p.x, p.y + SCENERY_SURFACE_EPS_M, p.z);
+        }
         hangarGround2.scale.set(200, 1, 200);
         scene.add(hangarGround2);
 
         const runway = new GroundTargetEntity(models.getModel('assets/runway01.gltf'), 0, 'Airbase', 'Stosneehar');
         runway.position.copy(AIRBASE_RUNWAY);
+        runway.position.y = yAt(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z, 80, 900) + SCENERY_SURFACE_EPS_M;
         scene.add(runway);
 
         // Kuznetsov carrier from data/kuz.blend (exported via tools/export_kuz.py).
@@ -2377,6 +2575,7 @@ export class Game {
         const skiJumpOrigin = PLAYER_LAND_POSITION.clone().setY(0).add(
             FORWARD.clone().applyAxisAngle(UP, PLAYER_LAND_HEADING).multiplyScalar(skiJumpAheadM),
         );
+        skiJumpOrigin.y = yAt(skiJumpOrigin.x, skiJumpOrigin.z, 30, 40);
         this.skiJumps.push(createSkiJumpCollider(
             skiJumpOrigin.x,
             skiJumpOrigin.z,
@@ -2388,39 +2587,55 @@ export class Game {
         scene.add(skiJump);
 
         const hangar1 = new StaticSceneryEntity(models.getModel('assets/hangar01.gltf'));
-        hangar1.position.set(1330, 0, -800);
+        {
+            const p = place(AIRBASE_LOCAL.hangar1.x, AIRBASE_LOCAL.hangar1.z, 40, 50);
+            hangar1.position.set(p.x, p.y, p.z);
+        }
         hangar1.quaternion.setFromAxisAngle(UP, Math.PI / 2);
         scene.add(hangar1);
 
         const hangar2 = new StaticSceneryEntity(models.getModel('assets/hangar01.gltf'));
-        hangar2.position.set(1330, 0, -860);
+        {
+            const p = place(AIRBASE_LOCAL.hangar2.x, AIRBASE_LOCAL.hangar2.z, 40, 50);
+            hangar2.position.set(p.x, p.y, p.z);
+        }
         hangar2.quaternion.setFromAxisAngle(UP, Math.PI / 2);
         scene.add(hangar2);
 
         const hangar3 = new StaticSceneryEntity(models.getModel('assets/hangar01.gltf'));
-        hangar3.position.set(1330, 0, -920);
+        {
+            const p = place(AIRBASE_LOCAL.hangar3.x, AIRBASE_LOCAL.hangar3.z, 40, 50);
+            hangar3.position.set(p.x, p.y, p.z);
+        }
         hangar3.quaternion.setFromAxisAngle(UP, Math.PI / 2);
         scene.add(hangar3);
 
         const hangar4 = new StaticSceneryEntity(models.getModel('assets/hangar01.gltf'));
-        hangar4.position.set(1670, 0, -810);
+        {
+            const p = place(AIRBASE_LOCAL.hangar4.x, AIRBASE_LOCAL.hangar4.z, 40, 50);
+            hangar4.position.set(p.x, p.y, p.z);
+        }
         hangar4.quaternion.setFromAxisAngle(UP, Math.PI);
         scene.add(hangar4);
 
         forEachStaticAircraftSlot((type, position, heading) => {
+            const gy = yAt(position.x, position.z, 15, 15);
             const plane = new StaticSceneryEntity(models.getModel(type.body), type.lodBias);
-            plane.position.copy(position);
+            plane.position.copy(position).setY(gy + PLANE_DISTANCE_TO_GROUND);
             plane.quaternion.setFromAxisAngle(UP, heading);
             scene.add(plane);
 
             const shadow = new StaticSceneryEntity(models.getModel(type.shadow), type.lodBias);
-            shadow.position.copy(position).setY(0);
+            shadow.position.copy(position).setY(gy + SCENERY_SURFACE_EPS_M);
             shadow.quaternion.setFromAxisAngle(UP, heading);
             scene.add(shadow);
         });
 
         const tower = new StaticSceneryEntity(models.getModel('assets/control01.gltf'));
-        tower.position.set(1580, 0, -500);
+        {
+            const p = place(AIRBASE_LOCAL.tower.x, AIRBASE_LOCAL.tower.z, 30, 30);
+            tower.position.set(p.x, p.y, p.z);
+        }
         tower.quaternion.setFromAxisAngle(UP, -Math.PI / 2);
         scene.add(tower);
     }
@@ -2442,6 +2657,9 @@ export class Game {
     }
 
     private isLandAt(worldX: number, worldZ: number): boolean {
+        if (this.planetTerrain) {
+            return this.planetTerrain.isLandEnu(worldX, worldZ);
+        }
         this.terrainRayOrigin.set(worldX / TERRAIN_SCALE, 500, worldZ / TERRAIN_SCALE);
         this.terrainCaster.set(this.terrainRayOrigin, this.terrainRayDir);
         const landHits = this.terrainCaster.intersectObjects(this.landTerrainMeshes, true);

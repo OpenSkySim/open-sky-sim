@@ -3,8 +3,8 @@ import { AiPilotModels, FlightModels, TechProfiles } from "../state/gameDefs";
 
 const STORAGE_KEY = 'retroflightsim.settings';
 
-/** Spawn menu start modes (approach / runway / merge / carrier). */
-export type SpawnMode = 'approach' | 'runway' | 'headon' | 'carrier' | 'carrierTakeoff';
+/** Spawn menu start modes (approach / runway / merge / carrier / space). */
+export type SpawnMode = 'approach' | 'runway' | 'headon' | 'carrier' | 'carrierTakeoff' | 'space';
 
 export interface AppSettings {
     techProfile: string;
@@ -30,7 +30,7 @@ const TECH_PROFILES = new Set<string>(Object.values(TechProfiles));
 const FLIGHT_MODELS = new Set<string>(Object.values(FlightModels));
 const KEYBOARD_LAYOUTS = new Set<number>(Object.values(KeyboardControlLayoutId).filter(v => typeof v === 'number') as number[]);
 const AI_PILOT_MODELS = new Set<string>(Object.values(AiPilotModels));
-const SPAWN_MODES = new Set<SpawnMode>(['approach', 'runway', 'headon', 'carrier', 'carrierTakeoff']);
+const SPAWN_MODES = new Set<SpawnMode>(['approach', 'runway', 'headon', 'carrier', 'carrierTakeoff', 'space']);
 
 export function loadSettings(): AppSettings {
     try {

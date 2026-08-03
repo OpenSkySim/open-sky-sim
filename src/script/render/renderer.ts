@@ -7,6 +7,7 @@ import { getOverlayLayout, getOverlayStrokeWidth } from '../scene/entities/overl
 import { CanvasPainter } from './screen/canvasPainter';
 import { TextEffect } from './screen/text';
 import { beginRenderListPass, pruneRenderList } from './renderList';
+import { clearRenderOrigin, setRenderOrigin } from './renderOrigin';
 
 export interface RendererOptions {
     textColors?: string[];
@@ -46,6 +47,8 @@ export interface RenderLayer {
     palette?: Palette;
     /** Reuse prior WebGL contents for this target; still compose it. */
     skipRefresh?: boolean;
+    /** Override WebGL clear color for this target (e.g. space black). */
+    clearColor?: string;
 }
 
 export class Renderer {
@@ -61,6 +64,9 @@ export class Renderer {
     private current2DRenderLists: Set<string> = new Set();
     /** Parent of layer list scenes for a single same-camera WebGL submit. */
     private readonly mergedListScene = new THREE.Scene();
+    /** Camera-relative offset root: children drawn at world − camera.position. */
+    private readonly relativeRoot = new THREE.Group();
+    private readonly savedCamPos = new THREE.Vector3();
     private renderListGeneration = 0;
 
     constructor(private materials: SceneMaterialManager, private composeWidth: number, private composeHeight: number, palette: Palette) {
@@ -69,7 +75,7 @@ export class Renderer {
         this.container = container;
         this.composeCamera = new THREE.OrthographicCamera(-composeWidth / 2, composeWidth / 2, composeHeight / 2, -composeHeight / 2, -10, 10);
         this.palette = palette;
-        this.renderer = new THREE.WebGLRenderer({ antialias: false });
+        this.renderer = new THREE.WebGLRenderer({ antialias: false, logarithmicDepthBuffer: true });
         // Cap DPR so HD on high-DPI displays does not explode fill rate.
         this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
         const gl = this.renderer.getContext();
@@ -80,6 +86,7 @@ export class Renderer {
         );
         this.renderer.autoClear = false;
         this.renderer.sortObjects = false;
+        this.relativeRoot.name = 'CameraRelativeRoot';
         this.updateViewportSize();
         this.container.appendChild(this.renderer.domElement);
         window.addEventListener('resize', this.updateViewportSize.bind(this));
@@ -177,7 +184,7 @@ export class Renderer {
             }
 
             const skipRefresh = !!layer.skipRefresh;
-            const renderTarget = this.prepareRenderTarget(layer.target, palette, !skipRefresh);
+            const renderTarget = this.prepareRenderTarget(layer.target, palette, !skipRefresh, layer.clearColor);
             if (skipRefresh) {
                 continue;
             }
@@ -197,7 +204,7 @@ export class Renderer {
         this.renderer.render(this.composeScene, this.composeCamera);
     }
 
-    prepareRenderTarget(target: string, palette: Palette, clear: boolean = true): RenderTarget {
+    prepareRenderTarget(target: string, palette: Palette, clear: boolean = true, clearColor?: string): RenderTarget {
         const renderTarget = this.renderTargets.get(target);
         assertIsDefined(renderTarget);
         if (renderTarget.ready === false) {
@@ -215,7 +222,7 @@ export class Renderer {
                 );
                 if (clear) {
                     this.renderer.setRenderTarget(renderTarget.target);
-                    this.renderer.setClearColor(PaletteColor(palette, PaletteCategory.BACKGROUND));
+                    this.renderer.setClearColor(clearColor ?? PaletteColor(palette, PaletteCategory.BACKGROUND));
                     this.renderer.clear();
                 }
             }
@@ -242,6 +249,7 @@ export class Renderer {
             beginRenderListPass(list, this.renderListGeneration);
             this.current3DRenderLists.set(listId, list);
         }
+        // LOD / culling use absolute ENU camera position.
         scene.buildRenderLists(renderTarget.width, renderTarget.height, layer.camera, this.current3DRenderLists, palette);
         for (const listId of layer.lists) {
             const list = this.current3DRenderLists.get(listId);
@@ -249,16 +257,48 @@ export class Renderer {
             pruneRenderList(list);
         }
 
-        // Same camera for all lists in a layer: one WebGL submit. Parent the
-        // list scenes (keep their children) so Terrain → Flats → Volumes → FX
-        // order is preserved with sortObjects = false.
+        this.submitCameraRelative(layer);
+    }
+
+    /**
+     * GPU submit with camera at origin and scene offset by −camera.position so
+     * Float32 world matrices stay precise at planetary ranges. Physics positions
+     * are unchanged.
+     */
+    private submitCameraRelative(layer: RenderLayer): void {
+        const cam = layer.camera;
+        const rebase = Math.abs(cam.position.x) + Math.abs(cam.position.y) + Math.abs(cam.position.z) > 1e-6;
+
+        if (rebase) {
+            this.savedCamPos.copy(cam.position);
+            setRenderOrigin(this.savedCamPos);
+            cam.position.set(0, 0, 0);
+            cam.updateMatrixWorld(true);
+            this.relativeRoot.position.set(-this.savedCamPos.x, -this.savedCamPos.y, -this.savedCamPos.z);
+            this.mergedListScene.add(this.relativeRoot);
+            for (const listId of layer.lists) {
+                const list = this.current3DRenderLists.get(listId);
+                assertIsDefined(list);
+                this.relativeRoot.add(list);
+            }
+            this.renderer.render(this.mergedListScene, cam);
+            while (this.relativeRoot.children.length > 0) {
+                this.relativeRoot.remove(this.relativeRoot.children[0]);
+            }
+            this.mergedListScene.remove(this.relativeRoot);
+            cam.position.copy(this.savedCamPos);
+            cam.updateMatrixWorld(true);
+            clearRenderOrigin();
+            return;
+        }
+
         if (layer.lists.length > 1) {
             for (const listId of layer.lists) {
                 const list = this.current3DRenderLists.get(listId);
                 assertIsDefined(list);
                 this.mergedListScene.add(list);
             }
-            this.renderer.render(this.mergedListScene, layer.camera);
+            this.renderer.render(this.mergedListScene, cam);
             while (this.mergedListScene.children.length > 0) {
                 this.mergedListScene.remove(this.mergedListScene.children[0]);
             }
@@ -267,7 +307,7 @@ export class Renderer {
 
         const only = this.current3DRenderLists.get(layer.lists[0]);
         assertIsDefined(only);
-        this.renderer.render(only, layer.camera);
+        this.renderer.render(only, cam);
     }
 
     render2D(renderTarget: CanvasRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette) {

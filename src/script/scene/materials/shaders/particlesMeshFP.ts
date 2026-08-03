@@ -1,3 +1,5 @@
+import { LOG_DEPTH_FRAGMENT, LOG_DEPTH_PARS_FRAGMENT } from './logDepth';
+
 export const ParticleMeshFragProgram: string = `
 precision highp float;
 
@@ -13,7 +15,7 @@ uniform vec3 fogColor;
 
 varying vec3 vPosition;
 varying vec4 vColor;
-
+${LOG_DEPTH_PARS_FRAGMENT}
 void main() {
   mat4 bayesian = mat4(
     0.0, 12.0,  3.0, 15.0,
@@ -65,5 +67,6 @@ void main() {
   }
 
   gl_FragColor = mix(vec4(diffuse, 1.0), vec4(fogColor, 1.0), fogFactor * 0.92);
+${LOG_DEPTH_FRAGMENT}
 }
 `;

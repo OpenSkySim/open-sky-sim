@@ -20,8 +20,8 @@ const colors: PaletteColors = {
     [PaletteCategory.SKY]: '#1d1d1d',
 
     [PaletteCategory.TERRAIN_DEFAULT]: '#303030',
-    [PaletteCategory.TERRAIN_SAND]: '#303030',
-    [PaletteCategory.TERRAIN_BARE]: '#303030',
+    [PaletteCategory.TERRAIN_SAND]: '#3a3a30',
+    [PaletteCategory.TERRAIN_BARE]: '#222220',
     [PaletteCategory.TERRAIN_GRASS]: '#303030',
     [PaletteCategory.TERRAIN_WATER]: '#1d1d1d',
     [PaletteCategory.TERRAIN_SHALLOW_WATER]: '#1d1d1d',

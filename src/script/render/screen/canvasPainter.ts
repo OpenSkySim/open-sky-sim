@@ -190,6 +190,16 @@ export class CanvasPainter {
         this.ctx.clearRect(x || 0, y || 0, width || this.ctx.canvas.width, height || this.ctx.canvas.height);
     }
 
+    /** Fill a rectangle with the current background colour. */
+    fillRect(x: number, y: number, width: number, height: number): void {
+        this.ctx.fillRect(x, y, width, height);
+    }
+
+    /** Blit an image (used for OSM MFD tiles). */
+    drawImage(image: CanvasImageSource, dx: number, dy: number, dw: number, dh: number): void {
+        this.ctx.drawImage(image, dx, dy, dw, dh);
+    }
+
     hLine(x0: number, x1: number, y: number) {
         this.batch()
             .hLine(x0, x1, y)

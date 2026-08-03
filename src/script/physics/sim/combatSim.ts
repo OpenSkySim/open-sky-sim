@@ -39,6 +39,8 @@ import { fm2UsesAfterburner, SimPlayerInput, SimPlayerInputSink } from './simPla
 
 /** Seconds a tracer lives before self-destructing (mirrors WeaponsField). */
 const PROJECTILE_LIFESPAN = 2.5;
+/** Max ship-relative groundspeed (m/s) before kinematic deck park engages. */
+const CARRIER_PARK_REL_SPEED_MPS = 2.0;
 const PROJECTILE_GRAVITY = 9.80665;
 const PROJECTILE_POOL_SIZE = 480;
 /** Allow this much mesh–terrain overlap (m) when gear is down (spring travel). */
@@ -122,6 +124,12 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     arrestorSnagAlong = 0;
     /** True after pull-out finished; cable stays bent until the plane taxis away. */
     arrestorHeld = false;
+    /** Sticky: stay on-deck until gear up / leave carrier height / not landed. */
+    carrierDeckSticky = false;
+    /** Ship-local XZ park offset valid while kinematically locked to the deck. */
+    carrierParkLocalValid = false;
+    carrierParkLocalX = 0;
+    carrierParkLocalZ = 0;
     readonly hookBody = new THREE.Vector3();
     readonly prevHook = new THREE.Vector3();
     hasPrevHook = false;
@@ -205,6 +213,8 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.arrestorFieldIndex = -1;
         this.arrestorSnagAlong = 0;
         this.arrestorHeld = false;
+        this.carrierDeckSticky = false;
+        this.carrierParkLocalValid = false;
         this.hasPrevHook = false;
         this.model.position = this.tmp.fromArray(spawn.position);
         this.model.quaternion = new THREE.Quaternion().fromArray(spawn.quaternion);
@@ -489,6 +499,7 @@ export class CombatSim implements ProjectileSink {
     private readonly seg = new THREE.Vector3();
     private readonly toCenter = new THREE.Vector3();
     private readonly closest = new THREE.Vector3();
+    private readonly carrierOriginScratch = { x: 0, y: 0, z: 0 };
     private readonly cPos = new THREE.Vector3();
     private readonly cVel = new THREE.Vector3();
     private readonly bodyStart = new THREE.Vector3();
@@ -635,6 +646,8 @@ export class CombatSim implements ProjectileSink {
         a.arrestorFieldIndex = -1;
         a.arrestorSnagAlong = 0;
         a.arrestorHeld = false;
+        a.carrierDeckSticky = false;
+        a.carrierParkLocalValid = false;
         a.hasPrevHook = false;
         a.model.reset();
         a.model.position = position;
@@ -777,8 +790,15 @@ export class CombatSim implements ProjectileSink {
                 a.scrapeFxCooldown = Math.max(0, a.scrapeFxCooldown - delta);
             }
             a.applyInputsToModel();
-            a.model.update(delta);
-            this.resolveSolidWorldContact(a, delta);
+            const parked = this.applyKinematicCarrierPark(a);
+            if (!parked) {
+                const onCarrierFrame = this.beginCarrierRelativeFrame(a);
+                a.model.update(delta);
+                this.endCarrierRelativeFrame(a, delta, onCarrierFrame);
+            }
+            if (!parked) {
+                this.resolveSolidWorldContact(a, delta);
+            }
             this.resolveArrestor(a, delta);
             a.resolveFiring();
             this.wrapBounds(a);
@@ -926,6 +946,110 @@ export class CombatSim implements ProjectileSink {
 
         a.prevHook.copy(a.hookNow);
         a.hasPrevHook = true;
+    }
+
+    /**
+     * Idle on-deck: lock XZ to ship-local offset, match carrier velocity, skip FM2
+     * so gear springs cannot bob the airframe. Mid-arrestor pull keeps dynamic FM2.
+     */
+    private applyKinematicCarrierPark(a: SimAircraft): boolean {
+        this.updateCarrierDeckSticky(a);
+        if (!a.carrierDeckSticky || !a.isLanded() || !a.isGearDeployed()) {
+            a.carrierParkLocalValid = false;
+            return false;
+        }
+        if (a.getThrottle() > 0.05) {
+            a.carrierParkLocalValid = false;
+            return false;
+        }
+        // Still pulling out — do not freeze pose.
+        if (a.arrestorLatch >= 0 && !a.arrestorHeld) {
+            a.carrierParkLocalValid = false;
+            return false;
+        }
+        // Rollout / landing: keep FM2 until nearly stopped relative to the deck.
+        const vel = a.model.velocityVector;
+        const relSpd = Math.hypot(vel.x - this.carrierVel.x, vel.z - this.carrierVel.z);
+        if (relSpd > CARRIER_PARK_REL_SPEED_MPS) {
+            a.carrierParkLocalValid = false;
+            return false;
+        }
+        if (!this.world?.carrierOrigin(this.carrierOriginScratch)) {
+            a.carrierParkLocalValid = false;
+            return false;
+        }
+        const origin = this.carrierOriginScratch;
+        const pos = a.model.position;
+        if (!a.carrierParkLocalValid) {
+            a.carrierParkLocalX = pos.x - origin.x;
+            a.carrierParkLocalZ = pos.z - origin.z;
+            a.carrierParkLocalValid = true;
+        }
+        pos.x = origin.x + a.carrierParkLocalX;
+        pos.z = origin.z + a.carrierParkLocalZ;
+        vel.x = this.carrierVel.x;
+        vel.y = 0;
+        vel.z = this.carrierVel.z;
+        a.model.clearAngularVelocity();
+        a.model.snapPhysicsState();
+        return true;
+    }
+
+    private updateCarrierDeckSticky(a: SimAircraft): void {
+        if (!this.world || a.model.isCrashed() || !a.isGearDeployed() || !a.isLanded()) {
+            a.carrierDeckSticky = false;
+            return;
+        }
+        const pos = a.model.position;
+        const carrierY = this.world.carrierHeightAt(pos.x, pos.z);
+        if (carrierY <= 0.05) {
+            a.carrierDeckSticky = false;
+            return;
+        }
+        if (this.isOnCarrierDeck(a)) {
+            a.carrierDeckSticky = true;
+        }
+    }
+
+    /**
+     * Run FM2 in the carrier's horizontal frame so gear friction sees deck-relative
+     * speed (not ship cruise). Used for taxi / takeoff roll / arrestor pull.
+     */
+    private beginCarrierRelativeFrame(a: SimAircraft): boolean {
+        if (!this.shouldUseCarrierRelativeFrame(a)) return false;
+        const vel = a.model.velocityVector;
+        vel.x -= this.carrierVel.x;
+        vel.z -= this.carrierVel.z;
+        a.model.snapPhysicsState();
+        return true;
+    }
+
+    private endCarrierRelativeFrame(a: SimAircraft, delta: number, active: boolean): void {
+        if (!active) return;
+        const pos = a.model.position;
+        const vel = a.model.velocityVector;
+        pos.x += this.carrierVel.x * delta;
+        pos.z += this.carrierVel.z * delta;
+        vel.x += this.carrierVel.x;
+        vel.z += this.carrierVel.z;
+        a.model.snapPhysicsState();
+    }
+
+    private shouldUseCarrierRelativeFrame(a: SimAircraft): boolean {
+        if (!this.world || a.model.isCrashed() || !a.isGearDeployed()) return false;
+        this.updateCarrierDeckSticky(a);
+        if (!a.carrierDeckSticky && !this.isOnCarrierDeck(a)) return false;
+        if (a.isLanded() || a.arrestorLatch >= 0) return true;
+        return a.model.getGearCompressionMean() > 0.005;
+    }
+
+    /** True when gear contact height matches the carrier mesh (not plain terrain). */
+    private isOnCarrierDeck(a: SimAircraft): boolean {
+        const pos = a.model.position;
+        const carrierY = this.world!.carrierHeightAt(pos.x, pos.z);
+        if (carrierY <= 0.05) return false;
+        const groundY = this.world!.groundHeightAt(pos.x, pos.z);
+        return Math.abs(carrierY - groundY) < 0.15;
     }
 
     private findSolidWorldContact(a: SimAircraft): SolidWorldContact | null {

@@ -20,9 +20,9 @@ const colors: PaletteColors = {
     [PaletteCategory.SKY]: '#202849',
 
     [PaletteCategory.TERRAIN_DEFAULT]: '#003000',
-    [PaletteCategory.TERRAIN_SAND]: '#003000',
-    [PaletteCategory.TERRAIN_BARE]: '#003000',
+    [PaletteCategory.TERRAIN_SAND]: '#003808',
     [PaletteCategory.TERRAIN_GRASS]: '#003000',
+    [PaletteCategory.TERRAIN_BARE]: '#002800',
     [PaletteCategory.TERRAIN_WATER]: '#203455',
     [PaletteCategory.TERRAIN_SHALLOW_WATER]: '#253D64',
     [PaletteCategory.SCENERY_MOUNTAIN_GRASS]: ['#001800', '#003000'],
@@ -85,7 +85,7 @@ const colors: PaletteColors = {
 
 const values: PaletteValues = {
     [PaletteCategory.FOG_SKY]: 0.003,
-    [PaletteCategory.FOG_TERRAIN]: 0.00015,
+    [PaletteCategory.FOG_TERRAIN]: 0.000025,
     [PaletteCategory.FOG_LIGHT]: 0.0,
     [PaletteCategory.FOG_SPECKLE]: 0.003
 };

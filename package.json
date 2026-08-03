@@ -10,7 +10,7 @@
         "watch": "node tools/watch.mjs",
         "preserve": "npm run build",
         "serve": "tsx tools/modserver.ts",
-        "test": "node --import tsx --test 'src/script/physics/**/*.test.ts' 'src/script/ai/**/*.test.ts' 'src/script/weapons/**/*.test.ts' 'src/script/state/**/*.test.ts' 'src/script/render/**/*.test.ts' 'src/script/scene/**/*.test.ts'",
+        "test": "node --import tsx --test 'src/script/physics/**/*.test.ts' 'src/script/ai/**/*.test.ts' 'src/script/weapons/**/*.test.ts' 'src/script/state/**/*.test.ts' 'src/script/render/**/*.test.ts' 'src/script/scene/**/*.test.ts' 'src/script/terrain/**/*.test.ts'",
         "postinstall": "patch-package"
     },
     "author": "Ruben Moreno Montoliu <ruben3d@gmail.com>",

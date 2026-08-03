@@ -1,3 +1,5 @@
+import { LOG_DEPTH_PARS_VERTEX, LOG_DEPTH_VERTEX } from './logDepth';
+
 const shader = (highp: boolean): string => `
   precision highp float;
 
@@ -6,7 +8,7 @@ const shader = (highp: boolean): string => `
   uniform int shadingType;
 
   varying vec3 vPosition;
-
+${LOG_DEPTH_PARS_VERTEX}
   void main() {
   #ifdef USE_INSTANCING
     vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
@@ -23,6 +25,7 @@ const shader = (highp: boolean): string => `
       pos.y = floor(pos.y / pos.w * halfHeight + 0.5) / halfHeight * pos.w;
     }`) + `
     gl_Position = pos;
+${LOG_DEPTH_VERTEX}
   }
 `;
 

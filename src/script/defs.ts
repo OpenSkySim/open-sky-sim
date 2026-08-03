@@ -25,10 +25,19 @@ export const STICK_RATE = 1.5; // Full stick deflection per second (non-arrow la
 export const PLANE_DISTANCE_TO_GROUND = 2.0; // World units
 export const PLANE_COCKPIT_OFFSET_Y = 1.0; // World units
 export const PLANE_COCKPIT_OFFSET_Z = 8.0; // World units
-export const MAX_ALTITUDE = 14000; // World units
+/** Ceiling for kinematic free-fly; must clear the space spawn altitude. */
+export const MAX_ALTITUDE = 400000; // World units
+/** LEO-ish spawn height (m AGL) for the Space start mode. */
+export const SPACE_ALTITUDE_M = 400000;
 
 export const COCKPIT_FOV = 50;
-export const COCKPIT_FAR = 40000;
+/**
+ * Default / low-altitude outer clip (m). High-altitude flight raises `camera.far`
+ * via {@link cameraFarForAltitudeM} up to ~3.2 Mm.
+ */
+export const COCKPIT_FAR = 550000;
+/** Low-altitude planet terrain mesh range (m); grows with altitude toward the horizon. */
+export const TERRAIN_VIEW_RANGE_M = 450000;
 
 export const DEBRIS_PARTICLE_COUNT = 48;
 /** Hit fire/smoke puff pool (shared across aircraft leaks). */
@@ -43,7 +52,7 @@ export function isTelemetryGraphKey(event: KeyboardEvent): boolean {
         || event.key === 'NumLock';
 }
 
-export const AIRBASE_RUNWAY = { x: 1500, y: 0, z: -800 };
+export const AIRBASE_RUNWAY = { x: 0, y: 0, z: 0 };
 export const RUNWAY_HALF_LENGTH_M = 1500;
 export const APPROACH_ALTITUDE_M = 1000;
 export const APPROACH_SPEED_KMH = 400;

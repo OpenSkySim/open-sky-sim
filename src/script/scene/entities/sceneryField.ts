@@ -44,7 +44,12 @@ export class SceneryField implements Entity {
 
     enabled: boolean = true;
 
-    constructor(models: ModelManager, private area: THREE.Box2, private options: SceneryFieldSettings) {
+    constructor(
+        models: ModelManager,
+        private area: THREE.Box2,
+        private options: SceneryFieldSettings,
+        private heightAt: (x: number, z: number) => number = () => 0,
+    ) {
         this.tiles = Array(options.tilesInField * options.tilesInField);
         this.tileMinIndex = Math.ceil(-options.tilesInField / 2);
         this.tileMaxIndex = Math.ceil(options.tilesInField / 2);
@@ -79,7 +84,9 @@ export class SceneryField implements Entity {
                 const tile = this.tiles[idx++];
                 for (let i = 0; i < tile.length; i++) {
                     const item = tile[i];
-                    item.entity.position.set(x + item.offset.x, 0, z + item.offset.z);
+                    const wx = x + item.offset.x;
+                    const wz = z + item.offset.z;
+                    item.entity.position.set(wx, this.heightAt(wx, wz), wz);
                     this.tmpVector2.set(item.entity.position.x, item.entity.position.z);
                     if (!this.area.containsPoint(this.tmpVector2)) continue;
                     item.entity.render3D(targetWidth, targetHeight, camera, layers, palette);

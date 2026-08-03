@@ -84,6 +84,8 @@ export interface Fm2GearConfig {
     rollFriction: number;
     brakeFriction: number;
     sideFriction: number;
+    /** Max oleo compression before hard stop (m). Defaults to 0.35 in the FM. */
+    maxStrokeM?: number;
 }
 
 /** Body-frame altitude (m) when level on a flat runway: -min(gear Y). */
@@ -452,6 +454,7 @@ export const defaultFm2Config: Fm2AircraftConfig = {
         rollFriction: 0.04,
         brakeFriction: 0.55,
         sideFriction: 0.8,
+        maxStrokeM: 0.35,
     },
     // Hook tip is resolved per airframe (fuselage aft) at spawn — see
     // arrestorHookPlacementForAircraft / flightConfigWithArrestorHook.

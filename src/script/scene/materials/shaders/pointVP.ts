@@ -1,3 +1,5 @@
+import { LOG_DEPTH_PARS_VERTEX, LOG_DEPTH_VERTEX } from './logDepth';
+
 export const PointVertProgram: string = `
   precision highp float;
 
@@ -6,7 +8,7 @@ export const PointVertProgram: string = `
   uniform int shadingType;
 
   varying vec3 vPosition;
-
+${LOG_DEPTH_PARS_VERTEX}
   void main() {
     vec4 tmpPos = modelMatrix * vec4(position, 1.0);
     vPosition = vec3(tmpPos.x, 0.0, tmpPos.z);
@@ -18,5 +20,6 @@ export const PointVertProgram: string = `
       pos.y = floor(pos.y / pos.w * halfHeight + 1.0) / halfHeight * pos.w;
     }
     gl_Position = pos;
+${LOG_DEPTH_VERTEX}
   }
 `;

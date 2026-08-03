@@ -225,6 +225,11 @@ export class Fm2FlightModel extends FlightModel {
         this.rb.velocityWorld.copy(this.velocity);
     }
 
+    /** Zero body rates (kinematic deck park). */
+    clearAngularVelocity(): void {
+        this.rb.angularVelocityBody.set(0, 0, 0);
+    }
+
     /**
      * Inward speed of the body at `pointWorld` along `normalWorld` (m/s).
      * Zero when the contact is separating or sliding purely tangentially.

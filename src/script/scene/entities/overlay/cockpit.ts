@@ -13,6 +13,8 @@ import { AircraftDeviceState, PlayerEntity } from "../player";
 import { formatHeading, getAircraftDeviceStatusPosition, getOverlayLayout, renderAircraftDeviceStatus } from './overlayUtils';
 
 
+import { OsmMapEntity } from '../osmMap';
+
 // Pixels
 export function CockpitMFDSize(height: number, width?: number): number {
     const byHeight = Math.floor(height / 3.333);
@@ -49,7 +51,8 @@ export class CockpitEntity implements Entity {
     constructor(private actor: PlayerEntity,
         private camera: THREE.PerspectiveCamera,
         private targetCamera: THREE.PerspectiveCamera,
-        private mapCamera: THREE.OrthographicCamera) { }
+        private mapCamera: THREE.OrthographicCamera,
+        private osmMap?: OsmMapEntity) { }
 
     private aiPitch: number = 0;
     private aiRoll: number = 0;
@@ -90,6 +93,9 @@ export class CockpitEntity implements Entity {
         this.weaponsTarget = this.actor.weaponsTarget;
         this.flaps = this.actor.flaps;
         this.landingGear = this.actor.landingGear;
+        const pos = this.actor.getDisplayPosition();
+        this.mapCamera.position.copy(pos).setY(500);
+        this.osmMap?.setPlayerEnu(pos.x, pos.z);
     }
 
     private refreshVisualState(): void {
@@ -268,9 +274,14 @@ export class CockpitEntity implements Entity {
     private renderMFD1(x: number, y: number, size: number, painter: CanvasPainter, hudColor: string) {
         painter.setColor(hudColor);
         painter.rectangle(x - 1, y - 1, size + 2, size + 2);
-        painter.clear(x, y, size, size);
+        // Opaque basemap (do not punch through to empty WebGL).
+        painter.setBackground('#1a3040');
+        painter.fillRect(x, y, size, size);
+        this.osmMap?.paint(painter, x, y, size);
 
         this.renderPlaneMarker(x, y, size, painter);
+        painter.setColor(hudColor);
+        painter.text(Font.HUD_SMALL, x + 2, y + size - Font.HUD_SMALL.charHeight - 1, 'OSM', hudColor);
     }
 
     private renderPlaneMarker(x: number, y: number, size: number, painter: CanvasPainter) {

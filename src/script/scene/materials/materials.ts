@@ -50,6 +50,11 @@ export type SceneMaterialMeshProperties = {
 } & (
         {
             shaded: true;
+            /**
+             * Discard fragments with world Y below this (metres). Used to hide
+             * ship hull below the waterline. Omit / undefined = no clip.
+             */
+            clipBelowY?: number;
         }
         |
         {
@@ -111,6 +116,8 @@ export interface SceneShadedMaterialUniforms {
     fogDensity: { value: number; };
     fogColor: { value: THREE.Color; };
     normalModelMatrix: { value: THREE.Matrix3; };
+    /** World-Y clip; very negative = disabled. */
+    clipBelowY: { value: number; };
     [uniform: string]: THREE.IUniform<any>;
 }
 
@@ -135,6 +142,8 @@ export interface SceneFlatMaterialData {
 
 export interface SceneShadedMaterialData {
     shaded: true;
+    /** Absolute ENU Y waterline clip (metres); adjusted by RENDER_ORIGIN each draw. */
+    clipBelowYAbs: number;
 }
 
 export class SceneMaterialManager implements KernelTask {
@@ -268,8 +277,9 @@ export class SceneMaterialManager implements KernelTask {
     }
 
     private buildData(properties: SceneMaterialProperties, palette: Palette): SceneMaterialData {
+        const shaded = properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded;
         return {
-            shaded: properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded,
+            shaded,
             shading: this.shading,
             category: properties.category,
             rawColor: properties.rawColor,
@@ -279,6 +289,9 @@ export class SceneMaterialManager implements KernelTask {
             point: this.isPoint(properties),
             highp: properties.type === SceneMaterialPrimitiveType.MESH && !properties.shaded && properties.highp || false,
             fog: this.fog,
+            ...(shaded ? {
+                clipBelowYAbs: typeof properties.clipBelowY === 'number' ? properties.clipBelowY : -1e30,
+            } : {}),
             ramp: (properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH && (
                 properties.category === PaletteCategory.FX_SMOKE
                 || properties.category === PaletteCategory.FX_FIRE
@@ -293,7 +306,7 @@ export class SceneMaterialManager implements KernelTask {
                     ? PaletteCategory.FX_SMOKE
                     : PaletteCategory.FX_SMOKE__C)).clone(),
             ] : undefined,
-        };
+        } as SceneMaterialData;
     }
 
     private categoryUsesColorDither(category: PaletteCategory): boolean {
@@ -338,10 +351,16 @@ export class SceneMaterialManager implements KernelTask {
                         ? (properties.minPixels ?? 0)
                         : 0,
                 },
+                uRenderOrigin: { value: new THREE.Vector3() },
             },
             ...(properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded) ? {
                 distance: { value: 0 },
-                normalModelMatrix: { value: new THREE.Matrix3() }
+                normalModelMatrix: { value: new THREE.Matrix3() },
+                clipBelowY: {
+                    value: typeof properties.clipBelowY === 'number'
+                        ? properties.clipBelowY
+                        : -1e30,
+                },
             } : {
                 vCameraPos: { value: new THREE.Vector3() },
                 vCameraNormal: { value: new THREE.Vector3() },

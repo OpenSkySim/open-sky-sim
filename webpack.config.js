@@ -69,6 +69,12 @@ module.exports = {
                     // directory tree so the JSBSim-native folder layout survives.
                     from: 'assets/jsbsim',
                     to: 'assets/jsbsim',
+                },
+                {
+                    // Geographic DEM height tiles (see tools/build_dem_tiles.py).
+                    from: 'assets/terrain',
+                    to: 'assets/terrain',
+                    noErrorOnMissing: true,
                 }
             ]
         })
