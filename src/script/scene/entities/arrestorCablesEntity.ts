@@ -81,6 +81,9 @@ export class ArrestorCablesEntity implements Entity {
     private readonly lodAnchorWorld = new THREE.Vector3();
     /** true = far LOD (lines), false = near LOD (mesh ribbons). */
     private useLineLod = false;
+    /** Skip static rebuilds: geometry only changes while a hook is latched. */
+    private cablesBuilt = false;
+    private lastRebuiltLatch = -1;
 
     constructor(
         materials: SceneMaterialManager,
@@ -337,6 +340,16 @@ export class ArrestorCablesEntity implements Entity {
         let latch = -1;
         if (fm instanceof SimProxyFlightModel) {
             latch = fm.getArrestorLatch();
+        }
+        // Unlatched cables are static in carrier-local space — the layout and
+        // deck heights never change, so the (deck-sampling) rebuild is pure
+        // waste. Rebuild only on first build or while a hook is latched.
+        if (latch < 0 && this.lastRebuiltLatch < 0 && this.cablesBuilt) {
+            return;
+        }
+        this.cablesBuilt = true;
+        this.lastRebuiltLatch = latch;
+        if (fm instanceof SimProxyFlightModel) {
             if (latch >= 0) {
                 // Same tip as the rendered tailhook (hinge → sheave ray), converted
                 // with explicit pose math (matrixWorld invert was placing the apex

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CarrierMeshCollider, sampleCarrierMeshSurfaceYMax } from '../scene/entities/carrierDeck';
 import { HillCollider, sampleHillSurfaceY } from '../scene/entities/hillCollider';
+import { SurfacePadCollider, sampleSurfacePadYMax } from '../scene/entities/surfacePad';
 import { SkiJumpCollider, sampleSkiJumpSurfaceYMax } from '../scene/entities/skiJump';
 
 /** A static world obstacle approximated as an upright cylinder for avoidance. */
@@ -31,7 +32,7 @@ export interface Runway {
  * state so pilots do not depend on the game object.
  */
 export interface WorldQuery {
-    /** Highest solid ground Y at (x, z): flat datum, hills, ski jumps, carrier meshes. */
+    /** Highest solid ground Y at (x, z): flat datum, hills, ski jumps, surface pads, scenery + carrier meshes. */
     groundHeightAt(x: number, z: number): number;
     /** True if (x, z) is over land rather than water. */
     isLand(x: number, z: number): boolean;
@@ -58,6 +59,10 @@ export class SceneWorldQuery implements WorldQuery {
         private readonly carrierMeshes: readonly CarrierMeshCollider[] = [],
         /** Optional DEM / base terrain height under hills and decks. */
         private readonly baseHeightAt: (x: number, z: number) => number = () => 0,
+        /** Flat solid surfaces (runway strip, pavement pads) sitting slightly above the terrain. */
+        private readonly surfacePads: readonly SurfacePadCollider[] = [],
+        /** Static scenery collision soups (hangars, towers, depots...). */
+        private readonly sceneryMeshes: readonly CarrierMeshCollider[] = [],
     ) { }
 
     groundHeightAt(x: number, z: number): number {
@@ -65,6 +70,8 @@ export class SceneWorldQuery implements WorldQuery {
             this.baseHeightAt(x, z),
             sampleHillSurfaceY(x, z, this.hills),
             sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
+            sampleSurfacePadYMax(x, z, this.surfacePads),
+            sampleCarrierMeshSurfaceYMax(x, z, this.sceneryMeshes),
             this.carrierHeightAt(x, z),
         );
     }

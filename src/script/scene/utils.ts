@@ -11,18 +11,55 @@ const camDir = new THREE.Vector3();
 const camPos = new THREE.Vector3();
 const pos = new THREE.Vector3();
 
-export function updateUniforms(this: THREE.Mesh, renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, group: THREE.Group) {
-    const m = (material as THREE.ShaderMaterial);
-    const u = m.uniforms as SceneMaterialUniforms;
-    const data = m.userData as SceneMaterialData | undefined;
+// camDir/camD are identical for every object in a render pass, but this runs
+// per object via onBeforeRender — and getWorldDirection walks the parent chain
+// each call. Recompute only when the render pass (frame counter) or camera
+// changes; with thousands of objects this is a double-digit CPU saving.
+let camCacheFrame = -1;
+let camCacheCamera: THREE.Camera | undefined;
+let camD = 0;
 
+function refreshCameraCache(renderer: THREE.WebGLRenderer, camera: THREE.Camera): void {
+    const frame = renderer.info.render.frame;
+    if (frame === camCacheFrame && camera === camCacheCamera) {
+        return;
+    }
+    camCacheFrame = frame;
+    camCacheCamera = camera;
     if ('isPerspectiveCamera' in camera === false) {
         camDir.set(0, -1, 0);
     } else {
         camera.getWorldDirection(camDir).setY(0.0).normalize();
     }
     camPos.copy(camera.position);
-    const camD = camPos.negate().dot(camDir);
+    camD = camPos.negate().dot(camDir);
+}
+
+interface UniformRefreshStamp {
+    __uniformFrame?: number;
+    __uniformCamera?: THREE.Camera;
+}
+
+export function updateUniforms(this: THREE.Mesh, renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, group: THREE.Group) {
+    const m = (material as THREE.ShaderMaterial);
+    const u = m.uniforms as SceneMaterialUniforms;
+    const data = m.userData as SceneMaterialData | undefined;
+
+    // Unshaded materials have no per-object uniforms — everything below is
+    // pass-global. Refresh once per material per render pass; leaving
+    // uniformsNeedUpdate false afterwards lets three.js skip the full uniform
+    // re-upload on every draw (the dominant CPU cost with many meshes).
+    if (data && !data.shaded) {
+        const stamp = data as SceneMaterialData & UniformRefreshStamp;
+        const frame = renderer.info.render.frame;
+        if (stamp.__uniformFrame === frame && stamp.__uniformCamera === camera) {
+            return;
+        }
+        stamp.__uniformFrame = frame;
+        stamp.__uniformCamera = camera;
+    }
+
+    refreshCameraCache(renderer, camera);
     const fogType = data ? data.fog : FogQuality.LOW;
 
     if (u.uRenderOrigin) {

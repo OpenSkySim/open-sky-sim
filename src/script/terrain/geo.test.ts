@@ -4,10 +4,11 @@ import {
     ecefToEnu, ecefToGeodetic, geodeticToEcef, makeEnuBasis, enuToEcef,
 } from './geo';
 import {
-    childrenOf, rootTiles, tileAtLonLat, tileBounds, xCount, yCount,
+    childrenOf, isFullyReplacedByFinerMeshes, rootTiles, tileAtLonLat, tileBounds, tileKey, xCount, yCount,
 } from './tileId';
 import { isWaterHeight, landToneIndex, paletteForHeight } from './terrainMesh';
-import { padBlendWeight } from './flattenPad';
+import { padBlendWeight, padLonLatBounds, padLonLatCoreBounds, FlattenPadHeightSource } from './flattenPad';
+import { HeightSource } from './heightSource';
 import { PaletteCategory } from '../config/palettes/palette';
 import { decodeR16, R16_MAGIC } from './manifest';
 
@@ -114,6 +115,95 @@ describe('padBlendWeight', () => {
     it('feathers at the rim', () => {
         const t = padBlendWeight(90, 0, spec); // in feather (coreW=80)
         assert.ok(t > 0 && t < 1);
+    });
+});
+
+describe('padLonLatBounds', () => {
+    const spec = { centerX: 0, centerZ: 0, halfW: 100, halfD: 200, featherM: 20 };
+    const basis = makeEnuBasis(28.0015, -15.3937, 0);
+
+    it('extends beyond core half-extents by featherM', () => {
+        const core = padLonLatCoreBounds(spec, basis);
+        const withFeather = padLonLatBounds(spec, basis);
+        assert.ok(withFeather.west < core.west);
+        assert.ok(withFeather.east > core.east);
+        assert.ok(withFeather.south < core.south);
+        assert.ok(withFeather.north > core.north);
+    });
+});
+
+describe('isFullyReplacedByFinerMeshes', () => {
+    const maxZ = 12;
+
+    it('is false when no children are meshed', () => {
+        const parent = { z: 9, x: 10, y: 20 };
+        assert.equal(isFullyReplacedByFinerMeshes(parent, new Set(), maxZ), false);
+    });
+
+    it('is true when all four children are meshed', () => {
+        const parent = { z: 9, x: 10, y: 20 };
+        const meshed = new Set(childrenOf(parent).map(tileKey));
+        assert.equal(isFullyReplacedByFinerMeshes(parent, meshed, maxZ), true);
+    });
+
+    it('is true when grandchildren fully cover a child quadrant', () => {
+        const parent = { z: 9, x: 10, y: 20 };
+        const meshed = new Set<string>();
+        for (const c of childrenOf(parent)) {
+            for (const gc of childrenOf(c)) {
+                meshed.add(tileKey(gc));
+            }
+        }
+        assert.equal(isFullyReplacedByFinerMeshes(parent, meshed, maxZ), true);
+    });
+});
+
+describe('FlattenPadHeightSource.heightRevision', () => {
+    const basis = makeEnuBasis(28.0015, -15.3937, 0);
+    const inner: HeightSource = {
+        heightAt: () => 100,
+        rawHeightAt: () => 100,
+        maxZoomAt: () => 11,
+        coversTile: () => true,
+    };
+
+    it('starts at 0 and increments when pad height locks', () => {
+        const pad = new FlattenPadHeightSource(inner, basis, {
+            centerX: 0, centerZ: 0, halfW: 100, halfD: 200, featherM: 20,
+        });
+        assert.equal(pad.heightRevision, 0);
+        pad.setPadHeightMsl(120);
+        assert.equal(pad.heightRevision, 1);
+        pad.setPadHeightMsl(125);
+        assert.equal(pad.heightRevision, 2);
+    });
+
+    it('does not flatten raw ocean heights inside pad box', () => {
+        const ocean: HeightSource = {
+            heightAt: () => 0,
+            rawHeightAt: () => 0,
+            maxZoomAt: () => 11,
+            coversTile: () => true,
+        };
+        const pad = new FlattenPadHeightSource(ocean, basis, {
+            centerX: 0, centerZ: 0, halfW: 100, halfD: 200, featherM: 20,
+        }, 0);
+        pad.setPadHeightMsl(120);
+        assert.equal(pad.heightAt(-15.3937, 28.0015), 0);
+    });
+
+    it('still flattens land inside pad box', () => {
+        const land: HeightSource = {
+            heightAt: () => 80,
+            rawHeightAt: () => 80,
+            maxZoomAt: () => 11,
+            coversTile: () => true,
+        };
+        const pad = new FlattenPadHeightSource(land, basis, {
+            centerX: 0, centerZ: 0, halfW: 100, halfD: 200, featherM: 20,
+        }, 0);
+        pad.setPadHeightMsl(120);
+        assert.equal(pad.heightAt(-15.3937, 28.0015), 120);
     });
 });
 

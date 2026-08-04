@@ -12,8 +12,10 @@ export const SKI_JUMP_WIDTH_M = 48;
 
 /** Analytic ski-jump collider matching the lib:skiJump mesh. */
 export interface SkiJumpCollider {
-    /** World XZ of the ramp origin (south/base end at y=0). */
+    /** World XZ of the ramp origin (south/base end). */
     originX: number;
+    /** World Y of the ramp base (matches the placed mesh). */
+    originY: number;
     originZ: number;
     /** Runway heading (rad); 0 = takeoff along +Z. */
     heading: number;
@@ -24,6 +26,7 @@ export interface SkiJumpCollider {
 
 export function createSkiJumpCollider(
     originX: number,
+    originY: number,
     originZ: number,
     heading: number,
     length = SKI_JUMP_LENGTH_M,
@@ -32,6 +35,7 @@ export function createSkiJumpCollider(
 ): SkiJumpCollider {
     return {
         originX,
+        originY,
         originZ,
         heading,
         length,
@@ -52,6 +56,7 @@ export function skiJumpDeckHeight(t: number, height: number): number {
 /**
  * Surface Y of a ski jump at (worldX, worldZ), or 0 if outside the ramp footprint.
  * Local frame: origin at base, +localZ toward tip (takeoff).
+ * Returns absolute world Y ({@link SkiJumpCollider.originY} + deck height).
  */
 export function sampleSkiJumpSurfaceY(worldX: number, worldZ: number, ramp: SkiJumpCollider): number {
     const cos = Math.cos(ramp.heading);
@@ -67,7 +72,7 @@ export function sampleSkiJumpSurfaceY(worldX: number, worldZ: number, ramp: SkiJ
     if (Math.abs(localX) > ramp.halfWidth) {
         return 0;
     }
-    return skiJumpDeckHeight(localZ / ramp.length, ramp.height);
+    return ramp.originY + skiJumpDeckHeight(localZ / ramp.length, ramp.height);
 }
 
 /** Highest ski-jump surface among ramps, or 0. */

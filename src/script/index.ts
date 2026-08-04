@@ -13,6 +13,7 @@ import { Kernel } from './core/kernel';
 import { FPS_CAP, HD_FPS_CAP, H_RES, V_RES } from './defs';
 import { JoystickControlDevice } from './input/devices/joystickControlDevice';
 import { KeyboardControlDevice } from './input/devices/keyboardControlDevice';
+import { hideBootProgress, setBootProgress } from './osd/bootProgress';
 import { setupOSD } from './osd/osdPanel';
 import { WorkerJsbsimFlightModel } from './physics/model/workerJsbsimFlightModel';
 import { CombatSimClient } from './physics/sim/combatSimClient';
@@ -112,8 +113,13 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
 }
 
 window.addEventListener("load", () => {
+    setBootProgress(0, 'Loading...');
     void setup().then(([kernel, config, keyboardInput, joystickInput, game]) => {
         kernel.start();
         setupOSD(config, keyboardInput, joystickInput);
+        hideBootProgress();
+    }).catch((err) => {
+        setBootProgress(100, `Load failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(err);
     });
 });

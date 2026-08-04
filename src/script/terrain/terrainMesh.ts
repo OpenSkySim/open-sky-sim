@@ -7,8 +7,75 @@ import { HeightSource } from './heightSource';
 import { RenderFrame } from './renderFrame';
 import { TileId, tileBounds } from './tileId';
 
-const MESH_RES = 33; // verts per edge (~2× denser than 17)
 const SKIRT_DEPTH = 200; // metres below min height
+
+/**
+ * Verts per tile edge. High zooms track ~30 m DEM: z11 tile ≈ 9 km → 129
+ * intervals ≈ 70 m; z12 ≈ 35 m.
+ */
+export function meshResForZoom(z: number): number {
+    if (z <= 3) {
+        return 9;
+    }
+    if (z <= 5) {
+        return 13;
+    }
+    if (z <= 7) {
+        return 17;
+    }
+    if (z <= 9) {
+        return 33;
+    }
+    if (z <= 11) {
+        return 129;
+    }
+    // z12 ≈ 4.5 km tile → ~35 m cells (DEM-native shoreline sampling).
+    if (z === 12) {
+        return 129;
+    }
+    return 97;
+}
+
+/**
+ * Grid res for a tile: flat land does not need a dense grid. Coast / pad tiles
+ * request `fullRes` (shoreline pattern and pad feather need the density).
+ * Skirts hide the cracks between neighbours of differing density.
+ *
+ * Inland (esp. high zoom / close range) is hard-capped — beaches own the
+ * triangle budget. `detailScale` can sparsify inland further under load.
+ */
+export function meshResForTile(
+    z: number,
+    deltaHM: number,
+    fullRes: boolean,
+    detailScale = 1,
+): number {
+    const base = meshResForZoom(z);
+    let res: number;
+    if (fullRes) {
+        // Coast/pad: land/water boundary == grid step. Boost mid zooms (z5–z10)
+        // so tiles still climbing toward the z11 floor aren't km-scale stairs.
+        res = z >= 5 && z <= 10 ? Math.max(base, z <= 9 ? 65 : 129) : base;
+    } else {
+        // Inland: absolute caps, not fractions of the coast zoom table.
+        // Close-range z11 tiles would otherwise still carry 65² verts.
+        const d = Math.max(0, deltaHM);
+        if (d < 10) {
+            res = Math.min(base, 9);
+        } else if (d < 60) {
+            res = Math.min(base, 13);
+        } else {
+            res = Math.min(base, 17);
+        }
+    }
+    // Coast/pad grids are exempt from the governor: shoreline silhouette
+    // quality is a hard requirement, so load-shedding happens inland only.
+    const divisor = fullRes ? 1 : detailScale >= 16 ? 4 : detailScale >= 6 ? 2 : 1;
+    if (divisor > 1) {
+        res = Math.max(9, ((res - 1) / divisor | 0) + 1);
+    }
+    return res;
+}
 /** DSM / DEM values at or below this (relative to seaLevel) render as water. */
 export const WATER_HEIGHT_EPS_M = 0.5;
 
@@ -57,7 +124,154 @@ export function paletteForHeight(h: number, slope: number, seaLevel: number = 0)
 export interface TerrainMeshHandle {
     id: TileId;
     root: THREE.Object3D;
+    /** Verts per edge the mesh was built with — lets reconcile spot stale grids. */
+    res: number;
+    /** Finest resident DEM zoom at build time (set by the owner) — a mesh baked
+     * from coarse ancestor data is rebuilt once the native-zoom tile arrives. */
+    demZoom?: number;
+    /** Height-source revision at bake time (flatten pad lock generation). */
+    heightRevision?: number;
+    /** Whether the mesh used the full zoom-table grid (coast / pad feather). */
+    fullRes?: boolean;
+    /** Single grass tone (no 3-tone checker) — flat pad interior. */
+    uniformLandTone?: boolean;
+    /** Palette materials used when F8 LOD wireframe is off. */
+    paletteMaterials: THREE.Material[];
     dispose(): void;
+}
+
+export interface TerrainMeshOptions {
+    /** Tile height range (m) — drives adaptive grid density. */
+    deltaH?: number;
+    /** Force the full zoom-table grid (coast / pad tiles). */
+    fullRes?: boolean;
+    /** Frame-time governor scale (1 = full grids, higher = sparser). */
+    detailScale?: number;
+    /** Flatten-pad height revision at bake time. */
+    heightRevision?: number;
+    /** One land material for the whole tile (flat pad — avoids checker shimmer). */
+    uniformLandTone?: boolean;
+}
+
+/**
+ * Terrain materials are unshaded, so their uniforms are camera-global — every
+ * tile with the same palette category can share one material. Sharing keeps
+ * SceneMaterialManager's registry small (setPalette iterates it per frame) and
+ * lets three.js reuse GL program state across the thousands of tile draws.
+ */
+const sharedTerrainMats = new WeakMap<SceneMaterialManager, Map<PaletteCategory, THREE.Material>>();
+
+/** Per-zoom materials for F8 LOD wireframe (rawColor, not palette). */
+const sharedLodDebugMats = new WeakMap<SceneMaterialManager, Map<number, THREE.Material>>();
+
+/** Live handles so F8 can recolor existing tiles without a rebuild. */
+const liveTerrainMeshes = new Set<TerrainMeshHandle>();
+
+/** F8 debug: wireframe + one color per QT zoom level. */
+let terrainWireframe = false;
+
+/** Distinct colours for zoom 0…n — cycle if the QT goes past the table. */
+const LOD_DEBUG_COLORS: readonly string[] = [
+    '#e6194b', // 0 red
+    '#3cb44b', // 1 green
+    '#ffe119', // 2 yellow
+    '#4363d8', // 3 blue
+    '#f58231', // 4 orange
+    '#911eb4', // 5 purple
+    '#42d4f4', // 6 cyan
+    '#f032e6', // 7 magenta
+    '#bfef45', // 8 lime
+    '#fabebe', // 9 pink
+    '#469990', // 10 teal
+    '#e6beff', // 11 lavender
+    '#9a6324', // 12 brown
+    '#ffd8b1', // 13 apricot
+    '#800000', // 14 maroon
+    '#aaffc3', // 15 mint
+];
+
+export function lodDebugColor(z: number): string {
+    const i = ((Math.max(0, z | 0) % LOD_DEBUG_COLORS.length) + LOD_DEBUG_COLORS.length)
+        % LOD_DEBUG_COLORS.length;
+    return LOD_DEBUG_COLORS[i];
+}
+
+function sharedTerrainMaterial(materials: SceneMaterialManager, category: PaletteCategory): THREE.Material {
+    let byCategory = sharedTerrainMats.get(materials);
+    if (!byCategory) {
+        byCategory = new Map();
+        sharedTerrainMats.set(materials, byCategory);
+    }
+    let mat = byCategory.get(category);
+    if (!mat) {
+        mat = materials.build({
+            type: SceneMaterialPrimitiveType.MESH,
+            category,
+            depthWrite: true,
+            shaded: false,
+            highp: true,
+        });
+        mat.side = THREE.DoubleSide;
+        // Push terrain slightly back so coplanar apron/runway wins the depth test.
+        mat.polygonOffset = true;
+        mat.polygonOffsetFactor = 1;
+        mat.polygonOffsetUnits = 1;
+        mat.wireframe = false;
+        byCategory.set(category, mat);
+    }
+    return mat;
+}
+
+function sharedLodDebugMaterial(materials: SceneMaterialManager, z: number): THREE.Material {
+    let byZoom = sharedLodDebugMats.get(materials);
+    if (!byZoom) {
+        byZoom = new Map();
+        sharedLodDebugMats.set(materials, byZoom);
+    }
+    let mat = byZoom.get(z);
+    if (!mat) {
+        mat = materials.build({
+            type: SceneMaterialPrimitiveType.MESH,
+            category: PaletteCategory.TERRAIN_GRASS,
+            rawColor: lodDebugColor(z),
+            colorDither: false,
+            depthWrite: true,
+            shaded: false,
+            highp: true,
+        });
+        mat.side = THREE.DoubleSide;
+        mat.polygonOffset = true;
+        mat.polygonOffsetFactor = 1;
+        mat.polygonOffsetUnits = 1;
+        mat.wireframe = true;
+        byZoom.set(z, mat);
+    }
+    return mat;
+}
+
+function applyTerrainMeshDebugStyle(
+    handle: TerrainMeshHandle,
+    materials: SceneMaterialManager,
+): void {
+    const mesh = handle.root as THREE.Mesh;
+    if (terrainWireframe) {
+        mesh.material = sharedLodDebugMaterial(materials, handle.id.z);
+        return;
+    }
+    const mats = handle.paletteMaterials;
+    mesh.material = mats.length === 1 ? mats[0] : mats;
+}
+
+/** Toggle F8 LOD wireframe: edge-only, one colour per zoom level. */
+export function setTerrainWireframe(materials: SceneMaterialManager, enabled: boolean): void {
+    terrainWireframe = enabled;
+    for (const handle of liveTerrainMeshes) {
+        applyTerrainMeshDebugStyle(handle, materials);
+    }
+}
+
+export function isTerrainWireframe(): boolean {
+    return terrainWireframe;
 }
 
 /**
@@ -70,9 +284,12 @@ export function buildTerrainMesh(
     frame: RenderFrame,
     materials: SceneMaterialManager,
     seaLevel: number = 0,
+    opts: TerrainMeshOptions = {},
 ): TerrainMeshHandle {
     const b = tileBounds(id);
-    const res = MESH_RES;
+    const res = opts.fullRes === undefined && opts.deltaH === undefined
+        ? meshResForZoom(id.z)
+        : meshResForTile(id.z, opts.deltaH ?? Infinity, opts.fullRes ?? false, opts.detailScale ?? 1);
     const positions: number[] = [];
     const heights: number[] = [];
 
@@ -96,6 +313,8 @@ export function buildTerrainMesh(
 
     const waterIndices: number[] = [];
     const landToneIndices: number[][] = [[], [], []];
+    const landTone = (ix: number, iy: number, tri: number) =>
+        opts.uniformLandTone ? 1 : landToneIndex(ix, iy, tri);
 
     const pushTri = (a: number, bIdx: number, c: number, tone: number) => {
         const water = isWaterHeight(heights[a], seaLevel)
@@ -112,8 +331,8 @@ export function buildTerrainMesh(
     for (let iy = 0; iy < res - 1; iy++) {
         for (let ix = 0; ix < res - 1; ix++) {
             const i = iy * res + ix;
-            pushTri(i, i + 1, i + res, landToneIndex(ix, iy, 0));
-            pushTri(i + 1, i + res + 1, i + res, landToneIndex(ix, iy, 1));
+            pushTri(i, i + 1, i + res, landTone(ix, iy, 0));
+            pushTri(i + 1, i + res + 1, i + res, landTone(ix, iy, 1));
         }
     }
 
@@ -155,12 +374,12 @@ export function buildTerrainMesh(
         pushTri(bIdx, sb, sa, tone);
     };
     for (let ix = 0; ix < res - 1; ix++) {
-        addSkirtEdge(ix, ix + 1, landToneIndex(ix, 0, 0));
-        addSkirtEdge((res - 1) * res + ix, (res - 1) * res + ix + 1, landToneIndex(ix, res - 2, 0));
+        addSkirtEdge(ix, ix + 1, landTone(ix, 0, 0));
+        addSkirtEdge((res - 1) * res + ix, (res - 1) * res + ix + 1, landTone(ix, res - 2, 0));
     }
     for (let iy = 0; iy < res - 1; iy++) {
-        addSkirtEdge(iy * res, (iy + 1) * res, landToneIndex(0, iy, 0));
-        addSkirtEdge(iy * res + (res - 1), (iy + 1) * res + (res - 1), landToneIndex(res - 2, iy, 0));
+        addSkirtEdge(iy * res, (iy + 1) * res, landTone(0, iy, 0));
+        addSkirtEdge(iy * res + (res - 1), (iy + 1) * res + (res - 1), landTone(res - 2, iy, 0));
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -175,19 +394,7 @@ export function buildTerrainMesh(
         }
         geometry.addGroup(indices.length, tris.length, mats.length);
         indices.push(...tris);
-        const mat = materials.build({
-            type: SceneMaterialPrimitiveType.MESH,
-            category,
-            depthWrite: true,
-            shaded: false,
-            highp: true,
-        });
-        mat.side = THREE.DoubleSide;
-        // Push terrain slightly back so coplanar apron/runway wins the depth test.
-        mat.polygonOffset = true;
-        mat.polygonOffsetFactor = 1;
-        mat.polygonOffsetUnits = 1;
-        mats.push(mat);
+        mats.push(sharedTerrainMaterial(materials, category));
     };
 
     addGroup(waterIndices, PaletteCategory.TERRAIN_WATER);
@@ -196,7 +403,8 @@ export function buildTerrainMesh(
     }
 
     geometry.setIndex(indices);
-    geometry.computeVertexNormals();
+    // No vertex normals: terrain materials are unshaded (flat/highp shaders
+    // never read them) and computing them dominates tile build time.
     geometry.computeBoundingSphere();
 
     const mesh = new THREE.Mesh(geometry, mats.length === 1 ? mats[0] : mats);
@@ -204,12 +412,21 @@ export function buildTerrainMesh(
     mesh.onBeforeRender = updateUniforms;
     mesh.name = `terrain:${id.z}/${id.x}/${id.y}`;
 
-    return {
+    const handle: TerrainMeshHandle = {
         id,
         root: mesh,
+        res,
+        heightRevision: opts.heightRevision,
+        fullRes: opts.fullRes ?? false,
+        uniformLandTone: opts.uniformLandTone ?? false,
+        paletteMaterials: mats,
         dispose() {
+            liveTerrainMeshes.delete(handle);
             geometry.dispose();
             // Materials are owned by SceneMaterialManager — do not dispose.
         },
     };
+    liveTerrainMeshes.add(handle);
+    applyTerrainMeshDebugStyle(handle, materials);
+    return handle;
 }

@@ -38,8 +38,10 @@ export function createCarrierMeshCollider(
 /**
  * Bake a collision soup from a loaded {@link Model} (volumes + flats).
  * Uses each mesh's local TRS (already world-baked by ModelManager for nested groups).
+ * An optional `root` transform (e.g. the placed entity's rotation/scale) is
+ * applied on top, keeping the soup in the entity-local frame around its origin.
  */
-export function bakeCollisionMeshFromModel(model: Model): AircraftCollisionMesh | undefined {
+export function bakeCollisionMeshFromModel(model: Model, root?: THREE.Matrix4): AircraftCollisionMesh | undefined {
     const flat: number[] = [];
     const vA = new THREE.Vector3();
     const vB = new THREE.Vector3();
@@ -62,6 +64,9 @@ export function bakeCollisionMeshFromModel(model: Model): AircraftCollisionMesh 
             return;
         }
         mat.compose(mesh.position, mesh.quaternion, mesh.scale);
+        if (root) {
+            mat.premultiply(root);
+        }
         const index = geom.index;
         const triCount = index ? index.count / 3 : pos.count / 3;
         for (let t = 0; t < triCount; t++) {

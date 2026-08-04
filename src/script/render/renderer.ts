@@ -260,6 +260,15 @@ export class Renderer {
         this.submitCameraRelative(layer);
     }
 
+    /** Live diagnostics: draw calls + triangles per layer (__drawStats). */
+    private recordDrawStats(layer: RenderLayer): void {
+        const stats = ((globalThis as Record<string, unknown>).__drawStats ??= {}) as Record<string, unknown>;
+        stats[`${layer.target}:${layer.lists.join('+')}`] = {
+            calls: this.renderer.info.render.calls,
+            triangles: this.renderer.info.render.triangles,
+        };
+    }
+
     /**
      * GPU submit with camera at origin and scene offset by −camera.position so
      * Float32 world matrices stay precise at planetary ranges. Physics positions
@@ -282,6 +291,7 @@ export class Renderer {
                 this.relativeRoot.add(list);
             }
             this.renderer.render(this.mergedListScene, cam);
+            this.recordDrawStats(layer);
             while (this.relativeRoot.children.length > 0) {
                 this.relativeRoot.remove(this.relativeRoot.children[0]);
             }

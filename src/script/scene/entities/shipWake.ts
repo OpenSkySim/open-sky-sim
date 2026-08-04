@@ -77,7 +77,14 @@ const BOW_DITHER_END = 0.1;
 
 type FoamParticleExtra = {
     kind: FoamKind;
+    /** Foam tint (stern off-white vs bow white). */
+    r: number;
+    g: number;
+    b: number;
 };
+
+const STERN_COLOR = new THREE.Color('#e8f0f4');
+const BOW_COLOR = new THREE.Color('#ffffff');
 
 export class ShipWakeEntity implements Entity {
 
@@ -86,7 +93,6 @@ export class ShipWakeEntity implements Entity {
 
     private readonly system: ParticleSystem;
     private readonly extras: FoamParticleExtra[];
-    private readonly puffs: THREE.Mesh[] = [];
     private readonly root = new THREE.Object3D();
     private readonly emitPos = new THREE.Vector3();
     private readonly emitAccum = new Float32Array(ALL_EMITTERS.length);
@@ -95,6 +101,14 @@ export class ShipWakeEntity implements Entity {
     private readonly armWorld = new THREE.Vector3();
     private readonly aftWorld = new THREE.Vector3();
     private sternSeeded = false;
+
+    // One instanced draw for the whole wake — a mesh per puff (2000 meshes and
+    // materials) used to dominate the scene's draw-call count.
+    private readonly geometry: THREE.InstancedBufferGeometry;
+    private readonly attrOffset: THREE.InstancedBufferAttribute;
+    private readonly attrScale: THREE.InstancedBufferAttribute;
+    private readonly attrRotation: THREE.InstancedBufferAttribute;
+    private readonly attrColor: THREE.InstancedBufferAttribute;
 
     constructor(
         materials: SceneMaterialManager,
@@ -118,27 +132,37 @@ export class ShipWakeEntity implements Entity {
             },
             new PointEmitter(0, 0),
         );
-        this.extras = Array.from({ length: FOAM_PARTICLE_COUNT }, () => ({ kind: 'stern' as FoamKind }));
+        this.extras = Array.from({ length: FOAM_PARTICLE_COUNT }, () => ({
+            kind: 'stern' as FoamKind,
+            r: STERN_COLOR.r, g: STERN_COLOR.g, b: STERN_COLOR.b,
+        }));
 
-        const geo = new THREE.CircleGeometry(1, 6);
-        for (let i = 0; i < FOAM_PARTICLE_COUNT; i++) {
-            const mat = materials.build({
-                type: SceneMaterialPrimitiveType.MESH,
-                category: PaletteCategory.TERRAIN_SHALLOW_WATER,
-                depthWrite: false,
-                shaded: false,
-                alphaDither: STERN_DITHER_START,
-                colorDither: false,
-                rawColor: '#e8f0f4',
-            });
-            mat.side = THREE.DoubleSide;
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.frustumCulled = false;
-            mesh.visible = false;
-            mesh.onBeforeRender = updateUniforms;
-            this.puffs.push(mesh);
-            this.root.add(mesh);
-        }
+        const disc = new THREE.CircleGeometry(1, 6);
+        this.geometry = new THREE.InstancedBufferGeometry();
+        this.geometry.index = disc.index;
+        this.geometry.attributes = disc.attributes;
+        this.attrOffset = new THREE.InstancedBufferAttribute(new Float32Array(FOAM_PARTICLE_COUNT * 3), 3);
+        this.attrScale = new THREE.InstancedBufferAttribute(new Float32Array(FOAM_PARTICLE_COUNT), 1);
+        this.attrRotation = new THREE.InstancedBufferAttribute(new Float32Array(FOAM_PARTICLE_COUNT), 1);
+        this.attrColor = new THREE.InstancedBufferAttribute(new Float32Array(FOAM_PARTICLE_COUNT * 4), 4);
+        this.geometry.setAttribute('offset', this.attrOffset);
+        this.geometry.setAttribute('scale', this.attrScale);
+        this.geometry.setAttribute('rotation', this.attrRotation);
+        this.geometry.setAttribute('color', this.attrColor);
+        this.geometry.instanceCount = 0;
+
+        const material = materials.build({
+            type: SceneMaterialPrimitiveType.PARTICLE_MESH,
+            category: PaletteCategory.TERRAIN_SHALLOW_WATER,
+            depthWrite: false,
+        }) as THREE.RawShaderMaterial;
+        // Foam lies on the water surface instead of billboarding.
+        material.defines = { GROUND_PLANE: 1 };
+
+        const mesh = new THREE.Mesh(this.geometry, material);
+        mesh.frustumCulled = false;
+        mesh.onBeforeRender = updateUniforms;
+        this.root.add(mesh);
     }
 
     init(_scene: Scene): void {
@@ -200,10 +224,10 @@ export class ShipWakeEntity implements Entity {
                 0,
                 (Math.random() - 0.5) * 0.2,
             );
-            const colorU = (this.puffs[i].material as THREE.ShaderMaterial).uniforms as {
-                color: { value: THREE.Color };
-            };
-            colorU.color.value.set('#e8f0f4');
+            const extra = this.extras[i];
+            extra.r = STERN_COLOR.r;
+            extra.g = STERN_COLOR.g;
+            extra.b = STERN_COLOR.b;
             n++;
         }
     }
@@ -239,11 +263,9 @@ export class ShipWakeEntity implements Entity {
                 if (p.position.distanceToSquared(this.emitPos) > 0.05) {
                     continue;
                 }
-                this.extras[i].kind = emitter.kind;
+                const extra = this.extras[i];
+                extra.kind = emitter.kind;
                 p.position.y = FOAM_SURFACE_Y;
-                const colorU = (this.puffs[i].material as THREE.ShaderMaterial).uniforms as {
-                    color: { value: THREE.Color };
-                };
                 if (emitter.kind === 'bow') {
                     // ~4× prior bow life → long arms.
                     p.lifespan = 14 + Math.random() * 14;
@@ -259,7 +281,9 @@ export class ShipWakeEntity implements Entity {
                     }
                     const speed = BOW_ARM_SPEED_MPS * (0.85 + Math.random() * 0.3);
                     p.velocity.copy(this.armWorld).multiplyScalar(speed);
-                    colorU.color.value.set('#ffffff');
+                    extra.r = BOW_COLOR.r;
+                    extra.g = BOW_COLOR.g;
+                    extra.b = BOW_COLOR.b;
                 } else {
                     // Continuous stern emit (trail already seeded to full length).
                     p.lifespan = STERN_LIFE_MIN + Math.random() * STERN_LIFE_SPAN;
@@ -270,7 +294,9 @@ export class ShipWakeEntity implements Entity {
                         0,
                         (Math.random() - 0.5) * 0.25,
                     );
-                    colorU.color.value.set('#e8f0f4');
+                    extra.r = STERN_COLOR.r;
+                    extra.g = STERN_COLOR.g;
+                    extra.b = STERN_COLOR.b;
                 }
                 left--;
             }
@@ -278,31 +304,45 @@ export class ShipWakeEntity implements Entity {
 
         this.system.update(delta);
 
-        for (let i = 0; i < this.puffs.length; i++) {
-            const mesh = this.puffs[i];
+        // Compact live puffs into the instanced attributes.
+        const offsets = this.attrOffset.array as Float32Array;
+        const scales = this.attrScale.array as Float32Array;
+        const rotations = this.attrRotation.array as Float32Array;
+        const colors = this.attrColor.array as Float32Array;
+        let n = 0;
+        for (let i = 0; i < this.system.particles.length; i++) {
             const p = this.system.particles[i];
             if (!p.isActive) {
-                mesh.visible = false;
                 continue;
             }
-            mesh.visible = true;
             p.position.y = FOAM_SURFACE_Y;
             p.velocity.y = 0;
-            mesh.position.copy(p.position);
             const t = p.lifespan > 1e-6 ? p.life / p.lifespan : 1;
-            const size = p.sizeStart + (p.sizeEnd - p.sizeStart) * t;
-            mesh.scale.set(size, size, size);
-            mesh.rotation.set(-Math.PI / 2, 0, p.rotationStart + (p.rotationEnd - p.rotationStart) * t);
-            const u = (mesh.material as THREE.ShaderMaterial).uniforms as { alphaDither: { value: number } };
-            const bow = this.extras[i].kind === 'bow';
-            if (bow) {
-                u.alphaDither.value = BOW_DITHER_START + (BOW_DITHER_END - BOW_DITHER_START) * t;
+            const extra = this.extras[i];
+            let alpha: number;
+            if (extra.kind === 'bow') {
+                alpha = BOW_DITHER_START + (BOW_DITHER_END - BOW_DITHER_START) * t;
             } else {
                 // Ease-in fade: stay opaque most of life, drop only near the end.
                 const fadeT = t * t * t;
-                u.alphaDither.value = STERN_DITHER_START + (STERN_DITHER_END - STERN_DITHER_START) * fadeT;
+                alpha = STERN_DITHER_START + (STERN_DITHER_END - STERN_DITHER_START) * fadeT;
             }
+            offsets[n * 3] = p.position.x;
+            offsets[n * 3 + 1] = p.position.y;
+            offsets[n * 3 + 2] = p.position.z;
+            scales[n] = p.sizeStart + (p.sizeEnd - p.sizeStart) * t;
+            rotations[n] = p.rotationStart + (p.rotationEnd - p.rotationStart) * t;
+            colors[n * 4] = extra.r;
+            colors[n * 4 + 1] = extra.g;
+            colors[n * 4 + 2] = extra.b;
+            colors[n * 4 + 3] = alpha;
+            n++;
         }
+        this.geometry.instanceCount = n;
+        this.attrOffset.needsUpdate = true;
+        this.attrScale.needsUpdate = true;
+        this.attrRotation.needsUpdate = true;
+        this.attrColor.needsUpdate = true;
     }
 
     render3D(

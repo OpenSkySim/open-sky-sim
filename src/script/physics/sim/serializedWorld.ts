@@ -8,6 +8,7 @@ import {
     buildArrestorCableField,
 } from '../../scene/entities/arrestorCables';
 import { HillCollider } from '../../scene/entities/hillCollider';
+import { SurfacePadCollider } from '../../scene/entities/surfacePad';
 import { SkiJumpCollider } from '../../scene/entities/skiJump';
 
 /**
@@ -45,6 +46,7 @@ export interface SerializedRunway {
 
 export interface SerializedSkiJump {
     originX: number;
+    originY: number;
     originZ: number;
     heading: number;
     length: number;
@@ -90,6 +92,10 @@ export interface SerializedWorld {
     carrierMeshes?: SerializedCarrierMesh[];
     arrestorCables?: SerializedArrestorCables[];
     heightGrid?: SerializedHeightGrid;
+    /** Flat solid surfaces — runway strip, pavement pads (already structured-clone-safe). */
+    surfacePads?: SurfacePadCollider[];
+    /** Static scenery collision soups — hangars, towers, depots (same layout as carrier meshes). */
+    sceneryMeshes?: SerializedCarrierMesh[];
 }
 
 export function serializeWorld(
@@ -100,6 +106,8 @@ export function serializeWorld(
     carrierMeshes: readonly CarrierMeshCollider[] = [],
     arrestorCables: readonly ArrestorCableField[] = [],
     heightGrid?: SerializedHeightGrid,
+    surfacePads: readonly SurfacePadCollider[] = [],
+    sceneryMeshes: readonly CarrierMeshCollider[] = [],
 ): SerializedWorld {
     return {
         hills: hills.map(h => ({
@@ -124,6 +132,7 @@ export function serializeWorld(
         },
         skiJumps: skiJumps.map(r => ({
             originX: r.originX,
+            originY: r.originY,
             originZ: r.originZ,
             heading: r.heading,
             length: r.length,
@@ -148,6 +157,14 @@ export function serializeWorld(
             ] as [number, number, number, number, number, number]),
         })),
         heightGrid,
+        surfacePads: surfacePads.map(p => ({ ...p })),
+        sceneryMeshes: sceneryMeshes.map(c => ({
+            originX: c.originX,
+            originY: c.originY,
+            originZ: c.originZ,
+            triangles: c.triangles,
+            aabb: c.aabb,
+        })),
     };
 }
 
@@ -217,6 +234,7 @@ export function deserializeWorldQuery(world: SerializedWorld): SceneWorldQuery {
     };
     const skiJumps: SkiJumpCollider[] = (world.skiJumps ?? []).map(r => ({
         originX: r.originX,
+        originY: r.originY ?? 0,
         originZ: r.originZ,
         heading: r.heading,
         length: r.length,
@@ -234,7 +252,17 @@ export function deserializeWorldQuery(world: SerializedWorld): SceneWorldQuery {
     const baseHeightAt = world.heightGrid
         ? (x: number, z: number) => heightFromGrid(world.heightGrid!, x, z)
         : () => 0;
-    return new SceneWorldQuery(hills, () => true, obstacles, runway, skiJumps, carrierMeshes, baseHeightAt);
+    const sceneryMeshes: CarrierMeshCollider[] = (world.sceneryMeshes ?? []).map(c => ({
+        originX: c.originX,
+        originY: c.originY,
+        originZ: c.originZ,
+        triangles: c.triangles,
+        aabb: c.aabb,
+    }));
+    return new SceneWorldQuery(
+        hills, () => true, obstacles, runway, skiJumps, carrierMeshes, baseHeightAt,
+        world.surfacePads ?? [], sceneryMeshes,
+    );
 }
 
 /** Rebuild arrestor cable fields for combat-sim trap physics. */

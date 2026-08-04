@@ -62,6 +62,54 @@ export function parentOf(id: TileId): TileId | undefined {
     return { z: id.z - 1, x: id.x >> 1, y: id.y >> 1 };
 }
 
+/**
+ * True when every geographic child of `id` is drawn by a meshed tile at the
+ * same or finer zoom (directly or via deeper descendants).
+ * Stops recursing at `maxZoom` — below that an unmeshed child means the
+ * parent is still needed.
+ */
+export function isFullyReplacedByFinerMeshes(
+    id: TileId,
+    meshed: Set<string>,
+    maxZoom: number,
+): boolean {
+    const children = childrenOf(id);
+    if (children.length === 0) {
+        return false;
+    }
+    for (const c of children) {
+        if (meshed.has(tileKey(c))) {
+            continue;
+        }
+        if (c.z >= maxZoom) {
+            return false;
+        }
+        if (!isFullyReplacedByFinerMeshes(c, meshed, maxZoom)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** Same-zoom edge neighbors (W,E,N,S). Lon wraps; lat clamps. */
+export function edgeNeighbors(id: TileId): TileId[] {
+    const xc = xCount(id.z);
+    const yc = yCount(id.z);
+    const out: TileId[] = [];
+    const push = (x: number, y: number) => {
+        if (y < 0 || y >= yc) {
+            return;
+        }
+        const xx = ((x % xc) + xc) % xc;
+        out.push({ z: id.z, x: xx, y });
+    };
+    push(id.x - 1, id.y);
+    push(id.x + 1, id.y);
+    push(id.x, id.y - 1);
+    push(id.x, id.y + 1);
+    return out;
+}
+
 /** Root tiles covering the whole Earth (z0: 2×1). */
 export function rootTiles(): TileId[] {
     return [

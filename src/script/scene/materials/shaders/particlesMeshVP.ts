@@ -41,7 +41,14 @@ void main() {
   }
   vec3 localPosition = s * vec3(rot * position.xy, position.z);
 
+#ifdef GROUND_PLANE
+  // Discs lie on the water/ground surface (world XZ) instead of billboarding:
+  // used by ship wake foam, which must foreshorten at grazing angles.
+  vec4 pos = projectionMatrix * viewMatrix
+      * vec4(world + vec3(localPosition.x, localPosition.z, localPosition.y), 1.0);
+#else
   vec4 pos = projectionMatrix * (viewOffset + vec4(localPosition, 1.0));
+#endif
   if (shadingType != 3) {
     pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;
     pos.y = floor(pos.y / pos.w * halfHeight + 0.5) / halfHeight * pos.w;

@@ -43,9 +43,8 @@ import {
     createSkiJumpCollider, sampleSkiJumpSurfaceYMax, SkiJumpCollider,
 } from '../scene/entities/skiJump';
 import { createHillCollider, HillCollider, sampleHillSurfaceY } from '../scene/entities/hillCollider';
+import { SurfacePadCollider, sampleSurfacePadYMax } from '../scene/entities/surfacePad';
 import { SceneryField, SceneryFieldSettings } from '../scene/entities/sceneryField';
-import { VegetationField } from '../scene/entities/vegetationField';
-import { VegetationKind } from '../scene/models/lib/vegetationModelBuilder';
 import { SimpleEntity } from '../scene/entities/simpleEntity';
 import { SpecklesEntity } from '../scene/entities/speckles';
 import { StaticSceneryEntity } from '../scene/entities/staticScenery';
@@ -70,6 +69,7 @@ import { ShowcaseCameraUpdater } from './cameraUpdaters/showcaseCameraUpdater';
 import { restoreMainCameraParameters } from './stateUtils';
 import { forEachStaticAircraftSlot, STATIC_MODEL_VIEWS } from './staticModelViews';
 import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
+import { setBootProgress } from '../osd/bootProgress';
 import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def, groupAircraftByModel } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
@@ -86,7 +86,8 @@ import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/
 import { PLAYER_SIM_ID, aiSimId } from '../physics/sim/simIds';
 import { AiPilotModels } from './gameDefs';
 import {
-    PlanetTerrainEntity, SPACE_SKY_ALTITUDE_M, cameraFarForAltitudeM, loadManifest, resolveTerrainMode,
+    PlanetTerrainEntity, SPACE_SKY_ALTITUDE_M, cameraFarForAltitudeM, isTerrainWireframe, loadManifest,
+    resolveTerrainMode, setTerrainWireframe,
 } from '../terrain';
 import { OsmMapEntity } from '../scene/entities/osmMap';
 import {
@@ -136,6 +137,12 @@ const RUNWAY_SPAWN_INSET_M = 120;
 /** Paved runway strip only — biome patches fill the shoulders beside it. */
 const RUNWAY_STRIP_HALF_WIDTH = 75;
 const RUNWAY_STRIP_HALF_LENGTH = RUNWAY_HALF_LENGTH_M + 150;
+/** Half-width of the physical pavement, matching assets/runway01.gltf (±40 m). */
+const RUNWAY_PAVEMENT_HALF_WIDTH = 40;
+/** Skirt around pad edges blending down to the surrounding ground — no hard vertical lip. */
+const SURFACE_PAD_FEATHER_M = 15;
+/** Hangar-ground pavement half extent: lib:pavement unit square × scale 200. */
+const HANGAR_GROUND_HALF_M = 100;
 /** Kuznetsov carrier origin — open water (matches {@link ARRESTOR_CARRIER_ORIGIN}). */
 const KUZ_POSITION = new THREE.Vector3(
     ARRESTOR_CARRIER_ORIGIN.x,
@@ -161,23 +168,11 @@ const CARRIER_DECK_Y = 14;
 const CARRIER_APPROACH_FINAL_DISTANCE_M = 2500;
 /** Carrier final altitude (m); ~3° glide to the deck over {@link CARRIER_APPROACH_FINAL_DISTANCE_M}. */
 const CARRIER_APPROACH_ALTITUDE_M = CARRIER_DECK_Y + 130;
-const VEGETATION_FIELD_OPTIONS = {
-    cellSize: 75,
-    fillRatio: 0.55,
-    tilesInView: 250,
-    treesPerCell: 7,
-    maxTreesPerFrame: 8000,
-    outerCellStep: 4,
-    lowDetailRangeM: 100000,
-    // Trees stay full-detail 3D volumes out to this radius (independent of the
-    // density ramp), so detailed trees remain visible well ahead when flying.
-    fullDetailRangeM: 4500,
-    scaleMin: 0.7,
-    scaleMax: 1.35,
-};
 const PLAYER_STARTING_HEADING = 0;
 /** Land approach final distance — keep the airport in view at spawn. */
 const LAND_APPROACH_FINAL_M = 3500;
+/** Boot / respawn DEM + mesh preload radius around the plane (m). */
+const TERRAIN_PRELOAD_RADIUS_M = 30000;
 /** Nominal approach spawn (Y updated at flight start from DEM). */
 const PLAYER_STARTING_POSITION = new THREE.Vector3(
     AIRBASE_RUNWAY.x,
@@ -304,6 +299,16 @@ export class Game {
     private readonly hillColliders: HillCollider[] = [];
     private readonly skiJumps: SkiJumpCollider[] = [];
     private readonly carrierMeshes: CarrierMeshCollider[] = [];
+    /** Flat solid surfaces (runway strip, pavement pads); gear rests on them, not the terrain below. */
+    private readonly surfacePads: SurfacePadCollider[] = [];
+    /** Static scenery collision soups (hangars, tower, depots...); solid like the carrier deck. */
+    private readonly sceneryMeshes: CarrierMeshCollider[] = [];
+    /**
+     * Baked scenery colliders held here until all scenery is placed, then moved
+     * into {@link sceneryMeshes}. Keeps ground sampling during placement from
+     * seeing earlier buildings and stacking later ones on their roofs.
+     */
+    private readonly stagedSceneryMeshes: CarrierMeshCollider[] = [];
     /** Geographic DEM / ocean terrain when `terrain=planet` (default). */
     private planetTerrain: PlanetTerrainEntity | undefined;
     /** Canvas OSM for left MFD; when set, WebGL MAP target is skipped. */
@@ -659,6 +664,7 @@ export class Game {
     }
 
     async setup() {
+        setBootProgress(5, 'Initializing renderer...');
         const textColors = this.getTextColors();
 
         this.renderer.createRenderTarget(MAIN_RENDER_TARGET_LO, RenderTargetType.WEBGL, 0, 0, LO_H_RES, LO_V_RES);
@@ -674,11 +680,15 @@ export class Game {
         this.renderer.setPalette(this.getPalette());
         this.materials.setPalette(this.getPalette());
         this.setupControls();
+        setBootProgress(15, 'Loading aircraft packs...');
         await this.loadPersistedPacks();
-        await this.setupScene();
         const settings = loadSettings();
+        setBootProgress(25, 'Building scene...');
+        await this.setupScene(settings.spawnMode);
         this.selectAircraftById(settings.aircraftId, 'f22');
+        setBootProgress(90, 'Loading aircraft...');
         await this.beginFlight(settings.spawnMode);
+        setBootProgress(100, 'Ready');
         window.addEventListener('resize', () => this.onViewportResize());
     }
 
@@ -1040,6 +1050,38 @@ export class Game {
         this.clearShowcaseHighlight();
     }
 
+    /** Horizontal ENU spawn of the plane (used for terrain preload before Y is known). */
+    private spawnCenterEnu(spawn: SpawnMode): { x: number; z: number } {
+        if (spawn === 'runway') {
+            return { x: PLAYER_LAND_POSITION.x, z: PLAYER_LAND_POSITION.z };
+        }
+        if (spawn === 'carrier') {
+            const p = this.carrierApproachSpawnPosition();
+            return { x: p.x, z: p.z };
+        }
+        if (spawn === 'carrierTakeoff') {
+            const pose = this.carrierPose();
+            return {
+                x: pose.position.x + KUZ_DECK_MID_X,
+                z: pose.position.z + PLAYER_CARRIER_TAKEOFF_LOCAL_Z,
+            };
+        }
+        if (spawn === 'space') {
+            return { x: AIRBASE_RUNWAY.x, z: AIRBASE_RUNWAY.z };
+        }
+        // Approach and head-on.
+        return { x: AIRBASE_RUNWAY.x, z: AIRBASE_RUNWAY.z - LAND_APPROACH_FINAL_M };
+    }
+
+    /** Prefetch DEM + pin meshes in a radius around the plane. */
+    private async preloadTerrainAroundPlane(x: number, z: number): Promise<void> {
+        if (!this.planetTerrain) {
+            return;
+        }
+        await this.planetTerrain.prefetchPlayArea(TERRAIN_PRELOAD_RADIUS_M, x, z);
+        this.planetTerrain.seedPlayArea(x, z, TERRAIN_PRELOAD_RADIUS_M);
+    }
+
     /** Runway spawn position; Y matches FM2 gear rest height above local ground. */
     private runwaySpawnPosition(): THREE.Vector3 {
         const gearY = this.currentDef.flight
@@ -1065,13 +1107,15 @@ export class Game {
         return new THREE.Vector3(x, this.groundHeightAt(x, z) + SPACE_ALTITUDE_M, z);
     }
 
-    /** Highest solid ground Y at (x, z): DEM/flat datum, hills, ski jumps, carrier meshes. */
+    /** Highest solid ground Y at (x, z): DEM/flat datum, hills, ski jumps, surface pads, scenery + carrier meshes. */
     private groundHeightAt(x: number, z: number): number {
         const demY = this.planetTerrain ? this.planetTerrain.heightAtEnu(x, z) : 0;
         return Math.max(
             demY,
             sampleHillSurfaceY(x, z, this.hillColliders),
             sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
+            sampleSurfacePadYMax(x, z, this.surfacePads),
+            sampleCarrierMeshSurfaceYMax(x, z, this.sceneryMeshes),
             sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes),
         );
     }
@@ -1712,6 +1756,12 @@ export class Game {
                     this.setAiChaseView();
                     break;
                 }
+                case 'F8': {
+                    event.preventDefault();
+                    // Terrain wireframe coloured by QT zoom (one hue per LOD).
+                    setTerrainWireframe(this.materials, !isTerrainWireframe());
+                    break;
+                }
                 case 'F12': {
                     event.preventDefault();
                     this.toggleShowcaseView();
@@ -2075,6 +2125,8 @@ export class Game {
             // Approach and head-on both start on a short final toward the runway.
             this.player.reset(this.landApproachSpawnPosition(), PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
         }
+        // Warm DEM/meshes around the live spawn (covers menu respawns too).
+        await this.preloadTerrainAroundPlane(this.player.position.x, this.player.position.z);
         this.spawnOpponent(spawn === 'headon');
         this.setCockpitFrontView();
         if (this.aiOpponent?.enabled) {
@@ -2132,6 +2184,8 @@ export class Game {
             this.planetTerrain
                 ? sampleHeightGrid((x, z) => this.planetTerrain!.heightAtEnu(x, z), AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z)
                 : undefined,
+            this.surfacePads,
+            this.sceneryMeshes,
         ));
         this.combatSim.addAircraft({
             id: PLAYER_SIM_ID,
@@ -2312,7 +2366,7 @@ export class Game {
         }
     }
 
-    private async setupScene() {
+    private async setupScene(spawn: SpawnMode) {
         const terrainMode = resolveTerrainMode();
         const manifest = terrainMode === 'planet' ? await loadManifest() : undefined;
 
@@ -2327,21 +2381,25 @@ export class Game {
         this.scene.add(this.skyEntity);
 
         if (manifest) {
+            setBootProgress(35, 'Loading terrain...');
             this.planetTerrain = new PlanetTerrainEntity(manifest, this.materials, {
                 enuOrigin: PLAY_ORIGIN,
             });
             this.scene.add(this.planetTerrain);
-            await this.planetTerrain.prefetchPlayArea(80000, AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z);
-            await this.planetTerrain.prefetchDemCoverage();
+            const center = this.spawnCenterEnu(spawn);
+            setBootProgress(50, 'Loading terrain around aircraft...');
+            // 30 km around the plane — enough for airbase scenery + carrier (~10 km).
+            await this.planetTerrain.prefetchPlayArea(TERRAIN_PRELOAD_RADIUS_M, center.x, center.z);
             this.planetTerrain.lockAirbaseFlattenPad(
                 { ...AIRBASE_FLATTEN_PAD },
-                AIRBASE_RUNWAY.x,
-                AIRBASE_RUNWAY.z,
-                35000,
+                center.x,
+                center.z,
+                TERRAIN_PRELOAD_RADIUS_M,
             );
             this.osmMapEntity = new OsmMapEntity(this.planetTerrain.frame.basis);
             this.scene.add(this.osmMapEntity);
         } else {
+            setBootProgress(35, 'Loading terrain...');
             for (let x = -2; x <= 2; x++) {
                 for (let z = -2; z <= 2; z++) {
                     const model = this.models.getModel('assets/map.gltf');
@@ -2358,33 +2416,10 @@ export class Game {
             const mapModel = this.models.getModel('assets/map.gltf');
             this.setupTerrainSampler(mapModel);
             this.scatterHillsAndMountains(mapModel);
+
+            const speckles = new SpecklesEntity(this.materials);
+            this.scene.add(speckles);
         }
-
-        const treeKinds = [
-            VegetationKind.OAK,
-            VegetationKind.PINE,
-            VegetationKind.BUSH,
-            VegetationKind.BIRCH,
-            VegetationKind.SCRUB,
-        ];
-        const runwayStripExclude = new THREE.Box2().setFromCenterAndSize(
-            new THREE.Vector2(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z),
-            new THREE.Vector2(RUNWAY_STRIP_HALF_WIDTH * 2, RUNWAY_STRIP_HALF_LENGTH * 2),
-        );
-        const terrainSampler = {
-            isLand: (x: number, z: number) => this.isLandAt(x, z),
-            heightAt: (x: number, z: number) => this.groundHeightAt(x, z),
-        };
-        this.scene.add(new VegetationField(
-            terrainSampler,
-            this.hillColliders,
-            { ...VEGETATION_FIELD_OPTIONS, excludeAreas: [runwayStripExclude] },
-            this.materials,
-            treeKinds,
-        ));
-
-        const speckles = new SpecklesEntity(this.materials);
-        this.scene.add(speckles);
 
         const fieldOptions: SceneryFieldSettings = {
             tilesInField: 7,
@@ -2435,9 +2470,11 @@ export class Game {
         ), fieldOptions, sceneryHeight);
         this.scene.add(field2);
 
+        setBootProgress(60, 'Loading airbase...');
         await this.addAirBase(this.scene, this.models);
 
-        this.addRefinery(this.scene, this.models);
+        setBootProgress(75, 'Loading scenery...');
+        await this.addRefinery(this.scene, this.models);
 
         const samradar = new GroundTargetEntity(this.models.getModel('assets/samradar01.glb'), 0, 'SAM Radar', 'Stosneehar');
         {
@@ -2445,6 +2482,7 @@ export class Game {
             samradar.position.set(p.x, this.groundHeightMaxUnder(p.x, p.z, 25, 25), p.z);
         }
         this.scene.add(samradar);
+        await this.addSolidSceneryMesh('assets/samradar01.glb', samradar);
 
         const warehouse = new GroundTargetEntity(this.models.getModel('assets/hangar01.gltf'), undefined, 'Warehouse', 'Radlydd');
         {
@@ -2453,6 +2491,10 @@ export class Game {
         }
         warehouse.quaternion.setFromAxisAngle(UP, Math.PI / 2);
         this.scene.add(warehouse);
+        await this.addSolidSceneryMesh('assets/hangar01.gltf', warehouse);
+
+        // All scenery is placed — its colliders become solid ground from here on.
+        this.activateSceneryColliders();
 
         this.scene.add(this.player);
 
@@ -2476,7 +2518,7 @@ export class Game {
         this.scene.add(this.spawnMenu);
     }
 
-    private addRefinery(scene: Scene, models: ModelManager) {
+    private async addRefinery(scene: Scene, models: ModelManager) {
         const base = airbaseOffset(TARGET_LOCAL.refinery.x, TARGET_LOCAL.refinery.z);
         const x = base.x;
         const z = base.z;
@@ -2486,30 +2528,77 @@ export class Game {
         const refinery = new GroundTargetEntity(models.getModel('assets/refinery_towers01.gltf'), 2, 'Oil Refinery', 'Radlydd');
         refinery.position.set(x, yAt(x, z, 80, 80), z);
         scene.add(refinery);
+        await this.addSolidSceneryMesh('assets/refinery_towers01.gltf', refinery);
 
         const depot01a = new StaticSceneryEntity(models.getModel('assets/refinery_depot01.gltf'), 2);
         depot01a.position.set(x, yAt(x, z - 100), z - 100);
         scene.add(depot01a);
+        await this.addSolidSceneryMesh('assets/refinery_depot01.gltf', depot01a);
 
         const depot01b = new StaticSceneryEntity(models.getModel('assets/refinery_depot01.gltf'), 2);
         depot01b.position.set(x, yAt(x, z + 100), z + 100);
         depot01b.quaternion.setFromAxisAngle(UP, Math.PI);
         scene.add(depot01b);
+        await this.addSolidSceneryMesh('assets/refinery_depot01.gltf', depot01b);
 
         const depot01c = new StaticSceneryEntity(models.getModel('assets/refinery_depot01.gltf'), 2);
         depot01c.position.set(x + 100, yAt(x + 100, z - 100), z - 100);
         scene.add(depot01c);
+        await this.addSolidSceneryMesh('assets/refinery_depot01.gltf', depot01c);
 
         const depot02a = new StaticSceneryEntity(models.getModel('assets/refinery_depot02.gltf'), 2);
         depot02a.position.set(x - 150, yAt(x - 150, z - 50), z - 50);
         scene.add(depot02a);
+        await this.addSolidSceneryMesh('assets/refinery_depot02.gltf', depot02a);
 
         const depot02b = new StaticSceneryEntity(models.getModel('assets/refinery_depot02.gltf'), 2);
         depot02b.position.set(x + 150, yAt(x + 150, z + 50), z + 50);
         scene.add(depot02b);
+        await this.addSolidSceneryMesh('assets/refinery_depot02.gltf', depot02b);
+    }
+
+    /** Register a flat lifted pavement as solid ground with a feathered edge skirt. */
+    private addSurfacePad(
+        centerX: number, centerZ: number, heading: number,
+        halfLength: number, halfWidth: number,
+        surfaceY: number, baseY: number,
+    ): void {
+        this.surfacePads.push({
+            centerX, centerZ, heading, halfLength, halfWidth,
+            surfaceY, baseY, feather: SURFACE_PAD_FEATHER_M,
+        });
+    }
+
+    /**
+     * Bake a placed scenery model into a solid ground collider (same soup
+     * sampling as the carrier deck), applying the entity's rotation and scale.
+     * Staged until {@link activateSceneryColliders} so it does not disturb
+     * the placement of nearby scenery still being positioned.
+     */
+    private async addSolidSceneryMesh(
+        url: string,
+        entity: { position: THREE.Vector3; quaternion: THREE.Quaternion; scale: THREE.Vector3 },
+    ): Promise<void> {
+        await this.models.waitForModel(url);
+        const root = new THREE.Matrix4().compose(new THREE.Vector3(), entity.quaternion, entity.scale);
+        const soup = bakeCollisionMeshFromModel(this.models.getModel(url), root);
+        if (soup) {
+            this.stagedSceneryMeshes.push(createCarrierMeshCollider(
+                entity.position.x, entity.position.y, entity.position.z, soup,
+            ));
+        }
+    }
+
+    /** Make all staged scenery colliders solid; call once all scenery is placed. */
+    private activateSceneryColliders(): void {
+        this.sceneryMeshes.push(...this.stagedSceneryMeshes);
+        this.stagedSceneryMeshes.length = 0;
     }
 
     private async addAirBase(scene: Scene, models: ModelManager) {
+        this.surfacePads.length = 0;
+        this.sceneryMeshes.length = 0;
+        this.stagedSceneryMeshes.length = 0;
         const yAt = (px: number, pz: number, halfW = 40, halfD = 40) =>
             this.groundHeightMaxUnder(px, pz, halfW, halfD);
         const place = (dx: number, dz: number, halfW = 40, halfD = 40) => {
@@ -2521,6 +2610,7 @@ export class Game {
         {
             const p = place(AIRBASE_LOCAL.hangarGround1.x, AIRBASE_LOCAL.hangarGround1.z, 100, 100);
             hangarGround1.position.set(p.x, p.y + SCENERY_SURFACE_EPS_M, p.z);
+            this.addSurfacePad(p.x, p.z, 0, HANGAR_GROUND_HALF_M, HANGAR_GROUND_HALF_M, p.y + SCENERY_SURFACE_EPS_M, p.y);
         }
         hangarGround1.scale.set(200, 1, 200);
         scene.add(hangarGround1);
@@ -2529,14 +2619,22 @@ export class Game {
         {
             const p = place(AIRBASE_LOCAL.hangarGround2.x, AIRBASE_LOCAL.hangarGround2.z, 100, 100);
             hangarGround2.position.set(p.x, p.y + SCENERY_SURFACE_EPS_M, p.z);
+            this.addSurfacePad(p.x, p.z, 0, HANGAR_GROUND_HALF_M, HANGAR_GROUND_HALF_M, p.y + SCENERY_SURFACE_EPS_M, p.y);
         }
         hangarGround2.scale.set(200, 1, 200);
         scene.add(hangarGround2);
 
         const runway = new GroundTargetEntity(models.getModel('assets/runway01.gltf'), 0, 'Airbase', 'Stosneehar');
         runway.position.copy(AIRBASE_RUNWAY);
-        runway.position.y = yAt(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z, 80, 900) + SCENERY_SURFACE_EPS_M;
+        const runwayPadY = yAt(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z, 80, 900);
+        runway.position.y = runwayPadY + SCENERY_SURFACE_EPS_M;
         scene.add(runway);
+        // The pavement is solid ground: gear/physics rest on its top, not the pad below.
+        this.addSurfacePad(
+            AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z, PLAYER_STARTING_HEADING,
+            RUNWAY_HALF_LENGTH_M, RUNWAY_PAVEMENT_HALF_WIDTH,
+            runway.position.y, runwayPadY,
+        );
 
         // Kuznetsov carrier from data/kuz.blend (exported via tools/export_kuz.py).
         // Collision soup is baked from the same GLB used for rendering.
@@ -2578,6 +2676,7 @@ export class Game {
         skiJumpOrigin.y = yAt(skiJumpOrigin.x, skiJumpOrigin.z, 30, 40);
         this.skiJumps.push(createSkiJumpCollider(
             skiJumpOrigin.x,
+            skiJumpOrigin.y,
             skiJumpOrigin.z,
             PLAYER_LAND_HEADING,
         ));
@@ -2593,6 +2692,7 @@ export class Game {
         }
         hangar1.quaternion.setFromAxisAngle(UP, Math.PI / 2);
         scene.add(hangar1);
+        await this.addSolidSceneryMesh('assets/hangar01.gltf', hangar1);
 
         const hangar2 = new StaticSceneryEntity(models.getModel('assets/hangar01.gltf'));
         {
@@ -2601,6 +2701,7 @@ export class Game {
         }
         hangar2.quaternion.setFromAxisAngle(UP, Math.PI / 2);
         scene.add(hangar2);
+        await this.addSolidSceneryMesh('assets/hangar01.gltf', hangar2);
 
         const hangar3 = new StaticSceneryEntity(models.getModel('assets/hangar01.gltf'));
         {
@@ -2609,6 +2710,7 @@ export class Game {
         }
         hangar3.quaternion.setFromAxisAngle(UP, Math.PI / 2);
         scene.add(hangar3);
+        await this.addSolidSceneryMesh('assets/hangar01.gltf', hangar3);
 
         const hangar4 = new StaticSceneryEntity(models.getModel('assets/hangar01.gltf'));
         {
@@ -2617,19 +2719,23 @@ export class Game {
         }
         hangar4.quaternion.setFromAxisAngle(UP, Math.PI);
         scene.add(hangar4);
+        await this.addSolidSceneryMesh('assets/hangar01.gltf', hangar4);
 
+        const staticAircraft: Promise<void>[] = [];
         forEachStaticAircraftSlot((type, position, heading) => {
             const gy = yAt(position.x, position.z, 15, 15);
             const plane = new StaticSceneryEntity(models.getModel(type.body), type.lodBias);
             plane.position.copy(position).setY(gy + PLANE_DISTANCE_TO_GROUND);
             plane.quaternion.setFromAxisAngle(UP, heading);
             scene.add(plane);
+            staticAircraft.push(this.addSolidSceneryMesh(type.body, plane));
 
             const shadow = new StaticSceneryEntity(models.getModel(type.shadow), type.lodBias);
             shadow.position.copy(position).setY(gy + SCENERY_SURFACE_EPS_M);
             shadow.quaternion.setFromAxisAngle(UP, heading);
             scene.add(shadow);
         });
+        await Promise.all(staticAircraft);
 
         const tower = new StaticSceneryEntity(models.getModel('assets/control01.gltf'));
         {
@@ -2638,6 +2744,7 @@ export class Game {
         }
         tower.quaternion.setFromAxisAngle(UP, -Math.PI / 2);
         scene.add(tower);
+        await this.addSolidSceneryMesh('assets/control01.gltf', tower);
     }
 
     private setupTerrainSampler(mapModel: Model) {
