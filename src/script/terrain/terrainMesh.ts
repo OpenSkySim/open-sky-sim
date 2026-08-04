@@ -216,7 +216,7 @@ function sharedTerrainMaterial(materials: SceneMaterialManager, category: Palett
         mat.polygonOffset = true;
         mat.polygonOffsetFactor = 1;
         mat.polygonOffsetUnits = 1;
-        mat.wireframe = false;
+        (mat as THREE.ShaderMaterial).wireframe = false;
         byCategory.set(category, mat);
     }
     return mat;
@@ -243,7 +243,7 @@ function sharedLodDebugMaterial(materials: SceneMaterialManager, z: number): THR
         mat.polygonOffset = true;
         mat.polygonOffsetFactor = 1;
         mat.polygonOffsetUnits = 1;
-        mat.wireframe = true;
+        (mat as THREE.ShaderMaterial).wireframe = true;
         byZoom.set(z, mat);
     }
     return mat;
