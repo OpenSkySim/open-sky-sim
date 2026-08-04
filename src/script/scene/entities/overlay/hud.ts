@@ -147,7 +147,8 @@ export class HUDEntity implements Entity {
     private refreshVisualState(): void {
         const now = performance.now();
         if (this.lastRenderTime > 0) {
-            const instantFps = 1000 / (now - this.lastRenderTime);
+            const frameDtMs = now - this.lastRenderTime;
+            const instantFps = 1000 / frameDtMs;
             this.renderFps = this.renderFps > 0
                 ? this.renderFps * 0.9 + instantFps * 0.1
                 : instantFps;

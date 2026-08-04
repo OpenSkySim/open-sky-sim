@@ -29,6 +29,8 @@ import {
     TERRAIN_TARGET_FRAME_MS,
     adjustTerrainDetailScale,
     SPACE_SKY_ALTITUDE_M,
+    coastFloorRangeM,
+    geometricHorizonDistanceM,
     terrainCoastMaxZoomForAltitudeM,
     terrainMaxZoomForAltitudeM,
     terrainMeshBudget,
@@ -88,6 +90,8 @@ export class PlanetTerrainEntity implements Entity {
     private lastFrameStamp: number | undefined;
     private lastReconcileMs = -Infinity;
     private readonly qtMaxZoom: number;
+    /** When set, {@link createMesh} bakes fullRes grids (high-alt seed core). */
+    private seedDenseMeshes = false;
 
     constructor(
         manifest: TerrainManifest,
@@ -178,9 +182,17 @@ export class PlanetTerrainEntity implements Entity {
     /**
      * Force-create DEM meshes for the play area so terrain is visible even before
      * the camera-driven QT has refined (and so we don't depend on leaf ranking).
+     * @param zoom Pin zoom (defaults to DEM maxZoom).
+     * @param dense Bake fullRes grids — needed for high-alt seeds where inland
+     *   default res (9–17) reads as kilometre-scale blocks from 10 km AGL.
      */
-    seedPlayArea(centerE: number, centerN: number, radiusM: number = 30000): void {
-        const m = this.dem.manifest;
+    seedPlayArea(
+        centerE: number,
+        centerN: number,
+        radiusM: number = 30000,
+        zoom?: number,
+        dense?: boolean,
+    ): void {
         const g = enuToGeodeticApprox(this.frame.basis, centerE, centerN, 0);
         const dLat = radiusM / 110540;
         const dLon = radiusM / (111320 * Math.max(0.2, Math.cos(g.lat * Math.PI / 180)));
@@ -188,9 +200,9 @@ export class PlanetTerrainEntity implements Entity {
         const east = g.lon + dLon;
         const south = g.lat - dLat;
         const north = g.lat + dLat;
-        // Play-area preload: every max-zoom tile (coast/inland/ocean). Coast-only
+        // Play-area preload: every tile in the disk (coast/inland/ocean). Coast-only
         // left ~70% of the disk to the QT trickle and punched ground holes.
-        this.pinMaxZoomInBounds({ west, south, east, north }, { allTiles: true });
+        this.pinMaxZoomInBounds({ west, south, east, north }, { allTiles: true, zoom, dense });
     }
 
     /**
@@ -201,9 +213,12 @@ export class PlanetTerrainEntity implements Entity {
         this.pinMaxZoomInBounds(this.dem.manifest.coverage);
     }
 
-    private pinMaxZoomInBounds(bounds: LonLatBounds, options?: { allTiles?: boolean }): void {
+    private pinMaxZoomInBounds(
+        bounds: LonLatBounds,
+        options?: { allTiles?: boolean; zoom?: number; dense?: boolean },
+    ): void {
         const m = this.dem.manifest;
-        const z = m.maxZoom;
+        const z = Math.max(0, Math.min(m.maxZoom, options?.zoom ?? m.maxZoom));
         const xc = 1 << (z + 1);
         const yc = 1 << z;
         const lonSpan = 360 / xc;
@@ -213,21 +228,37 @@ export class PlanetTerrainEntity implements Entity {
         const y0 = Math.max(0, Math.floor((90 - bounds.north) / latSpan));
         const y1 = Math.min(yc - 1, Math.floor((90 - bounds.south) / latSpan));
         this.unionPinnedBounds(bounds);
-        for (let y = y0; y <= y1; y++) {
-            for (let x = x0; x <= x1; x++) {
-                const id = { z, x, y };
-                if (!boundsOverlap(tileBounds(id), bounds)) {
-                    continue;
+        const prevDense = this.seedDenseMeshes;
+        this.seedDenseMeshes = !!options?.dense;
+        try {
+            for (let y = y0; y <= y1; y++) {
+                for (let x = x0; x <= x1; x++) {
+                    const id = { z, x, y };
+                    if (!boundsOverlap(tileBounds(id), bounds)) {
+                        continue;
+                    }
+                    // Default: shoreline + pad only. Play-area seed passes allTiles so
+                    // inland/ocean in the preload disk are meshed at boot too.
+                    const lod = classifyTileLod(this.source, this.seaLevel, id);
+                    if (!options?.allTiles && lod !== 'coast' && !this.tileOverlapsActivePad(id)) {
+                        continue;
+                    }
+                    const key = tileKey(id);
+                    this.pinned.add(key);
+                    // Upgrade sparse inland pins when a dense high-alt seed re-runs.
+                    if (this.seedDenseMeshes) {
+                        const existing = this.meshes.get(key);
+                        if (existing && !existing.fullRes) {
+                            this.group.remove(existing.root);
+                            existing.dispose();
+                            this.meshes.delete(key);
+                        }
+                    }
+                    this.createMesh(id);
                 }
-                // Default: shoreline + pad only. Play-area seed passes allTiles so
-                // inland/ocean in the preload disk are meshed at boot too.
-                const lod = classifyTileLod(this.source, this.seaLevel, id);
-                if (!options?.allTiles && lod !== 'coast' && !this.tileOverlapsActivePad(id)) {
-                    continue;
-                }
-                this.pinned.add(tileKey(id));
-                this.createMesh(id);
             }
+        } finally {
+            this.seedDenseMeshes = prevDense;
         }
     }
 
@@ -247,7 +278,13 @@ export class PlanetTerrainEntity implements Entity {
      * Lock a feathered flat pad (MSL = max DEM under pad) and rebuild seeded meshes
      * so visuals match physics under the airbase.
      */
-    lockAirbaseFlattenPad(spec: FlattenPadSpec, seedCenterE: number, seedCenterN: number, seedRadiusM: number): void {
+    lockAirbaseFlattenPad(
+        spec: FlattenPadSpec,
+        seedCenterE: number,
+        seedCenterN: number,
+        seedRadiusM: number,
+        seedZoom?: number,
+    ): void {
         const h = this.sampleMaxDemUnderPad(spec);
         this.activePad = { ...spec };
         this.activePadLonLat = padLonLatBounds(spec, this.frame.basis);
@@ -256,7 +293,7 @@ export class PlanetTerrainEntity implements Entity {
         this.clearMeshes();
         this.meshPadTiles(this.activePadLonLat);
         // Play-area pin only — full DEM coverage refines via altitude-capped QT.
-        this.seedPlayArea(seedCenterE, seedCenterN, seedRadiusM);
+        this.seedPlayArea(seedCenterE, seedCenterN, seedRadiusM, seedZoom);
     }
 
     /** Synchronously mesh every max-zoom tile over the pad (+ feather) footprint. */
@@ -530,7 +567,7 @@ export class PlanetTerrainEntity implements Entity {
      * frame time. One smoothed step per frame; the scale multiplies the QT SSE
      * threshold and divides the mesh budget / per-frame creates.
      */
-    private updateDetailGovernor(): void {
+    private updateDetailGovernor(altitudeM: number): void {
         const now = performance.now();
         if (this.lastFrameStamp !== undefined) {
             const dt = Math.min(200, now - this.lastFrameStamp);
@@ -538,6 +575,13 @@ export class PlanetTerrainEntity implements Entity {
         }
         this.lastFrameStamp = now;
         this.detailScale = adjustTerrainDetailScale(this.detailScale, this.frameEmaMs);
+        // Cruise / approach / 10 km: allow the governor up to 8 (skips
+        // balanceDemLod and raises SSE) so reconciles stay under ~100 ms.
+        // Cap below 24 — at ~7 km uncapped scale hit 22–24 and LOD rings
+        // thrashed (leafΔ ±450, disposedNonPin 40–90).
+        if (altitudeM < 50_000) {
+            this.detailScale = Math.min(this.detailScale, 8);
+        }
         // Deadband: re-leafing the QT rebuilds meshes, so only push a new scale
         // when it moved enough to matter — otherwise every governor tick would
         // churn tiles at the SSE boundary.
@@ -566,7 +610,8 @@ export class PlanetTerrainEntity implements Entity {
         if (!lists.has(SceneLayers.Terrain)) {
             return;
         }
-        this.updateDetailGovernor();
+        const altitudeM = camera.position.y;
+        this.updateDetailGovernor(altitudeM);
 
         // LOD reconcile (refine / rank / create / evict) walks thousands of
         // tiles — running it at frame rate burns ~15% of the frame budget for
@@ -588,16 +633,21 @@ export class PlanetTerrainEntity implements Entity {
         const leaves = this.qt.getLeaves();
         const want = leafKeySet(leaves);
         const cover = this.coverStillNeeded(want);
-        const altitudeM = camera.position.y;
         const meshedKeys = new Set(this.meshes.keys());
 
+        // Over-fine pin cull only in the space band (≥50 km). Below that
+        // (approach, 10 km), disposing z11 pins for zoomCap leaves a hole:
+        // QT still wants those leaves, creates trickle them back, then the
+        // pin branch evicts them again every reconcile.
+        const cullOverFinePins = altitudeM >= 50_000;
         for (const key of [...this.meshes.keys()]) {
             if (this.pinned.has(key)) {
                 // Drop over-fine pins from space, or pins fully covered by finer
                 // QT meshes (avoids a second layer when LOD outruns the pin zoom).
                 // Pin keys stay so altitude restore can recreate them.
                 const id = parseTileKey(key);
-                if (id.z > this.pinnedZoomCap(id, altitudeM)
+                const overCap = id.z > this.pinnedZoomCap(id, altitudeM);
+                if ((cullOverFinePins && overCap)
                     || this.meshFullyReplaced(id, meshedKeys)) {
                     const m = this.meshes.get(key)!;
                     this.group.remove(m.root);
@@ -636,19 +686,41 @@ export class PlanetTerrainEntity implements Entity {
         const unmeshedCount = cover.unmeshed.size;
         // Hysteresis: a brief dip under 30 ms used to unlock 64 creates while
         // thousands of leaves were still unmeshed — instant hitch + LOD flash.
+        // Mid-alt uses coast-first create order (below); keep the same create
+        // cap as approach — a higher trickle spiked frame EMA and drove the
+        // detail governor to max (mesh grids went extremely coarse).
+        const midHighAlt = this.qt.isMidAltBand;
         let createsBudget: number;
-        if (this.frameEmaMs > TERRAIN_TARGET_FRAME_MS * 1.15 || unmeshedCount > 400) {
+        // Throttle on frame time only. Coupling unmeshed>400 → 8 creates left
+        // the mid-alt ocean disk permanently starved (unmeshed ~1600, 5 meshes
+        // per reconcile) — forward view stayed one coarse cover block.
+        if (this.frameEmaMs > TERRAIN_TARGET_FRAME_MS * 1.15) {
             createsBudget = 8;
         } else if (this.frameEmaMs > TERRAIN_TARGET_FRAME_MS * 0.9 || unmeshedCount > 120) {
             createsBudget = 16;
         } else {
             createsBudget = TERRAIN_MESH_CREATES_PER_FRAME;
         }
+        // Mid-alt: frame EMA often sits ~29–40 ms, so the 1.15× branch would
+        // lock creates at 8 and leave a large unmeshed ocean disk. Allow a
+        // higher trickle while the backlog is large and frames are only
+        // mildly over target.
+        if (midHighAlt && unmeshedCount > 400 && this.frameEmaMs <= 45) {
+            createsBudget = Math.max(createsBudget, 24);
+        } else if (midHighAlt && this.frameEmaMs <= TERRAIN_TARGET_FRAME_MS * 1.1 && unmeshedCount > 400) {
+            createsBudget = Math.max(createsBudget, 32);
+        }
         let createsLeft = createsBudget;
 
         // Two-phase create: coverage first (coarse / ocean / inland), then coast
         // detail — stops shoreline leaves from starving the rest of the disk.
         const viewRange = terrainViewRangeM(altitudeM);
+        // Mid-alt: horizon ocean tile centres can sit beyond viewRange; extend
+        // create eligibility so refined z6/z7 ahead of the camera can mesh.
+        const horizon = geometricHorizonDistanceM(altitudeM);
+        const createRange = midHighAlt
+            ? Math.max(viewRange, horizon * 2.5, 1_200_000)
+            : viewRange;
         // Reuse QT LOD cache — re-running analyzeTileLod over thousands of
         // leaves was a major slice of the 200–400 ms approach reconcile.
         const ranked = leaves
@@ -666,7 +738,7 @@ export class PlanetTerrainEntity implements Entity {
                 if (this.shouldSkipTerrainLeaf(t.id, altitudeM)) {
                     return false;
                 }
-                return t.dist <= viewRange || t.coarse;
+                return t.dist <= createRange || t.coarse;
             });
 
         const byCoverage = (a: typeof ranked[0], b: typeof ranked[0]) => {
@@ -747,9 +819,19 @@ export class PlanetTerrainEntity implements Entity {
         const coverReserve = Math.min(3, createsLeft);
         createsLeft -= coverReserve;
 
-        if (spaceView) {
-            createBatch(coastList);
-            createBatch(coverageList);
+        if (spaceView || midHighAlt) {
+            // Mid-alt: horizon-disk ocean before near coast so refined z6/z7
+            // ahead of the camera actually gets create slots.
+            const horizonDisk = horizon * 2.5;
+            const nearest = ranked.slice().sort((a, b) => {
+                const aOcean = a.lod === 'ocean' && a.dist <= horizonDisk ? 0 : 1;
+                const bOcean = b.lod === 'ocean' && b.dist <= horizonDisk ? 0 : 1;
+                if (aOcean !== bOcean) {
+                    return aOcean - bOcean;
+                }
+                return a.dist - b.dist;
+            });
+            createBatch(nearest);
         } else {
             // Ocean / coarse shell first so the far water disk fills early.
             const waterFirst = coverageList.filter(t => t.lod === 'ocean' || t.coarse);
@@ -799,9 +881,17 @@ export class PlanetTerrainEntity implements Entity {
         }
 
         // Live tuning/diagnostics hook (read from the console as __terrainStats).
+        // zoomByLevel: leaf counts per QT zoom — should show a spread when LOD
+        // rings are working (not a single zoom owning every leaf).
+        const zoomByLevel: Record<string, number> = {};
+        for (let i = 0; i < leaves.length; i++) {
+            const z = String(leaves[i].z);
+            zoomByLevel[z] = (zoomByLevel[z] ?? 0) + 1;
+        }
         (globalThis as Record<string, unknown>).__terrainStats = {
             meshes: this.meshes.size,
             leaves: leaves.length,
+            zoomByLevel,
             budget,
             detailScale: Number(this.detailScale.toFixed(2)),
             frameEmaMs: Number(this.frameEmaMs.toFixed(1)),
@@ -838,9 +928,10 @@ export class PlanetTerrainEntity implements Entity {
         }
         const info = analyzeTileLod(this.source, this.seaLevel, id);
         const padOpts = this.padMeshOptions(id, info.lod, info.deltaH);
+        const fullRes = padOpts.fullRes || this.seedDenseMeshes;
         const handle = buildTerrainMesh(id, this.source, this.frame, this.materials, this.seaLevel, {
             deltaH: info.deltaH,
-            fullRes: padOpts.fullRes,
+            fullRes,
             uniformLandTone: padOpts.uniformLandTone,
             detailScale: this.appliedDetailScale,
             heightRevision: this.flattenPad.heightRevision,

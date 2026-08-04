@@ -32,8 +32,10 @@ export function terrainViewRangeM(altitudeM: number): number {
 const ZOOM_ALTITUDE_ANCHORS_M: ReadonlyArray<readonly [number, number]> = [
     [0, 12],
     [5_000, 11],
-    [12_000, 10],
-    [20_000, 9],
+    // Hold z11 through the 10 km spawn — dropping at 12 km left mid-alt
+    // inland/ocean stuck near the coarse shell (z4–z5) and looked blocky.
+    [15_000, 11],
+    [22_000, 10],
     [35_000, 8],
     [55_000, 7],
     [80_000, 6],
@@ -130,15 +132,76 @@ export const COAST_DETAIL_EXTRA_LEVELS = 3;
 /** Extra QT levels inland stays below the altitude curve (coast unchanged). */
 export const INLAND_LOD_DROP = 4;
 
+/**
+ * Mid-alt cruise band (milder inland LOD, skip DEM balance, coast-first creates).
+ * Enter/exit are split so holding ~8 km AGL cannot bob across a hard cliff —
+ * inland bias used to jump −1.5 ↔ −6.5 at exactly 8 km (logs + repro at
+ * 8000 m / heading 180).
+ */
+export const MID_ALT_ENTER_M = 8_000;
+export const MID_ALT_EXIT_M = 7_200;
+
+/** Sticky mid-alt band with enter/exit hysteresis. */
+export function updateMidAltBand(altitudeM: number, currentlyActive: boolean): boolean {
+    const h = Math.max(0, altitudeM);
+    if (h >= 50_000) {
+        return false;
+    }
+    if (currentlyActive) {
+        return h >= MID_ALT_EXIT_M;
+    }
+    return h >= MID_ALT_ENTER_M;
+}
+
+/** Instantaneous mid-alt test (no hysteresis) — tests / one-shot caps. */
+export function isMidAltBand(altitudeM: number): boolean {
+    const h = Math.max(0, altitudeM);
+    return h >= MID_ALT_ENTER_M && h < 50_000;
+}
+
+/** Milder inland drop for cruise / 10 km band (approach keeps the full drop). */
+function inlandLodDropForAltitudeM(altitudeM: number): number {
+    return isMidAltBand(altitudeM) ? 2 : INLAND_LOD_DROP;
+}
+
 /** Fractional bias applied on top of the altitude curve. */
-export function lodClassZoomBias(lodClass: TerrainLodClass): number {
+export function lodClassZoomBias(lodClass: TerrainLodClass, altitudeM = 0): number {
     if (lodClass === 'coast') {
         return 3.5;
     }
     if (lodClass === 'inland') {
+        // Match sticky mid-alt when caller passes the band flag via altitude
+        // sentinel… callers that need hysteresis pass midAlt through
+        // {@link lodClassZoomBiasForBand}.
+        if (isMidAltBand(altitudeM)) {
+            return -1.5;
+        }
         return -2.5 - INLAND_LOD_DROP;
     }
     return 0;
+}
+
+/** Inland zoom bias using the sticky mid-alt band (hysteresis-safe). */
+export function lodClassZoomBiasForBand(
+    lodClass: TerrainLodClass,
+    altitudeM: number,
+    midAltBand: boolean,
+): number {
+    if (lodClass === 'coast') {
+        return 3.5;
+    }
+    if (lodClass === 'inland') {
+        if (midAltBand) {
+            return -1.5;
+        }
+        return -2.5 - INLAND_LOD_DROP;
+    }
+    return 0;
+}
+
+/** Inland drop using the sticky mid-alt band. */
+export function inlandLodDropForBand(midAltBand: boolean): number {
+    return midAltBand ? 2 : INLAND_LOD_DROP;
 }
 
 /** Coastline tiles: altitude curve + extra room, capped at DEM native zoom. */
@@ -173,11 +236,16 @@ export function coastMinZoom(
 /**
  * How far (m) the coast zoom floor is enforced. Only used from space — below
  * that the floor is off (approach uses distance falloff + SSE instead).
+ *
+ * Kept shorter than the full view range so the far limb can coarsen (LOD
+ * rings). Must stay ≥ altitude so nadir tiles under the camera still hit the
+ * floor.
  */
 export function coastFloorRangeM(altitudeM: number): number {
     const h = Math.max(0, altitudeM);
     if (h >= 50_000) {
-        return terrainViewRangeM(h);
+        // ~1.25× altitude covers the nadir disk; limb beyond that uses falloff.
+        return Math.min(terrainViewRangeM(h), Math.max(h * 1.25, 80_000));
     }
     return 0;
 }
@@ -186,7 +254,10 @@ export function coastFloorRangeM(altitudeM: number): number {
 export function terrainInlandMaxZoomForAltitudeM(altitudeM: number, absoluteMax: number): number {
     return Math.min(
         absoluteMax,
-        Math.max(COARSE_SHELL_MAX_ZOOM, terrainMaxZoomForAltitudeM(altitudeM, absoluteMax) - 1 - INLAND_LOD_DROP),
+        Math.max(
+            COARSE_SHELL_MAX_ZOOM,
+            terrainMaxZoomForAltitudeM(altitudeM, absoluteMax) - 1 - inlandLodDropForAltitudeM(altitudeM),
+        ),
     );
 }
 
@@ -200,6 +271,7 @@ export function inlandMaxZoomForFlatness(
     altitudeM: number,
     absoluteMax: number,
     deltaHM: number,
+    midAltBand: boolean = isMidAltBand(altitudeM),
 ): number {
     const altCap = terrainMaxZoomForAltitudeM(altitudeM, absoluteMax);
     const d = Math.max(0, deltaHM);
@@ -213,7 +285,10 @@ export function inlandMaxZoomForFlatness(
     } else {
         drop = 0;
     }
-    return Math.min(absoluteMax, Math.max(COARSE_SHELL_MAX_ZOOM, altCap - drop - INLAND_LOD_DROP));
+    return Math.min(
+        absoluteMax,
+        Math.max(COARSE_SHELL_MAX_ZOOM, altCap - drop - inlandLodDropForBand(midAltBand)),
+    );
 }
 
 /**
@@ -278,27 +353,27 @@ export function effectiveMaxZoomFrac(
     lodClass: TerrainLodClass,
     distM: number = 0,
     deltaHM: number = 0,
+    midAltBand: boolean = isMidAltBand(altitudeM),
 ): number {
     const capped = Math.min(absoluteMax, sourceMax);
     if (lodClass === 'inland') {
-        const flatCap = inlandMaxZoomForFlatness(altitudeM, absoluteMax, deltaHM);
+        const flatCap = inlandMaxZoomForFlatness(altitudeM, absoluteMax, deltaHM, midAltBand);
         // Near-range boost is coast-only — close inland must stay coarse.
         const distAdj = Math.min(0, distanceZoomAdjust(distM, altitudeM));
         const z = terrainZoomCurveForAltitudeM(altitudeM)
-            + lodClassZoomBias(lodClass)
+            + lodClassZoomBiasForBand(lodClass, altitudeM, midAltBand)
             + distAdj;
         return Math.min(capped, flatCap, Math.max(COARSE_SHELL_MAX_ZOOM, z));
     }
-    // From space, coast keeps a floor on distance falloff so far-horizon
-    // shorelines stay even. On approach/cruise, full falloff + a smaller bias —
-    // the space bias (+3.5) plus no falloff used to refine the whole facing DEM
-    // coast to z11+ (~6k leaves, ~300 ms reconciles, LOD flicker).
+    // From space, allow mild coarsening toward the limb (−1) so coast forms
+    // large→small rings; near still gets the +1 boost. Full −1.5 used to leave
+    // far shorelines too blocky. Approach/cruise keeps the full falloff curve.
     const distAdj = lodClass === 'coast' && altitudeM >= 50_000
-        ? Math.max(0, distanceZoomAdjust(distM, altitudeM))
+        ? Math.max(-1.0, distanceZoomAdjust(distM, altitudeM))
         : distanceZoomAdjust(distM, altitudeM);
     const bias = lodClass === 'coast' && altitudeM < 50_000
         ? 1.0
-        : lodClassZoomBias(lodClass);
+        : lodClassZoomBiasForBand(lodClass, altitudeM, midAltBand);
     const z = terrainZoomCurveForAltitudeM(altitudeM) + bias + distAdj;
     return Math.min(capped, Math.max(0, z));
 }

@@ -1,22 +1,25 @@
 import * as THREE from 'three';
-import { Ecef, geodeticToEcef } from './geo';
+import { Ecef, ecefToGeodetic, geodeticToEcef } from './geo';
 import { HeightSource } from './heightSource';
 import { analyzeTileLod, TileLodInfo } from './terrainLod';
 import {
-    TileId, approxTileEdgeMetres, childrenOf, edgeNeighbors, rootTiles, tileBounds, tileKey,
+    TileId, approxTileEdgeMetres, childrenOf, edgeNeighbors, rootTiles, tileBounds,
+    tileContainsLonLat, tileKey,
 } from './tileId';
 import { RenderFrame } from './renderFrame';
 import {
     COARSE_SHELL_MAX_ZOOM,
     COAST_DETAIL_EXTRA_LEVELS,
     INLAND_VERTICAL_ERROR_SPLIT_PX,
-    INLAND_LOD_DROP,
     coastFloorRangeM,
     coastMinZoom,
+    geometricHorizonDistanceM,
     reliefViewFactor,
     effectiveMaxZoomFrac,
+    inlandLodDropForBand,
     inlandMaxZoomForFlatness,
     terrainViewRangeM,
+    updateMidAltBand,
     verticalErrorPx,
 } from './viewRange';
 import type { TerrainLodClass } from './viewRange';
@@ -59,9 +62,20 @@ export class TerrainQuadtree {
     private opts: QuadtreeOptions;
     private pendingLoads = 0;
     private detailScale = 1;
+    /** Sticky mid-alt band (hysteresis) — see {@link updateMidAltBand}. */
+    private midAltBand = false;
     private readonly nodeByKey = new Map<string, QuadNode>();
     private readonly lodCache = new Map<string, TileLodInfo>();
     private readonly demMaxCache = new Map<string, number>();
+    private readonly _tmpWorld = new THREE.Vector3();
+    /** Camera geodetic cached for the current {@link update} (containment tests). */
+    private camLon = 0;
+    private camLat = 0;
+
+    /** Sticky mid-alt cruise band after the last {@link update}. */
+    get isMidAltBand(): boolean {
+        return this.midAltBand;
+    }
 
     constructor(
         private readonly source: HeightSource,
@@ -94,9 +108,13 @@ export class TerrainQuadtree {
     update(camera: THREE.Camera, targetWidth: number, fovDeg: number): void {
         const cam = camera.position;
         const camEcef = this.frame.worldToEcef(cam);
+        const camGeo = ecefToGeodetic(camEcef.x, camEcef.y, camEcef.z);
+        this.camLon = camGeo.lon;
+        this.camLat = camGeo.lat;
         const geometricErrorFactor = this.sseFactor(targetWidth, fovDeg);
         this.lodCache.clear();
         this.demMaxCache.clear();
+        this.midAltBand = updateMidAltBand(cam.y, this.midAltBand);
 
         for (let i = 0; i < this.roots.length; i++) {
             this.refineNode(this.roots[i], cam, camEcef, geometricErrorFactor);
@@ -105,7 +123,8 @@ export class TerrainQuadtree {
         // DEM-only balance — never cascade splits across open ocean (FPS killer).
         // Skip under heavy load: balance walks every leaf×neighbor and re-splits,
         // which dominated approach reconciles once the governor was already maxed.
-        if (this.detailScale < 8) {
+        // Also skip mid-alt (10 km): balance + integer zoom flicker thrash LOD rings.
+        if (this.detailScale < 8 && !this.midAltBand) {
             this.balanceDemLod();
             this.reindex();
         }
@@ -217,8 +236,19 @@ export class TerrainQuadtree {
         const force = !!this.opts.forceRefine?.(id);
         const { lod, deltaH } = this.lodInfoFor(id);
         const demMax = this.demMaxZoomNear(id);
+        if (!this.isFacingCamera(id, camEcef, camWorld)) {
+            node.leaf = true;
+            node.children = undefined;
+            return;
+        }
+
+        const edge = approxTileEdgeMetres(id);
+        const centre = this.tileCentreWorld(id);
+        const dist = Math.max(1, centre.distanceTo(camWorld));
+        const alt = camWorld.y;
         // Coast: DEM max + SSE-gated close-range detail. Inland: demMax ∩
-        // flatness cap. Ocean: z≤5.
+        // flatness cap. Ocean: z≤5 far; nearer rings up to z7 so the cruise
+        // horizon is not one giant slab.
         let sourceMax: number;
         if (force) {
             // Pad force-refine stops at DEM native zoom — same as pad pins.
@@ -231,40 +261,43 @@ export class TerrainQuadtree {
             const extras = camWorld.y >= 50_000 ? COAST_DETAIL_EXTRA_LEVELS : 0;
             sourceMax = Math.min(this.opts.maxZoom, demMax + extras);
         } else if (lod === 'ocean') {
-            sourceMax = Math.min(5, this.opts.maxZoom);
+            // Min dist to centre/corners/edges (not centre alone — z5 tiles are
+            // ~600 km). z7 near horizon, z6 across the visible disk, else z5.
+            const minDist = this.tileMinDistWorld(id, camWorld);
+            const horizon = geometricHorizonDistanceM(alt);
+            let oceanMax = 5;
+            if (minDist <= Math.max(horizon * 1.25, 450_000)) oceanMax = 7;
+            else if (minDist <= Math.max(horizon * 3.5, 1_200_000)) oceanMax = 6;
+            sourceMax = Math.min(oceanMax, this.opts.maxZoom);
         } else if (demMax > 0) {
-            // Inland stays well under the DEM's finest — coast owns that budget,
-            // and close-range inland meshes are sparse by design.
-            const flatCap = inlandMaxZoomForFlatness(camWorld.y, this.opts.maxZoom, deltaH);
-            sourceMax = Math.min(this.opts.maxZoom, demMax - INLAND_LOD_DROP, flatCap);
+            // Inland stays under the DEM's finest — coast owns that budget.
+            // Mid-alt uses a milder dem drop so 10 km AGL is not stuck at z4–z5.
+            const flatCap = inlandMaxZoomForFlatness(
+                camWorld.y, this.opts.maxZoom, deltaH, this.midAltBand,
+            );
+            const inlandDemDrop = inlandLodDropForBand(this.midAltBand);
+            sourceMax = Math.min(this.opts.maxZoom, demMax - inlandDemDrop, flatCap);
         } else {
             sourceMax = Math.min(5, this.opts.maxZoom);
         }
-        if (!this.isFacingCamera(id, camEcef, camWorld)) {
-            node.leaf = true;
-            node.children = undefined;
-            return;
-        }
-
-        const edge = approxTileEdgeMetres(id);
-        const centre = this.tileCentreWorld(id);
-        const dist = Math.max(1, centre.distanceTo(camWorld));
-        const alt = camWorld.y;
+        const zoomFrac = force
+            ? sourceMax
+            : effectiveMaxZoomFrac(
+                alt, this.opts.maxZoom, sourceMax, lod, dist, deltaH, this.midAltBand,
+            );
         let maxZ = force
             ? Math.min(this.opts.maxZoom, sourceMax)
-            : Math.max(
-                0,
-                Math.min(
-                    this.opts.maxZoom,
-                    Math.floor(
-                        effectiveMaxZoomFrac(alt, this.opts.maxZoom, sourceMax, lod, dist, deltaH) + 1e-6,
-                    ),
-                ),
-            );
-        // High-altitude distance falloff must not cap coast below the DEM floor —
-        // far-horizon shorelines from space were freezing at z9–10 (~600 m steps).
-        // From space, also cap *above* the floor: SSE extras (z11+) under the
-        // nadir flicker against floor neighbours as creates/evicts catch up.
+            : Math.max(0, Math.min(this.opts.maxZoom, Math.floor(zoomFrac + 1e-6)));
+        // Sticky refine: if children already exist, keep one level until frac
+        // drops to/below this zoom. floor(frac) flickering across an integer
+        // used to bypass keep (`id.z < maxZ` failed) and thrash ocean z4↔z5.
+        if (!force && node.children && zoomFrac > id.z) {
+            maxZ = Math.max(maxZ, Math.min(this.opts.maxZoom, sourceMax, id.z + 1));
+        }
+        // High-altitude: raise coast to the DEM floor near the nadir so the
+        // shoreline does not freeze coarse — but do NOT hard-cap above the
+        // floor. SSE + distance falloff must still refine under the camera and
+        // coarsen toward the limb (classic large→small QT rings).
         const floorRange = coastFloorRangeM(alt);
         if (lod === 'coast' && demMax > 0 && alt >= 50_000) {
             const floor = this.effectiveCoastFloor(demMax, alt);
@@ -274,7 +307,6 @@ export class TerrainQuadtree {
                     Math.max(maxZ, floor),
                 );
             }
-            maxZ = Math.min(maxZ, floor);
         }
         const sse = (edge / dist) * sseFactor;
         // Inland relief that projects below a few pixels is invisible — don't
@@ -309,13 +341,13 @@ export class TerrainQuadtree {
                 this.maybeRequest(c.id);
             }
         } else if (
-            // Hysteresis: don't collapse a refined node until SSE is clearly
-            // under threshold — kills approach LOD flicker at the split edge.
+            // Keep refined children while maxZ still allows them. SSE only
+            // gates the initial split — using it for collapse let governor
+            // detailScale / borderline SSE thrash whole rings.
             node.children
             && !force
             && id.z < maxZ
             && reliefVisible
-            && sse > sseThresh * 0.55
         ) {
             node.leaf = false;
             for (const c of node.children) {
@@ -557,6 +589,38 @@ export class TerrainQuadtree {
         const hSafe = Number.isFinite(h) ? h : this.opts.seaLevel;
         geodeticToEcef(lat, lon, hSafe, _ecef);
         return this.frame.ecefToWorld(_ecef);
+    }
+
+    /**
+     * Min ENU distance from camera to the tile. Containment → 0; otherwise
+     * centre, corners, and mid-edges (centre-only is misleading on ~600 km z5).
+     */
+    private tileMinDistWorld(id: TileId, camWorld: THREE.Vector3): number {
+        const b = tileBounds(id);
+        if (tileContainsLonLat(b, this.camLon, this.camLat)) {
+            return 0;
+        }
+        const midLat = 0.5 * (b.south + b.north);
+        const midLon = 0.5 * (b.west + b.east);
+        const samples: Array<[number, number]> = [
+            [midLat, midLon],
+            [b.south, b.west],
+            [b.south, b.east],
+            [b.north, b.west],
+            [b.north, b.east],
+            [b.south, midLon],
+            [b.north, midLon],
+            [midLat, b.west],
+            [midLat, b.east],
+        ];
+        let minD = Infinity;
+        for (let i = 0; i < samples.length; i++) {
+            geodeticToEcef(samples[i][0], samples[i][1], this.opts.seaLevel, _ecef);
+            this.frame.ecefToWorld(_ecef, this._tmpWorld);
+            const d = this._tmpWorld.distanceTo(camWorld);
+            if (d < minD) minD = d;
+        }
+        return minD;
     }
 
     private isFacingCamera(id: TileId, camEcef: Ecef, camWorld: THREE.Vector3): boolean {

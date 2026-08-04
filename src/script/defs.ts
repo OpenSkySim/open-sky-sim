@@ -27,6 +27,8 @@ export const PLANE_COCKPIT_OFFSET_Y = 1.0; // World units
 export const PLANE_COCKPIT_OFFSET_Z = 8.0; // World units
 /** Ceiling for kinematic free-fly; must clear the space spawn altitude. */
 export const MAX_ALTITUDE = 400000; // World units
+/** High-altitude start mode spawn height (m AGL). */
+export const HIGH_ALTITUDE_M = 10000;
 /** Space start mode spawn height (m AGL). */
 export const SPACE_ALTITUDE_M = 100000;
 

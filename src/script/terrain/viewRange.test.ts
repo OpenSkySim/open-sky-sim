@@ -22,6 +22,7 @@ import {
     terrainMeshBudget,
     terrainViewRangeM,
     terrainZoomCurveForAltitudeM,
+    updateMidAltBand,
     verticalErrorPx,
 } from './viewRange';
 import { TERRAIN_VIEW_RANGE_M } from '../defs';
@@ -59,12 +60,29 @@ describe('viewRange', () => {
         assert.equal(terrainMaxZoomForAltitudeM(100_000, 12), 6);
         assert.equal(terrainMaxZoomForAltitudeM(400_000, 12), 4);
         assert.equal(terrainMaxZoomForAltitudeM(1000, 12), 12);
+        assert.equal(terrainMaxZoomForAltitudeM(10_000, 12), 11);
         let prev = terrainZoomCurveForAltitudeM(0);
         for (const h of [10_000, 40_000, 80_000, 120_000, 400_000]) {
             const z = terrainZoomCurveForAltitudeM(h);
             assert.ok(z <= prev + 1e-9, `zoom rose at ${h}: ${prev} → ${z}`);
             prev = z;
         }
+    });
+
+    it('mid-alt inland is finer than the approach inland drop', () => {
+        // 10 km: altCap 11, mid-alt inland drop 2 → baseline 8.
+        assert.equal(terrainInlandMaxZoomForAltitudeM(10_000, 12), 8);
+        // Approach band still uses the full inland drop.
+        assert.equal(terrainInlandMaxZoomForAltitudeM(1_000, 12), 7);
+    });
+
+    it('mid-alt band hysteresis holds across the 8 km cliff', () => {
+        // Enter at 8 km, stay active while bobbing down to 7.2 km.
+        assert.equal(updateMidAltBand(8_000, false), true);
+        assert.equal(updateMidAltBand(7_500, true), true);
+        assert.equal(updateMidAltBand(7_199, true), false);
+        assert.equal(updateMidAltBand(7_500, false), false);
+        assert.equal(updateMidAltBand(8_000, false), true);
     });
 
     it('effectiveMaxZoom favors coast over inland', () => {
@@ -178,18 +196,26 @@ describe('viewRange', () => {
         assert.equal(coastMinZoom(0, 12, 0), 0);
     });
 
-    it('coast floor range is space-only', () => {
+    it('coast floor range is space-only and shorter than full view', () => {
         assert.equal(coastFloorRangeM(1_000), 0);
-        assert.equal(coastFloorRangeM(100_000), terrainViewRangeM(100_000));
+        const h = 100_000;
+        const floorR = coastFloorRangeM(h);
+        assert.ok(floorR > 0);
+        // Nadir disk must cover tiles under the camera (≥ altitude).
+        assert.ok(floorR >= h);
+        // Limb beyond the floor disk can coarsen (LOD rings).
+        assert.ok(floorR < terrainViewRangeM(h));
+        assert.equal(floorR, Math.max(h * 1.25, 80_000));
     });
 
-    it('coast keeps zoom at long range from space (falloff floored)', () => {
+    it('space coast coarsens toward the limb (LOD rings)', () => {
         const farDist = 2_000_000;
         const coastFar = effectiveMaxZoomFrac(100_000, 14, 14, 'coast', farDist);
         const coastNear = effectiveMaxZoomFrac(100_000, 14, 14, 'coast', 20_000);
-        // Far coast loses at most ~1.25 zoom vs near (1.0 → −0.25).
-        assert.ok(coastNear - coastFar <= 1.3);
-        // Ocean at the same range takes the full −1.5 falloff.
+        // Near +1 vs far −1 → about 2 zoom of ring span.
+        assert.ok(coastNear - coastFar >= 1.9, `near=${coastNear} far=${coastFar}`);
+        assert.ok(coastNear - coastFar <= 2.1, `near=${coastNear} far=${coastFar}`);
+        // Ocean at the same range still takes the full −1.5 falloff.
         const oceanFar = effectiveMaxZoomFrac(100_000, 14, 14, 'ocean', farDist);
         const oceanNear = effectiveMaxZoomFrac(100_000, 14, 14, 'ocean', 20_000);
         assert.ok(oceanNear - oceanFar > 2.0);

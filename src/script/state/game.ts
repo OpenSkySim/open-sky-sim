@@ -18,7 +18,8 @@ import { loadSettings, SpawnMode, updateSettings } from '../config/settingsStora
 import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { FlightRecorder } from '../physics/flightRecorder';
 import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
-import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, SPACE_ALTITUDE_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
+import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, HIGH_ALTITUDE_M, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, SPACE_ALTITUDE_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
+import { terrainMaxZoomForAltitudeM } from '../terrain/viewRange';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
 import { DebrisField } from '../scene/entities/debrisField';
@@ -173,6 +174,11 @@ const PLAYER_STARTING_HEADING = 0;
 const LAND_APPROACH_FINAL_M = 3500;
 /** Boot / respawn DEM + mesh preload radius around the plane (m). */
 const TERRAIN_PRELOAD_RADIUS_M = 30000;
+/** High-alt seed: fine DEM zoom over a wider disk than approach (m). */
+const HIGH_ALT_PRELOAD_RADIUS_M = 50000;
+/** Outer coarse ring so the forward horizon is not an empty void (m). */
+const HIGH_ALT_OUTER_RADIUS_M = 120000;
+const HIGH_ALT_OUTER_ZOOM = 8;
 /** Nominal approach spawn (Y updated at flight start from DEM). */
 const PLAYER_STARTING_POSITION = new THREE.Vector3(
     AIRBASE_RUNWAY.x,
@@ -434,6 +440,7 @@ export class Game {
             () => void this.beginFlight('headon'),
             () => void this.beginFlight('carrier'),
             () => void this.beginFlight('carrierTakeoff'),
+            () => void this.beginFlight('highAlt'),
             () => void this.beginFlight('space'),
         );
 
@@ -1066,7 +1073,7 @@ export class Game {
                 z: pose.position.z + PLAYER_CARRIER_TAKEOFF_LOCAL_Z,
             };
         }
-        if (spawn === 'space') {
+        if (spawn === 'highAlt' || spawn === 'space') {
             return { x: AIRBASE_RUNWAY.x, z: AIRBASE_RUNWAY.z };
         }
         // Approach and head-on.
@@ -1074,12 +1081,48 @@ export class Game {
     }
 
     /** Prefetch DEM + pin meshes in a radius around the plane. */
-    private async preloadTerrainAroundPlane(x: number, z: number): Promise<void> {
+    private async preloadTerrainAroundPlane(x: number, z: number, spawn?: SpawnMode): Promise<void> {
         if (!this.planetTerrain) {
             return;
         }
-        await this.planetTerrain.prefetchPlayArea(TERRAIN_PRELOAD_RADIUS_M, x, z);
-        this.planetTerrain.seedPlayArea(x, z, TERRAIN_PRELOAD_RADIUS_M);
+        const plan = this.terrainSeedPlan(spawn);
+        await this.planetTerrain.prefetchPlayArea(plan.prefetchRadiusM, x, z);
+        for (const ring of plan.rings) {
+            this.planetTerrain.seedPlayArea(x, z, ring.radiusM, ring.zoom, ring.dense);
+        }
+    }
+
+    /**
+     * Prefetch radius + pin rings for the spawn altitude.
+     * High-alt: dense DEM-max core (fullRes inland) + coarse outer ring.
+     */
+    private terrainSeedPlan(spawn?: SpawnMode): {
+        prefetchRadiusM: number;
+        rings: { radiusM: number; zoom?: number; dense?: boolean }[];
+    } {
+        const demMax = this.planetTerrain?.dem.manifest.maxZoom;
+        if (spawn === 'highAlt' && demMax !== undefined) {
+            return {
+                prefetchRadiusM: HIGH_ALT_OUTER_RADIUS_M,
+                rings: [
+                    { radiusM: HIGH_ALT_OUTER_RADIUS_M, zoom: HIGH_ALT_OUTER_ZOOM },
+                    { radiusM: HIGH_ALT_PRELOAD_RADIUS_M, zoom: demMax, dense: true },
+                ],
+            };
+        }
+        if (spawn === 'space' && demMax !== undefined) {
+            return {
+                prefetchRadiusM: HIGH_ALT_OUTER_RADIUS_M,
+                rings: [{
+                    radiusM: HIGH_ALT_OUTER_RADIUS_M,
+                    zoom: terrainMaxZoomForAltitudeM(SPACE_ALTITUDE_M, demMax),
+                }],
+            };
+        }
+        return {
+            prefetchRadiusM: TERRAIN_PRELOAD_RADIUS_M,
+            rings: [{ radiusM: TERRAIN_PRELOAD_RADIUS_M }],
+        };
     }
 
     /** Runway spawn position; Y matches FM2 gear rest height above local ground. */
@@ -1098,6 +1141,13 @@ export class Game {
         const z = AIRBASE_RUNWAY.z - LAND_APPROACH_FINAL_M;
         const groundY = this.groundHeightAt(x, z);
         return new THREE.Vector3(x, groundY + APPROACH_ALTITUDE_M, z);
+    }
+
+    /** Overhead the airbase at high altitude (10 km AGL). */
+    private highAltSpawnPosition(): THREE.Vector3 {
+        const x = AIRBASE_RUNWAY.x;
+        const z = AIRBASE_RUNWAY.z;
+        return new THREE.Vector3(x, this.groundHeightAt(x, z) + HIGH_ALTITUDE_M, z);
     }
 
     /** Overhead the airbase at LEO altitude. */
@@ -1858,6 +1908,10 @@ export class Game {
                         break;
                     }
                     case '6': {
+                        void this.beginFlight('highAlt');
+                        break;
+                    }
+                    case '7': {
                         void this.beginFlight('space');
                         break;
                     }
@@ -2119,6 +2173,8 @@ export class Game {
                 PLAYER_CARRIER_TAKEOFF_HEADING,
                 this.carrierTakeoffSpawn(),
             );
+        } else if (spawn === 'highAlt') {
+            this.player.reset(this.highAltSpawnPosition(), PLAYER_STARTING_HEADING, PLAYER_SPACE_SPAWN);
         } else if (spawn === 'space') {
             this.player.reset(this.spaceSpawnPosition(), PLAYER_STARTING_HEADING, PLAYER_SPACE_SPAWN);
         } else {
@@ -2126,7 +2182,7 @@ export class Game {
             this.player.reset(this.landApproachSpawnPosition(), PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
         }
         // Warm DEM/meshes around the live spawn (covers menu respawns too).
-        await this.preloadTerrainAroundPlane(this.player.position.x, this.player.position.z);
+        await this.preloadTerrainAroundPlane(this.player.position.x, this.player.position.z, spawn);
         this.spawnOpponent(spawn === 'headon');
         this.setCockpitFrontView();
         if (this.aiOpponent?.enabled) {
@@ -2387,15 +2443,23 @@ export class Game {
             });
             this.scene.add(this.planetTerrain);
             const center = this.spawnCenterEnu(spawn);
+            const plan = this.terrainSeedPlan(spawn);
             setBootProgress(50, 'Loading terrain around aircraft...');
-            // 30 km around the plane — enough for airbase scenery + carrier (~10 km).
-            await this.planetTerrain.prefetchPlayArea(TERRAIN_PRELOAD_RADIUS_M, center.x, center.z);
+            // Default 30 km; high-alt uses a fine core + coarse outer ring.
+            await this.planetTerrain.prefetchPlayArea(plan.prefetchRadiusM, center.x, center.z);
+            const [firstRing, ...extraRings] = plan.rings;
             this.planetTerrain.lockAirbaseFlattenPad(
                 { ...AIRBASE_FLATTEN_PAD },
                 center.x,
                 center.z,
-                TERRAIN_PRELOAD_RADIUS_M,
+                firstRing.radiusM,
+                firstRing.zoom,
             );
+            for (const ring of extraRings) {
+                this.planetTerrain.seedPlayArea(
+                    center.x, center.z, ring.radiusM, ring.zoom, ring.dense,
+                );
+            }
             this.osmMapEntity = new OsmMapEntity(this.planetTerrain.frame.basis);
             this.scene.add(this.osmMapEntity);
         } else {
