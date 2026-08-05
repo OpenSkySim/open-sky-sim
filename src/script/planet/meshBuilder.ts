@@ -7,7 +7,7 @@ import { applyFlattenPad, FlattenPadSpec } from './flattenPad';
 import {
     Ecef, Enu, EnuBasis, geodeticToEcef, ecefToEnu,
 } from './geodesy';
-import { buildErrorPyramid, extractMesh, getRtinIndex } from './rtin';
+import { buildErrorPyramid, extractMesh, getRtinIndex, RtinIndex } from './rtin';
 import { TileKey, approxTileEdgeMetres, tileBounds } from './tiling';
 
 /** Palette categories encoded as small integers for the worker→main hop. */
@@ -23,6 +23,21 @@ export const TONE_COUNT = 5;
 
 /** Heights at or below seaLevel+eps are treated as open water (matches bake). */
 export const WATER_HEIGHT_EPS_M = 0.5;
+
+/**
+ * Land just above sea (metres) painted as shallow water so the coast gets a
+ * teal fringe between deep water and sand/grass.
+ */
+export const SHALLOW_WATER_MAX_M = 12;
+
+/**
+ * Drop open-water verts this far in ENU Y so beach/land always wins the depth
+ * test along the shoreline (avoids 1px sky sparkles from coplanar z-fight).
+ */
+export const WATER_DEPTH_BIAS_M = 0.5;
+
+/** Skirt top ring sits this far below the surface so skirts don't z-fight it. */
+const SKIRT_TOP_EPS_M = 0.05;
 
 export interface MeshBuildRequest {
     id: TileKey;
@@ -48,6 +63,8 @@ export interface MeshBuildResult {
     key: string;
     /** Tile-local ENU positions (relative to center), xyz packed. */
     positions: Float32Array;
+    /** Smooth vertex normals in ENU (xyz packed, unit length). */
+    normals: Float32Array;
     indices: Uint32Array;
     /** Per-triangle tone (length = triangleCount). */
     tones: Uint8Array;
@@ -74,6 +91,9 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
     const heights = sanitizeHeights(req.heights, seaLevel);
     const index = getRtinIndex(size);
     const errors = buildErrorPyramid(heights, size, index);
+    // Force RTIN to subdivide every land/water-crossing edge down to the grid
+    // so the shoreline follows the DEM mask instead of long sawtooth diagonals.
+    boostCoastErrors(heights, errors, size, seaLevel, coastErrorBoost(maxErrorM), index);
     const mesh = extractMesh(errors, size, maxErrorM, index);
 
     // Tile centre in ENU — mesh.position carries this so Float32 stays precise.
@@ -95,12 +115,10 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
     const vCount = mesh.vertices.length / 2;
     const surfacePos = new Float32Array(vCount * 3);
     const surfaceH = new Float32Array(vCount);
-    const gridToCompact = new Int32Array(size * size).fill(-1);
 
     for (let i = 0; i < vCount; i++) {
         const gx = mesh.vertices[i * 2];
         const gy = mesh.vertices[i * 2 + 1];
-        gridToCompact[gy * size + gx] = i;
         const lon = bounds.west + (bounds.east - bounds.west) * (gx / (size - 1));
         const lat = bounds.north - (bounds.north - bounds.south) * (gy / (size - 1));
         let h = heights[gy * size + gx];
@@ -118,96 +136,64 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
         surfaceH[i] = h;
     }
 
-    // Mutable triangle index list (may grow when we flatten land tips on water).
-    const triIndices = Array.from(mesh.triangles);
+    // Pull open water below the beach so coplanar land/water edges cannot
+    // z-fight (sky-coloured sparkles at coastal vertices).
+    for (let i = 0; i < vCount; i++) {
+        if (isWaterHeight(surfaceH[i], seaLevel)) {
+            surfacePos[i * 3 + 1] -= WATER_DEPTH_BIAS_M;
+        }
+    }
+
+    // Classify by tone only — shared verts stay shared (no sea-dup remapping).
     const triCount = mesh.triangleCount;
     const rawTones = new Uint8Array(triCount);
-
-    // Extra sea-level duplicates of land vertices used only by water triangles.
-    // Martini leaves mountain apexes attached to flat ocean hypotenuses without
-    // splitting; flattening those tips keeps the ocean planar instead of a
-    // blocky ramp painted (or even just shaped) like land.
-    const extraPos: number[] = [];
-    const seaDup = new Map<number, number>(); // compact land idx → sea-level dup
-    const seaVertex = (compact: number): number => {
-        let dup = seaDup.get(compact);
-        if (dup !== undefined) {
-            return dup;
-        }
-        const gx = mesh.vertices[compact * 2];
-        const gy = mesh.vertices[compact * 2 + 1];
-        const lon = bounds.west + (bounds.east - bounds.west) * (gx / (size - 1));
-        const lat = bounds.north - (bounds.north - bounds.south) * (gy / (size - 1));
-        geodeticToEcef(lat, lon, seaLevel, _ecef);
-        ecefToEnu(basis as EnuBasis, _ecef, _enu);
-        dup = vCount + (extraPos.length / 3);
-        extraPos.push(_enu.e - centerE, _enu.u - centerU, _enu.n - centerN);
-        seaDup.set(compact, dup);
-        return dup;
-    };
-
     for (let t = 0; t < triCount; t++) {
-        const i0 = triIndices[t * 3];
-        const i1 = triIndices[t * 3 + 1];
-        const i2 = triIndices[t * 3 + 2];
-        const tone = toneForTriangle(
+        const i0 = mesh.triangles[t * 3];
+        const i1 = mesh.triangles[t * 3 + 1];
+        const i2 = mesh.triangles[t * 3 + 2];
+        rawTones[t] = toneForTriangle(
             surfaceH[i0], surfaceH[i1], surfaceH[i2], seaLevel, i0 + i1 + i2,
         );
-        rawTones[t] = tone;
-        if (tone === TerrainTone.Water || tone === TerrainTone.ShallowWater) {
-            triIndices[t * 3] = isWaterHeight(surfaceH[i0], seaLevel) ? i0 : seaVertex(i0);
-            triIndices[t * 3 + 1] = isWaterHeight(surfaceH[i1], seaLevel) ? i1 : seaVertex(i1);
-            triIndices[t * 3 + 2] = isWaterHeight(surfaceH[i2], seaLevel) ? i2 : seaVertex(i2);
-        }
     }
 
-    const surfaceVertCount = vCount + extraPos.length / 3;
-    const surfacePositions = new Float32Array(surfaceVertCount * 3);
-    surfacePositions.set(surfacePos);
-    for (let i = 0; i < extraPos.length; i++) {
-        surfacePositions[vCount * 3 + i] = extraPos[i];
-    }
-
-    // Extended height list: sea duplicates are at seaLevel.
-    const allH = new Float32Array(surfaceVertCount);
-    allH.set(surfaceH);
-    allH.fill(seaLevel, vCount);
-
-    // Extended vertex grid coords for skirt border detection (sea dups copy src).
-    const allVerts = new Uint16Array(surfaceVertCount * 2);
-    allVerts.set(mesh.vertices);
-    for (const [src, dup] of seaDup) {
-        allVerts[dup * 2] = mesh.vertices[src * 2];
-        allVerts[dup * 2 + 1] = mesh.vertices[src * 2 + 1];
-    }
-
-    // Skirt: duplicate boundary vertices of the (post-flatten) surface.
-    const boundary = collectBoundary(allVerts, surfaceVertCount, size);
-    const skirtOffset = surfaceVertCount;
-    const totalVerts = surfaceVertCount + boundary.length;
+    // Skirt: top ring slightly below the surface, bottom ring dropped by skirtDepth.
+    // Using a separate top ring (not the surface verts) avoids edge z-fighting.
+    const boundary = collectBoundary(mesh.vertices, vCount, size);
+    const skirtTopOffset = vCount;
+    const skirtBotOffset = vCount + boundary.length;
+    const totalVerts = vCount + boundary.length * 2;
     const positions = new Float32Array(totalVerts * 3);
-    positions.set(surfacePositions);
+    positions.set(surfacePos);
     for (let i = 0; i < boundary.length; i++) {
         const src = boundary[i];
-        const dst = skirtOffset + i;
-        positions[dst * 3] = surfacePositions[src * 3];
-        positions[dst * 3 + 1] = surfacePositions[src * 3 + 1] - skirtDepth;
-        positions[dst * 3 + 2] = surfacePositions[src * 3 + 2];
+        const top = skirtTopOffset + i;
+        const bot = skirtBotOffset + i;
+        const x = surfacePos[src * 3];
+        const y = surfacePos[src * 3 + 1];
+        const z = surfacePos[src * 3 + 2];
+        positions[top * 3] = x;
+        positions[top * 3 + 1] = y - SKIRT_TOP_EPS_M;
+        positions[top * 3 + 2] = z;
+        positions[bot * 3] = x;
+        positions[bot * 3 + 1] = y - skirtDepth;
+        positions[bot * 3 + 2] = z;
     }
 
-    const surfaceTri = new Uint32Array(triIndices);
     const skirtTris: number[] = [];
     const skirtTones: number[] = [];
-    appendSkirt(surfaceTri, allVerts, boundary, skirtOffset, gridToCompact, size,
-        allH, seaLevel, skirtTris, skirtTones);
+    appendSkirt(
+        mesh.triangles, mesh.vertices, boundary,
+        skirtTopOffset, skirtBotOffset, size,
+        surfaceH, seaLevel, skirtTris, skirtTones,
+    );
 
     const totalTris = triCount + skirtTones.length;
     const buckets: number[][] = Array.from({ length: TONE_COUNT }, () => []);
     for (let t = 0; t < triCount; t++) {
         buckets[rawTones[t]].push(
-            surfaceTri[t * 3],
-            surfaceTri[t * 3 + 1],
-            surfaceTri[t * 3 + 2],
+            mesh.triangles[t * 3],
+            mesh.triangles[t * 3 + 1],
+            mesh.triangles[t * 3 + 2],
         );
     }
     for (let t = 0; t < skirtTones.length; t++) {
@@ -218,18 +204,53 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
         );
     }
 
+    // Water keeps shared verts (unshaded). Land tris get duplicated corners with
+    // a constant face normal so sun shade is flat per triangle, not smooth.
+    let landCorners = 0;
+    for (let tone = 0; tone < TONE_COUNT; tone++) {
+        if (!isWaterTone(tone)) {
+            landCorners += buckets[tone].length;
+        }
+    }
+    const vertexCount = totalVerts + landCorners;
+    const outPositions = new Float32Array(vertexCount * 3);
+    outPositions.set(positions);
+    const normals = new Float32Array(vertexCount * 3);
+    for (let i = 0; i < totalVerts; i++) {
+        normals[i * 3 + 1] = 1;
+    }
+
     const indices = new Uint32Array(totalTris * 3);
     const tones = new Uint8Array(totalTris);
     const groups = new Uint32Array(TONE_COUNT * 2);
     let o = 0;
     let triO = 0;
+    let nextVert = totalVerts;
     for (let tone = 0; tone < TONE_COUNT; tone++) {
         const bucket = buckets[tone];
         groups[tone * 2] = o;
-        groups[tone * 2 + 1] = bucket.length;
-        for (let i = 0; i < bucket.length; i++) {
-            indices[o++] = bucket[i];
+        if (isWaterTone(tone)) {
+            for (let i = 0; i < bucket.length; i++) {
+                indices[o++] = bucket[i];
+            }
+        } else {
+            for (let t = 0; t < bucket.length; t += 3) {
+                const i0 = bucket[t];
+                const i1 = bucket[t + 1];
+                const i2 = bucket[t + 2];
+                const n = faceNormal(positions, i0, i1, i2);
+                for (const src of [i0, i1, i2]) {
+                    outPositions[nextVert * 3] = positions[src * 3];
+                    outPositions[nextVert * 3 + 1] = positions[src * 3 + 1];
+                    outPositions[nextVert * 3 + 2] = positions[src * 3 + 2];
+                    normals[nextVert * 3] = n[0];
+                    normals[nextVert * 3 + 1] = n[1];
+                    normals[nextVert * 3 + 2] = n[2];
+                    indices[o++] = nextVert++;
+                }
+            }
         }
+        groups[tone * 2 + 1] = o - groups[tone * 2];
         const nTri = bucket.length / 3;
         for (let i = 0; i < nTri; i++) {
             tones[triO++] = tone;
@@ -237,10 +258,10 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
     }
 
     let radiusSq = 0;
-    for (let i = 0; i < totalVerts; i++) {
-        const x = positions[i * 3];
-        const y = positions[i * 3 + 1];
-        const z = positions[i * 3 + 2];
+    for (let i = 0; i < vertexCount; i++) {
+        const x = outPositions[i * 3];
+        const y = outPositions[i * 3 + 1];
+        const z = outPositions[i * 3 + 2];
         const r = x * x + y * y + z * z;
         if (r > radiusSq) {
             radiusSq = r;
@@ -249,7 +270,8 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
 
     return {
         key: `${id.z}/${id.x}/${id.y}`,
-        positions,
+        positions: outPositions,
+        normals,
         indices,
         tones,
         groups,
@@ -258,8 +280,51 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
         centerU,
         boundingRadius: Math.sqrt(radiusSq),
         triangleCount: totalTris,
-        vertexCount: totalVerts,
+        vertexCount,
     };
+}
+
+function isWaterTone(tone: number): boolean {
+    return tone === TerrainTone.Water || tone === TerrainTone.ShallowWater;
+}
+
+/** Unit face normal for one triangle (Martini winding → +Y on flat ground). */
+export function faceNormal(
+    positions: Float32Array,
+    i0: number,
+    i1: number,
+    i2: number,
+): [number, number, number] {
+    const ax = positions[i0 * 3];
+    const ay = positions[i0 * 3 + 1];
+    const az = positions[i0 * 3 + 2];
+    const bx = positions[i1 * 3];
+    const by = positions[i1 * 3 + 1];
+    const bz = positions[i1 * 3 + 2];
+    const cx = positions[i2 * 3];
+    const cy = positions[i2 * 3 + 1];
+    const cz = positions[i2 * 3 + 2];
+    const abx = bx - ax;
+    const aby = by - ay;
+    const abz = bz - az;
+    const acx = cx - ax;
+    const acy = cy - ay;
+    const acz = cz - az;
+    // Flip (ac×ab): Martini winding is CW when viewed from +Y / ENU up.
+    let nx = acy * abz - acz * aby;
+    let ny = acz * abx - acx * abz;
+    let nz = acx * aby - acy * abx;
+    const len = Math.hypot(nx, ny, nz);
+    if (len > 1e-12) {
+        nx /= len;
+        ny /= len;
+        nz /= len;
+    } else {
+        nx = 0;
+        ny = 1;
+        nz = 0;
+    }
+    return [nx, ny, nz];
 }
 
 function sanitizeHeights(src: Float32Array, seaLevel: number): Float32Array {
@@ -269,6 +334,66 @@ function sanitizeHeights(src: Float32Array, seaLevel: number): Float32Array {
         out[i] = isWaterHeight(h, seaLevel) ? seaLevel : h;
     }
     return out;
+}
+
+/** Error high enough that {@link extractMesh} always splits at this midpoint. */
+export function coastErrorBoost(maxErrorM: number): number {
+    return Math.max(1, maxErrorM) * 2 + 1;
+}
+
+/**
+ * Raise RTIN midpoint errors along the shoreline so coast edges refine to the
+ * DEM grid while flat ocean / inland keep their sparse triangulation.
+ *
+ * Mutates `errors` in place. A hypotenuse whose endpoints disagree on
+ * land/water gets the boost (all pyramid levels), plus every 4-neighbour
+ * coast sample so local detail cannot collapse.
+ */
+export function boostCoastErrors(
+    heights: ArrayLike<number>,
+    errors: Float32Array,
+    size: number,
+    seaLevel: number,
+    boost: number,
+    index: RtinIndex = getRtinIndex(size),
+): void {
+    if (boost <= 0) {
+        return;
+    }
+    const isWater = (i: number): boolean => isWaterHeight(heights[i], seaLevel);
+
+    // 4-neighbour coast samples.
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const i = y * size + x;
+            const w = isWater(i);
+            if ((x > 0 && isWater(i - 1) !== w)
+                || (x + 1 < size && isWater(i + 1) !== w)
+                || (y > 0 && isWater(i - size) !== w)
+                || (y + 1 < size && isWater(i + size) !== w)) {
+                if (errors[i] < boost) {
+                    errors[i] = boost;
+                }
+            }
+        }
+    }
+
+    // Every RTIN hypotenuse that crosses land/water (all pyramid levels).
+    const coords = index.coords;
+    for (let t = 0; t < index.numTriangles; t++) {
+        const k = t * 4;
+        const ax = coords[k];
+        const ay = coords[k + 1];
+        const bx = coords[k + 2];
+        const by = coords[k + 3];
+        if (isWater(ay * size + ax) === isWater(by * size + bx)) {
+            continue;
+        }
+        const mid = ((ay + by) >> 1) * size + ((ax + bx) >> 1);
+        if (errors[mid] < boost) {
+            errors[mid] = boost;
+        }
+    }
 }
 
 function sampleGrid(heights: Float32Array, size: number, u: number, v: number, sea: number): number {
@@ -284,9 +409,20 @@ export function isWaterHeight(h: number, seaLevel: number, eps: number = WATER_H
     return !Number.isFinite(h) || h <= seaLevel + eps;
 }
 
+/** True for dry land still low enough to read as beach / shallows. */
+export function isShallowFringe(
+    h: number,
+    seaLevel: number,
+    maxM: number = SHALLOW_WATER_MAX_M,
+): boolean {
+    return Number.isFinite(h)
+        && h > seaLevel + WATER_HEIGHT_EPS_M
+        && h <= seaLevel + maxM;
+}
+
 /**
- * Tone for a surface triangle. Majority-water → water so coarse RTIN triangles
- * that still touch one coastal peak cannot paint the ocean green.
+ * Tone for a surface triangle. Majority-water → deep water; low coastal land
+ * (and water triangles that still touch a low beach tip) → shallow fringe.
  */
 export function toneForTriangle(
     h0: number,
@@ -299,38 +435,44 @@ export function toneForTriangle(
     const w1 = isWaterHeight(h1, seaLevel);
     const w2 = isWaterHeight(h2, seaLevel);
     const waterCount = (w0 ? 1 : 0) + (w1 ? 1 : 0) + (w2 ? 1 : 0);
-    if (waterCount >= 2) {
+
+    if (waterCount === 3) {
         return TerrainTone.Water;
     }
+    if (waterCount === 2) {
+        // Two sea verts + one land tip: shallow only when the tip is a beach,
+        // otherwise keep deep water (avoids teal ramps up cliffs).
+        const landH = w0 ? (w1 ? h2 : h1) : h0;
+        return isShallowFringe(landH, seaLevel) ? TerrainTone.ShallowWater : TerrainTone.Water;
+    }
     if (waterCount === 1) {
-        // Single water vertex on a land triangle — keep land, but prefer the
-        // two land heights so a beach edge doesn't go bare/mountain.
         const landAvg = ((w0 ? 0 : h0) + (w1 ? 0 : h1) + (w2 ? 0 : h2)) / 2;
+        if (landAvg <= seaLevel + SHALLOW_WATER_MAX_M) {
+            return TerrainTone.ShallowWater;
+        }
         return toneForLandHeight(landAvg, salt);
+    }
+
+    // All land: whole triangle in the beach band → shallow fringe.
+    if (Math.max(h0, h1, h2) <= seaLevel + SHALLOW_WATER_MAX_M) {
+        return TerrainTone.ShallowWater;
     }
     return toneForLandHeight((h0 + h1 + h2) / 3, salt);
 }
 
 export function toneForHeight(h: number, seaLevel: number, salt: number = 0): TerrainTone {
     if (isWaterHeight(h, seaLevel)) {
-        // Exact sea datum (after snap) is open water; only slightly submerged
-        // samples (before snap) would have been shallow — keep open-water blue.
-        return h < seaLevel - 1 ? TerrainTone.ShallowWater : TerrainTone.Water;
+        return TerrainTone.Water;
+    }
+    if (isShallowFringe(h, seaLevel)) {
+        return TerrainTone.ShallowWater;
     }
     return toneForLandHeight(h, salt);
 }
 
-function toneForLandHeight(h: number, salt: number): TerrainTone {
-    // Deterministic checker over height bands for the retro sand/grass/bare look.
-    const band = h < 200 ? 0 : h < 800 ? 1 : 2;
-    const hash = (salt * 2654435761) >>> 0;
-    if (band === 0) {
-        return (hash & 3) === 0 ? TerrainTone.Grass : TerrainTone.Sand;
-    }
-    if (band === 1) {
-        return (hash & 1) === 0 ? TerrainTone.Grass : TerrainTone.Bare;
-    }
-    return (hash & 3) === 0 ? TerrainTone.Grass : TerrainTone.Bare;
+function toneForLandHeight(_h: number, _salt: number): TerrainTone {
+    // Single land colour — sun shading provides slope variation.
+    return TerrainTone.Grass;
 }
 
 /** Compact indices of TIN vertices that sit on the tile border. */
@@ -349,14 +491,14 @@ function collectBoundary(vertices: Uint16Array, vCount: number, size: number): n
 
 /**
  * For every surface triangle edge that lies on the tile border, emit a skirt
- * quad (two triangles) dropping to the skirt vertices.
+ * quad between the skirt-top and skirt-bottom rings.
  */
 function appendSkirt(
     triangles: Uint32Array,
     vertices: Uint16Array,
     boundary: number[],
-    skirtOffset: number,
-    _gridToCompact: Int32Array,
+    skirtTopOffset: number,
+    skirtBotOffset: number,
     size: number,
     surfaceH: Float32Array,
     seaLevel: number,
@@ -396,14 +538,24 @@ function appendSkirt(
                 continue;
             }
             seen.add(key);
-            const sa = skirtOffset + boundarySet.get(a)!;
-            const sb = skirtOffset + boundarySet.get(b)!;
-            outIndices.push(a, b, sb, a, sb, sa);
-            // Skirts inherit water when either endpoint is water so coastal
-            // skirts don't flash sand under the limb.
-            const tone = (isWaterHeight(surfaceH[a], seaLevel) || isWaterHeight(surfaceH[b], seaLevel))
-                ? TerrainTone.Water
-                : toneForLandHeight(0.5 * (surfaceH[a] + surfaceH[b]), a + b);
+            const ia = boundarySet.get(a)!;
+            const ib = boundarySet.get(b)!;
+            const ta = skirtTopOffset + ia;
+            const tb = skirtTopOffset + ib;
+            const ba = skirtBotOffset + ia;
+            const bb = skirtBotOffset + ib;
+            outIndices.push(ta, tb, bb, ta, bb, ba);
+            const ha = surfaceH[a];
+            const hb = surfaceH[b];
+            let tone: TerrainTone;
+            if (isWaterHeight(ha, seaLevel) && isWaterHeight(hb, seaLevel)) {
+                tone = TerrainTone.Water;
+            } else if (isWaterHeight(ha, seaLevel) || isWaterHeight(hb, seaLevel)
+                || isShallowFringe(ha, seaLevel) || isShallowFringe(hb, seaLevel)) {
+                tone = TerrainTone.ShallowWater;
+            } else {
+                tone = toneForLandHeight(0.5 * (ha + hb), a + b);
+            }
             outTones.push(tone, tone);
         }
     }
@@ -431,24 +583,28 @@ export function buildEllipsoidTileMesh(
     const centerU = _enu.u;
 
     const skirtDepth = Math.max(0.02 * approxTileEdgeMetres(id), 100);
-    const positions = new Float32Array(8 * 3);
+    // 4 surface + 4 skirt-top + 4 skirt-bottom.
+    const positions = new Float32Array(12 * 3);
     for (let i = 0; i < 4; i++) {
         geodeticToEcef(corners[i][1], corners[i][0], seaLevel, _ecef);
         ecefToEnu(basis, _ecef, _enu);
         positions[i * 3] = _enu.e - centerE;
-        positions[i * 3 + 1] = _enu.u - centerU;
+        positions[i * 3 + 1] = _enu.u - centerU - WATER_DEPTH_BIAS_M;
         positions[i * 3 + 2] = _enu.n - centerN;
         positions[(4 + i) * 3] = positions[i * 3];
-        positions[(4 + i) * 3 + 1] = positions[i * 3 + 1] - skirtDepth;
+        positions[(4 + i) * 3 + 1] = positions[i * 3 + 1] - SKIRT_TOP_EPS_M;
         positions[(4 + i) * 3 + 2] = positions[i * 3 + 2];
+        positions[(8 + i) * 3] = positions[i * 3];
+        positions[(8 + i) * 3 + 1] = positions[i * 3 + 1] - skirtDepth;
+        positions[(8 + i) * 3 + 2] = positions[i * 3 + 2];
     }
     // Two surface tris + four skirt quads (8 tris) = 10 tris.
     const indices = new Uint32Array([
         0, 1, 2, 1, 3, 2,
-        0, 1, 5, 0, 5, 4,
-        1, 3, 7, 1, 7, 5,
-        3, 2, 6, 3, 6, 7,
-        2, 0, 4, 2, 4, 6,
+        4, 5, 9, 4, 9, 8,
+        5, 7, 11, 5, 11, 9,
+        7, 6, 10, 7, 10, 11,
+        6, 4, 8, 6, 8, 10,
     ]);
     const tones = new Uint8Array(10).fill(TerrainTone.Water);
     const groups = new Uint32Array(TONE_COUNT * 2);
@@ -456,14 +612,20 @@ export function buildEllipsoidTileMesh(
     groups[TerrainTone.Water * 2 + 1] = indices.length;
 
     let radiusSq = 0;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
         const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
         radiusSq = Math.max(radiusSq, x * x + y * y + z * z);
+    }
+
+    const normals = new Float32Array(12 * 3);
+    for (let i = 0; i < 12; i++) {
+        normals[i * 3 + 1] = 1;
     }
 
     return {
         key: `${id.z}/${id.x}/${id.y}`,
         positions,
+        normals,
         indices,
         tones,
         groups,
@@ -472,6 +634,6 @@ export function buildEllipsoidTileMesh(
         centerU,
         boundingRadius: Math.sqrt(radiusSq),
         triangleCount: 10,
-        vertexCount: 8,
+        vertexCount: 12,
     };
 }

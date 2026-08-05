@@ -45,13 +45,25 @@ describe('toneForTriangle', () => {
         assert.equal(toneForTriangle(0, 1200, 0, 0), TerrainTone.Water);
     });
 
-    it('keeps all-land triangles as land', () => {
-        assert.notEqual(toneForTriangle(50, 60, 70, 0), TerrainTone.Water);
-        assert.notEqual(toneForTriangle(50, 60, 70, 0), TerrainTone.ShallowWater);
+    it('paints a low beach tip on water as shallow fringe', () => {
+        assert.equal(toneForTriangle(0, 0, 5, 0), TerrainTone.ShallowWater);
+    });
+
+    it('keeps elevated inland triangles as solid grass green', () => {
+        assert.equal(toneForTriangle(50, 60, 70, 0), TerrainTone.Grass);
+        assert.equal(toneForTriangle(200, 400, 900, 0), TerrainTone.Grass);
+    });
+
+    it('paints low all-land beach triangles as shallow fringe', () => {
+        assert.equal(toneForTriangle(3, 5, 8, 0), TerrainTone.ShallowWater);
     });
 
     it('paints all-water triangles as water', () => {
         assert.equal(toneForTriangle(0, 0, 0, 0), TerrainTone.Water);
         assert.equal(toneForTriangle(-1, 0.2, 0, 0), TerrainTone.Water);
+    });
+
+    it('paints land triangles that touch water on a low beach as shallow', () => {
+        assert.equal(toneForTriangle(0, 4, 6, 0), TerrainTone.ShallowWater);
     });
 });

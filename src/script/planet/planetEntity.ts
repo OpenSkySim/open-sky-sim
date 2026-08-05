@@ -24,7 +24,7 @@ import {
     RECONCILE_INTERVAL_MS, TARGET_FRAME_MS, adjustDetailScale,
 } from './lod';
 import { PlanetManifest } from './manifest';
-import { TONE_COUNT } from './meshBuilder';
+import { TerrainTone, TONE_COUNT } from './meshBuilder';
 import { MeshPool } from './meshPool';
 import { PlanetQuadtree, QuadNode } from './quadtree';
 import {
@@ -99,18 +99,23 @@ export class PlanetTerrainEntity implements Entity {
         });
         this.query = new HeightQuery(this.store, basis, manifest);
 
-        this.materialsByTone = TONE_CATEGORIES.map(category => {
+        this.materialsByTone = TONE_CATEGORIES.map((category, tone) => {
+            // Water stays a flat palette fill — no sun shade, no normal smoothing.
+            const waterish = tone === TerrainTone.Water || tone === TerrainTone.ShallowWater;
             const mat = materials.build({
                 type: SceneMaterialPrimitiveType.MESH,
                 category,
                 depthWrite: true,
-                shaded: false,
-                highp: true,
+                ...(waterish
+                    ? { shaded: false as const, highp: true }
+                    : { shaded: true as const }),
             }) as THREE.ShaderMaterial;
             mat.side = THREE.DoubleSide;
             mat.polygonOffset = true;
-            mat.polygonOffsetFactor = 1;
-            mat.polygonOffsetUnits = 1;
+            // Water/shallow pushed farther back than land so coplanar beach
+            // edges resolve to land instead of sky sparkles.
+            mat.polygonOffsetFactor = waterish ? 2 : 1;
+            mat.polygonOffsetUnits = waterish ? 2 : 1;
             if (isTerrainWireframe()) {
                 mat.wireframe = true;
             }
@@ -318,6 +323,7 @@ export class PlanetTerrainEntity implements Entity {
         const result = node.mesh!;
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
+        geometry.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
         geometry.setIndex(new THREE.BufferAttribute(result.indices, 1));
         for (let tone = 0; tone < TONE_COUNT; tone++) {
             const start = result.groups[tone * 2];

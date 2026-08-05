@@ -22,6 +22,7 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
         const result = buildTileMesh(req);
         const transfer: ArrayBuffer[] = [
             result.positions.buffer as ArrayBuffer,
+            result.normals.buffer as ArrayBuffer,
             result.indices.buffer as ArrayBuffer,
             result.tones.buffer as ArrayBuffer,
             result.groups.buffer as ArrayBuffer,
