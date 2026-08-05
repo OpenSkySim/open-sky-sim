@@ -71,9 +71,9 @@ module.exports = {
                     to: 'assets/jsbsim',
                 },
                 {
-                    // Geographic DEM height tiles (see tools/build_dem_tiles.py).
-                    from: 'assets/terrain',
-                    to: 'assets/terrain',
+                    // Planet DEM height tiles (see tools/bake_planet_dem.py).
+                    from: 'assets/planet',
+                    to: 'assets/planet',
                     noErrorOnMissing: true,
                 }
             ]

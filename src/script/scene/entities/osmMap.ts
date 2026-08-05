@@ -3,7 +3,7 @@ import { Palette } from '../../config/palettes/palette';
 import { CanvasPainter } from '../../render/screen/canvasPainter';
 import { Entity } from '../entity';
 import { Scene } from '../scene';
-import { EnuBasis, ecefToEnu, enuToGeodeticApprox, geodeticToEcef } from '../../terrain/geo';
+import { EnuBasis, ecefToEnu, enuToGeodeticApprox, geodeticToEcef } from '../../planet/geodesy';
 
 const OSM_TILE_URL = '/api/osm/{z}/{x}/{y}';
 const OSM_ZOOM = 12;

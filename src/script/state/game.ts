@@ -19,7 +19,7 @@ import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { FlightRecorder } from '../physics/flightRecorder';
 import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
 import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, HIGH_ALTITUDE_M, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, SPACE_ALTITUDE_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
-import { terrainMaxZoomForAltitudeM } from '../terrain/viewRange';
+import { terrainMaxZoomForAltitudeM } from '../planet/lod';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
 import { DebrisField } from '../scene/entities/debrisField';
@@ -89,7 +89,7 @@ import { AiPilotModels } from './gameDefs';
 import {
     PlanetTerrainEntity, SPACE_SKY_ALTITUDE_M, cameraFarForAltitudeM, isTerrainWireframe, loadManifest,
     resolveTerrainMode, setTerrainWireframe,
-} from '../terrain';
+} from '../planet';
 import { OsmMapEntity } from '../scene/entities/osmMap';
 import {
     AIRBASE_FLATTEN_PAD, AIRBASE_LOCAL, TARGET_LOCAL, airbaseOffset, PLAY_ORIGIN, SCENERY_SURFACE_EPS_M,
