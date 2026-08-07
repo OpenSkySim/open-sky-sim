@@ -44,8 +44,7 @@ export class HeightQuery {
         // Pad blend is in ENU so the feather matches the mesh worker.
         const raw = Number.isFinite(h) ? h : this.manifest.seaLevel;
         if (isWaterHeight(raw, this.manifest.seaLevel)) {
-            // Never fill ocean to pad height.
-            return this.manifest.seaLevel;
+            return raw;
         }
         return applyFlattenPad(raw, e, n, this.pad, this.padHeightMsl);
     }

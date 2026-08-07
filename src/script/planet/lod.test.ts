@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { TERRAIN_VIEW_RANGE_M } from '../defs';
 import {
     SPACE_SKY_ALTITUDE_M, cameraFarForAltitudeM, ellipsoidSagittaM,
-    screenSpaceErrorPx, shouldRefine, terrainMaxZoomForAltitudeM, terrainViewRangeM,
+    screenSpaceErrorPx, shouldRefine, shouldRefineCoast, terrainMaxZoomForAltitudeM, terrainViewRangeM,
 } from './lod';
 
 describe('lod', () => {
@@ -18,7 +18,8 @@ describe('lod', () => {
 
     it('caps zoom by altitude', () => {
         assert.ok(terrainMaxZoomForAltitudeM(1000, 12) >= terrainMaxZoomForAltitudeM(100_000, 12));
-        assert.ok(terrainMaxZoomForAltitudeM(1000, 12) <= 12);
+        assert.equal(terrainMaxZoomForAltitudeM(1000, 12), 11);
+        assert.equal(terrainMaxZoomForAltitudeM(1000, 12, true), 12);
     });
 
     it('SSE decreases with distance', () => {
@@ -40,5 +41,13 @@ describe('lod', () => {
 
     it('exports space sky altitude', () => {
         assert.ok(SPACE_SKY_ALTITUDE_M > 10_000);
+    });
+
+    it('shouldRefineCoast splits coastal tiles near the camera', () => {
+        assert.equal(shouldRefineCoast(false, 8, 1000, 10, 12), false);
+        assert.equal(shouldRefineCoast(true, 8, 1000, 10, 12), true);
+        assert.equal(shouldRefineCoast(true, 12, 1000, 10, 12), false);
+        assert.equal(shouldRefineCoast(true, 9, 50_000, 10, 12), true);
+        assert.equal(shouldRefineCoast(true, 9, 200_000, 10, 12), false);
     });
 });

@@ -11,13 +11,14 @@ import { behindHorizon, sphereInFrustum } from './culling';
 import { DemStore } from './demStore';
 import { EnuBasis, EnuFrame, geodeticToEcef, ecefToEnu } from './geodesy';
 import {
-    FETCHES_PER_FRAME, MESH_CREATES_PER_FRAME, ellipsoidSagittaM, shouldRefine,
-    terrainMaxZoomForAltitudeM, terrainViewRangeM,
+    FETCHES_PER_FRAME, MESH_CREATES_PER_FRAME, COAST_SSE_BIAS, ellipsoidSagittaM,
+    shouldRefine, shouldRefineCoast, terrainMaxZoomForAltitudeM, terrainViewRangeM,
 } from './lod';
 import { MeshBuildResult } from './meshBuilder';
 import { MeshPool } from './meshPool';
 import { PlanetManifest } from './manifest';
 import { FlattenPadSpec } from './flattenPad';
+import { refreshNodeCoastal } from './coast';
 import {
     TileKey, approxTileEdgeMetres, childrenOf, rootTiles, tileBounds,
     tileKeyString, tileRangeForBounds, LonLatBounds, boundsOverlap,
@@ -42,6 +43,8 @@ export interface QuadNode {
     radius: number;
     /** True when no DEM tile exists — ellipsoid stub. */
     ocean: boolean;
+    /** Mixed land/water in the DEM (or adjacent to such a tile). */
+    coastal: boolean;
 }
 
 export interface QuadtreeOptions {
@@ -184,7 +187,6 @@ export class PlanetQuadtree {
 
         const altitudeM = Math.max(0, this._camWorld.y);
         const viewRange = terrainViewRangeM(altitudeM);
-        const zoomCap = terrainMaxZoomForAltitudeM(altitudeM, this.maxZoom);
 
         let fetches = 0;
         let builds = 0;
@@ -192,6 +194,7 @@ export class PlanetQuadtree {
         const visit = (node: QuadNode): void => {
             stats.visited += 1;
             node.generation = gen;
+            refreshNodeCoastal(node, this.store, this.manifest.seaLevel);
 
             if (!sphereInFrustum(node.center, node.radius, this._frustum)) {
                 return;
@@ -210,8 +213,15 @@ export class PlanetQuadtree {
                 return;
             }
 
+            const zoomCap = terrainMaxZoomForAltitudeM(altitudeM, this.maxZoom, node.coastal);
+            const coastScale = node.coastal ? detailScale * COAST_SSE_BIAS : detailScale;
             const refine = node.id.z < zoomCap
-                && shouldRefine(node.geometricErrorM, Math.max(1, dist), screenHeightPx, fovYDeg, detailScale);
+                && (shouldRefine(
+                    node.geometricErrorM, Math.max(1, dist), screenHeightPx, fovYDeg, coastScale,
+                )
+                    || shouldRefineCoast(
+                        node.coastal, node.id.z, Math.max(1, dist), zoomCap, this.maxZoom,
+                    ));
 
             if (refine) {
                 if (!node.children) {
@@ -355,6 +365,7 @@ export class PlanetQuadtree {
             center: new THREE.Vector3(enu.e, enu.u, enu.n),
             radius: edge * 0.75,
             ocean,
+            coastal: false,
         };
     }
 
@@ -373,6 +384,7 @@ export class PlanetQuadtree {
             node.mesh = result;
             node.center.set(result.centerE, result.centerU, result.centerN);
             node.radius = result.boundingRadius;
+            refreshNodeCoastal(node, this.store, this.manifest.seaLevel);
             this.pendingDraw.add(node.key);
         };
 

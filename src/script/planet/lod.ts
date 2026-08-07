@@ -10,8 +10,20 @@ export const TERRAIN_VIEW_RANGE_MAX_M = 3_000_000;
 /** Hide atmospheric sky billboard above this AGL (m). */
 export const SPACE_SKY_ALTITUDE_M = 80_000;
 
+/** Subtracted from the altitude zoom curve for inland / open-ocean tiles only. */
+export const TERRAIN_ZOOM_OFFSET = 1;
+
 /** Target projected error in pixels before a tile is refined. */
 export const SSE_TARGET_PX = 2;
+
+/** Coastal tiles use a lower effective SSE target (refine sooner). */
+export const COAST_SSE_BIAS = 0.45;
+
+/** Extra quadtree levels allowed near the coast below the altitude zoom cap. */
+export const COAST_REFINE_EXTRA_LEVELS = 2;
+
+/** Refine coastal tiles while the camera is within this range (m). */
+export const COAST_REFINE_RANGE_M = 120_000;
 
 /** Max new meshes to build in one reconcile pass. */
 export const MESH_CREATES_PER_FRAME = 48;
@@ -84,9 +96,17 @@ export function terrainZoomCurveForAltitudeM(altitudeM: number): number {
     return anchors[anchors.length - 1][1];
 }
 
-export function terrainMaxZoomForAltitudeM(altitudeM: number, absoluteMax: number): number {
+export function terrainMaxZoomForAltitudeM(
+    altitudeM: number,
+    absoluteMax: number,
+    coastal: boolean = false,
+): number {
     const z = Math.round(terrainZoomCurveForAltitudeM(altitudeM));
-    return Math.min(absoluteMax, Math.max(0, z));
+    const capped = Math.min(absoluteMax, Math.max(0, z));
+    if (coastal) {
+        return capped;
+    }
+    return Math.max(0, capped - TERRAIN_ZOOM_OFFSET);
 }
 
 export function adjustDetailScale(
@@ -139,4 +159,22 @@ export function shouldRefine(
 ): boolean {
     const sse = screenSpaceErrorPx(geometricErrorM, distanceM, screenHeightPx, fovYDeg);
     return sse > targetPx * detailScale;
+}
+
+/**
+ * Shoreline tiles keep splitting while inside {@link COAST_REFINE_RANGE_M} and
+ * below `zoomCap + COAST_REFINE_EXTRA_LEVELS`, even when SSE alone would stop.
+ */
+export function shouldRefineCoast(
+    coastal: boolean,
+    zoom: number,
+    distanceM: number,
+    altitudeZoomCap: number,
+    absoluteMaxZoom: number,
+): boolean {
+    if (!coastal) {
+        return false;
+    }
+    const coastCap = Math.min(absoluteMaxZoom, altitudeZoomCap + COAST_REFINE_EXTRA_LEVELS);
+    return zoom < coastCap && distanceM < COAST_REFINE_RANGE_M;
 }

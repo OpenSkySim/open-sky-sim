@@ -4,6 +4,7 @@
  */
 
 import { applyFlattenPad, FlattenPadSpec } from './flattenPad';
+import { buildCoastDistanceGrid, demTileIsCoastal } from './coast';
 import {
     Ecef, Enu, EnuBasis, geodeticToEcef, ecefToEnu,
 } from './geodesy';
@@ -25,16 +26,16 @@ export const TONE_COUNT = 5;
 export const WATER_HEIGHT_EPS_M = 0.5;
 
 /**
- * Land just above sea (metres) painted as shallow water so the coast gets a
- * teal fringe between deep water and sand/grass.
- */
-export const SHALLOW_WATER_MAX_M = 12;
-
-/**
  * Drop open-water verts this far in ENU Y so beach/land always wins the depth
  * test along the shoreline (avoids 1px sky sparkles from coplanar z-fight).
  */
 export const WATER_DEPTH_BIAS_M = 0.5;
+
+/**
+ * Open water within this distance (m) of the shoreline is painted shallow so
+ * a teal shelf extends offshore beyond the height-based beach fringe.
+ */
+export const SHALLOW_WATER_COAST_M = 80;
 
 /** Skirt top ring sits this far below the surface so skirts don't z-fight it. */
 const SKIRT_TOP_EPS_M = 0.05;
@@ -84,17 +85,33 @@ const _enu: Enu = { e: 0, n: 0, u: 0 };
 export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
     const { id, size, maxErrorM, seaLevel, basis, pad, padHeightMsl } = req;
     const bounds = tileBounds(id);
-    // Snap sea / near-sea / nodata to a flat datum before RTIN so ocean
-    // collapses to two triangles and coast edges stay on the shoreline.
-    // Without this, coarse LODs emit kilometre-scale triangles that straddle
-    // coast and paint ocean green (vertex-average height > seaLevel).
-    const heights = sanitizeHeights(req.heights, seaLevel);
+    // Nodata → sea level for RTIN; bathymetry is preserved as-is. Majority-water
+    // tone rules stop coarse coast wedges painting as land.
+    const heights = normalizeNodataHeights(req.heights, seaLevel);
     const index = getRtinIndex(size);
     const errors = buildErrorPyramid(heights, size, index);
     // Force RTIN to subdivide every land/water-crossing edge down to the grid
     // so the shoreline follows the DEM mask instead of long sawtooth diagonals.
     boostCoastErrors(heights, errors, size, seaLevel, coastErrorBoost(maxErrorM), index);
     const mesh = extractMesh(errors, size, maxErrorM, index);
+
+    const coastal = demTileIsCoastal(heights, seaLevel);
+    let coastGrid: Uint16Array | undefined;
+    let coastCellM = 0;
+    if (coastal) {
+        coastGrid = buildCoastDistanceGrid(heights, size, seaLevel);
+        coastCellM = approxTileEdgeMetres(id) / (size - 1);
+    }
+    const coastDistM = (gx: number, gy: number): number | undefined => {
+        if (!coastGrid) {
+            return undefined;
+        }
+        const cells = coastGrid[gy * size + gx];
+        if (cells >= 65535) {
+            return undefined;
+        }
+        return cells * coastCellM;
+    };
 
     // Tile centre in ENU — mesh.position carries this so Float32 stays precise.
     const midLon = 0.5 * (bounds.west + bounds.east);
@@ -151,8 +168,20 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
         const i0 = mesh.triangles[t * 3];
         const i1 = mesh.triangles[t * 3 + 1];
         const i2 = mesh.triangles[t * 3 + 2];
+        const gx0 = mesh.vertices[i0 * 2];
+        const gy0 = mesh.vertices[i0 * 2 + 1];
+        const gx1 = mesh.vertices[i1 * 2];
+        const gy1 = mesh.vertices[i1 * 2 + 1];
+        const gx2 = mesh.vertices[i2 * 2];
+        const gy2 = mesh.vertices[i2 * 2 + 1];
+        const d0 = coastDistM(gx0, gy0);
+        const d1 = coastDistM(gx1, gy1);
+        const d2 = coastDistM(gx2, gy2);
+        const shoreDist = d0 !== undefined && d1 !== undefined && d2 !== undefined
+            ? [d0, d1, d2] as const
+            : undefined;
         rawTones[t] = toneForTriangle(
-            surfaceH[i0], surfaceH[i1], surfaceH[i2], seaLevel, i0 + i1 + i2,
+            surfaceH[i0], surfaceH[i1], surfaceH[i2], seaLevel, i0 + i1 + i2, shoreDist,
         );
     }
 
@@ -327,11 +356,12 @@ export function faceNormal(
     return [nx, ny, nz];
 }
 
-function sanitizeHeights(src: Float32Array, seaLevel: number): Float32Array {
+function normalizeNodataHeights(src: Float32Array, seaLevel: number): Float32Array {
     const out = new Float32Array(src.length);
     for (let i = 0; i < src.length; i++) {
         const h = src[i];
-        out[i] = isWaterHeight(h, seaLevel) ? seaLevel : h;
+        // Preserve bathymetry — only fill invalid samples, never snap water up to sea level.
+        out[i] = Number.isFinite(h) ? h : seaLevel;
     }
     return out;
 }
@@ -409,20 +439,9 @@ export function isWaterHeight(h: number, seaLevel: number, eps: number = WATER_H
     return !Number.isFinite(h) || h <= seaLevel + eps;
 }
 
-/** True for dry land still low enough to read as beach / shallows. */
-export function isShallowFringe(
-    h: number,
-    seaLevel: number,
-    maxM: number = SHALLOW_WATER_MAX_M,
-): boolean {
-    return Number.isFinite(h)
-        && h > seaLevel + WATER_HEIGHT_EPS_M
-        && h <= seaLevel + maxM;
-}
-
 /**
- * Tone for a surface triangle. Majority-water → deep water; low coastal land
- * (and water triangles that still touch a low beach tip) → shallow fringe.
+ * Tone for a surface triangle. Majority-water → water; shallow only on actual
+ * water geometry (near-shore distance or shallow bathymetry), never dry land.
  */
 export function toneForTriangle(
     h0: number,
@@ -430,6 +449,7 @@ export function toneForTriangle(
     h2: number,
     seaLevel: number,
     salt: number = 0,
+    shoreDistM?: readonly [number, number, number],
 ): TerrainTone {
     const w0 = isWaterHeight(h0, seaLevel);
     const w1 = isWaterHeight(h1, seaLevel);
@@ -437,35 +457,25 @@ export function toneForTriangle(
     const waterCount = (w0 ? 1 : 0) + (w1 ? 1 : 0) + (w2 ? 1 : 0);
 
     if (waterCount === 3) {
+        if (shoreDistM && Math.min(shoreDistM[0], shoreDistM[1], shoreDistM[2]) <= SHALLOW_WATER_COAST_M) {
+            return TerrainTone.ShallowWater;
+        }
         return TerrainTone.Water;
     }
     if (waterCount === 2) {
-        // Two sea verts + one land tip: shallow only when the tip is a beach,
-        // otherwise keep deep water (avoids teal ramps up cliffs).
-        const landH = w0 ? (w1 ? h2 : h1) : h0;
-        return isShallowFringe(landH, seaLevel) ? TerrainTone.ShallowWater : TerrainTone.Water;
+        return TerrainTone.Water;
     }
     if (waterCount === 1) {
         const landAvg = ((w0 ? 0 : h0) + (w1 ? 0 : h1) + (w2 ? 0 : h2)) / 2;
-        if (landAvg <= seaLevel + SHALLOW_WATER_MAX_M) {
-            return TerrainTone.ShallowWater;
-        }
         return toneForLandHeight(landAvg, salt);
     }
 
-    // All land: whole triangle in the beach band → shallow fringe.
-    if (Math.max(h0, h1, h2) <= seaLevel + SHALLOW_WATER_MAX_M) {
-        return TerrainTone.ShallowWater;
-    }
     return toneForLandHeight((h0 + h1 + h2) / 3, salt);
 }
 
 export function toneForHeight(h: number, seaLevel: number, salt: number = 0): TerrainTone {
     if (isWaterHeight(h, seaLevel)) {
         return TerrainTone.Water;
-    }
-    if (isShallowFringe(h, seaLevel)) {
-        return TerrainTone.ShallowWater;
     }
     return toneForLandHeight(h, salt);
 }
@@ -550,9 +560,8 @@ function appendSkirt(
             let tone: TerrainTone;
             if (isWaterHeight(ha, seaLevel) && isWaterHeight(hb, seaLevel)) {
                 tone = TerrainTone.Water;
-            } else if (isWaterHeight(ha, seaLevel) || isWaterHeight(hb, seaLevel)
-                || isShallowFringe(ha, seaLevel) || isShallowFringe(hb, seaLevel)) {
-                tone = TerrainTone.ShallowWater;
+            } else if (isWaterHeight(ha, seaLevel) || isWaterHeight(hb, seaLevel)) {
+                tone = TerrainTone.Water;
             } else {
                 tone = toneForLandHeight(0.5 * (ha + hb), a + b);
             }

@@ -7,6 +7,7 @@ export * from './flattenPad';
 export * from './heightQuery';
 export * from './rtin';
 export * from './lod';
+export * from './coast';
 export * from './culling';
 export * from './meshBuilder';
 export * from './quadtree';
