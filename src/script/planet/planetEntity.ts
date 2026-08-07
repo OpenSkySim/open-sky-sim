@@ -17,18 +17,19 @@ import {
     trackTerrainMaterial,
 } from './debug';
 import { DemStore } from './demStore';
+import { CoastStore } from './coastStore';
 import { FlattenPadSpec, padLonLatBounds } from './flattenPad';
 import { EnuFrame, enuToGeodeticApprox, makeEnuBasis } from './geodesy';
 import { HeightQuery } from './heightQuery';
 import {
-    RECONCILE_INTERVAL_MS, TARGET_FRAME_MS, adjustDetailScale,
+    RECONCILE_INTERVAL_MS, TARGET_FRAME_MS, MESH_CREATES_PER_FRAME, adjustDetailScale,
 } from './lod';
 import { PlanetManifest } from './manifest';
 import { TerrainTone, TONE_COUNT } from './meshBuilder';
 import { MeshPool } from './meshPool';
 import { PlanetQuadtree, QuadNode } from './quadtree';
 import {
-    LonLatBounds, TileKey, boundsOverlap, tileBounds, tileKeyString, tileRangeForBounds,
+    LonLatBounds, TileKey, boundsOverlap, parseTileKey, tileBounds, tileKeyString, tileRangeForBounds,
 } from './tiling';
 
 export type TerrainMode = 'planet' | 'legacy';
@@ -69,6 +70,7 @@ export class PlanetTerrainEntity implements Entity {
     readonly dem: { manifest: PlanetManifest };
 
     private readonly store: DemStore;
+    private readonly coastStore: CoastStore;
     private readonly pool: MeshPool;
     private readonly qt: PlanetQuadtree;
     private readonly query: HeightQuery;
@@ -93,8 +95,9 @@ export class PlanetTerrainEntity implements Entity {
             : makeEnuBasis(manifest.enuOrigin.lat, manifest.enuOrigin.lon, manifest.enuOrigin.height ?? 0);
         this.frame = new EnuFrame(basis);
         this.store = new DemStore(manifest, options.baseUrl ?? 'assets/planet');
+        this.coastStore = new CoastStore(manifest, options.baseUrl ?? 'assets/planet');
         this.pool = new MeshPool();
-        this.qt = new PlanetQuadtree(this.store, this.pool, this.frame, manifest, {
+        this.qt = new PlanetQuadtree(this.store, this.pool, this.frame, manifest, this.coastStore, {
             maxZoom: options.maxZoom ?? manifest.maxZoom,
         });
         this.query = new HeightQuery(this.store, basis, manifest);
@@ -128,6 +131,7 @@ export class PlanetTerrainEntity implements Entity {
 
     init(_scene: Scene): void {
         void this.store.loadIndex();
+        void this.coastStore.loadIndex();
     }
 
     update(_delta: number): void {
@@ -145,7 +149,44 @@ export class PlanetTerrainEntity implements Entity {
     /** Load DEM tiles covering a radius around an ENU point. */
     async prefetchPlayArea(radiusM: number = 30000, centerE: number = 0, centerN: number = 0): Promise<void> {
         await this.store.loadIndex();
+        await this.coastStore.loadIndex();
         await this.qt.prefetchBounds(this.radiusBounds(centerE, centerN, radiusM));
+    }
+
+    /** Block until all play-area pinned tiles have meshed. */
+    async waitForPinnedMeshes(
+        onProgress?: (meshed: number, total: number) => void,
+    ): Promise<void> {
+        await this.qt.waitForPinnedMeshes(onProgress);
+    }
+
+    /**
+     * Attach ready meshes and reconcile the draw list so terrain is visible
+     * before the first rendered frame (boot).
+     */
+    async primeForDisplay(
+        camera: THREE.Camera,
+        screenHeightPx: number,
+        fovYDeg: number = COCKPIT_FOV,
+    ): Promise<void> {
+        this.attachReadyMeshes();
+        const deadline = performance.now() + 30_000;
+        while (performance.now() < deadline) {
+            let stats;
+            do {
+                stats = this.qt.update(camera, screenHeightPx, fovYDeg, 1);
+            } while (stats.builds >= MESH_CREATES_PER_FRAME);
+            this.attachReadyMeshes();
+            this.syncTerrainGroup();
+            if (this.drawList.length > 0) {
+                return;
+            }
+            if (!this.qt.hasLoadingMeshes() && this.pool.pending === 0) {
+                this.syncTerrainGroup();
+                return;
+            }
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        }
     }
 
     /**
@@ -215,31 +256,16 @@ export class PlanetTerrainEntity implements Entity {
             this.attachPendingMeshes();
         }
 
-        // Sync draw list into the group.
-        this.qt.collectDrawList(this.drawList);
-        const wanted = new Set(this.drawList.map(n => n.key));
-        for (let i = this.group.children.length - 1; i >= 0; i--) {
-            const child = this.group.children[i];
-            const key = child.userData.tileKey as string | undefined;
-            if (key && !wanted.has(key)) {
-                // Keep the object alive on the node; just detach from the group.
-                this.group.remove(child);
-            }
-        }
-        let triangles = 0;
-        for (const node of this.drawList) {
-            if (!node.object) {
-                continue;
-            }
-            if (node.object.parent !== this.group) {
-                this.group.add(node.object);
-            }
-            triangles += node.mesh?.triangleCount ?? 0;
-        }
+        this.syncTerrainGroup();
 
         const layer = lists.get(SceneLayers.Terrain);
         if (layer && this.group.children.length > 0) {
             attachToRenderList(layer, this.group);
+        }
+
+        let triangles = 0;
+        for (const node of this.drawList) {
+            triangles += node.mesh?.triangleCount ?? 0;
         }
 
         const altitudeM = camera.position.y;
@@ -303,6 +329,47 @@ export class PlanetTerrainEntity implements Entity {
             }
         }
         this.attachPendingMeshes();
+    }
+
+    private attachReadyMeshes(): void {
+        this.attachPendingMeshes();
+        for (const key of this.qt.pinned) {
+            const node = this.qt.find(parseTileKey(key));
+            if (!node?.mesh || node.object) {
+                continue;
+            }
+            node.object = this.makeObject(node);
+        }
+    }
+
+    /** Sync {@link drawList} (or pinned boot fallback) into the scene group. */
+    private syncTerrainGroup(): void {
+        this.qt.collectDrawList(this.drawList);
+        const wanted = new Set(this.drawList.map(n => n.key));
+        if (wanted.size === 0) {
+            for (const key of this.qt.pinned) {
+                const node = this.qt.find(parseTileKey(key));
+                if (node?.mesh && node.object) {
+                    wanted.add(key);
+                }
+            }
+        }
+        for (let i = this.group.children.length - 1; i >= 0; i--) {
+            const child = this.group.children[i];
+            const key = child.userData.tileKey as string | undefined;
+            if (key && !wanted.has(key)) {
+                this.group.remove(child);
+            }
+        }
+        for (const key of wanted) {
+            const node = this.qt.find(parseTileKey(key));
+            if (!node?.object) {
+                continue;
+            }
+            if (node.object.parent !== this.group) {
+                this.group.add(node.object);
+            }
+        }
     }
 
     private attachPendingMeshes(): void {

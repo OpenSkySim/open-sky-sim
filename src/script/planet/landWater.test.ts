@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { LWM_LAND, LWM_NODATA, LWM_WATER, encodeLwmUncompressed } from './coastMask';
 import { decodeLwm } from './coastMask';
-import { inCoastCoverage, isLand, isWaterGridCell } from './landWater';
+import { inCoastCoverage, isInlandWaterCell, isLand, isOceanWaterCell, isWaterGridCell } from './landWater';
 
 describe('landWater', () => {
     const coverage = { west: -19, south: 26, east: -12, north: 31 };
@@ -37,6 +37,23 @@ describe('landWater', () => {
         assert.equal(isWaterGridCell(mask, 1, 0, 0), false);
         assert.equal(isWaterGridCell(undefined, 0, 0, 0), true);
         assert.equal(isWaterGridCell(undefined, 0, 100, 0), false);
+    });
+
+    it('isInlandWaterCell detects elevated mask-water', () => {
+        const mask = new Uint8Array([LWM_WATER, LWM_WATER, LWM_LAND]);
+        assert.equal(isInlandWaterCell(mask, 0, 500, 0), true);
+        assert.equal(isInlandWaterCell(mask, 1, 0, 0), false);
+        assert.equal(isInlandWaterCell(mask, 2, 500, 0), false);
+        assert.equal(isInlandWaterCell(undefined, 0, 500, 0), false);
+    });
+
+    it('isOceanWaterCell separates ocean from inland mask-water', () => {
+        const mask = new Uint8Array([LWM_WATER, LWM_WATER, LWM_LAND]);
+        assert.equal(isOceanWaterCell(mask, 0, 500, 0), false);
+        assert.equal(isOceanWaterCell(mask, 1, 0, 0), true);
+        assert.equal(isOceanWaterCell(mask, 1, 1, 0), true);
+        assert.equal(isOceanWaterCell(undefined, 0, 0, 0), true);
+        assert.equal(isOceanWaterCell(undefined, 0, 100, 0), false);
     });
 });
 

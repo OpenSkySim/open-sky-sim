@@ -9,6 +9,12 @@ export interface CoastMaskConfig {
     coverage: LonLatBounds;
 }
 
+/**
+ * Mask-water cells with DEM above this offset are inland (lakes/rivers) — keep
+ * elevation, paint water tone, no sea-level snap.
+ */
+export const INLAND_WATER_MIN_M = 2;
+
 /** True when lon/lat lies inside the OSM coast mask coverage AABB. */
 export function inCoastCoverage(lon: number, lat: number, coverage: LonLatBounds): boolean {
     return lon >= coverage.west && lon <= coverage.east
@@ -52,7 +58,7 @@ export function isWaterFromMask(maskValue: number): boolean {
     return isWaterCell(maskValue) || isNodataCell(maskValue);
 }
 
-/** Grid cell is water for mesh building when landMask is present. */
+/** Grid cell is water for mesh tone (mask water or height-based fallback). */
 export function isWaterGridCell(landMask: Uint8Array | undefined, index: number, height: number, seaLevel: number): boolean {
     if (landMask) {
         const v = landMask[index];
@@ -61,4 +67,37 @@ export function isWaterGridCell(landMask: Uint8Array | undefined, index: number,
         }
     }
     return isWaterHeight(height, seaLevel);
+}
+
+/** LWM water on elevated terrain — lake/river, not open ocean. */
+export function isInlandWaterCell(
+    landMask: Uint8Array | undefined,
+    index: number,
+    demHeight: number,
+    seaLevel: number,
+): boolean {
+    if (!landMask) {
+        return false;
+    }
+    const v = landMask[index];
+    if (!isWaterCell(v)) {
+        return false;
+    }
+    return demHeight > seaLevel + INLAND_WATER_MIN_M;
+}
+
+/** Open-ocean mask water or height-based sea — snap to sea level in mesh build. */
+export function isOceanWaterCell(
+    landMask: Uint8Array | undefined,
+    index: number,
+    demHeight: number,
+    seaLevel: number,
+): boolean {
+    if (landMask) {
+        const v = landMask[index];
+        if (!isNodataCell(v)) {
+            return isWaterCell(v) && !isInlandWaterCell(landMask, index, demHeight, seaLevel);
+        }
+    }
+    return isWaterHeight(demHeight, seaLevel);
 }

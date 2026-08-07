@@ -5,10 +5,12 @@
 
 import { applyFlattenPad, FlattenPadSpec } from './flattenPad';
 import { buildCoastDistanceGrid, demTileIsCoastal } from './coast';
+import { isNodataCell, isWaterCell } from './coastMask';
 import {
     Ecef, Enu, EnuBasis, geodeticToEcef, ecefToEnu,
 } from './geodesy';
-import { buildErrorPyramid, extractMesh, getRtinIndex, RtinIndex } from './rtin';
+import { isOceanWaterCell, isWaterGridCell } from './landWater';
+import { buildErrorPyramid, extractMesh, getRtinIndex, RtinIndex, RtinMesh } from './rtin';
 import { TileKey, approxTileEdgeMetres, tileBounds } from './tiling';
 
 /** Palette categories encoded as small integers for the worker→main hop. */
@@ -58,6 +60,8 @@ export interface MeshBuildRequest {
     pad?: FlattenPadSpec;
     padHeightMsl?: number;
     skirtFactor?: number;
+    /** OSM land/water raster mask (LWM cells, same length as height grid). */
+    landMask?: Uint8Array;
 }
 
 export interface MeshBuildResult {
@@ -84,22 +88,26 @@ const _enu: Enu = { e: 0, n: 0, u: 0 };
 
 export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
     const { id, size, maxErrorM, seaLevel, basis, pad, padHeightMsl } = req;
-    const bounds = tileBounds(id);
     // Nodata → sea level for RTIN; bathymetry is preserved as-is. Majority-water
     // tone rules stop coarse coast wedges painting as land.
     const heights = normalizeNodataHeights(req.heights, seaLevel);
+    const bounds = tileBounds(id);
+    const landMask = req.landMask;
+
     const index = getRtinIndex(size);
     const errors = buildErrorPyramid(heights, size, index);
     // Force RTIN to subdivide every land/water-crossing edge down to the grid
-    // so the shoreline follows the DEM mask instead of long sawtooth diagonals.
-    boostCoastErrors(heights, errors, size, seaLevel, coastErrorBoost(maxErrorM), index);
-    const mesh = extractMesh(errors, size, maxErrorM, index);
+    // so the shoreline follows the coast mask instead of long sawtooth diagonals.
+    boostCoastErrors(heights, errors, size, seaLevel, coastErrorBoost(maxErrorM), index, landMask);
+    const mesh: RtinMesh = extractMesh(errors, size, maxErrorM, index);
 
-    const coastal = demTileIsCoastal(heights, seaLevel);
+    const coastal = landMask ? maskTileIsCoastal(landMask) : demTileIsCoastal(heights, seaLevel);
     let coastGrid: Uint16Array | undefined;
     let coastCellM = 0;
     if (coastal) {
-        coastGrid = buildCoastDistanceGrid(heights, size, seaLevel);
+        coastGrid = landMask
+            ? buildCoastDistanceGridFromMask(landMask, heights, size, seaLevel)
+            : buildCoastDistanceGrid(heights, size, seaLevel);
         coastCellM = approxTileEdgeMetres(id) / (size - 1);
     }
     const coastDistM = (gx: number, gy: number): number | undefined => {
@@ -138,7 +146,13 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
         const gy = mesh.vertices[i * 2 + 1];
         const lon = bounds.west + (bounds.east - bounds.west) * (gx / (size - 1));
         const lat = bounds.north - (bounds.north - bounds.south) * (gy / (size - 1));
-        let h = heights[gy * size + gx];
+        let h = sampleGridHeight(heights, size, gx, gy, seaLevel);
+        if (landMask) {
+            const gi = gridIndex(gx, gy, size);
+            if (isOceanWaterCell(landMask, gi, h, seaLevel)) {
+                h = seaLevel;
+            }
+        }
         geodeticToEcef(lat, lon, h, _ecef);
         ecefToEnu(basis as EnuBasis, _ecef, _enu);
         if (pad && !isWaterHeight(h, seaLevel)) {
@@ -153,10 +167,17 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
         surfaceH[i] = h;
     }
 
-    // Pull open water below the beach so coplanar land/water edges cannot
-    // z-fight (sky-coloured sparkles at coastal vertices).
+    // Pull open ocean below the beach so coplanar land/water edges cannot
+    // z-fight (sky-coloured sparkles at coastal vertices). Inland water keeps DEM height.
     for (let i = 0; i < vCount; i++) {
-        if (isWaterHeight(surfaceH[i], seaLevel)) {
+        const gx = mesh.vertices[i * 2];
+        const gy = mesh.vertices[i * 2 + 1];
+        const demH = sampleGridHeight(heights, size, gx, gy, seaLevel);
+        const gi = gridIndex(gx, gy, size);
+        const ocean = landMask
+            ? isOceanWaterCell(landMask, gi, demH, seaLevel)
+            : isWaterHeight(surfaceH[i], seaLevel);
+        if (ocean) {
             surfacePos[i * 3 + 1] -= WATER_DEPTH_BIAS_M;
         }
     }
@@ -180,8 +201,10 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
         const shoreDist = d0 !== undefined && d1 !== undefined && d2 !== undefined
             ? [d0, d1, d2] as const
             : undefined;
-        rawTones[t] = toneForTriangle(
-            surfaceH[i0], surfaceH[i1], surfaceH[i2], seaLevel, i0 + i1 + i2, shoreDist,
+        rawTones[t] = toneForTriangleAtGrid(
+            gx0, gy0, gx1, gy1, gx2, gy2,
+            surfaceH[i0], surfaceH[i1], surfaceH[i2],
+            landMask, size, seaLevel, i0 + i1 + i2, shoreDist,
         );
     }
 
@@ -386,11 +409,12 @@ export function boostCoastErrors(
     seaLevel: number,
     boost: number,
     index: RtinIndex = getRtinIndex(size),
+    landMask?: Uint8Array,
 ): void {
     if (boost <= 0) {
         return;
     }
-    const isWater = (i: number): boolean => isWaterHeight(heights[i], seaLevel);
+    const isWater = (i: number): boolean => isOceanWaterCell(landMask, i, heights[i], seaLevel);
 
     // 4-neighbour coast samples.
     for (let y = 0; y < size; y++) {
@@ -424,6 +448,146 @@ export function boostCoastErrors(
             errors[mid] = boost;
         }
     }
+}
+
+function sampleGridHeight(
+    heights: Float32Array,
+    size: number,
+    gx: number,
+    gy: number,
+    sea: number,
+): number {
+    const x0 = Math.min(size - 1, Math.max(0, Math.round(gx)));
+    const y0 = Math.min(size - 1, Math.max(0, Math.round(gy)));
+    const h = heights[y0 * size + x0];
+    return Number.isFinite(h) ? h : sea;
+}
+
+function gridIndex(gx: number, gy: number, size: number): number {
+    const x = Math.min(size - 1, Math.max(0, Math.round(gx)));
+    const y = Math.min(size - 1, Math.max(0, Math.round(gy)));
+    return y * size + x;
+}
+
+function maskTileIsCoastal(landMask: Uint8Array): boolean {
+    let land = false;
+    let water = false;
+    for (let i = 0; i < landMask.length; i++) {
+        const v = landMask[i];
+        if (isNodataCell(v)) {
+            continue;
+        }
+        if (isWaterCell(v)) {
+            water = true;
+        } else {
+            land = true;
+        }
+        if (land && water) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function buildCoastDistanceGridFromMask(
+    landMask: Uint8Array,
+    heights: ArrayLike<number>,
+    size: number,
+    seaLevel: number,
+): Uint16Array {
+    const n = size;
+    const count = n * n;
+    const dist = new Uint16Array(count);
+    dist.fill(65535);
+    const isWater = (i: number): boolean => isOceanWaterCell(landMask, i, heights[i], seaLevel);
+
+    const queue: number[] = [];
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            const i = y * n + x;
+            const w = isWater(i);
+            let boundary = false;
+            if (x > 0 && isWater(i - 1) !== w) {
+                boundary = true;
+            }
+            if (x + 1 < n && isWater(i + 1) !== w) {
+                boundary = true;
+            }
+            if (y > 0 && isWater(i - n) !== w) {
+                boundary = true;
+            }
+            if (y + 1 < n && isWater(i + n) !== w) {
+                boundary = true;
+            }
+            if (boundary) {
+                dist[i] = 0;
+                queue.push(i);
+            }
+        }
+    }
+
+    let head = 0;
+    while (head < queue.length) {
+        const i = queue[head++];
+        const d = dist[i];
+        if (d >= 65534) {
+            continue;
+        }
+        const y = (i / n) | 0;
+        const x = i - y * n;
+        const tryPush = (ni: number) => {
+            if (dist[ni] > d + 1) {
+                dist[ni] = d + 1;
+                queue.push(ni);
+            }
+        };
+        if (x > 0) {
+            tryPush(i - 1);
+        }
+        if (x + 1 < n) {
+            tryPush(i + 1);
+        }
+        if (y > 0) {
+            tryPush(i - n);
+        }
+        if (y + 1 < n) {
+            tryPush(i + n);
+        }
+    }
+    return dist;
+}
+
+function toneForTriangleAtGrid(
+    gx0: number, gy0: number,
+    gx1: number, gy1: number,
+    gx2: number, gy2: number,
+    h0: number, h1: number, h2: number,
+    landMask: Uint8Array | undefined,
+    size: number,
+    seaLevel: number,
+    salt: number,
+    shoreDistM?: readonly [number, number, number],
+): TerrainTone {
+    if (landMask) {
+        const w0 = isWaterGridCell(landMask, gridIndex(gx0, gy0, size), h0, seaLevel);
+        const w1 = isWaterGridCell(landMask, gridIndex(gx1, gy1, size), h1, seaLevel);
+        const w2 = isWaterGridCell(landMask, gridIndex(gx2, gy2, size), h2, seaLevel);
+        const waterCount = (w0 ? 1 : 0) + (w1 ? 1 : 0) + (w2 ? 1 : 0);
+        if (waterCount >= 2) {
+            if (waterCount === 3
+                && shoreDistM
+                && Math.min(shoreDistM[0], shoreDistM[1], shoreDistM[2]) <= SHALLOW_WATER_COAST_M) {
+                return TerrainTone.ShallowWater;
+            }
+            return TerrainTone.Water;
+        }
+        if (waterCount === 1) {
+            const landAvg = ((w0 ? 0 : h0) + (w1 ? 0 : h1) + (w2 ? 0 : h2)) / 2;
+            return toneForLandHeight(landAvg, salt);
+        }
+        return toneForLandHeight((h0 + h1 + h2) / 3, salt);
+    }
+    return toneForTriangle(h0, h1, h2, seaLevel, salt, shoreDistM);
 }
 
 function sampleGrid(heights: Float32Array, size: number, u: number, v: number, sea: number): number {
@@ -480,7 +644,7 @@ export function toneForHeight(h: number, seaLevel: number, salt: number = 0): Te
     return toneForLandHeight(h, salt);
 }
 
-function toneForLandHeight(_h: number, _salt: number): TerrainTone {
+export function toneForLandHeight(_h: number, _salt: number): TerrainTone {
     // Single land colour — sun shading provides slope variation.
     return TerrainTone.Grass;
 }

@@ -16,6 +16,7 @@ export interface MeshJobInput {
     basis: EnuBasis;
     pad?: FlattenPadSpec;
     padHeightMsl?: number;
+    landMask?: Uint8Array;
 }
 
 type JobResolve = (result: MeshBuildResult | null) => void;
@@ -198,5 +199,6 @@ function toRequest(input: MeshJobInput): MeshBuildRequest {
         },
         pad: input.pad,
         padHeightMsl: input.padHeightMsl,
+        landMask: input.landMask,
     };
 }

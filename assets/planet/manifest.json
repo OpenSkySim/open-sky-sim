@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "scheme": "geographic-quadtree",
   "ellipsoid": "WGS84",
   "tileSize": 257,
@@ -38,5 +38,17 @@
     89.10677662015136,
     88.89822127400161,
     0.0
-  ]
+  ],
+  "coastMask": {
+    "enabled": true,
+    "path": "{z}/{x}/{y}.lwm",
+    "vectorPath": "{z}/{x}/{y}.lvr",
+    "source": "osm",
+    "coverage": {
+      "west": -18.66041667777776,
+      "south": 26.97152778888889,
+      "east": -12.607083344444426,
+      "north": 30.487083344444443
+    }
+  }
 }

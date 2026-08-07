@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { behindHorizon, sphereInFrustum } from './culling';
+import { CoastStore } from './coastStore';
 import { DemStore } from './demStore';
 import { EnuBasis, EnuFrame, geodeticToEcef, ecefToEnu } from './geodesy';
 import {
@@ -20,7 +21,7 @@ import { PlanetManifest } from './manifest';
 import { FlattenPadSpec } from './flattenPad';
 import { refreshNodeCoastal } from './coast';
 import {
-    TileKey, approxTileEdgeMetres, childrenOf, rootTiles, tileBounds,
+    TileKey, approxTileEdgeMetres, childrenOf, parseTileKey, rootTiles, tileBounds,
     tileKeyString, tileRangeForBounds, LonLatBounds, boundsOverlap,
 } from './tiling';
 
@@ -81,6 +82,7 @@ export class PlanetQuadtree {
         private readonly pool: MeshPool,
         private readonly frame: EnuFrame,
         private readonly manifest: PlanetManifest,
+        private readonly coastStore: CoastStore | undefined = undefined,
         options: QuadtreeOptions = {},
     ) {
         this.maxZoom = options.maxZoom ?? manifest.maxZoom;
@@ -166,6 +168,61 @@ export class PlanetQuadtree {
             this.startBuild(node, 1e9);
         }
         return node;
+    }
+
+    /** Count pinned tiles with finished mesh builds (success or failure). */
+    pinnedMeshProgress(): { meshed: number; total: number; pending: number } {
+        let meshed = 0;
+        let pending = 0;
+        for (const key of this.pinned) {
+            const node = this.find(parseTileKey(key));
+            if (!node) {
+                continue;
+            }
+            if (node.mesh) {
+                meshed++;
+            } else if (node.loading) {
+                pending++;
+            }
+        }
+        return { meshed, total: this.pinned.size, pending };
+    }
+
+    /** Block until every pinned tile finishes its mesh build. */
+    async waitForPinnedMeshes(
+        onProgress?: (meshed: number, total: number) => void,
+    ): Promise<void> {
+        while (true) {
+            const { meshed, total, pending } = this.pinnedMeshProgress();
+            onProgress?.(meshed, total);
+            if (pending === 0) {
+                break;
+            }
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        }
+    }
+
+    /** True while any quadtree node still has a mesh build in flight. */
+    hasLoadingMeshes(): boolean {
+        const walk = (node: QuadNode): boolean => {
+            if (node.loading) {
+                return true;
+            }
+            if (node.children) {
+                for (const c of node.children) {
+                    if (walk(c)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        for (const r of this.roots) {
+            if (walk(r)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -404,17 +461,8 @@ export class PlanetQuadtree {
 
         const cached = this.store.getCached(id);
         if (cached) {
-            this.pool.request({
-                id,
-                heights: cached.heights.slice(),
-                size: cached.size,
-                geometricErrorM: cached.geometricErrorM || node.geometricErrorM,
-                maxErrorM: rtinErrorForZoom(id.z, node.geometricErrorM),
-                seaLevel: this.manifest.seaLevel,
-                basis: this.frame.basis,
-                pad: this.pad,
-                padHeightMsl: this.padHeightMsl,
-            }).then(finish);
+            this.dispatchMeshBuild(node, cached.heights.slice(), cached.size,
+                cached.geometricErrorM || node.geometricErrorM, finish);
             return;
         }
 
@@ -432,20 +480,47 @@ export class PlanetQuadtree {
                 }).then(finish);
                 return;
             }
+            this.dispatchMeshBuild(node, tile.heights.slice(), tile.size,
+                tile.geometricErrorM || node.geometricErrorM, finish);
+        }).catch(() => {
+            node.loading = false;
+        });
+    }
+
+    private dispatchMeshBuild(
+        node: QuadNode,
+        heights: Float32Array,
+        size: number,
+        geometricErrorM: number,
+        finish: (result: MeshBuildResult | null) => void,
+    ): void {
+        const id = node.id;
+        const coastTile = this.coastStore?.getCached(id);
+        const build = (landMask?: Uint8Array) => {
             this.pool.request({
                 id,
-                heights: tile.heights.slice(),
-                size: tile.size,
-                geometricErrorM: tile.geometricErrorM || node.geometricErrorM,
-                maxErrorM: rtinErrorForZoom(id.z, tile.geometricErrorM || node.geometricErrorM),
+                heights,
+                size,
+                geometricErrorM,
+                maxErrorM: rtinErrorForZoom(id.z, node.geometricErrorM),
                 seaLevel: this.manifest.seaLevel,
                 basis: this.frame.basis,
                 pad: this.pad,
                 padHeightMsl: this.padHeightMsl,
+                landMask,
             }).then(finish);
-        }).catch(() => {
-            node.loading = false;
-        });
+        };
+        if (coastTile?.cells) {
+            build(coastTile.cells.slice());
+            return;
+        }
+        if (!this.coastStore?.enabled) {
+            build(undefined);
+            return;
+        }
+        this.coastStore.request(id, 1).then(tile => {
+            build(tile?.cells.slice());
+        }).catch(() => build(undefined));
     }
 
     consumePendingDraw(): string[] {

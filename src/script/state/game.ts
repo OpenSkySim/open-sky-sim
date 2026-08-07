@@ -695,6 +695,7 @@ export class Game {
         this.selectAircraftById(settings.aircraftId, 'f22');
         setBootProgress(90, 'Loading aircraft...');
         await this.beginFlight(settings.spawnMode);
+        await this.waitForRequiredTerrain(90, 99);
         setBootProgress(100, 'Ready');
         window.addEventListener('resize', () => this.onViewportResize());
     }
@@ -1090,6 +1091,29 @@ export class Game {
         for (const ring of plan.rings) {
             this.planetTerrain.seedPlayArea(x, z, ring.radiusM, ring.zoom, ring.dense);
         }
+    }
+
+    private reportTerrainBootProgress(meshed: number, total: number, min: number, max: number): void {
+        const frac = total > 0 ? meshed / total : 1;
+        const pct = min + (max - min) * frac;
+        const label = total > 0
+            ? `Loading terrain (${meshed}/${total})...`
+            : 'Loading terrain...';
+        setBootProgress(pct, label);
+    }
+
+    private async waitForRequiredTerrain(min: number, max: number): Promise<void> {
+        if (!this.planetTerrain) {
+            return;
+        }
+        await this.planetTerrain.waitForPinnedMeshes((meshed, total) => {
+            this.reportTerrainBootProgress(meshed, total, min, max);
+        });
+        this.player.updateDisplayTransform();
+        this.cameraUpdater.update(0);
+        this.playerCamera.update();
+        await this.planetTerrain.primeForDisplay(this.playerCamera.main, V_RES, COCKPIT_FOV);
+        this.render();
     }
 
     /**
@@ -2444,7 +2468,7 @@ export class Game {
             this.scene.add(this.planetTerrain);
             const center = this.spawnCenterEnu(spawn);
             const plan = this.terrainSeedPlan(spawn);
-            setBootProgress(50, 'Loading terrain around aircraft...');
+            setBootProgress(45, 'Loading terrain tiles...');
             // Default 30 km; high-alt uses a fine core + coarse outer ring.
             await this.planetTerrain.prefetchPlayArea(plan.prefetchRadiusM, center.x, center.z);
             const [firstRing, ...extraRings] = plan.rings;
@@ -2460,6 +2484,7 @@ export class Game {
                     center.x, center.z, ring.radiusM, ring.zoom, ring.dense,
                 );
             }
+            setBootProgress(50, 'Building terrain meshes...');
             this.osmMapEntity = new OsmMapEntity(this.planetTerrain.frame.basis);
             this.scene.add(this.osmMapEntity);
         } else {
