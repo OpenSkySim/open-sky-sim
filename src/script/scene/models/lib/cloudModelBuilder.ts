@@ -27,6 +27,10 @@ export const CLOUD_PUFF_SHAPES: Record<string, CloudPuffLobe[]> = {
         { x: 15, y: 55, z: -15, r: 70 },
         { x: -50, y: 30, z: 60, r: 65 },
         { x: 70, y: 10, z: -70, r: 60 },
+        { x: -30, y: 45, z: 40, r: 55 },
+        { x: 110, y: 5, z: -30, r: 50 },
+        { x: -100, y: 40, z: 20, r: 55 },
+        { x: 40, y: 60, z: -40, r: 48 },
     ],
     medium: [
         { x: -170, y: 0, z: 0, r: 150 },
@@ -37,6 +41,12 @@ export const CLOUD_PUFF_SHAPES: Record<string, CloudPuffLobe[]> = {
         { x: -140, y: 40, z: -80, r: 90 },
         { x: 150, y: 60, z: 80, r: 95 },
         { x: 10, y: 120, z: -40, r: 80 },
+        { x: 260, y: 30, z: 20, r: 100 },
+        { x: -220, y: 15, z: 10, r: 110 },
+        { x: 90, y: 30, z: -90, r: 90 },
+        { x: 100, y: 100, z: 60, r: 85 },
+        { x: -100, y: 90, z: -50, r: 80 },
+        { x: 180, y: 100, z: -70, r: 75 },
     ],
     large: [
         { x: -230, y: 0, z: 0, r: 200 },
@@ -49,6 +59,15 @@ export const CLOUD_PUFF_SHAPES: Record<string, CloudPuffLobe[]> = {
         { x: 220, y: 70, z: 120, r: 150 },
         { x: -50, y: 220, z: -60, r: 100 },
         { x: 120, y: 280, z: 20, r: 90 },
+        { x: 330, y: 30, z: 10, r: 130 },
+        { x: -320, y: 20, z: 0, r: 140 },
+        { x: 0, y: 40, z: 130, r: 120 },
+        { x: -30, y: 40, z: -180, r: 130 },
+        { x: 150, y: 150, z: 80, r: 110 },
+        { x: -150, y: 140, z: -80, r: 100 },
+        { x: 0, y: 200, z: 100, r: 95 },
+        { x: 200, y: 40, z: 180, r: 110 },
+        { x: -220, y: 40, z: -180, r: 100 },
     ],
 };
 
@@ -77,8 +96,10 @@ function hash01(n: number): number {
     return s - Math.floor(s);
 }
 
-/** Half-angle (rad) of the cone around straight-up that growth puffs are scattered within. */
+/** Half-angle (rad) of the cone around straight-up that the top growth puffs are scattered within. */
 const HAZE_SCATTER_HALF_ANGLE = Math.PI * 0.3;
+/** Upper theta bound for the side puffs — up to the horizon, never past it. */
+const HAZE_SIDE_MAX_ANGLE = Math.PI * 0.5;
 
 interface HazeTier {
     puffsPerLobe: number;
@@ -88,6 +109,9 @@ interface HazeTier {
     distMax: number;
     radiusMin: number;
     radiusMax: number;
+    /** Angle off straight-up (rad) puffs are scattered within; defaults to [0, HAZE_SCATTER_HALF_ANGLE] (top only). */
+    thetaMin?: number;
+    thetaMax?: number;
 }
 
 /**
@@ -103,26 +127,34 @@ const HAZE_TIERS: HazeTier[] = [
     { puffsPerLobe: 5, alphaDither: 0.6, distMin: 0.68, distMax: 0.88, radiusMin: 0.26, radiusMax: 0.42 },
     { puffsPerLobe: 4, alphaDither: 0.45, distMin: 0.88, distMax: 1.08, radiusMin: 0.2, radiusMax: 0.34 },
     { puffsPerLobe: 4, alphaDither: 0.3, distMin: 1.08, distMax: 1.3, radiusMin: 0.15, radiusMax: 0.28 },
+    // Side puffs: pick up past the top cone, out toward (but never past) the
+    // horizon. The Y-clamp in buildHazeTierGeometry still guarantees these
+    // never dip below the cluster's flat underside even at grazing angles.
+    { puffsPerLobe: 5, alphaDither: 0.7, distMin: 0.55, distMax: 0.75, radiusMin: 0.28, radiusMax: 0.44, thetaMin: HAZE_SCATTER_HALF_ANGLE, thetaMax: HAZE_SIDE_MAX_ANGLE },
+    { puffsPerLobe: 5, alphaDither: 0.5, distMin: 0.75, distMax: 0.98, radiusMin: 0.22, radiusMax: 0.36, thetaMin: HAZE_SCATTER_HALF_ANGLE, thetaMax: HAZE_SIDE_MAX_ANGLE },
+    { puffsPerLobe: 4, alphaDither: 0.3, distMin: 0.98, distMax: 1.2, radiusMin: 0.17, radiusMax: 0.28, thetaMin: HAZE_SCATTER_HALF_ANGLE, thetaMax: HAZE_SIDE_MAX_ANGLE },
 ];
 
 /**
  * Extra icosahedron puffs — same construction as the solid lobes, just
- * smaller and scattered over each lobe's top (confined to a cone around
- * straight-up, so they only ever sit over the top, never the sides or
- * underside). Each puff's own bottom is then clamped to stay at or above the
- * cluster's flat base (`minY`), so a wide-angle puff on a low lobe can never
- * dip below the solid body's underside. Rendered separately per tier with a
- * dithered stipple (see build()) so they read as soft, semi-transparent
- * growth billowing off the cloud top, thinning out with distance from the
- * solid body.
+ * smaller and scattered over each lobe's top and sides (confined to an angle
+ * band off straight-up that never reaches past the horizon, so they never
+ * wrap onto the underside). Each puff's own bottom is then clamped to stay
+ * at or above the cluster's flat base (`minY`), so a wide-angle puff on a low
+ * lobe can never dip below the solid body's underside. Rendered separately
+ * per tier with a dithered stipple (see build()) so they read as soft,
+ * semi-transparent growth billowing off the cloud, thinning out with
+ * distance from the solid body.
  */
 function buildHazeTierGeometry(lobes: CloudPuffLobe[], tier: HazeTier, tierIndex: number, minY: number): THREE.BufferGeometry {
     const puffs: THREE.BufferGeometry[] = [];
+    const thetaMin = tier.thetaMin ?? 0;
+    const thetaMax = tier.thetaMax ?? HAZE_SCATTER_HALF_ANGLE;
     for (let li = 0; li < lobes.length; li++) {
         const l = lobes[li];
         for (let i = 0; i < tier.puffsPerLobe; i++) {
             const seed = li * 131 + tierIndex * 977 + i;
-            const theta = hash01(seed * 1.7) * HAZE_SCATTER_HALF_ANGLE; // angle off straight-up
+            const theta = thetaMin + hash01(seed * 1.7) * (thetaMax - thetaMin); // angle off straight-up
             const phi = hash01(seed * 3.1 + 11) * Math.PI * 2; // spin around up axis
             const dirX = Math.sin(theta) * Math.cos(phi);
             const dirY = Math.cos(theta);
@@ -157,7 +189,10 @@ export class CloudModelLibBuilder implements ModelLibBuilder {
 
         const baseY = Math.min(...this.lobes.map(l => l.y));
         const geometry = mergeGeometries(this.lobes.map(l => {
-            const g = new THREE.IcosahedronGeometry(l.r, 1);
+            // Detail 2 (vs. the haze puffs' detail 1) so the solid body's flat
+            // terrain-style shading picks up finer, less blocky facets — still
+            // low-poly, just a denser facet grain.
+            const g = new THREE.IcosahedronGeometry(l.r, 2);
             flattenBase(g, baseY - l.y);
             g.translate(l.x, l.y, l.z);
             return g;
