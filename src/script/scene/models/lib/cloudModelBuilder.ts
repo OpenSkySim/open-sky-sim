@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PaletteCategory } from '../../../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from "../../materials/materials";
 import { updateUniforms } from '../../utils';
@@ -90,6 +91,38 @@ function flattenBase(geometry: THREE.BufferGeometry, localFlattenY: number): THR
     return geometry;
 }
 
+/**
+ * Merge lobes into one geometry with smooth, welded per-vertex normals —
+ * Gouraud shading for the solid body (lit per-vertex, interpolated across
+ * each face) instead of the hard faceted look. `mergeGeometries` (used for
+ * the haze puffs and vegetation) concatenates non-indexed positions and
+ * computes flat per-face normals, which is right for those unshaded callers
+ * but wrong here: welding coincident vertices back into an indexed geometry
+ * first lets `computeVertexNormals` average adjacent face normals per shared
+ * vertex within each lobe, instead of one flat normal per triangle.
+ */
+function mergeGeometriesSmooth(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
+    let totalVertices = 0;
+    const nonIndexed: THREE.BufferGeometry[] = [];
+    for (const geo of geometries) {
+        const flat = geo.index ? geo.toNonIndexed() : geo;
+        nonIndexed.push(flat);
+        totalVertices += flat.getAttribute('position').count;
+    }
+    const positions = new Float32Array(totalVertices * 3);
+    let offset = 0;
+    for (const geo of nonIndexed) {
+        const attr = geo.getAttribute('position');
+        positions.set(attr.array as Float32Array, offset);
+        offset += attr.count * 3;
+    }
+    const merged = new THREE.BufferGeometry();
+    merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const welded = mergeVertices(merged);
+    welded.computeVertexNormals();
+    return welded;
+}
+
 /** Deterministic [0,1) hash — avoids Math.random() so a model's shape is stable across rebuilds. */
 function hash01(n: number): number {
     const s = Math.sin(n * 12.9898) * 43758.5453;
@@ -127,12 +160,16 @@ const HAZE_TIERS: HazeTier[] = [
     { puffsPerLobe: 5, alphaDither: 0.6, distMin: 0.68, distMax: 0.88, radiusMin: 0.26, radiusMax: 0.42 },
     { puffsPerLobe: 4, alphaDither: 0.45, distMin: 0.88, distMax: 1.08, radiusMin: 0.2, radiusMax: 0.34 },
     { puffsPerLobe: 4, alphaDither: 0.3, distMin: 1.08, distMax: 1.3, radiusMin: 0.15, radiusMax: 0.28 },
+    // Outermost: a few faint, thin wisps drifting further out than the rest,
+    // detached from the main haze mass.
+    { puffsPerLobe: 3, alphaDither: 0.18, distMin: 1.3, distMax: 1.6, radiusMin: 0.12, radiusMax: 0.22 },
     // Side puffs: pick up past the top cone, out toward (but never past) the
     // horizon. The Y-clamp in buildHazeTierGeometry still guarantees these
     // never dip below the cluster's flat underside even at grazing angles.
     { puffsPerLobe: 5, alphaDither: 0.7, distMin: 0.55, distMax: 0.75, radiusMin: 0.28, radiusMax: 0.44, thetaMin: HAZE_SCATTER_HALF_ANGLE, thetaMax: HAZE_SIDE_MAX_ANGLE },
     { puffsPerLobe: 5, alphaDither: 0.5, distMin: 0.75, distMax: 0.98, radiusMin: 0.22, radiusMax: 0.36, thetaMin: HAZE_SCATTER_HALF_ANGLE, thetaMax: HAZE_SIDE_MAX_ANGLE },
     { puffsPerLobe: 4, alphaDither: 0.3, distMin: 0.98, distMax: 1.2, radiusMin: 0.17, radiusMax: 0.28, thetaMin: HAZE_SCATTER_HALF_ANGLE, thetaMax: HAZE_SIDE_MAX_ANGLE },
+    { puffsPerLobe: 3, alphaDither: 0.18, distMin: 1.2, distMax: 1.5, radiusMin: 0.14, radiusMax: 0.24, thetaMin: HAZE_SCATTER_HALF_ANGLE, thetaMax: HAZE_SIDE_MAX_ANGLE },
 ];
 
 /**
@@ -188,10 +225,10 @@ export class CloudModelLibBuilder implements ModelLibBuilder {
         }
 
         const baseY = Math.min(...this.lobes.map(l => l.y));
-        const geometry = mergeGeometries(this.lobes.map(l => {
-            // Detail 2 (vs. the haze puffs' detail 1) so the solid body's flat
-            // terrain-style shading picks up finer, less blocky facets — still
-            // low-poly, just a denser facet grain.
+        const geometry = mergeGeometriesSmooth(this.lobes.map(l => {
+            // Detail 2 (vs. the haze puffs' detail 1) so the solid body's
+            // Gouraud shading picks up finer gradients across each lobe —
+            // still low-poly, just a denser vertex grain to shade across.
             const g = new THREE.IcosahedronGeometry(l.r, 2);
             flattenBase(g, baseY - l.y);
             g.translate(l.x, l.y, l.z);
@@ -201,9 +238,10 @@ export class CloudModelLibBuilder implements ModelLibBuilder {
             type: SceneMaterialPrimitiveType.MESH,
             category: PaletteCategory.SKY_CLOUD,
             depthWrite: true,
-            // Lit like terrain (per-face shade toward the light, dithered
-            // terminator) rather than a flat billboard fill — clouds are
-            // real volumes with a sunlit top and a shadowed, flat underside.
+            // Gouraud-shaded like terrain: per-vertex light term, interpolated
+            // across each face, rather than a flat billboard fill or hard
+            // per-face facets — clouds are real volumes with a sunlit top and
+            // a shadowed, flat underside.
             shaded: true,
         }));
         mesh.onBeforeRender = updateUniforms;
@@ -211,6 +249,11 @@ export class CloudModelLibBuilder implements ModelLibBuilder {
         // Screen-space stipple discard — no real alpha blend pipeline here,
         // just soft, semi-transparent growth puffs over the cloud top, one
         // mesh per density tier since alphaDither is a per-material uniform.
+        // These can't use the solid body's per-face lighting (shaded + alpha
+        // dither aren't combinable), so colorDither is forced on instead: it
+        // stipples in the palette's SKY_CLOUD shadow tone alongside the lit
+        // one in every display mode, so the haze reads as sitting partly in
+        // the cloud's own shadow rather than a flat, uniformly lit fill.
         const hazeMeshes = HAZE_TIERS.map((tier, i) => {
             const m = new THREE.Mesh(buildHazeTierGeometry(this.lobes, tier, i, baseY), materials.build({
                 type: SceneMaterialPrimitiveType.MESH,
@@ -218,14 +261,15 @@ export class CloudModelLibBuilder implements ModelLibBuilder {
                 depthWrite: false,
                 shaded: false,
                 alphaDither: tier.alphaDither,
+                colorDither: true,
             }));
             m.onBeforeRender = updateUniforms;
             return m;
         });
 
-        // Growth puffs reach up to ~1.2r out from a lobe's centre plus their
-        // own ~0.5r radius; pad the bound generously.
-        const HAZE_REACH = 1.7;
+        // Growth puffs reach up to ~1.6r out from a lobe's centre plus their
+        // own ~0.22r radius; pad the bound generously.
+        const HAZE_REACH = 1.9;
         let maxRadius = 0;
         let maxY = 0;
         for (const l of this.lobes) {
