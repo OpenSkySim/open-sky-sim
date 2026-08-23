@@ -2543,55 +2543,6 @@ export class Game {
             this.scene.add(speckles);
         }
 
-        const fieldOptions: SceneryFieldSettings = {
-            tilesInField: 7,
-            cellsInTile: 2,
-            tileLength: 2500.0,
-            cellVariations: [
-                {
-                    probability: 0.4,
-                    model: 'assets/farm01.gltf',
-                    jitter: 0.9,
-                    randomRotation: true
-                },
-                {
-                    probability: 0.25,
-                    model: 'lib:cropGreen',
-                    jitter: 1.2,
-                    randomRotation: false
-                },
-                {
-                    probability: 0.25,
-                    model: 'lib:cropYellow',
-                    jitter: 1.2,
-                    randomRotation: false
-                },
-                {
-                    probability: 0.05,
-                    model: 'lib:cropOchre',
-                    jitter: 0.8,
-                    randomRotation: true
-                },
-                {
-                    probability: 0.05,
-                    model: 'lib:cropRed',
-                    jitter: 0.8,
-                    randomRotation: true
-                }
-            ]
-        };
-        const sceneryHeight = (x: number, z: number) => this.groundHeightAt(x, z);
-        const field1 = new SceneryField(this.models, new THREE.Box2().setFromCenterAndSize(
-            new THREE.Vector2(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z + 10000),
-            new THREE.Vector2(80000, 10000),
-        ), fieldOptions, sceneryHeight);
-        this.scene.add(field1);
-        const field2 = new SceneryField(this.models, new THREE.Box2().setFromCenterAndSize(
-            new THREE.Vector2(AIRBASE_RUNWAY.x - 10000, AIRBASE_RUNWAY.z - 10000),
-            new THREE.Vector2(10000, 15000),
-        ), fieldOptions, sceneryHeight);
-        this.scene.add(field2);
-
         setBootProgress(60, 'Loading airbase...');
         await this.addAirBase(this.scene, this.models);
 
