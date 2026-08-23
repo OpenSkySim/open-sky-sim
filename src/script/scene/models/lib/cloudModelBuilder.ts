@@ -71,6 +71,74 @@ function flattenBase(geometry: THREE.BufferGeometry, localFlattenY: number): THR
     return geometry;
 }
 
+/** Deterministic [0,1) hash — avoids Math.random() so a model's shape is stable across rebuilds. */
+function hash01(n: number): number {
+    const s = Math.sin(n * 12.9898) * 43758.5453;
+    return s - Math.floor(s);
+}
+
+/** Half-angle (rad) of the cone around straight-up that growth puffs are scattered within. */
+const HAZE_SCATTER_HALF_ANGLE = Math.PI * 0.3;
+
+interface HazeTier {
+    puffsPerLobe: number;
+    /** Screen-space stipple density: higher = more opaque, lower = more see-through. */
+    alphaDither: number;
+    distMin: number;
+    distMax: number;
+    radiusMin: number;
+    radiusMax: number;
+}
+
+/**
+ * Density bands, closest/densest to farthest/sparsest — mimics how a real
+ * cumulus top softens gradually from the solid body into thin haze rather
+ * than cutting off at one uniform transparency.
+ */
+const HAZE_TIERS: HazeTier[] = [
+    { puffsPerLobe: 4, alphaDither: 0.98, distMin: 0.15, distMax: 0.28, radiusMin: 0.45, radiusMax: 0.65 },
+    { puffsPerLobe: 4, alphaDither: 0.95, distMin: 0.25, distMax: 0.4, radiusMin: 0.4, radiusMax: 0.6 },
+    { puffsPerLobe: 4, alphaDither: 0.88, distMin: 0.35, distMax: 0.5, radiusMin: 0.35, radiusMax: 0.55 },
+    { puffsPerLobe: 5, alphaDither: 0.75, distMin: 0.5, distMax: 0.68, radiusMin: 0.3, radiusMax: 0.48 },
+    { puffsPerLobe: 5, alphaDither: 0.6, distMin: 0.68, distMax: 0.88, radiusMin: 0.26, radiusMax: 0.42 },
+    { puffsPerLobe: 4, alphaDither: 0.45, distMin: 0.88, distMax: 1.08, radiusMin: 0.2, radiusMax: 0.34 },
+    { puffsPerLobe: 4, alphaDither: 0.3, distMin: 1.08, distMax: 1.3, radiusMin: 0.15, radiusMax: 0.28 },
+];
+
+/**
+ * Extra icosahedron puffs — same construction as the solid lobes, just
+ * smaller and scattered over each lobe's top (confined to a cone around
+ * straight-up, so they only ever sit over the top, never the sides or
+ * underside). Each puff's own bottom is then clamped to stay at or above the
+ * cluster's flat base (`minY`), so a wide-angle puff on a low lobe can never
+ * dip below the solid body's underside. Rendered separately per tier with a
+ * dithered stipple (see build()) so they read as soft, semi-transparent
+ * growth billowing off the cloud top, thinning out with distance from the
+ * solid body.
+ */
+function buildHazeTierGeometry(lobes: CloudPuffLobe[], tier: HazeTier, tierIndex: number, minY: number): THREE.BufferGeometry {
+    const puffs: THREE.BufferGeometry[] = [];
+    for (let li = 0; li < lobes.length; li++) {
+        const l = lobes[li];
+        for (let i = 0; i < tier.puffsPerLobe; i++) {
+            const seed = li * 131 + tierIndex * 977 + i;
+            const theta = hash01(seed * 1.7) * HAZE_SCATTER_HALF_ANGLE; // angle off straight-up
+            const phi = hash01(seed * 3.1 + 11) * Math.PI * 2; // spin around up axis
+            const dirX = Math.sin(theta) * Math.cos(phi);
+            const dirY = Math.cos(theta);
+            const dirZ = Math.sin(theta) * Math.sin(phi);
+            const dist = l.r * (tier.distMin + hash01(seed * 5.3 + 3) * (tier.distMax - tier.distMin));
+            const puffR = l.r * (tier.radiusMin + hash01(seed * 7.9 + 5) * (tier.radiusMax - tier.radiusMin));
+            const puffY = Math.max(l.y + dirY * dist, minY + puffR);
+
+            const g = new THREE.IcosahedronGeometry(puffR, 1);
+            g.translate(l.x + dirX * dist, puffY, l.z + dirZ * dist);
+            puffs.push(g);
+        }
+    }
+    return mergeGeometries(puffs);
+}
+
 export class CloudModelLibBuilder implements ModelLibBuilder {
 
     constructor(public type: string, private lobes: CloudPuffLobe[]) { }
@@ -105,17 +173,35 @@ export class CloudModelLibBuilder implements ModelLibBuilder {
         }));
         mesh.onBeforeRender = updateUniforms;
 
+        // Screen-space stipple discard — no real alpha blend pipeline here,
+        // just soft, semi-transparent growth puffs over the cloud top, one
+        // mesh per density tier since alphaDither is a per-material uniform.
+        const hazeMeshes = HAZE_TIERS.map((tier, i) => {
+            const m = new THREE.Mesh(buildHazeTierGeometry(this.lobes, tier, i, baseY), materials.build({
+                type: SceneMaterialPrimitiveType.MESH,
+                category: PaletteCategory.SKY_CLOUD,
+                depthWrite: false,
+                shaded: false,
+                alphaDither: tier.alphaDither,
+            }));
+            m.onBeforeRender = updateUniforms;
+            return m;
+        });
+
+        // Growth puffs reach up to ~1.2r out from a lobe's centre plus their
+        // own ~0.5r radius; pad the bound generously.
+        const HAZE_REACH = 1.7;
         let maxRadius = 0;
         let maxY = 0;
         for (const l of this.lobes) {
-            maxRadius = Math.max(maxRadius, Math.hypot(l.x, l.z) + l.r);
-            maxY = Math.max(maxY, l.y + l.r);
+            maxRadius = Math.max(maxRadius, Math.hypot(l.x, l.z) + l.r * HAZE_REACH);
+            maxY = Math.max(maxY, l.y + l.r * HAZE_REACH);
         }
 
         return {
             lod: [{
                 flats: [],
-                volumes: [mesh]
+                volumes: [mesh, ...hazeMeshes]
             }],
             animations: [],
             maxSize: 2 * maxRadius,
