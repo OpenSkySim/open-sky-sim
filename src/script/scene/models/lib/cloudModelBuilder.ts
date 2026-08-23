@@ -131,8 +131,15 @@ function hash01(n: number): number {
 
 /** Half-angle (rad) of the cone around straight-up that the top growth puffs are scattered within. */
 const HAZE_SCATTER_HALF_ANGLE = Math.PI * 0.3;
-/** Upper theta bound for the side puffs — up to the horizon, never past it. */
-const HAZE_SIDE_MAX_ANGLE = Math.PI * 0.5;
+/**
+ * Upper theta bound for the side puffs. Kept short of the true horizon
+ * (0.5π) — at grazing angles dirY collapses toward 0, so a puff on a lobe
+ * near the flat base has nothing to lift it and ends up hugging the
+ * underside plane, where its dither stipple reads as holes punched through
+ * the flat bottom. Stopping short keeps every side puff meaningfully above
+ * its lobe's own centre before the base clamp even has to act.
+ */
+const HAZE_SIDE_MAX_ANGLE = Math.PI * 0.4;
 
 interface HazeTier {
     puffsPerLobe: number;
@@ -198,7 +205,11 @@ function buildHazeTierGeometry(lobes: CloudPuffLobe[], tier: HazeTier, tierIndex
             const dirZ = Math.sin(theta) * Math.sin(phi);
             const dist = l.r * (tier.distMin + hash01(seed * 5.3 + 3) * (tier.distMax - tier.distMin));
             const puffR = l.r * (tier.radiusMin + hash01(seed * 7.9 + 5) * (tier.radiusMax - tier.radiusMin));
-            const puffY = Math.max(l.y + dirY * dist, minY + puffR);
+            // 1.6x margin, not just puffR: a puff merely touching minY still
+            // shows its dither stipple right on the flat base plane, reading
+            // as holes in the underside. This keeps every puff's whole body
+            // clear of it with room to spare.
+            const puffY = Math.max(l.y + dirY * dist, minY + puffR * 1.6);
 
             const g = new THREE.IcosahedronGeometry(puffR, 1);
             g.translate(l.x + dirX * dist, puffY, l.z + dirZ * dist);
@@ -207,6 +218,16 @@ function buildHazeTierGeometry(lobes: CloudPuffLobe[], tier: HazeTier, tierIndex
     }
     return mergeGeometries(puffs);
 }
+
+/**
+ * Progressive haze-tier budgets, closest LOD first. Each level also keeps
+ * the solid body mesh, so draw calls per instance run 1+N: 1+12, 1+8, 1+3, 1.
+ * HAZE_TIERS is ordered densest/closest-to-the-body first, so slicing from
+ * the front keeps the puffs that matter most to the silhouette and drops the
+ * sparse, faint outer and side tiers first — they're the least noticeable
+ * at any distance where LOD would already be kicking in.
+ */
+const LOD_HAZE_TIER_COUNTS = [HAZE_TIERS.length, 8, 3, 0];
 
 export class CloudModelLibBuilder implements ModelLibBuilder {
 
@@ -277,11 +298,17 @@ export class CloudModelLibBuilder implements ModelLibBuilder {
             maxY = Math.max(maxY, l.y + l.r * HAZE_REACH);
         }
 
+        // Same mesh/hazeMeshes objects are referenced from multiple LOD
+        // levels below (e.g. the solid `mesh` is in every level) — safe
+        // because a given tier's content is identical wherever it appears,
+        // so it doesn't matter which level's group ends up parenting it (see
+        // LODHelper.populateGroups); same sharing pattern as the other
+        // multi-LOD builders (mountainModelBuilder, skiJumpModelBuilder).
         return {
-            lod: [{
+            lod: LOD_HAZE_TIER_COUNTS.map(count => ({
                 flats: [],
-                volumes: [mesh, ...hazeMeshes]
-            }],
+                volumes: [mesh, ...hazeMeshes.slice(0, count)]
+            })),
             animations: [],
             maxSize: 2 * maxRadius,
             center: new THREE.Vector3(0, maxY / 2, 0)

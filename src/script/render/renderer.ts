@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Palette, PaletteCategory, PaletteColor } from '../config/palettes/palette';
 import { SceneMaterialManager } from '../scene/materials/materials';
 import { Scene, SceneLayers } from '../scene/scene';
+import { Entity } from '../scene/entity';
 import { assertExpr, assertIsDefined } from '../utils/asserts';
 import { getOverlayLayout, getOverlayStrokeWidth } from '../scene/entities/overlay/overlayUtils';
 import { CanvasPainter } from './screen/canvasPainter';
@@ -49,6 +50,13 @@ export interface RenderLayer {
     skipRefresh?: boolean;
     /** Override WebGL clear color for this target (e.g. space black). */
     clearColor?: string;
+    /**
+     * Excludes matching entities from just this layer's render list build —
+     * e.g. dropping the cloud/cirrus decks from a secondary camera's pass
+     * (weapons-target MFD) that doesn't warrant paying their full LOD/draw
+     * cost a second time.
+     */
+    entityFilter?: (entity: Entity) => boolean;
 }
 
 export class Renderer {
@@ -250,7 +258,7 @@ export class Renderer {
             this.current3DRenderLists.set(listId, list);
         }
         // LOD / culling use absolute ENU camera position.
-        scene.buildRenderLists(renderTarget.width, renderTarget.height, layer.camera, this.current3DRenderLists, palette);
+        scene.buildRenderLists(renderTarget.width, renderTarget.height, layer.camera, this.current3DRenderLists, palette, layer.entityFilter);
         for (const listId of layer.lists) {
             const list = this.current3DRenderLists.get(listId);
             assertIsDefined(list);
@@ -263,10 +271,17 @@ export class Renderer {
     /** Live diagnostics: draw calls + triangles per layer (__drawStats). */
     private recordDrawStats(layer: RenderLayer): void {
         const stats = ((globalThis as Record<string, unknown>).__drawStats ??= {}) as Record<string, unknown>;
+        const triangles = this.renderer.info.render.triangles;
         stats[`${layer.target}:${layer.lists.join('+')}`] = {
             calls: this.renderer.info.render.calls,
-            triangles: this.renderer.info.render.triangles,
+            triangles,
         };
+        // Main scene pass (terrain + entities combined): exact GPU triangle
+        // total, used by the HUD to derive the object/cloud split against the
+        // JS-side per-category estimates (__terrainStats, __fieldStats).
+        if (layer.lists.includes(SceneLayers.Terrain) && layer.lists.includes(SceneLayers.EntityVolumes)) {
+            (globalThis as Record<string, unknown>).__sceneTriangles = triangles;
+        }
     }
 
     /**

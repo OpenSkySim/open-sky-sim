@@ -17,7 +17,7 @@ import {
     GUN_AIM_DEFAULT_RANGE_M,
     GUN_MUZZLE_OFFSET,
 } from '../../../weapons/gunPipper';
-import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout, toFeet } from './overlayUtils';
+import { formatHeading, getOverlayLayout, getOverlayLogicalHeight, getOverlayTickStep, OverlayLayout } from './overlayUtils';
 import { DisplayUnits } from './displayUnits';
 import {
     aoaIndexerCue,
@@ -83,8 +83,6 @@ export class HUDEntity implements Entity {
 
     private heading: number = 0; // degrees, 0 is North, increases CW
     private altitude: number = 0; // display units (m or ft)
-    private altitudeMeters: number = 0; // raw sim altitude for debug
-    private engineThrustKn: number = 0;
     private renderFps: number = 0;
     private throttle: number = 0; // Normalised percentage [0, 1]
     private speed: number = 0; // display units (km/h or kt)
@@ -160,8 +158,6 @@ export class HUDEntity implements Entity {
         const displayVel = this.actor.getDisplayVelocity();
 
         this.altitude = Math.round(this.displayUnits.altitudeFromMeters(displayPos.y) * 10) / 10;
-        this.altitudeMeters = displayPos.y;
-        this.engineThrustKn = this.actor.engineThrustKn;
 
         this._v.copy(FORWARD)
             .applyQuaternion(displayQuat)
@@ -295,7 +291,7 @@ export class HUDEntity implements Entity {
             this.renderVerticalVelocityIndicator(layout, tickStep, altitudeX, altitudeY, painter, hudColor, hudWarnColor);
         }
 
-        this.renderAltitudeDebug(targetWidth, layoutScale, dx, dy, painter, hudSecondaryColor, fontSmall);
+        this.renderPerfStats(targetWidth, layoutScale, dx, dy, painter, hudSecondaryColor, fontSmall);
     }
 
     /**
@@ -357,7 +353,14 @@ export class HUDEntity implements Entity {
         return result;
     }
 
-    private renderAltitudeDebug(
+    /**
+     * Live perf readout: FPS plus rendered-triangle counts split by category.
+     * Terrain and cloud/cirrus triangles are tracked at their own render
+     * sites (__terrainStats, __fieldStats); "objects" is the remainder of
+     * the exact GPU-reported scene total (__sceneTriangles) after
+     * subtracting those two, so the three numbers always add up.
+     */
+    private renderPerfStats(
         targetWidth: number,
         layoutScale: number,
         dx: number,
@@ -369,12 +372,18 @@ export class HUDEntity implements Entity {
         const margin = Math.max(4, Math.round(4 * layoutScale));
         const lineHeight = font.charHeight + font.charSpacing;
         const x = targetWidth - margin + dx;
-        const altitudeFeet = toFeet(this.altitudeMeters);
 
-        painter.text(font, x, margin + dy, `${this.altitudeMeters.toFixed(1)}M`, hudColor, TextAlignment.RIGHT);
-        painter.text(font, x, margin + dy + lineHeight, `${altitudeFeet.toFixed(0)}FT`, hudColor, TextAlignment.RIGHT);
-        painter.text(font, x, margin + dy + lineHeight * 2, `${this.engineThrustKn.toFixed(1)}KN`, hudColor, TextAlignment.RIGHT);
-        painter.text(font, x, margin + dy + lineHeight * 3, `${this.renderFps.toFixed(0)}FPS`, hudColor, TextAlignment.RIGHT);
+        const terrainStats = (globalThis as Record<string, unknown>).__terrainStats as { triangles: number } | undefined;
+        const terrainTriangles = terrainStats?.triangles ?? 0;
+        const fieldStats = (globalThis as Record<string, unknown>).__fieldStats as Record<string, number> | undefined;
+        const cloudTriangles = (fieldStats?.cloud ?? 0) + (fieldStats?.cirrus ?? 0);
+        const sceneTriangles = ((globalThis as Record<string, unknown>).__sceneTriangles as number | undefined) ?? 0;
+        const objectTriangles = Math.max(0, sceneTriangles - terrainTriangles - cloudTriangles);
+
+        painter.text(font, x, margin + dy, `${this.renderFps.toFixed(0)}FPS`, hudColor, TextAlignment.RIGHT);
+        painter.text(font, x, margin + dy + lineHeight, `OBJ ${(objectTriangles / 1000).toFixed(1)}K`, hudColor, TextAlignment.RIGHT);
+        painter.text(font, x, margin + dy + lineHeight * 2, `TER ${(terrainTriangles / 1000).toFixed(1)}K`, hudColor, TextAlignment.RIGHT);
+        painter.text(font, x, margin + dy + lineHeight * 3, `CLD ${(cloudTriangles / 1000).toFixed(1)}K`, hudColor, TextAlignment.RIGHT);
     }
 
     private renderFlightDataIndicators(

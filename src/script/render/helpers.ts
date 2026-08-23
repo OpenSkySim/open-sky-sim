@@ -35,11 +35,30 @@ type LodAttachGroups = {
     groupAnim: THREE.Object3D;
     hasAnim: boolean;
     paletteTime: Palette['time'];
+    triangles: number;
 };
+
+/** Sums mesh triangle counts (incl. InstancedMesh) under an Object3D — used for the HUD's live triangle-count readout. */
+function countObjectTriangles(root: THREE.Object3D): number {
+    let total = 0;
+    root.traverse(child => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.isMesh) {
+            const geometry = mesh.geometry;
+            const vertexCount = geometry.index ? geometry.index.count : geometry.attributes.position.count;
+            const instances = (mesh as THREE.InstancedMesh).isInstancedMesh ? (mesh as THREE.InstancedMesh).count : 1;
+            total += (vertexCount / 3) * instances;
+        }
+    });
+    return total;
+}
 
 export class LODHelper {
 
     private elapsed: number = 0;
+
+    /** Triangle count actually attached to the render lists by the last addToRenderList() call. */
+    lastTriangles: number = 0;
 
     // Built groups cached per LOD level so several render passes with different
     // cameras (main view, weapons-target MFD, map MFD) can each pick their own
@@ -143,6 +162,7 @@ export class LODHelper {
 
         const requestedLod = forceLodLevel !== undefined ? forceLodLevel : getLodLevel(position, scale, targetWidth, camera, this.model.maxSize, this.bias);
         const lodLevel = resolveLodLevel(this.model, requestedLod);
+        this.lastTriangles = 0;
         if (lodLevel < 0) return;
 
         if (hasFlats && this.model.lod[lodLevel].flats.length > 0) {
@@ -176,6 +196,7 @@ export class LODHelper {
                 groupAnim: new THREE.Object3D(),
                 hasAnim: false,
                 paletteTime: palette.time,
+                triangles: 0,
             };
             groups.set(lodLevel, entry);
             this.populateGroups(entry, collection, palette.time);
@@ -186,6 +207,7 @@ export class LODHelper {
             this.populateGroups(entry, collection, palette.time);
         }
 
+        this.lastTriangles += entry.triangles;
         const { group, groupAnim, hasAnim } = entry;
         group.position.copy(position);
         group.quaternion.copy(quaternion);
@@ -216,6 +238,7 @@ export class LODHelper {
                 }
             }
         }
+        entry.triangles = countObjectTriangles(entry.group) + countObjectTriangles(entry.groupAnim);
     }
 }
 

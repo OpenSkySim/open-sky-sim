@@ -31,6 +31,7 @@ import { ShipWakeEntity } from '../scene/entities/shipWake';
 import { CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize } from '../scene/entities/overlay/cockpit';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
 import { HUDEntity } from '../scene/entities/overlay/hud';
+import { PerfHudEntity } from '../scene/entities/overlay/perfHud';
 import { TelemetryGraph } from '../scene/entities/overlay/telemetryGraph';
 import { TelemetryGraphWindow } from '../scene/entities/overlay/telemetryGraphWindow';
 import { PlayerEntity, PlayerSpawnState } from '../scene/entities/player';
@@ -332,6 +333,18 @@ export class Game {
     private cloudField: SceneryField | undefined;
     /** High-altitude cirrus streak layer; disabled above {@link SPACE_SKY_ALTITUDE_M} alongside the sky. */
     private cirrusField: SceneryField | undefined;
+    /**
+     * Excludes the cloud/cirrus decks from the weapons-target MFD's camera
+     * pass — that pass already rebuilds the whole render list a second time
+     * for a tiny picture-in-picture view, and paying full cloud-field LOD
+     * cost again there is pure waste. Declared once (not inline per RenderLayer)
+     * so it stays a stable function reference; reads cloudField/cirrusField
+     * live via `this`, so field init order relative to setupScene() doesn't matter.
+     */
+    private readonly excludeSkyFieldsFilter = (entity: Entity): boolean =>
+        entity !== this.cloudField && entity !== this.cirrusField;
+    /** F9-toggled live FPS / draw-call / terrain-LOD readout. */
+    private perfHud: PerfHudEntity | undefined;
 
     /** Live Kuznetsov entity; cables / trap physics / ILS follow its pose. */
     private kuz: GroundTargetEntity | undefined;
@@ -546,7 +559,8 @@ export class Game {
             {
                 target: WEAPONSTARGET_RENDER_TARGET_LO,
                 camera: this.targetCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
+                entityFilter: this.excludeSkyFieldsFilter
             }
         ];
         const targetLayersHi: RenderLayer[] = [
@@ -563,7 +577,8 @@ export class Game {
             {
                 target: WEAPONSTARGET_RENDER_TARGET_HI,
                 camera: this.targetCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
+                entityFilter: this.excludeSkyFieldsFilter
             }
         ];
         const mapLayersLo: RenderLayer[] = [
@@ -650,7 +665,8 @@ export class Game {
             {
                 target: WEAPONSTARGET_RENDER_TARGET_HD,
                 camera: this.targetCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
+                entityFilter: this.excludeSkyFieldsFilter
             }
         ];
         const mapLayersHd: RenderLayer[] = [
@@ -1853,6 +1869,13 @@ export class Game {
                     setTerrainWireframe(this.materials, !isTerrainWireframe());
                     break;
                 }
+                case 'F9': {
+                    event.preventDefault();
+                    if (this.perfHud) {
+                        this.perfHud.enabled = !this.perfHud.enabled;
+                    }
+                    break;
+                }
                 case 'F12': {
                     event.preventDefault();
                     this.toggleShowcaseView();
@@ -2485,11 +2508,17 @@ export class Game {
             cellsInTile: 2,
             tileLength: 6000,
             cellVariations: [
-                { probability: 0.12, model: 'lib:cloudLarge', jitter: 1, randomRotation: true },
-                { probability: 0.18, model: 'lib:cloudMedium', jitter: 1, randomRotation: true },
-                { probability: 0.15, model: 'lib:cloudSmall', jitter: 1, randomRotation: true },
+                // Lower (negative) LOD bias than the default: clouds are huge,
+                // numerous and never inspected up close like a vehicle, so
+                // their haze-tier LOD levels (see cloudModelBuilder.ts) should
+                // start shedding detail well before the default bias would
+                // ever let them.
+                { probability: 0.12, model: 'lib:cloudLarge', jitter: 1, randomRotation: true, lodBias: -2 },
+                { probability: 0.18, model: 'lib:cloudMedium', jitter: 1, randomRotation: true, lodBias: -2 },
+                { probability: 0.15, model: 'lib:cloudSmall', jitter: 1, randomRotation: true, lodBias: -2 },
                 { probability: 0.55, model: 'lib:cloudNone', jitter: 0, randomRotation: false },
             ],
+            statsKey: 'cloud',
         };
         const cloudAltitudeAt = (x: number, z: number) =>
             CLOUD_BASE_ALTITUDE_M + Math.sin(x * 0.00021) * Math.cos(z * 0.00017) * CLOUD_ALTITUDE_VARIATION_M;
@@ -2509,12 +2538,13 @@ export class Game {
         const cirrusFieldOptions: SceneryFieldSettings = {
             tilesInField: 7,
             cellsInTile: 2,
-            tileLength: 30000,
+            tileLength: 60000,
             cellVariations: [
                 { probability: 0.08, model: 'lib:cirrusWide', jitter: 1, randomRotation: false },
                 { probability: 0.12, model: 'lib:cirrusThin', jitter: 1, randomRotation: false },
                 { probability: 0.8, model: 'lib:cirrusNone', jitter: 0, randomRotation: false },
             ],
+            statsKey: 'cirrus',
         };
         const cirrusAltitudeAt = (x: number, z: number) =>
             CIRRUS_BASE_ALTITUDE_M + Math.sin(x * 0.00013 + 5) * Math.cos(z * 0.00009 + 5) * CIRRUS_ALTITUDE_VARIATION_M;
@@ -2622,6 +2652,9 @@ export class Game {
         this.scene.add(exteriorData);
 
         this.scene.add(this.spawnMenu);
+
+        this.perfHud = new PerfHudEntity();
+        this.scene.add(this.perfHud);
     }
 
     private async addRefinery(scene: Scene, models: ModelManager) {

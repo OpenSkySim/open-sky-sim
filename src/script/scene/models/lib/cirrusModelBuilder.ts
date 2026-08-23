@@ -28,15 +28,22 @@ export interface CirrusWisp {
  */
 export const CIRRUS_STREAK_SHAPES: Record<string, CirrusWisp[]> = {
     thin: [
-        { x: 0, y: 0, z: 0, length: 4500, width: 800, height: 175 },
-        { x: 2600, y: 30, z: 225, length: 3100, width: 600, height: 140 },
-        { x: -2350, y: -25, z: -175, length: 2800, width: 550, height: 130 },
+        { x: 0, y: 0, z: 0, length: 13500, width: 2400, height: 525 },
+        { x: 7800, y: 90, z: 675, length: 9300, width: 1800, height: 420 },
+        { x: -7050, y: -75, z: -525, length: 8400, width: 1650, height: 390 },
+        { x: 3600, y: 45, z: -840, length: 7800, width: 1500, height: 360 },
+        { x: -4200, y: -36, z: 780, length: 7200, width: 1440, height: 345 },
+        { x: 10200, y: 120, z: -180, length: 6000, width: 1260, height: 300 },
     ],
     wide: [
-        { x: 0, y: 0, z: 0, length: 7000, width: 1300, height: 225 },
-        { x: 3800, y: 50, z: 325, length: 4750, width: 1000, height: 190 },
-        { x: -3600, y: -40, z: -375, length: 4500, width: 950, height: 180 },
-        { x: 1100, y: 80, z: -850, length: 3500, width: 750, height: 150 },
+        { x: 0, y: 0, z: 0, length: 21000, width: 3900, height: 675 },
+        { x: 11400, y: 150, z: 975, length: 14250, width: 3000, height: 570 },
+        { x: -10800, y: -120, z: -1125, length: 13500, width: 2850, height: 540 },
+        { x: 3300, y: 240, z: -2550, length: 10500, width: 2250, height: 450 },
+        { x: -5400, y: 60, z: 2100, length: 9600, width: 2040, height: 420 },
+        { x: 15600, y: -60, z: -1200, length: 8400, width: 1800, height: 390 },
+        { x: -14400, y: 180, z: 900, length: 9000, width: 1950, height: 405 },
+        { x: 6600, y: -90, z: 2850, length: 7800, width: 1680, height: 360 },
     ],
 };
 

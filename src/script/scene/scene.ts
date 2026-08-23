@@ -35,10 +35,18 @@ export class Scene {
         }
     }
 
-    buildRenderLists(targetWidth: number, targetHeight: number, camera: THREE.Camera, renderLists: Map<string, THREE.Scene>, palette: Palette) {
+    /**
+     * `extraFilter` is a one-off, per-call filter ANDed with the ambient one
+     * set via {@link setRenderFilter} — for excluding entities from a single
+     * render pass (e.g. a secondary camera) without disturbing the ambient
+     * filter other passes in the same frame rely on (showcase mode).
+     */
+    buildRenderLists(targetWidth: number, targetHeight: number, camera: THREE.Camera, renderLists: Map<string, THREE.Scene>, palette: Palette, extraFilter?: (entity: Entity) => boolean) {
         for (let i = 0; i < this.entities.length; i++) {
             const entity = this.entities[i];
-            if (entity.enabled && (!this.renderFilter || this.renderFilter(entity))) {
+            if (entity.enabled
+                && (!this.renderFilter || this.renderFilter(entity))
+                && (!extraFilter || extraFilter(entity))) {
                 entity.render3D(targetWidth, targetHeight, camera, renderLists, palette);
             }
         }
