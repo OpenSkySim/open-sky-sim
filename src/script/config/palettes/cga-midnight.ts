@@ -19,6 +19,7 @@ const colors: PaletteColors = {
     [PaletteCategory.FOG_LIGHT]: CGA_WHITE,
 
     [PaletteCategory.SKY]: CGA_BLACK,
+    [PaletteCategory.SKY_CLOUD]: [CGA_CYAN, CGA_BLACK],
 
     [PaletteCategory.TERRAIN_DEFAULT]: CGA_MAGENTA,
     [PaletteCategory.TERRAIN_SAND]: CGA_MAGENTA,

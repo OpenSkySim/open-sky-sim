@@ -17,6 +17,7 @@ export enum PaletteCategory {
     FOG_LIGHT = 'FOG_LIGHT',
 
     SKY = 'SKY',
+    SKY_CLOUD = 'SKY_CLOUD',
 
     TERRAIN_DEFAULT = 'TERRAIN_DEFAULT',
     TERRAIN_SAND = 'TERRAIN_SAND',

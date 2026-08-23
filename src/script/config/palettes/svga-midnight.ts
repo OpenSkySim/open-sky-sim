@@ -18,6 +18,7 @@ const colors: PaletteColors = {
     [PaletteCategory.FOG_LIGHT]: '#ffffff',
 
     [PaletteCategory.SKY]: '#0f1418',
+    [PaletteCategory.SKY_CLOUD]: ['#3a4550', '#1c232a'],
 
     [PaletteCategory.TERRAIN_DEFAULT]: '#101611',
     [PaletteCategory.TERRAIN_SAND]: '#141c16',

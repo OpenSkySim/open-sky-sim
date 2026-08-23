@@ -96,6 +96,10 @@ import {
 } from './worldLayout';
 
 /** How many AI opponents the combat sim spawns. */
+/** Loose cloud deck: base altitude and per-puff undulation, well under HIGH_ALTITUDE_M. */
+const CLOUD_BASE_ALTITUDE_M = 1400;
+const CLOUD_ALTITUDE_VARIATION_M = 500;
+
 const AI_OPPONENT_COUNT = 1;
 /** Seconds the AI flies straight before engaging. */
 const AI_STRAIGHT_DURATION_SEC = 1;
@@ -321,6 +325,8 @@ export class Game {
     private osmMapEntity: OsmMapEntity | undefined;
     /** Atmospheric sky billboard; disabled above {@link SPACE_SKY_ALTITUDE_M}. */
     private skyEntity: SimpleEntity | undefined;
+    /** Puffy low-poly cloud deck; disabled above {@link SPACE_SKY_ALTITUDE_M} alongside the sky. */
+    private cloudField: SceneryField | undefined;
 
     /** Live Kuznetsov entity; cables / trap physics / ILS follow its pose. */
     private kuz: GroundTargetEntity | undefined;
@@ -1583,6 +1589,9 @@ export class Game {
         const inSpace = this.playerCamera.main.position.y >= SPACE_SKY_ALTITUDE_M
             && this.view !== PlayerViewState.SHOWCASE;
         this.skyEntity.enabled = !inSpace;
+        if (this.cloudField) {
+            this.cloudField.enabled = !inSpace;
+        }
     }
 
     /** Black clear behind terrain when above the atmosphere threshold. */
@@ -2459,6 +2468,30 @@ export class Game {
         this.skyEntity = new SimpleEntity(this.models.getModel('lib:SKY'), SceneLayers.BackgroundSky, SceneLayers.BackgroundSky);
         this.skyEntity.position.set(0, 7, 0);
         this.scene.add(this.skyEntity);
+
+        // Low-poly cumulus deck, tiled around the camera (see SceneryField) with a
+        // huge bounding area so it always covers wherever the player roams. Altitude
+        // undulates smoothly per puff so the deck doesn't look perfectly flat.
+        const cloudFieldOptions: SceneryFieldSettings = {
+            tilesInField: 9,
+            cellsInTile: 2,
+            tileLength: 6000,
+            cellVariations: [
+                { probability: 0.12, model: 'lib:cloudLarge', jitter: 1, randomRotation: true },
+                { probability: 0.18, model: 'lib:cloudMedium', jitter: 1, randomRotation: true },
+                { probability: 0.15, model: 'lib:cloudSmall', jitter: 1, randomRotation: true },
+                { probability: 0.55, model: 'lib:cloudNone', jitter: 0, randomRotation: false },
+            ],
+        };
+        const cloudAltitudeAt = (x: number, z: number) =>
+            CLOUD_BASE_ALTITUDE_M + Math.sin(x * 0.00021) * Math.cos(z * 0.00017) * CLOUD_ALTITUDE_VARIATION_M;
+        this.cloudField = new SceneryField(
+            this.models,
+            new THREE.Box2(new THREE.Vector2(-1e7, -1e7), new THREE.Vector2(1e7, 1e7)),
+            cloudFieldOptions,
+            cloudAltitudeAt,
+        );
+        this.scene.add(this.cloudField);
 
         if (manifest) {
             setBootProgress(35, 'Loading terrain...');

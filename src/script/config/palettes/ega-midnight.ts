@@ -19,6 +19,7 @@ const colors: PaletteColors = {
     [PaletteCategory.FOG_LIGHT]: EGA_WHITE_BRIGHT,
 
     [PaletteCategory.SKY]: EGA_BLUE,
+    [PaletteCategory.SKY_CLOUD]: [EGA_WHITE, EGA_BLACK_BRIGHT],
 
     [PaletteCategory.TERRAIN_DEFAULT]: EGA_BLACK_BRIGHT,
     [PaletteCategory.TERRAIN_SAND]: EGA_BLACK_BRIGHT,

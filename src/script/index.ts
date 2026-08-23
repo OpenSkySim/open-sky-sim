@@ -22,6 +22,7 @@ import { PLAYER_SIM_ID } from './physics/sim/simIds';
 import { Renderer } from './render/renderer';
 import { SceneMaterialManager } from './scene/materials/materials';
 import { BackgroundModelLibBuilder } from './scene/models/lib/backgroundModelBuilder';
+import { CLOUD_PUFF_SHAPES, CloudModelLibBuilder } from './scene/models/lib/cloudModelBuilder';
 import { FieldModelLibBuilder, FieldModelType } from './scene/models/lib/fieldModelBuilder';
 import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, MountainModelLibBuilder } from './scene/models/lib/mountainModelBuilder';
 import { ArrestorCablesModelLibBuilder } from './scene/models/lib/arrestorCablesModelBuilder';
@@ -54,6 +55,10 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
     const models = new ModelManager(materials, [
         new BackgroundModelLibBuilder(BackgroundModelLibBuilder.Type.GROUND),
         new BackgroundModelLibBuilder(BackgroundModelLibBuilder.Type.SKY),
+        new CloudModelLibBuilder('cloudNone', []),
+        new CloudModelLibBuilder('cloudSmall', CLOUD_PUFF_SHAPES.small),
+        new CloudModelLibBuilder('cloudMedium', CLOUD_PUFF_SHAPES.medium),
+        new CloudModelLibBuilder('cloudLarge', CLOUD_PUFF_SHAPES.large),
         new FieldModelLibBuilder('pavement', FieldModelType.SQUARE, PaletteCategory.SCENERY_ROAD_SECONDARY),
         new FieldModelLibBuilder('cropGreen', FieldModelType.SQUARE, PaletteCategory.SCENERY_FIELD_GREEN_LIGHT, 200),
         new FieldModelLibBuilder('cropYellow', FieldModelType.SQUARE, PaletteCategory.SCENERY_FIELD_YELLOW, 200),
