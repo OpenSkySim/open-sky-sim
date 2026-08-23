@@ -22,6 +22,7 @@ import { PLAYER_SIM_ID } from './physics/sim/simIds';
 import { Renderer } from './render/renderer';
 import { SceneMaterialManager } from './scene/materials/materials';
 import { BackgroundModelLibBuilder } from './scene/models/lib/backgroundModelBuilder';
+import { CIRRUS_STREAK_SHAPES, CirrusModelLibBuilder } from './scene/models/lib/cirrusModelBuilder';
 import { CLOUD_PUFF_SHAPES, CloudModelLibBuilder } from './scene/models/lib/cloudModelBuilder';
 import { FieldModelLibBuilder, FieldModelType } from './scene/models/lib/fieldModelBuilder';
 import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, MountainModelLibBuilder } from './scene/models/lib/mountainModelBuilder';
@@ -59,6 +60,9 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         new CloudModelLibBuilder('cloudSmall', CLOUD_PUFF_SHAPES.small),
         new CloudModelLibBuilder('cloudMedium', CLOUD_PUFF_SHAPES.medium),
         new CloudModelLibBuilder('cloudLarge', CLOUD_PUFF_SHAPES.large),
+        new CirrusModelLibBuilder('cirrusNone', []),
+        new CirrusModelLibBuilder('cirrusThin', CIRRUS_STREAK_SHAPES.thin),
+        new CirrusModelLibBuilder('cirrusWide', CIRRUS_STREAK_SHAPES.wide),
         new FieldModelLibBuilder('pavement', FieldModelType.SQUARE, PaletteCategory.SCENERY_ROAD_SECONDARY),
         new MountainModelLibBuilder('hill', HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),
         new MountainModelLibBuilder('mountain', MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, PaletteCategory.SCENERY_MOUNTAIN_GRASS, false, false),

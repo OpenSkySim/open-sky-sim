@@ -99,6 +99,9 @@ import {
 /** Loose cloud deck: base altitude and per-puff undulation, well under HIGH_ALTITUDE_M. */
 const CLOUD_BASE_ALTITUDE_M = 1400;
 const CLOUD_ALTITUDE_VARIATION_M = 500;
+/** High-altitude cirrus streak layer, just under HIGH_ALTITUDE_M — a separate, higher band above the cumulus deck. */
+const CIRRUS_BASE_ALTITUDE_M = 9200;
+const CIRRUS_ALTITUDE_VARIATION_M = 400;
 
 const AI_OPPONENT_COUNT = 1;
 /** Seconds the AI flies straight before engaging. */
@@ -327,6 +330,8 @@ export class Game {
     private skyEntity: SimpleEntity | undefined;
     /** Puffy low-poly cloud deck; disabled above {@link SPACE_SKY_ALTITUDE_M} alongside the sky. */
     private cloudField: SceneryField | undefined;
+    /** High-altitude cirrus streak layer; disabled above {@link SPACE_SKY_ALTITUDE_M} alongside the sky. */
+    private cirrusField: SceneryField | undefined;
 
     /** Live Kuznetsov entity; cables / trap physics / ILS follow its pose. */
     private kuz: GroundTargetEntity | undefined;
@@ -1592,6 +1597,9 @@ export class Game {
         if (this.cloudField) {
             this.cloudField.enabled = !inSpace;
         }
+        if (this.cirrusField) {
+            this.cirrusField.enabled = !inSpace;
+        }
     }
 
     /** Black clear behind terrain when above the atmosphere threshold. */
@@ -2492,6 +2500,31 @@ export class Game {
             cloudAltitudeAt,
         );
         this.scene.add(this.cloudField);
+
+        // High-altitude cirrus streaks — a separate, sparser, much higher
+        // band above the cumulus deck. Bigger tiles since streaks are large
+        // and meant to read as occasional wisps rather than a solid layer.
+        // No random rotation: real cirrus streaks all align with the same
+        // high-altitude wind shear, so every streak keeps the same heading.
+        const cirrusFieldOptions: SceneryFieldSettings = {
+            tilesInField: 7,
+            cellsInTile: 2,
+            tileLength: 30000,
+            cellVariations: [
+                { probability: 0.08, model: 'lib:cirrusWide', jitter: 1, randomRotation: false },
+                { probability: 0.12, model: 'lib:cirrusThin', jitter: 1, randomRotation: false },
+                { probability: 0.8, model: 'lib:cirrusNone', jitter: 0, randomRotation: false },
+            ],
+        };
+        const cirrusAltitudeAt = (x: number, z: number) =>
+            CIRRUS_BASE_ALTITUDE_M + Math.sin(x * 0.00013 + 5) * Math.cos(z * 0.00009 + 5) * CIRRUS_ALTITUDE_VARIATION_M;
+        this.cirrusField = new SceneryField(
+            this.models,
+            new THREE.Box2(new THREE.Vector2(-1e7, -1e7), new THREE.Vector2(1e7, 1e7)),
+            cirrusFieldOptions,
+            cirrusAltitudeAt,
+        );
+        this.scene.add(this.cirrusField);
 
         if (manifest) {
             setBootProgress(35, 'Loading terrain...');
