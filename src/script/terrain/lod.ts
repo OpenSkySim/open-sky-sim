@@ -56,6 +56,29 @@ export const PREFETCH_LOOKAHEAD_S = 4;
  */
 export const PREFETCH_MIN_DISTANCE_M = 3000;
 
+/**
+ * Fastest the view can swing, in rad/s. Matches the numpad orbit rate, which
+ * is the quickest way to move the camera relative to the world.
+ */
+const MAX_VIEW_TURN_RATE_RAD_S = Math.PI;
+
+/**
+ * Angular slack added to the culling frustum.
+ *
+ * The draw list is rebuilt once per {@link RECONCILE_INTERVAL_MS} and culled
+ * exactly to the frustum, so a camera that turns during that window sweeps
+ * screen edges the last pass had no reason to keep -- and they render as
+ * nothing until the next reconcile catches up. Widening the test by rather
+ * more than one interval's worth of rotation means the rim is already drawn
+ * when the edge reaches it. The extra band costs draw calls, so it is sized
+ * from the actual worst-case turn rate rather than picked by eye.
+ */
+export const FRUSTUM_CULL_MARGIN_RAD =
+    MAX_VIEW_TURN_RATE_RAD_S * (RECONCILE_INTERVAL_MS / 1000) * 1.2;
+
+/** Precomputed, since it multiplies a distance on every node visit. */
+export const FRUSTUM_CULL_MARGIN_TAN = Math.tan(FRUSTUM_CULL_MARGIN_RAD);
+
 /** Mesh cache ceiling in bytes. Tiles are evicted least-recently-drawn first. */
 export const MESH_CACHE_BYTES = 256 * 1024 * 1024;
 

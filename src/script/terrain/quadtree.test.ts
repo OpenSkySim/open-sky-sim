@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import * as THREE from 'three';
 import { Quadtree } from './quadtree';
 import { TerrainManifest } from './manifest';
-import { DETAIL_SCALE_MAX } from './lod';
+import { DETAIL_SCALE_MAX, FRUSTUM_CULL_MARGIN_RAD, RECONCILE_INTERVAL_MS } from './lod';
 import { TileKey, parentOf, tileKeyString } from './tiling';
 
 function manifest(maxZoom = 4): TerrainManifest {
@@ -252,6 +252,66 @@ describe('Quadtree', () => {
                 deepest(relaxed) < deepest(tight),
                 'the governor can no longer coarsen baked terrain',
             );
+        });
+    });
+
+    describe('frustum margin (regression)', () => {
+        /**
+         * The draw list is rebuilt once per reconcile and was culled exactly to
+         * the frustum, so a camera turning at the orbit rate swept screen edges
+         * that had been correctly dropped a moment earlier and were not back
+         * yet -- they rendered as nothing until the next pass caught up.
+         */
+        const FOV = 50, ASPECT = 1.6;
+        const halfHFovRad = Math.atan(Math.tan(FOV * Math.PI / 360) * ASPECT);
+
+        /** A single resident tile sitting `azDeg` off the view axis. */
+        function treeAtAzimuth(azDeg: number, distanceM = 50_000) {
+            const a = azDeg * Math.PI / 180;
+            return new Quadtree({
+                manifest: manifest(6),
+                tilePosition: () => new THREE.Vector3(
+                    Math.sin(a) * distanceM, 0, Math.cos(a) * distanceM),
+                tileRadius: () => 1000,
+                isResident: () => true,
+                isOcean: () => false,
+                earthCenter: new THREE.Vector3(0, -6378137, 0),
+                maxZoom: 6,
+            });
+        }
+
+        function axisCamera(): THREE.PerspectiveCamera {
+            const c = new THREE.PerspectiveCamera(FOV, ASPECT, 1, 5_000_000);
+            c.position.set(0, 500, 0);
+            c.lookAt(0, 500, 1);
+            c.updateMatrixWorld(true);
+            c.updateProjectionMatrix();
+            return c;
+        }
+
+        it('covers a full reconcile interval at the fastest the view can turn', () => {
+            // ORBIT_RATE is PI rad/s, so one 100 ms interval is 0.314 rad.
+            const perInterval = Math.PI * (RECONCILE_INTERVAL_MS / 1000);
+            assert.ok(
+                FRUSTUM_CULL_MARGIN_RAD >= perInterval,
+                `margin ${FRUSTUM_CULL_MARGIN_RAD.toFixed(3)} < one interval ${perInterval.toFixed(3)}`,
+            );
+        });
+
+        it('keeps a tile just outside the frustum edge', () => {
+            const justOutside = (halfHFovRad + 0.1) * 180 / Math.PI;
+            const r = treeAtAzimuth(justOutside).update(axisCamera(), 200, FOV, 1);
+            assert.ok(
+                r.draw.length > 0,
+                `a tile ${justOutside.toFixed(1)} deg off-axis was culled to the frustum edge`,
+            );
+        });
+
+        it('still drops a tile well outside the margin', () => {
+            // The margin is slack, not a licence to draw the whole sphere.
+            const wayOutside = (halfHFovRad + FRUSTUM_CULL_MARGIN_RAD) * 180 / Math.PI + 25;
+            const r = treeAtAzimuth(wayOutside).update(axisCamera(), 200, FOV, 1);
+            assert.equal(r.draw.length, 0, `a tile ${wayOutside.toFixed(1)} deg off-axis was drawn`);
         });
     });
 

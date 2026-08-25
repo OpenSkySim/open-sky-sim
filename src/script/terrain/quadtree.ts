@@ -16,7 +16,8 @@ import * as THREE from 'three';
 import { behindHorizon, sphereInFrustum } from './culling';
 import { WGS84_A } from './geodesy';
 import {
-    ellipsoidSagittaM, shouldRefine, terrainMaxZoomForAltitudeM, terrainViewRangeM,
+    FRUSTUM_CULL_MARGIN_TAN, ellipsoidSagittaM, shouldRefine, terrainMaxZoomForAltitudeM,
+    terrainViewRangeM,
 } from './lod';
 import { TerrainManifest } from './manifest';
 import {
@@ -154,11 +155,17 @@ export class Quadtree {
             node.ocean = this.opts.isOcean(node.id);
 
             _sphereCenter.copy(node.center);
-            const distance = camPos.distanceTo(_sphereCenter) - node.radius;
+            const centreDist = camPos.distanceTo(_sphereCenter);
+            const distance = centreDist - node.radius;
             if (distance > range) {
                 return;
             }
-            if (!sphereInFrustum(_sphereCenter, node.radius, frustum)) {
+            // Test against a frustum widened by one reconcile's worth of
+            // rotation. Culling exactly to the edge means a fast turn sweeps
+            // past tiles that were correctly dropped a moment ago and are not
+            // back yet, which reads as the screen edges going empty.
+            const margin = centreDist * FRUSTUM_CULL_MARGIN_TAN;
+            if (!sphereInFrustum(_sphereCenter, node.radius + margin, frustum)) {
                 return;
             }
             if (behindHorizon(
