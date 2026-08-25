@@ -82,13 +82,10 @@ module.exports = {
                     // directory tree so the JSBSim-native folder layout survives.
                     from: 'assets/jsbsim',
                     to: 'assets/jsbsim',
-                },
-                {
-                    // Planet DEM height tiles (see tools/bake_planet_dem.py).
-                    from: 'assets/planet',
-                    to: 'assets/planet',
-                    noErrorOnMissing: true,
                 }
+                // NOTE: assets/planet is deliberately NOT copied. The baked
+                // terrain pyramid is a build product served straight from the
+                // repo by tools/modserver.ts, so builds do not duplicate it.
             ]
         })
     ]
