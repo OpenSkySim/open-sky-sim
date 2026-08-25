@@ -97,6 +97,25 @@ export class Quadtree {
         return node;
     }
 
+    /**
+     * The error that should drive refinement for this node.
+     *
+     * `geometricErrorM` comes from `levelGeometricErrorM`, which describes the
+     * accuracy of a *baked* mesh. A node the index says has no tile never gets
+     * that mesh: it is drawn as a 10-triangle ellipsoid patch, and what bounds
+     * its deviation is the chord sagitta of that patch. The two differ wildly
+     * at coarse zoom -- at z2 the manifest says 1.7 km while the patch actually
+     * departs from the ellipsoid by ~490 km -- so using the baked figure let a
+     * patch spanning 45 degrees be drawn within sight of the camera, where its
+     * interior sags thousands of kilometres below sea level and the sea reads
+     * as falling away into nothing.
+     */
+    private drawErrorM(node: QuadNode): number {
+        return node.ocean
+            ? Math.max(node.geometricErrorM, ellipsoidSagittaM(node.id))
+            : node.geometricErrorM;
+    }
+
     get nodeCount(): number {
         return this.nodes.size;
     }
@@ -160,9 +179,19 @@ export class Quadtree {
                 }
             };
 
-            const canRefine = node.id.z < zoomCap && shouldRefine(
-                node.geometricErrorM, Math.max(1, distance),
-                screenHeightPx, fovYDeg, detailScale,
+            // Terrain *detail* may be degraded by the frame-time governor, but
+            // the *shape of the planet* may not: an under-refined ocean patch
+            // does not merely look coarse, it puts the sea kilometres from
+            // where it belongs. So the sagitta bound is tested at detailScale
+            // 1 regardless of how far the governor has backed off.
+            const d = Math.max(1, distance);
+            const canRefine = node.id.z < zoomCap && (
+                shouldRefine(
+                    this.drawErrorM(node), d, screenHeightPx, fovYDeg, detailScale,
+                )
+                || node.ocean && shouldRefine(
+                    ellipsoidSagittaM(node.id), d, screenHeightPx, fovYDeg, 1,
+                )
             );
 
             if (!canRefine) {

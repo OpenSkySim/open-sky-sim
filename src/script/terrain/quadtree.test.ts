@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import * as THREE from 'three';
 import { Quadtree } from './quadtree';
 import { TerrainManifest } from './manifest';
+import { DETAIL_SCALE_MAX } from './lod';
 import { TileKey, parentOf, tileKeyString } from './tiling';
 
 function manifest(maxZoom = 4): TerrainManifest {
@@ -61,6 +62,11 @@ function camera(x = 0, y = 500, z = 0): THREE.PerspectiveCamera {
     c.updateProjectionMatrix();
     return c;
 }
+
+/** The shipped manifest's per-level errors, which the bug was calibrated against. */
+const REAL_LEVEL_ERROR_M = [
+    2149.93, 2149.93, 1742.49, 1153.07, 1001.83, 534.29, 421.53,
+];
 
 const keysOf = (nodes: { key: string }[]) => nodes.map(n => n.key);
 
@@ -167,6 +173,85 @@ describe('Quadtree', () => {
             const h = makeTree();
             const r = h.tree.update(camera(), 200, 50, 1, () => true);
             assert.ok(r.wants.every(w => w.pinned));
+        });
+    });
+
+    describe('ocean patch refinement (regression)', () => {
+        /**
+         * A node with no baked tile is drawn as a 10-triangle ellipsoid patch,
+         * so what bounds its deviation is that patch's chord sagitta -- not the
+         * manifest's baked level error, which describes a mesh the node does
+         * not have. At z2 the manifest says 1.7 km where the patch actually
+         * departs from the ellipsoid by ~490 km, so the SSE test rated a patch
+         * spanning 45 degrees as accurate enough to draw 62 km from the
+         * camera, where its interior sags thousands of km below sea level and
+         * the sea reads as falling away into nothing.
+         *
+         * These use a fixed geometry rather than the toy world above, because
+         * the toy world's bounding radii swallow the camera and refine
+         * everything regardless -- which is what made an earlier version of
+         * this test pass against the bug.
+         */
+        /** Looks at the horizon, so a tile placed down-range is in frustum. */
+        function horizonCamera(): THREE.PerspectiveCamera {
+            const c = new THREE.PerspectiveCamera(50, 1.6, 1, 5_000_000);
+            c.position.set(0, 500, 0);
+            c.lookAt(0, 500, 1);
+            c.updateMatrixWorld(true);
+            c.updateProjectionMatrix();
+            return c;
+        }
+
+        function fixedTree(distanceM: number, ocean: boolean) {
+            const all = ocean ? undefined : new Set<string>();
+            return new Quadtree({
+                manifest: {
+                    ...manifest(6),
+                    mesh: { ...manifest(6).mesh, levelGeometricErrorM: REAL_LEVEL_ERROR_M },
+                },
+                tilePosition: () => new THREE.Vector3(0, 0, distanceM),
+                tileRadius: () => 5000,
+                isResident: () => true,
+                isOcean: () => ocean,
+                earthCenter: new THREE.Vector3(0, -6378137, 0),
+                maxZoom: 6,
+                ...(all ? {} : {}),
+            });
+        }
+
+        it('refines a coarse ocean patch the baked level error rates as accurate', () => {
+            // 300 km out, the z0 baked error projects to 1.6 px -- under the
+            // 2 px target, so without the sagitta the root is simply drawn.
+            const tree = fixedTree(300_000, true);
+            const r = tree.update(horizonCamera(), 200, 50, 1);
+            assert.ok(r.draw.length > 0, 'something is drawn');
+            const coarsest = Math.min(...r.draw.map(n => n.id.z));
+            assert.ok(coarsest > 0, `a z${coarsest} ocean patch was drawn 300 km away`);
+        });
+
+        it('keeps refining ocean however far the detail governor has backed off', () => {
+            // The governor may degrade terrain detail; it may not move the sea.
+            const tree = fixedTree(50_000, true);
+            const r = tree.update(horizonCamera(), 200, 50, DETAIL_SCALE_MAX);
+            const coarsest = Math.min(...r.draw.map(n => n.id.z));
+            assert.ok(
+                coarsest > 0,
+                `at detailScale ${DETAIL_SCALE_MAX} a z${coarsest} ocean patch was drawn 50 km away`,
+            );
+        });
+
+        it('still lets the governor coarsen baked terrain', () => {
+            // The bound is specific to patches -- baked terrain stays tunable,
+            // or the governor would have no way left to recover frame time.
+            const tight = fixedTree(50_000, false)
+                .update(horizonCamera(), 200, 50, 1).draw;
+            const relaxed = fixedTree(50_000, false)
+                .update(horizonCamera(), 200, 50, DETAIL_SCALE_MAX).draw;
+            const deepest = (d: { id: { z: number } }[]) => Math.max(...d.map(n => n.id.z));
+            assert.ok(
+                deepest(relaxed) < deepest(tight),
+                'the governor can no longer coarsen baked terrain',
+            );
         });
     });
 
