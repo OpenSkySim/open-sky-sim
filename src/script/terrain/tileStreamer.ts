@@ -228,3 +228,34 @@ export function predictPosition(
         z: z + vz * lookaheadS,
     };
 }
+
+/**
+ * Where to prefetch: ahead along the direction the camera is *looking*.
+ *
+ * Extrapolating along velocity instead only works when the camera faces the
+ * way it is moving. In an exterior view the camera orbits the aircraft, so its
+ * velocity is the aircraft's — and prefetch then loads terrain ahead of the
+ * *aircraft* while the view points somewhere else entirely, which is exactly
+ * the terrain that visibly pops in late.
+ *
+ * The distance scales with speed but never falls to zero, so a camera that is
+ * merely turning still pulls in what it is about to face.
+ */
+export function predictViewTarget(
+    x: number, y: number, z: number,
+    fx: number, fy: number, fz: number,
+    speedMps: number,
+    lookaheadS: number,
+    minDistanceM: number,
+): { x: number; y: number; z: number } {
+    const len = Math.hypot(fx, fy, fz);
+    if (len < 1e-6) {
+        return { x, y, z };
+    }
+    const d = Math.max(minDistanceM, speedMps * lookaheadS);
+    return {
+        x: x + (fx / len) * d,
+        y: y + (fy / len) * d,
+        z: z + (fz / len) * d,
+    };
+}

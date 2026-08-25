@@ -4,7 +4,7 @@ import { TileKey, tileKeyString } from './tiling';
 import { TileStore } from './tileStore';
 import {
     PRIORITY_IN_FRUSTUM, PRIORITY_PARENT_MISSING, PRIORITY_PINNED, TileStreamer, TileWant,
-    predictPosition, scoreWant,
+    predictPosition, predictViewTarget, scoreWant,
 } from './tileStreamer';
 
 const t = (z: number, x: number, y: number): TileKey => ({ z, x, y });
@@ -249,6 +249,50 @@ describe('TileStreamer', () => {
 });
 
 describe('predictive prefetch', () => {
+    /**
+     * The distinction that matters: in an exterior view the camera orbits the
+     * aircraft, so camera velocity is the *aircraft's* heading. Prefetching
+     * along velocity loaded terrain ahead of the aircraft while the view
+     * pointed elsewhere, so whatever the player was looking at popped in late.
+     */
+    it('aims where the camera looks, not where it travels', () => {
+        // Flying north at 300 m/s, but looking east.
+        const look = predictViewTarget(0, 1000, 0, 1, 0, 0, 300, 4, 3000);
+        assert.ok(look.x > 1000, `should reach east, got x=${look.x}`);
+        assert.equal(look.z, 0, 'and not north, where the aircraft is going');
+
+        const travel = predictPosition(0, 1000, 0, 0, 0, 300, 4);
+        assert.equal(travel.x, 0);
+        assert.ok(travel.z > 1000, 'velocity-based prefetch goes north instead');
+    });
+
+    it('reaches further the faster the camera moves', () => {
+        // Low floor here so the speed term is what is being measured; at the
+        // real 3 km floor both of these would clamp to it.
+        const slow = predictViewTarget(0, 0, 0, 0, 0, 1, 50, 4, 100);
+        const fast = predictViewTarget(0, 0, 0, 0, 0, 1, 300, 4, 100);
+        assert.equal(slow.z, 200, '50 m/s for 4 s');
+        assert.equal(fast.z, 1200, '300 m/s for 4 s');
+        assert.ok(fast.z > slow.z);
+    });
+
+    it('still reaches ahead when the camera is only turning', () => {
+        // A camera that is not moving at all must still pull in what it faces,
+        // or an orbiting exterior view prefetches nothing.
+        const p = predictViewTarget(0, 500, 0, 0, 0, 1, 0, 4, 3000);
+        assert.equal(p.z, 3000, 'falls back to the minimum distance');
+    });
+
+    it('normalises the view direction', () => {
+        const p = predictViewTarget(0, 0, 0, 0, 0, 7, 0, 4, 3000);
+        assert.equal(p.z, 3000, 'a non-unit forward vector must not scale it');
+    });
+
+    it('is a no-op for a degenerate direction', () => {
+        const p = predictViewTarget(5, 6, 7, 0, 0, 0, 300, 4, 3000);
+        assert.deepEqual(p, { x: 5, y: 6, z: 7 });
+    });
+
     it('extrapolates ahead of the camera, not behind it', () => {
         const p = predictPosition(0, 0, 0, 300, 0, 0, 4);
         assert.equal(p.x, 1200, 'four seconds at 300 m/s');

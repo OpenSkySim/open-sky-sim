@@ -35,8 +35,15 @@ export const TILE_UPLOAD_BUDGET_MS = 4;
 export const STREAM_CONCURRENCY_MIN = 6;
 export const STREAM_CONCURRENCY_MAX = 32;
 
-/** How far ahead of the camera's velocity to prefetch (seconds). */
+/** How far ahead along the camera's view direction to prefetch (seconds). */
 export const PREFETCH_LOOKAHEAD_S = 4;
+
+/**
+ * Prefetch at least this far ahead, however slowly the camera is moving.
+ * Without a floor a camera that only turns — an exterior view orbiting the
+ * aircraft — would prefetch nothing at all.
+ */
+export const PREFETCH_MIN_DISTANCE_M = 3000;
 
 /** Mesh cache ceiling in bytes. Tiles are evicted least-recently-drawn first. */
 export const MESH_CACHE_BYTES = 256 * 1024 * 1024;

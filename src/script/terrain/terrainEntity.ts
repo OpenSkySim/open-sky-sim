@@ -28,7 +28,8 @@ import { EnuBasis, WGS84_A, makeEnuBasis } from './geodesy';
 import { FlattenPad } from './flattenPad';
 import { HeightField, HeightTier } from './heightField';
 import {
-    MESH_CACHE_BYTES, PREFETCH_LOOKAHEAD_S, RECONCILE_INTERVAL_MS, adjustDetailScale,
+    MESH_CACHE_BYTES, PREFETCH_LOOKAHEAD_S, PREFETCH_MIN_DISTANCE_M, RECONCILE_INTERVAL_MS,
+    adjustDetailScale,
 } from './lod';
 import {
     TerrainManifest, baseUrlOf, heightIndexUrl, heightTileUrl, meshIndexUrl, meshTileUrl,
@@ -39,7 +40,7 @@ import { QuadNode, Quadtree } from './quadtree';
 import { TileIndex } from './tileIndex';
 import { TileMeshes, buildTileMeshes, disposeTileMeshes, tileOriginEnu } from './tileMesh';
 import { TileStore } from './tileStore';
-import { TileStreamer, TileWant, predictPosition } from './tileStreamer';
+import { TileStreamer, TileWant, predictViewTarget } from './tileStreamer';
 import { TileKey, approxTileEdgeMetres, tileKeyString } from './tiling';
 import { enuToGeodeticApprox } from './geodesy';
 import { TONE_COUNT, TerrainTone } from './tones';
@@ -107,6 +108,7 @@ export class TerrainEntity implements Entity {
     private readonly prevCameraPos = new THREE.Vector3();
     private prevCameraTime = 0;
     private readonly cameraVel = new THREE.Vector3();
+    private readonly cameraForward = new THREE.Vector3();
 
     constructor(opts: TerrainEntityOptions) {
         this.manifest = opts.manifest;
@@ -360,7 +362,17 @@ export class TerrainEntity implements Entity {
         publishTerrainStats({ ...this.stats, altitudeM: camera.position.y });
     }
 
-    /** Tiles the camera is about to need, at reduced priority. */
+    /**
+     * Tiles the camera is about to need, at reduced priority.
+     *
+     * Aimed along the direction the camera is *looking*, not the direction it
+     * is travelling. In an exterior view the camera orbits the aircraft, so its
+     * velocity is the aircraft's: extrapolating along it prefetched terrain
+     * ahead of the aircraft while the view pointed elsewhere, and whatever the
+     * player was actually looking at had to wait for the frustum pass. Speed
+     * still sets how far ahead to reach, with a floor so a camera that is only
+     * turning still pulls in what it is about to face.
+     */
     private speculativeWants(
         camera: THREE.PerspectiveCamera, current: TileWant[],
     ): TileWant[] {
@@ -371,13 +383,14 @@ export class TerrainEntity implements Entity {
         }
         this.prevCameraPos.copy(camera.position);
         this.prevCameraTime = now;
-        if (this.cameraVel.lengthSq() < 100) {
-            return [];   // effectively stationary
-        }
-        const ahead = predictPosition(
+
+        camera.getWorldDirection(this.cameraForward);
+        const ahead = predictViewTarget(
             camera.position.x, camera.position.y, camera.position.z,
-            this.cameraVel.x, this.cameraVel.y, this.cameraVel.z,
+            this.cameraForward.x, this.cameraForward.y, this.cameraForward.z,
+            this.cameraVel.length(),
             PREFETCH_LOOKAHEAD_S,
+            PREFETCH_MIN_DISTANCE_M,
         );
         const have = new Set(current.map(w => tileKeyString(w.id)));
         const zoom = Math.min(this.manifest.mesh.maxZoom, this.deepestDrawnZoom());
