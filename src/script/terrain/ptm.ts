@@ -1,0 +1,426 @@
+/**
+ * PTM1 - "Planet Tile Mesh", the baked, draw-ready terrain tile format.
+ *
+ * The whole point of this format is that decoding is O(1): every section is
+ * 4-byte aligned and already in its final element type, so decodePtm reads a
+ * 72-byte header and hands back typed-array *views* over the received buffer.
+ * There is no per-vertex loop and no dequantisation pass - quantised int16
+ * positions are bound to the GPU directly and scaled by the mesh transform,
+ * int8 normals are bound with normalized: true.
+ *
+ * Keep it that way. Any change that forces a per-vertex pass at load time
+ * gives up the property this format exists for.
+ *
+ * Layout, little-endian:
+ *
+ *   header, 72 bytes
+ *     0  u32  magic 'PTM1'          32  u32  landVertCount   (multiple of 3)
+ *     4  u8   version = 1           36  u32  waterVertCount
+ *     5  u8   z                     40  u32  waterIndexCount
+ *     6  u16  flags                 44  u32  landSandVerts    |
+ *     8  u32  x                     48  u32  landGrassVerts   | = landVertCount
+ *    12  u32  y                     52  u32  landBareVerts    |
+ *    16  f32  centerHeightM         56  u32  waterDeepIdx     | = waterIndexCount
+ *    20  f32  quantScaleXZ          60  u32  waterShallowIdx  |
+ *    24  f32  quantScaleY           64  f32  skirtDepthM
+ *    28  f32  boundingRadiusM       68  u32  reserved
+ *
+ *   payload, each section padded to a 4-byte boundary
+ *     landPos    i16 x3 per vertex   tile-local (x=E, y=U, z=N)
+ *     landNrm    i8  x4 per vertex   xyz + pad, /127
+ *     landTone   u8  x1 per vertex   2..4
+ *     waterPos   i16 x3 per vertex
+ *     waterTone  u8  x1 per vertex   0..1
+ *     waterIdx   u16 x3 per triangle deep range, then shallow range
+ *
+ * The tile's centre lon/lat is derived from (z, x, y) and is deliberately not
+ * stored. Positions are tile-local; the loader places the tile by translation
+ * only, never rotation, because the shaded vertex program treats normals as
+ * world-space in the STATIC/DUOTONE shading paths.
+ */
+
+import { TerrainTone } from './tones';
+
+export const PTM_MAGIC = 0x314d5450; // 'PTM1' little-endian
+export const PTM_VERSION = 1;
+export const PTM_HEADER_BYTES = 72;
+
+export const PTM_FLAG_HAS_LAND = 1 << 0;
+export const PTM_FLAG_HAS_WATER = 1 << 1;
+
+/** Water indices are u16, so a tile may not exceed this many water vertices. */
+export const PTM_MAX_WATER_VERTS = 65536;
+
+const I16_MAX = 32767;
+
+export interface PtmTileId {
+    z: number;
+    x: number;
+    y: number;
+}
+
+/** Land input: non-indexed triangles with one face normal and one tone each. */
+export interface PtmLandInput {
+    /** 9 floats per triangle (3 verts x xyz), tile-local metres. */
+    positions: Float32Array;
+    /** 3 floats per triangle: the unit face normal. */
+    faceNormals: Float32Array;
+    /** 1 byte per triangle: Sand | Grass | Bare. */
+    tones: Uint8Array;
+}
+
+/** Water input: shared vertices, indexed triangles, one tone each. */
+export interface PtmWaterInput {
+    /** 3 floats per vertex, tile-local metres. */
+    positions: Float32Array;
+    /** 3 indices per triangle. */
+    indices: Uint32Array;
+    /** 1 byte per triangle: Water | ShallowWater. */
+    tones: Uint8Array;
+}
+
+export interface PtmEncodeInput {
+    id: PtmTileId;
+    /** Geodetic height (m) of the tile-local frame origin. */
+    centerHeightM: number;
+    /** Half the tile's ground width (m); sets horizontal quantisation. */
+    tileHalfWidthM: number;
+    skirtDepthM: number;
+    land: PtmLandInput;
+    water: PtmWaterInput;
+}
+
+export interface PtmTile {
+    id: PtmTileId;
+    version: number;
+    flags: number;
+    centerHeightM: number;
+    quantScaleXZ: number;
+    quantScaleY: number;
+    boundingRadiusM: number;
+    skirtDepthM: number;
+    /** Quantised, ready to bind. Multiply by quantScaleXZ / quantScaleY. */
+    landPositions: Int16Array;
+    /** Bind with normalized: true. Stride 4; the 4th byte is padding. */
+    landNormals: Int8Array;
+    landTones: Uint8Array;
+    waterPositions: Int16Array;
+    waterTones: Uint8Array;
+    waterIndices: Uint16Array;
+    /** [start, count] into landPositions, in vertices, for tones 2..4. */
+    landGroups: ReadonlyArray<readonly [number, number]>;
+    /** [start, count] into waterIndices for tones 0..1. */
+    waterGroups: ReadonlyArray<readonly [number, number]>;
+}
+
+function align4(n: number): number {
+    return (n + 3) & ~3;
+}
+
+function quantise(v: number, scale: number): number {
+    if (!(scale > 0)) {
+        return 0;
+    }
+    const q = Math.round(v / scale);
+    return q < -I16_MAX ? -I16_MAX : q > I16_MAX ? I16_MAX : q;
+}
+
+function quantiseNormal(v: number): number {
+    const q = Math.round(v * 127);
+    return q < -127 ? -127 : q > 127 ? 127 : q;
+}
+
+/**
+ * Encode a tile. Triangles may arrive in any order: this buckets land
+ * triangles by tone and water triangles by tone, so the decoded groups are
+ * contiguous and each can be drawn as a single range with one material.
+ */
+export function encodePtm(input: PtmEncodeInput): Uint8Array {
+    const { land, water } = input;
+    const landTriCount = land.tones.length;
+    const waterTriCount = water.tones.length;
+
+    if (land.positions.length !== landTriCount * 9) {
+        throw new Error(`PTM1: land positions ${land.positions.length} != ${landTriCount * 9}`);
+    }
+    if (land.faceNormals.length !== landTriCount * 3) {
+        throw new Error(`PTM1: land normals ${land.faceNormals.length} != ${landTriCount * 3}`);
+    }
+    if (water.indices.length !== waterTriCount * 3) {
+        throw new Error(`PTM1: water indices ${water.indices.length} != ${waterTriCount * 3}`);
+    }
+
+    // Land: bucket triangles by tone (Sand, Grass, Bare).
+    const landOrder: number[][] = [[], [], []];
+    for (let t = 0; t < landTriCount; t++) {
+        const tone = land.tones[t];
+        const slot = tone - TerrainTone.Sand;
+        if (slot < 0 || slot > 2) {
+            throw new Error(`PTM1: land triangle ${t} has non-land tone ${tone}`);
+        }
+        landOrder[slot].push(t);
+    }
+
+    // Water: a vertex carries exactly one tone, so a vertex shared between a
+    // deep and a shallow triangle must be duplicated. That boundary is a 1-D
+    // curve through a 2-D mesh, so the duplication is negligible.
+    const waterOrder: number[][] = [[], []];
+    for (let t = 0; t < waterTriCount; t++) {
+        const tone = water.tones[t];
+        if (tone !== TerrainTone.Water && tone !== TerrainTone.ShallowWater) {
+            throw new Error(`PTM1: water triangle ${t} has non-water tone ${tone}`);
+        }
+        waterOrder[tone].push(t);
+    }
+    const remap = new Map<number, number>();
+    const outWaterPos: number[] = [];
+    const outWaterTone: number[] = [];
+    const outWaterIdx: number[] = [];
+    for (let tone = 0; tone < 2; tone++) {
+        for (const t of waterOrder[tone]) {
+            for (let k = 0; k < 3; k++) {
+                const src = water.indices[t * 3 + k];
+                const key = src * 2 + tone;
+                let dst = remap.get(key);
+                if (dst === undefined) {
+                    dst = outWaterTone.length;
+                    remap.set(key, dst);
+                    outWaterPos.push(
+                        water.positions[src * 3],
+                        water.positions[src * 3 + 1],
+                        water.positions[src * 3 + 2],
+                    );
+                    outWaterTone.push(tone);
+                }
+                outWaterIdx.push(dst);
+            }
+        }
+    }
+    const waterVertCount = outWaterTone.length;
+    if (waterVertCount > PTM_MAX_WATER_VERTS) {
+        throw new Error(`PTM1: ${waterVertCount} water vertices exceeds the u16 index limit`);
+    }
+
+    const landVertCount = landTriCount * 3;
+    const waterIndexCount = outWaterIdx.length;
+
+    // Horizontal scale comes from the tile size, so tile-edge vertices land on
+    // exactly representable coordinates and same-LOD seams cannot crack from
+    // rounding. Vertical scale comes from the tile's actual extent.
+    const quantScaleXZ = input.tileHalfWidthM / I16_MAX;
+    let maxAbsY = 0;
+    for (let i = 1; i < land.positions.length; i += 3) {
+        const a = Math.abs(land.positions[i]);
+        if (a > maxAbsY) maxAbsY = a;
+    }
+    for (let i = 1; i < outWaterPos.length; i += 3) {
+        const a = Math.abs(outWaterPos[i]);
+        if (a > maxAbsY) maxAbsY = a;
+    }
+    const quantScaleY = maxAbsY > 0 ? maxAbsY / I16_MAX : 1;
+
+    let maxRadiusSq = 0;
+    const trackRadius = (x: number, y: number, z: number) => {
+        const d = x * x + y * y + z * z;
+        if (d > maxRadiusSq) maxRadiusSq = d;
+    };
+
+    const landPosBytes = align4(landVertCount * 6);
+    const landNrmBytes = align4(landVertCount * 4);
+    const landToneBytes = align4(landVertCount);
+    const waterPosBytes = align4(waterVertCount * 6);
+    const waterToneBytes = align4(waterVertCount);
+    const waterIdxBytes = align4(waterIndexCount * 2);
+
+    const total = PTM_HEADER_BYTES + landPosBytes + landNrmBytes + landToneBytes
+        + waterPosBytes + waterToneBytes + waterIdxBytes;
+    const out = new Uint8Array(total);
+    const view = new DataView(out.buffer);
+
+    let off = PTM_HEADER_BYTES;
+    const landPos = new Int16Array(out.buffer, off, landVertCount * 3);
+    off += landPosBytes;
+    const landNrm = new Int8Array(out.buffer, off, landVertCount * 4);
+    off += landNrmBytes;
+    const landTone = new Uint8Array(out.buffer, off, landVertCount);
+    off += landToneBytes;
+    const waterPos = new Int16Array(out.buffer, off, waterVertCount * 3);
+    off += waterPosBytes;
+    const waterTone = new Uint8Array(out.buffer, off, waterVertCount);
+    off += waterToneBytes;
+    const waterIdx = new Uint16Array(out.buffer, off, waterIndexCount);
+
+    const landGroupCounts = [0, 0, 0];
+    let v = 0;
+    for (let slot = 0; slot < 3; slot++) {
+        for (const t of landOrder[slot]) {
+            const nx = land.faceNormals[t * 3];
+            const ny = land.faceNormals[t * 3 + 1];
+            const nz = land.faceNormals[t * 3 + 2];
+            for (let k = 0; k < 3; k++) {
+                const px = land.positions[t * 9 + k * 3];
+                const py = land.positions[t * 9 + k * 3 + 1];
+                const pz = land.positions[t * 9 + k * 3 + 2];
+                trackRadius(px, py, pz);
+                landPos[v * 3] = quantise(px, quantScaleXZ);
+                landPos[v * 3 + 1] = quantise(py, quantScaleY);
+                landPos[v * 3 + 2] = quantise(pz, quantScaleXZ);
+                landNrm[v * 4] = quantiseNormal(nx);
+                landNrm[v * 4 + 1] = quantiseNormal(ny);
+                landNrm[v * 4 + 2] = quantiseNormal(nz);
+                landNrm[v * 4 + 3] = 0;
+                landTone[v] = TerrainTone.Sand + slot;
+                v++;
+            }
+            landGroupCounts[slot] += 3;
+        }
+    }
+
+    for (let i = 0; i < waterVertCount; i++) {
+        const px = outWaterPos[i * 3];
+        const py = outWaterPos[i * 3 + 1];
+        const pz = outWaterPos[i * 3 + 2];
+        trackRadius(px, py, pz);
+        waterPos[i * 3] = quantise(px, quantScaleXZ);
+        waterPos[i * 3 + 1] = quantise(py, quantScaleY);
+        waterPos[i * 3 + 2] = quantise(pz, quantScaleXZ);
+        waterTone[i] = outWaterTone[i];
+    }
+    for (let i = 0; i < waterIndexCount; i++) {
+        waterIdx[i] = outWaterIdx[i];
+    }
+
+    let flags = 0;
+    if (landVertCount > 0) {
+        flags |= PTM_FLAG_HAS_LAND;
+    }
+    if (waterVertCount > 0) {
+        flags |= PTM_FLAG_HAS_WATER;
+    }
+
+    view.setUint32(0, PTM_MAGIC, true);
+    view.setUint8(4, PTM_VERSION);
+    view.setUint8(5, input.id.z);
+    view.setUint16(6, flags, true);
+    view.setUint32(8, input.id.x, true);
+    view.setUint32(12, input.id.y, true);
+    view.setFloat32(16, input.centerHeightM, true);
+    view.setFloat32(20, quantScaleXZ, true);
+    view.setFloat32(24, quantScaleY, true);
+    view.setFloat32(28, Math.sqrt(maxRadiusSq), true);
+    view.setUint32(32, landVertCount, true);
+    view.setUint32(36, waterVertCount, true);
+    view.setUint32(40, waterIndexCount, true);
+    view.setUint32(44, landGroupCounts[0], true);
+    view.setUint32(48, landGroupCounts[1], true);
+    view.setUint32(52, landGroupCounts[2], true);
+    view.setUint32(56, waterOrder[TerrainTone.Water].length * 3, true);
+    view.setUint32(60, waterOrder[TerrainTone.ShallowWater].length * 3, true);
+    view.setFloat32(64, input.skirtDepthM, true);
+    view.setUint32(68, 0, true);
+
+    return out;
+}
+
+/**
+ * Decode a tile. Returns views over `bytes` - no copying, no per-vertex work.
+ * The caller must not mutate or detach the underlying buffer afterwards.
+ */
+export function decodePtm(bytes: ArrayBuffer | Uint8Array): PtmTile {
+    let raw = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    // Typed-array views need their offsets aligned relative to the buffer
+    // start, so a misaligned slice has to be copied once.
+    if (raw.byteOffset % 4 !== 0) {
+        raw = new Uint8Array(raw);
+    }
+    if (raw.byteLength < PTM_HEADER_BYTES) {
+        throw new Error(`PTM1 too short: ${raw.byteLength}`);
+    }
+    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+    const magic = view.getUint32(0, true);
+    if (magic !== PTM_MAGIC) {
+        throw new Error(`Bad PTM1 magic: 0x${magic.toString(16)}`);
+    }
+    const version = view.getUint8(4);
+    if (version !== PTM_VERSION) {
+        throw new Error(`Unsupported PTM1 version ${version}`);
+    }
+    const z = view.getUint8(5);
+    const flags = view.getUint16(6, true);
+    const x = view.getUint32(8, true);
+    const y = view.getUint32(12, true);
+    const centerHeightM = view.getFloat32(16, true);
+    const quantScaleXZ = view.getFloat32(20, true);
+    const quantScaleY = view.getFloat32(24, true);
+    const boundingRadiusM = view.getFloat32(28, true);
+    const landVertCount = view.getUint32(32, true);
+    const waterVertCount = view.getUint32(36, true);
+    const waterIndexCount = view.getUint32(40, true);
+    const landSand = view.getUint32(44, true);
+    const landGrass = view.getUint32(48, true);
+    const landBare = view.getUint32(52, true);
+    const waterDeep = view.getUint32(56, true);
+    const waterShallow = view.getUint32(60, true);
+    const skirtDepthM = view.getFloat32(64, true);
+
+    if (landVertCount % 3 !== 0) {
+        throw new Error(`PTM1: landVertCount ${landVertCount} is not a multiple of 3`);
+    }
+    if (landSand + landGrass + landBare !== landVertCount) {
+        throw new Error('PTM1: land group counts do not sum to landVertCount');
+    }
+    if (waterDeep + waterShallow !== waterIndexCount) {
+        throw new Error('PTM1: water group counts do not sum to waterIndexCount');
+    }
+
+    const landPosBytes = align4(landVertCount * 6);
+    const landNrmBytes = align4(landVertCount * 4);
+    const landToneBytes = align4(landVertCount);
+    const waterPosBytes = align4(waterVertCount * 6);
+    const waterToneBytes = align4(waterVertCount);
+    const waterIdxBytes = align4(waterIndexCount * 2);
+    const expected = PTM_HEADER_BYTES + landPosBytes + landNrmBytes + landToneBytes
+        + waterPosBytes + waterToneBytes + waterIdxBytes;
+    if (raw.byteLength < expected) {
+        throw new Error(`PTM1 truncated: ${raw.byteLength} < ${expected}`);
+    }
+
+    let off = raw.byteOffset + PTM_HEADER_BYTES;
+    const landPositions = new Int16Array(raw.buffer, off, landVertCount * 3);
+    off += landPosBytes;
+    const landNormals = new Int8Array(raw.buffer, off, landVertCount * 4);
+    off += landNrmBytes;
+    const landTones = new Uint8Array(raw.buffer, off, landVertCount);
+    off += landToneBytes;
+    const waterPositions = new Int16Array(raw.buffer, off, waterVertCount * 3);
+    off += waterPosBytes;
+    const waterTones = new Uint8Array(raw.buffer, off, waterVertCount);
+    off += waterToneBytes;
+    const waterIndices = new Uint16Array(raw.buffer, off, waterIndexCount);
+
+    return {
+        id: { z, x, y },
+        version,
+        flags,
+        centerHeightM,
+        quantScaleXZ,
+        quantScaleY,
+        boundingRadiusM,
+        skirtDepthM,
+        landPositions,
+        landNormals,
+        landTones,
+        waterPositions,
+        waterTones,
+        waterIndices,
+        landGroups: [
+            [0, landSand],
+            [landSand, landGrass],
+            [landSand + landGrass, landBare],
+        ],
+        waterGroups: [
+            [0, waterDeep],
+            [waterDeep, waterShallow],
+        ],
+    };
+}
