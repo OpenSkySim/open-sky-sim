@@ -23,7 +23,18 @@ export const RECONCILE_INTERVAL_MS = 100;
 export const TARGET_FRAME_MS = 25;
 
 export const DETAIL_SCALE_MIN = 1;
-export const DETAIL_SCALE_MAX = 24;
+
+/**
+ * Ceiling on how far the frame-time governor may back off.
+ *
+ * This is a *detail* knob, and past a point backing off further stops
+ * buying frame time -- the draw list is already down to a few dozen tiles --
+ * while the terrain visibly coarsens and then re-refines on every camera or
+ * aircraft move. At 24 the governor could switch LOD off outright: the SSE
+ * target became 48 px and ~37 tiles were drawn where ~114 belong, which reads
+ * as terrain streaming in as you fly rather than simply being there.
+ */
+export const DETAIL_SCALE_MAX = 4;
 
 /**
  * Per-frame GPU upload budget. Tile sizes vary far too much for a fixed count
@@ -117,6 +128,19 @@ export function terrainMaxZoomForAltitudeM(
     return Math.max(0, capped - TERRAIN_ZOOM_OFFSET);
 }
 
+/**
+ * Climb faster than it recovers, but not by so much that a transient sticks.
+ *
+ * The old pair (+6% / -1.5%, recovering only below 0.82x target) was a 4x
+ * asymmetry on top of a 24x range: a spike that took five seconds to build
+ * took over twenty to unwind, and the dead band was wide enough that ordinary
+ * frame-time jitter stalled recovery altogether. The governor therefore spent
+ * most of its time backed off, which is a quality regression the frame budget
+ * was never actually asking for.
+ */
+const DETAIL_CLIMB = 1.06;
+const DETAIL_DECAY = 0.96;
+
 export function adjustDetailScale(
     current: number,
     frameEmaMs: number,
@@ -124,9 +148,9 @@ export function adjustDetailScale(
 ): number {
     let next = current;
     if (frameEmaMs > targetMs * 1.08) {
-        next = current * 1.06;
-    } else if (frameEmaMs < targetMs * 0.82) {
-        next = current * 0.985;
+        next = current * DETAIL_CLIMB;
+    } else if (frameEmaMs < targetMs * 0.9) {
+        next = current * DETAIL_DECAY;
     }
     return Math.min(DETAIL_SCALE_MAX, Math.max(DETAIL_SCALE_MIN, next));
 }
