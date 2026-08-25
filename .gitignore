@@ -7,5 +7,5 @@ dist
 
 # Baked terrain pyramid — build product, regenerate with `npm run bake:planet`
 /assets/planet/
-/assets/planet2/
+/assets/terrain/
 /build/

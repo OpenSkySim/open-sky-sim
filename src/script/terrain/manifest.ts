@@ -63,7 +63,7 @@ export interface TerrainManifest {
     bake?: { tool: string; version: string; utc: string };
 }
 
-export const DEFAULT_TERRAIN_URL = 'assets/planet2/manifest.json';
+export const DEFAULT_TERRAIN_URL = 'assets/terrain/manifest.json';
 
 export async function loadTerrainManifest(
     url: string = DEFAULT_TERRAIN_URL,
