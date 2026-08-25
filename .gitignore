@@ -4,3 +4,8 @@ node_modules
 dist
 /tools/mods/uploads/
 /tools/mods/imports/
+
+# Baked terrain pyramid — build product, regenerate with `npm run bake:planet`
+/assets/planet/
+/assets/planet2/
+/build/
