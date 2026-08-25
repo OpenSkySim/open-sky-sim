@@ -54,12 +54,12 @@ Start the local web server:
 $ cd retroflightsim
 $ npm run serve
 ```
-Then open `localhost:8010` in your web browser (tested on Chrome/Linux).
+Then open `localhost:8020` in your web browser (tested on Chrome/Linux).
 
 **Important:** F10 mod import only works when the app is served by the Node dev
 server (`npm run serve`). If you use another static file server on the same port
 (e.g. `ws -d dist`, Live Server, or opening `dist/index.html` directly), uploads
-will fail with HTTP 405. Stop any other server on port 8010 first, then run
+will fail with HTTP 405. Stop any other server on port 8020 first, then run
 `npm run serve`.
 
 `npm run serve` starts a small Node/TypeScript dev server (`tools/modserver.ts`,

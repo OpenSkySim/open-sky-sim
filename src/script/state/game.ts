@@ -868,7 +868,7 @@ export class Game {
             const healthRes = await fetch('/api/health').catch(() => null);
             if (!healthRes?.ok) {
                 this.setModStatus(
-                    'Import unavailable: run npm run serve (or npm start) and open http://localhost:8010.',
+                    'Import unavailable: run npm run serve (or npm start) and open http://localhost:8020.',
                 );
                 return;
             }
