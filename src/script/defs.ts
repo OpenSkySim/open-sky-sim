@@ -13,8 +13,18 @@ export const V_RES = 200;
 export const H_RES_HALF = H_RES / 2;
 export const V_RES_HALF = V_RES / 2;
 
-export const TERRAIN_SCALE = 200.0;
-export const TERRAIN_MODEL_SIZE = 100.0;
+/**
+ * Half-extent of the playable world in ENU metres.
+ *
+ * This replaces the old TERRAIN_SCALE * TERRAIN_MODEL_SIZE product, which
+ * defined a +/-50 km *toroidal wrap*: fly past the edge and the aircraft
+ * teleported to the opposite side while the terrain did not follow. That was
+ * a leftover from the 5x5 map.gltf mosaic and made no sense on a geographic
+ * DEM. The baked Canary coverage spans roughly 600 x 390 km, so 350 km from
+ * the play origin comfortably contains it; beyond the data the terrain is
+ * open ocean, and the aircraft is clamped rather than teleported.
+ */
+export const WORLD_HALF_EXTENT_M = 350_000;
 
 export const PITCH_RATE = Math.PI / 5; // Radians/s
 export const ROLL_RATE = Math.PI / 2; // Radians/s (was π/3, +50%)

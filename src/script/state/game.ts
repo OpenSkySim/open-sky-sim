@@ -19,7 +19,7 @@ import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { FlightRecorder } from '../physics/flightRecorder';
 import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
 import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, HIGH_ALTITUDE_M, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, SPACE_ALTITUDE_M, V_RES } from '../defs';
-import { terrainMaxZoomForAltitudeM } from '../planet/lod';
+import { terrainMaxZoomForAltitudeM } from '../terrain/lod';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
 import { DebrisField } from '../scene/entities/debrisField';
@@ -85,12 +85,12 @@ import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/
 import { PLAYER_SIM_ID, aiSimId } from '../physics/sim/simIds';
 import { AiPilotModels } from './gameDefs';
 import {
-    PlanetTerrainEntity, SPACE_SKY_ALTITUDE_M, cameraFarForAltitudeM, isTerrainWireframe, loadManifest,
-    setTerrainWireframe,
-} from '../planet';
+    DEFAULT_TERRAIN_URL, SPACE_SKY_ALTITUDE_M, TerrainEntity, cameraFarForAltitudeM,
+    isTerrainWireframe, loadTerrainManifest, setTerrainWireframe,
+} from '../terrain';
 import { OsmMapEntity } from '../scene/entities/osmMap';
 import {
-    AIRBASE_FLATTEN_PAD, AIRBASE_LOCAL, TARGET_LOCAL, airbaseOffset, PLAY_ORIGIN, SCENERY_SURFACE_EPS_M,
+    AIRBASE_LOCAL, TARGET_LOCAL, airbaseOffset, PLAY_ORIGIN, SCENERY_SURFACE_EPS_M,
 } from './worldLayout';
 
 /** How many AI opponents the combat sim spawns. */
@@ -315,7 +315,7 @@ export class Game {
      */
     private readonly stagedSceneryMeshes: CarrierMeshCollider[] = [];
     /** Geographic DEM / ocean terrain when `terrain=planet` (default). */
-    private planetTerrain!: PlanetTerrainEntity;
+    private planetTerrain!: TerrainEntity;
     /** Canvas OSM for left MFD; when set, WebGL MAP target is skipped. */
     private osmMapEntity: OsmMapEntity | undefined;
     /** Atmospheric sky billboard; disabled above {@link SPACE_SKY_ALTITUDE_M}. */
@@ -1099,12 +1099,13 @@ export class Game {
         return { x: AIRBASE_RUNWAY.x, z: AIRBASE_RUNWAY.z - LAND_APPROACH_FINAL_M };
     }
 
-    /** Prefetch DEM + pin meshes in a radius around the plane. */
+    /** Pin the tiles around the plane so the spawn area cannot be evicted. */
     private async preloadTerrainAroundPlane(x: number, z: number, spawn?: SpawnMode): Promise<void> {
         const plan = this.terrainSeedPlan(spawn);
-        await this.planetTerrain.prefetchPlayArea(plan.prefetchRadiusM, x, z);
         for (const ring of plan.rings) {
-            this.planetTerrain.seedPlayArea(x, z, ring.radiusM, ring.zoom, ring.dense);
+            await this.planetTerrain.pinArea(
+                x, z, ring.radiusM, ring.zoom ?? this.planetTerrain.maxZoom,
+            );
         }
     }
 
@@ -1118,13 +1119,12 @@ export class Game {
     }
 
     private async waitForRequiredTerrain(min: number, max: number): Promise<void> {
-        await this.planetTerrain.waitForPinnedMeshes((meshed, total) => {
-            this.reportTerrainBootProgress(meshed, total, min, max);
+        await this.planetTerrain.waitForPinned((done, total) => {
+            this.reportTerrainBootProgress(done, total, min, max);
         });
         this.player.updateDisplayTransform();
         this.cameraUpdater.update(0);
         this.playerCamera.update();
-        await this.planetTerrain.primeForDisplay(this.playerCamera.main, V_RES, COCKPIT_FOV);
         this.render();
     }
 
@@ -1136,7 +1136,7 @@ export class Game {
         prefetchRadiusM: number;
         rings: { radiusM: number; zoom?: number; dense?: boolean }[];
     } {
-        const demMax = this.planetTerrain.dem.manifest.maxZoom;
+        const demMax = this.planetTerrain.maxZoom;
         if (spawn === 'highAlt' && demMax !== undefined) {
             return {
                 prefetchRadiusM: HIGH_ALT_OUTER_RADIUS_M,
@@ -1850,7 +1850,7 @@ export class Game {
                 case 'F8': {
                     event.preventDefault();
                     // Terrain wireframe coloured by QT zoom (one hue per LOD).
-                    setTerrainWireframe(this.materials, !isTerrainWireframe());
+                    setTerrainWireframe(!isTerrainWireframe());
                     break;
                 }
                 case 'F9': {
@@ -2469,7 +2469,7 @@ export class Game {
     }
 
     private async setupScene(spawn: SpawnMode) {
-        const manifest = await loadManifest();
+        const manifest = await loadTerrainManifest();
 
         this.skyEntity = new SimpleEntity(this.models.getModel('lib:SKY'), SceneLayers.BackgroundSky, SceneLayers.BackgroundSky);
         this.skyEntity.position.set(0, 7, 0);
@@ -2532,30 +2532,23 @@ export class Game {
         this.scene.add(this.cirrusField);
 
         setBootProgress(35, 'Loading terrain...');
-        this.planetTerrain = new PlanetTerrainEntity(manifest, this.materials, {
+        this.planetTerrain = new TerrainEntity({
+            manifest,
+            manifestUrl: DEFAULT_TERRAIN_URL,
+            materials: this.materials,
             enuOrigin: PLAY_ORIGIN,
         });
+        await this.planetTerrain.load(DEFAULT_TERRAIN_URL);
+        this.planetTerrain.setLodCamera(this.playerCamera.main);
         this.scene.add(this.planetTerrain);
         const center = this.spawnCenterEnu(spawn);
-        const plan = this.terrainSeedPlan(spawn);
         setBootProgress(45, 'Loading terrain tiles...');
-        // Default 30 km; high-alt uses a fine core + coarse outer ring.
-        await this.planetTerrain.prefetchPlayArea(plan.prefetchRadiusM, center.x, center.z);
-        const [firstRing, ...extraRings] = plan.rings;
-        this.planetTerrain.lockAirbaseFlattenPad(
-            { ...AIRBASE_FLATTEN_PAD },
-            center.x,
-            center.z,
-            firstRing.radiusM,
-            firstRing.zoom,
-        );
-        for (const ring of extraRings) {
-            this.planetTerrain.seedPlayArea(
-                center.x, center.z, ring.radiusM, ring.zoom, ring.dense,
-            );
-        }
+        // The airbase flatten pad is baked into both the mesh and the height
+        // field, so there is no pad to lock here any more — that DEM sample and
+        // the re-mesh it forced were the slowest step in the old boot.
+        await this.preloadTerrainAroundPlane(center.x, center.z, spawn);
         setBootProgress(50, 'Building terrain meshes...');
-        this.osmMapEntity = new OsmMapEntity(this.planetTerrain.frame.basis);
+        this.osmMapEntity = new OsmMapEntity(this.planetTerrain.basis);
         this.scene.add(this.osmMapEntity);
 
         setBootProgress(60, 'Loading airbase...');

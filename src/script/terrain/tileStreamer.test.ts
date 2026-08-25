@@ -148,7 +148,7 @@ describe('TileStreamer', () => {
         try {
             const id = t(3, 4, 4);
             h.streamer.setWants([want({ id, distanceM: 100_000, inFrustum: false })]);
-            const first = h.requested.at(-1)!.priority;
+            const first = h.requested[h.requested.length - 1].priority;
             // Same tile, now close and visible: it must not keep the old score.
             h.streamer.setWants([want({ id, distanceM: 200, inFrustum: true })]);
             const rescored = scoreWant(want({ id, distanceM: 200, inFrustum: true }), true);

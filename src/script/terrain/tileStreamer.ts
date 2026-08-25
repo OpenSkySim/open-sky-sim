@@ -67,6 +67,13 @@ export class TileStreamer<T, G> {
     /** Arrived and decoded, waiting for a slot in the frame's upload budget. */
     private readonly ready = new Map<string, { id: TileKey; value: T }>();
     private wantKeys = new Set<string>();
+    /**
+     * Pinned tiles are wanted unconditionally, including before the first
+     * reconcile pass has produced a want set at all. Boot pins its spawn area
+     * and then waits, so without this their fetches land with nothing willing
+     * to upload them and the wait never finishes.
+     */
+    private pinnedKeys = new Set<string>();
     private uploaded = 0;
     private uploadMs = 0;
     private prefetched = 0;
@@ -80,6 +87,11 @@ export class TileStreamer<T, G> {
             uploadMs: this.uploadMs,
             prefetched: this.prefetched,
         };
+    }
+
+    /** Tiles that must never be cancelled or skipped, whatever the want set. */
+    setPinnedKeys(keys: Iterable<string>): void {
+        this.pinnedKeys = new Set(keys);
     }
 
     /** Drawable object for a tile, if it has been uploaded. */
@@ -109,7 +121,7 @@ export class TileStreamer<T, G> {
 
         // Abort anything in flight that nobody wants any more.
         for (const key of store.activeKeys()) {
-            if (!next.has(key)) {
+            if (!next.has(key) && !this.pinnedKeys.has(key)) {
                 store.cancel(key);
             }
         }
@@ -137,6 +149,27 @@ export class TileStreamer<T, G> {
     }
 
     /**
+     * Request tiles outside the want set — boot pinning, spawn seeding — and
+     * route their results into the upload queue.
+     *
+     * This has to go through the streamer rather than straight to the store:
+     * a value sitting in the store's cache is decoded but not *drawable*, and
+     * only tiles that reach `ready` are ever uploaded.
+     */
+    async ensure(ids: TileKey[], priority: number): Promise<void> {
+        await Promise.all(ids.map(async id => {
+            const key = tileKeyString(id);
+            if (this.gpu.has(key) || this.ready.has(key)) {
+                return;
+            }
+            const value = await this.opts.store.request(id, priority);
+            if (value !== null) {
+                this.ready.set(key, { id, value });
+            }
+        }));
+    }
+
+    /**
      * Upload arrived tiles under a time budget. Tile sizes vary far too much
      * for a fixed count to bound the cost, and a burst landing in one frame is
      * exactly what causes a hitch.
@@ -152,7 +185,7 @@ export class TileStreamer<T, G> {
             }
             this.ready.delete(key);
             // A tile can stop being wanted between arriving and uploading.
-            if (!this.wantKeys.has(key)) {
+            if (!this.wantKeys.has(key) && !this.pinnedKeys.has(key)) {
                 continue;
             }
             this.gpu.set(key, this.opts.upload(entry.id, entry.value));

@@ -20,9 +20,6 @@
     "homepage": "https://github.com/ruben3d/retroflightsim",
     "dependencies": {
         "@0x62/jsbsim-wasm": "^1.2.4-beta.4",
-        "buffer": "^6.0.3",
-        "cdt2d": "^1.0.0",
-        "clean-pslg": "^1.1.2",
         "fflate": "~0.8.2",
         "three": "0.185.1"
     },

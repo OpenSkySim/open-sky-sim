@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 import {
     MAX_ALTITUDE, MAX_SPEED, PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE,
-    TERRAIN_MODEL_SIZE, TERRAIN_SCALE, YAW_RATE,
+    WORLD_HALF_EXTENT_M, YAW_RATE,
 } from '../../defs';
 import { clamp, FORWARD, isZero, RIGHT, UP } from '../../utils/math';
 import {
@@ -836,12 +836,15 @@ export class Fm2FlightModel extends FlightModel {
         }
     }
 
+    /**
+     * Keep the aircraft inside the baked world. This used to *wrap* to the
+     * opposite side, which teleported the plane while the terrain stayed put;
+     * clamping just stops it at the edge, over open ocean.
+     */
     private wrapPosition(): void {
-        const h = 2.5 * TERRAIN_SCALE * TERRAIN_MODEL_SIZE;
-        if (this.obj.position.x > h) this.obj.position.x = -h;
-        if (this.obj.position.x < -h) this.obj.position.x = h;
-        if (this.obj.position.z > h) this.obj.position.z = -h;
-        if (this.obj.position.z < -h) this.obj.position.z = h;
+        const h = WORLD_HALF_EXTENT_M;
+        this.obj.position.x = Math.max(-h, Math.min(h, this.obj.position.x));
+        this.obj.position.z = Math.max(-h, Math.min(h, this.obj.position.z));
     }
 
     getStallStatus(): number { return this.stall; }

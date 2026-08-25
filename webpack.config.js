@@ -1,5 +1,4 @@
 const CopyPlugin = require('copy-webpack-plugin');
-const webpack = require('webpack');
 const fs = require('fs');
 const path = require('path');
 
@@ -41,20 +40,8 @@ module.exports = {
     },
     resolve: {
         extensions: ['.ts', '.js'],
-        // clean-pslg (via box-intersect -> typedarray-pool) references Node's
-        // `buffer`/`global` — webpack 5 no longer polyfills Node core modules
-        // by default, so wire in the minimal shims it needs.
-        fallback: {
-            buffer: require.resolve('buffer/'),
-        },
     },
     plugins: [
-        new webpack.ProvidePlugin({
-            Buffer: ['buffer', 'Buffer'],
-        }),
-        new webpack.DefinePlugin({
-            global: 'globalThis',
-        }),
         new CopyPlugin({
             patterns: [
                 {

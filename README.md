@@ -169,4 +169,6 @@ The system supports a single device connected only. If the device has less than 
 * `4`: Toggle to/from target
 * `Numpad *`: Toggle F1 padlock / F2 enemy lock
 
-On reaching the limits of the detailed scenario the player position wraps around.
+On reaching the limits of the baked terrain the player position is clamped.
+(It used to *wrap* to the opposite side, a leftover from the old tiled
+scenery that teleported the aircraft while the terrain stayed put.)

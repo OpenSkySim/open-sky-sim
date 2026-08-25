@@ -19,6 +19,12 @@ export interface MeshStreamManifest {
 export interface HeightStreamManifest {
     path: string;
     indexPath: string;
+    /**
+     * Root the height tiles are served from, relative to the app. The height
+     * pyramid is the bake's *input* and is not copied into the mesh output, so
+     * this normally points back at it rather than at the manifest's directory.
+     */
+    baseUrl?: string;
     tileSize: number;
     minZoom: number;
     maxZoom: number;
@@ -92,7 +98,7 @@ export function meshTileUrl(
 export function heightTileUrl(
     manifest: TerrainManifest, z: number, x: number, y: number, base: string,
 ): string {
-    return `${base}/${expand(manifest.height.path, z, x, y)}`;
+    return `${manifest.height.baseUrl ?? base}/${expand(manifest.height.path, z, x, y)}`;
 }
 
 export function meshIndexUrl(manifest: TerrainManifest, base: string): string {
@@ -100,7 +106,7 @@ export function meshIndexUrl(manifest: TerrainManifest, base: string): string {
 }
 
 export function heightIndexUrl(manifest: TerrainManifest, base: string): string {
-    return `${base}/${manifest.height.indexPath}`;
+    return `${manifest.height.baseUrl ?? base}/${manifest.height.indexPath}`;
 }
 
 /** Base directory the manifest was loaded from. */

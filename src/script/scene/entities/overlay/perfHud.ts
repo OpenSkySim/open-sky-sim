@@ -16,6 +16,15 @@ interface TerrainStatsShape {
     triangles: number;
     detailScale: number;
     frameEmaMs: number;
+    /** Which tier answered the last CPU height query: fine | coarse | none. */
+    heightTier?: string;
+    queued?: number;
+    inflight?: number;
+    cacheBytes?: number;
+    aborted?: number;
+    failed?: number;
+    uploadMs?: number;
+    pendingUploads?: number;
 }
 
 /** Frame-time EMA smoothing factor — same order as the terrain LOD governor's own. */
@@ -71,6 +80,14 @@ export class PerfHudEntity implements Entity {
         if (terrainStats) {
             lines.push(`Terrain: ${terrainStats.drawn} tiles, ${(terrainStats.triangles / 1000).toFixed(1)}k tri, `
                 + `detail ${terrainStats.detailScale.toFixed(2)}, ema ${terrainStats.frameEmaMs.toFixed(1)}ms`);
+            // Streaming health. `queued` should drain toward zero in level
+            // flight and `cache` should plateau; a climbing cache means
+            // eviction is not reclaiming. `tier` must not change as you climb.
+            const mb = (terrainStats.cacheBytes ?? 0) / 1048576;
+            lines.push(`  stream: q${terrainStats.queued ?? 0} f${terrainStats.inflight ?? 0}`
+                + ` up${terrainStats.pendingUploads ?? 0}/${(terrainStats.uploadMs ?? 0).toFixed(1)}ms`
+                + ` cache ${mb.toFixed(0)}MB abort ${terrainStats.aborted ?? 0}`
+                + ` fail ${terrainStats.failed ?? 0} tier ${terrainStats.heightTier ?? '?'}`);
         }
 
         let y = font.charHeight;

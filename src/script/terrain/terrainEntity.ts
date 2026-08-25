@@ -42,6 +42,7 @@ import { TileStreamer, TileWant, predictPosition } from './tileStreamer';
 import { TileKey, approxTileEdgeMetres, tileKeyString } from './tiling';
 import { enuToGeodeticApprox } from './geodesy';
 import { TONE_COUNT, TerrainTone } from './tones';
+import { publishTerrainStats, trackTerrainMaterial } from './debug';
 
 const TONE_CATEGORIES: Record<number, PaletteCategory> = {
     [TerrainTone.Water]: PaletteCategory.TERRAIN_WATER,
@@ -111,6 +112,8 @@ export class TerrainEntity implements Entity {
         const origin = opts.enuOrigin ?? opts.manifest.enuOrigin;
         this.basis = makeEnuBasis(origin.lat, origin.lon, origin.height ?? 0);
         this.group.name = 'Terrain';
+        // Dev aid, alongside globalThis.__terrainStats.
+        (globalThis as Record<string, unknown>).__terrain = this;
 
         const base = baseUrlOf(opts.manifestUrl);
 
@@ -131,6 +134,7 @@ export class TerrainEntity implements Entity {
             // resolves to land rather than sky-coloured sparkles.
             mat.polygonOffsetFactor = water ? 2 : 1;
             mat.polygonOffsetUnits = water ? 2 : 1;
+            trackTerrainMaterial(mat);
             this.materials.push(mat);
         }
 
@@ -212,6 +216,15 @@ export class TerrainEntity implements Entity {
         await this.heights.loadCoarse();
     }
 
+    /** Deepest zoom the baked pyramid provides. */
+    get maxZoom(): number {
+        return this.manifest.mesh.maxZoom;
+    }
+
+    get coverage(): { west: number; south: number; east: number; north: number } {
+        return this.manifest.coverage;
+    }
+
     /** Nominate the camera LOD follows. Every other render pass is passive. */
     setLodCamera(camera: THREE.Camera): void {
         this.lodCamera = camera;
@@ -224,11 +237,25 @@ export class TerrainEntity implements Entity {
         for (const id of ids) {
             this.pinned.add(tileKeyString(id));
         }
-        await Promise.all(ids.map(id => this.meshStore.request(id, Number.MAX_SAFE_INTEGER)));
+        this.streamer.setPinnedKeys(this.pinned);
+        await this.streamer.ensure(ids, Number.MAX_SAFE_INTEGER);
         for (const id of ids) {
             this.meshStore.setPinned(id, true);
         }
         await this.heights.ensureLoadedAroundEnu(e, n, radiusM);
+    }
+
+    /** Keys of pinned tiles that are still neither uploaded nor known absent. */
+    outstandingPinned(): string[] {
+        const out: string[] = [];
+        for (const key of this.pinned) {
+            const [z, x, y] = key.split('/').map(Number);
+            const id = { z, x, y };
+            if (!this.streamer.has(id) && !this.meshStore.isAbsent(id)) {
+                out.push(key);
+            }
+        }
+        return out;
     }
 
     /** Resolve once every pinned tile is uploaded, reporting progress. */
@@ -238,21 +265,19 @@ export class TerrainEntity implements Entity {
             return;
         }
         for (let guard = 0; guard < 2000; guard++) {
-            let done = 0;
-            for (const key of this.pinned) {
-                const [z, x, y] = key.split('/').map(Number);
-                const id = { z, x, y };
-                if (this.streamer.has(id) || this.meshStore.isAbsent(id)) {
-                    done++;
-                }
-            }
+            const outstanding = this.outstandingPinned();
+            const done = total - outstanding.length;
             onProgress?.(done, total);
-            if (done >= total) {
+            if (outstanding.length === 0) {
                 return;
             }
             this.streamer.pumpUploads();
             await new Promise(r => setTimeout(r, 16));
         }
+        console.warn(
+            `[terrain] gave up waiting on ${this.outstandingPinned().length} pinned tiles`,
+            this.outstandingPinned().slice(0, 20),
+        );
     }
 
     update(_delta: number): void {
@@ -327,6 +352,7 @@ export class TerrainEntity implements Entity {
         this.streamer.setWants(r.wants, this.speculativeWants(camera, r.wants));
         this.drawList = r.draw;
         this.syncGroup();
+        publishTerrainStats({ ...this.stats, altitudeM: camera.position.y });
     }
 
     /** Tiles the camera is about to need, at reduced priority. */

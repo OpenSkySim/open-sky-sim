@@ -8,7 +8,7 @@ import { SceneWorldQuery } from '../../ai/worldQuery';
 import { Combatant, Faction } from '../../weapons/combatant';
 import { Gun, GunConfig, ProjectileSink } from '../../weapons/gun';
 import { FORWARD } from '../../utils/math';
-import { PLANE_DISTANCE_TO_GROUND, TERRAIN_MODEL_SIZE, TERRAIN_SCALE } from '../../defs';
+import { PLANE_DISTANCE_TO_GROUND, WORLD_HALF_EXTENT_M } from '../../defs';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { FcsPitchLimiter } from '../fm2/fcs';
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
@@ -490,7 +490,7 @@ export class CombatSim implements ProjectileSink {
     /** Worker-side keyboard/gamepad handlers for externally-controlled aircraft. */
     private readonly playerInputs = new Map<string, SimPlayerInput>();
 
-    private readonly terrainHalfSize = 2.5 * TERRAIN_SCALE * TERRAIN_MODEL_SIZE;
+    private readonly terrainHalfSize = WORLD_HALF_EXTENT_M;
 
     private readonly projectiles: ProjectileSlot[] = [];
     private readonly hits: SimHitEvent[] = [];
@@ -814,24 +814,19 @@ export class CombatSim implements ProjectileSink {
         this.updateProjectiles(delta);
     }
 
-    /** Wrap aircraft that fly past the terrain edge (mirrors former main-thread logic). */
+    /**
+     * Hold aircraft inside the baked world. This used to wrap to the opposite
+     * side, teleporting the aircraft while the terrain stayed put; it now
+     * clamps at the edge, out over open ocean.
+     */
     private wrapBounds(a: SimAircraft): void {
         const pos = a.model.position;
-        let wrapped = false;
-        if (pos.x > this.terrainHalfSize) {
-            pos.x = -this.terrainHalfSize;
-            wrapped = true;
-        } else if (pos.x < -this.terrainHalfSize) {
-            pos.x = this.terrainHalfSize;
-            wrapped = true;
-        }
-        if (pos.z > this.terrainHalfSize) {
-            pos.z = -this.terrainHalfSize;
-            wrapped = true;
-        } else if (pos.z < -this.terrainHalfSize) {
-            pos.z = this.terrainHalfSize;
-            wrapped = true;
-        }
+        const h = this.terrainHalfSize;
+        const x = Math.max(-h, Math.min(h, pos.x));
+        const z = Math.max(-h, Math.min(h, pos.z));
+        const wrapped = x !== pos.x || z !== pos.z;
+        pos.x = x;
+        pos.z = z;
         if (wrapped) {
             a.model.snapPhysicsState();
         }
