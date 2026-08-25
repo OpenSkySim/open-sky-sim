@@ -332,6 +332,19 @@ export class TerrainEntity implements Entity {
     }
 
     private reconcile(camera: THREE.PerspectiveCamera): void {
+        // Everything below reads the camera's orientation out of its world
+        // matrix -- the culling frustum here, and the prefetch direction via
+        // getWorldDirection in speculativeWants. But that matrix is only
+        // recomputed when the renderer submits, which happens *after* the
+        // render lists are built, so without this we cull against the previous
+        // pose. In a view whose orientation is set after the camera updater
+        // runs -- an orbited exterior view, or looking around the cockpit --
+        // it never catches up at all: measured, the frustum sat a steady 105
+        // degrees away from the view direction and stayed there, pinning
+        // terrain to a cone around the aircraft axis while the player looked
+        // somewhere else entirely.
+        camera.updateMatrixWorld();
+
         const now = performance.now();
         if (this.lastFrame > 0) {
             const dt = now - this.lastFrame;

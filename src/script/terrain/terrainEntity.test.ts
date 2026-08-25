@@ -140,3 +140,71 @@ describe('TerrainEntity render list attachment', () => {
         });
     });
 });
+
+describe('culling follows the camera, not the aircraft (regression)', () => {
+    /**
+     * The quadtree builds its frustum from `camera.matrixWorld`, but THREE only
+     * recomputes that when the renderer *submits* -- which happens after the
+     * render lists are built. So culling ran against the previous pose, and in
+     * any view whose orientation is set after the camera updater runs (an
+     * orbited exterior view, or looking around the cockpit) it never caught up:
+     * measured in the running game, the frustum sat a steady 105 degrees off
+     * the view direction and stayed there, pinning terrain to a cone around the
+     * aircraft axis while the player looked elsewhere.
+     *
+     * The check has to spy on what `Quadtree.update` was handed. Asserting on
+     * the camera afterwards proves nothing: `speculativeWants` calls
+     * `getWorldDirection`, which commits the world matrix as a side effect --
+     * but it runs *after* the frustum has already been built from the stale one.
+     */
+    function forwardOf(m: THREE.Matrix4): THREE.Vector3 {
+        return new THREE.Vector3(0, 0, -1)
+            .applyMatrix4(new THREE.Matrix4().extractRotation(m));
+    }
+
+    /** Records the camera pose the quadtree actually culled against. */
+    function spyOnCulling(entity: TerrainEntity): () => THREE.Vector3 | null {
+        const qt = (entity as unknown as {
+            quadtree: { update: (...a: unknown[]) => unknown };
+        }).quadtree;
+        const original = qt.update.bind(qt);
+        let seen: THREE.Vector3 | null = null;
+        qt.update = (...args: unknown[]) => {
+            seen = forwardOf((args[0] as THREE.PerspectiveCamera).matrixWorld);
+            return original(...args);
+        };
+        return () => seen;
+    }
+
+    it('culls against the view direction, not the last committed pose', () => {
+        const entity = makeEntity();
+        const cam = camera();
+        cam.lookAt(0, cam.position.y, 1);        // facing north, committed
+        cam.updateMatrixWorld(true);
+        entity.setLodCamera(cam);
+        const culledAgainst = spyOnCulling(entity);
+
+        // Swing a quarter turn east and stop, exactly as a camera updater
+        // does. Nothing recomputes matrixWorld until the renderer submits.
+        cam.lookAt(1, cam.position.y, 0);
+        const live = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+        assert.ok(
+            forwardOf(cam.matrixWorld).dot(live) < 0.9,
+            'precondition: the world matrix must still be stale here',
+        );
+
+        const lists = new Map([[SceneLayers.Terrain, new THREE.Scene()]]);
+        beginRenderListPass(lists.get(SceneLayers.Terrain)!, 1);
+        entity.render3D(320, 200, cam, lists, {} as never);
+
+        const seen = culledAgainst();
+        assert.ok(seen, 'the quadtree was never asked to update');
+        const angleDeg = Math.acos(
+            Math.max(-1, Math.min(1, seen.dot(live))),
+        ) * 180 / Math.PI;
+        assert.ok(
+            angleDeg < 0.01,
+            `culled ${angleDeg.toFixed(1)} degrees away from the view direction`,
+        );
+    });
+});
