@@ -32,19 +32,6 @@ import {
     LonLatBounds, TileKey, boundsOverlap, parseTileKey, tileBounds, tileKeyString, tileRangeForBounds,
 } from './tiling';
 
-export type TerrainMode = 'planet' | 'legacy';
-
-export function resolveTerrainMode(
-    search: string = typeof location !== 'undefined' ? location.search : '',
-): TerrainMode {
-    const q = new URLSearchParams(search);
-    const v = q.get('terrain');
-    if (v === 'legacy') {
-        return 'legacy';
-    }
-    return 'planet';
-}
-
 export interface PlanetTerrainOptions {
     baseUrl?: string;
     maxZoom?: number;

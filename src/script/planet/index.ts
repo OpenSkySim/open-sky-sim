@@ -15,6 +15,4 @@ export * from './debug';
 export {
     PlanetTerrainEntity,
     PlanetTerrainOptions,
-    TerrainMode,
-    resolveTerrainMode,
 } from './planetEntity';

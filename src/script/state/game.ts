@@ -18,7 +18,7 @@ import { loadSettings, SpawnMode, updateSettings } from '../config/settingsStora
 import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { FlightRecorder } from '../physics/flightRecorder';
 import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
-import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, HIGH_ALTITUDE_M, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, SPACE_ALTITUDE_M, TERRAIN_MODEL_SIZE, TERRAIN_SCALE, V_RES } from '../defs';
+import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, HIGH_ALTITUDE_M, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, SPACE_ALTITUDE_M, V_RES } from '../defs';
 import { terrainMaxZoomForAltitudeM } from '../planet/lod';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
@@ -44,16 +44,13 @@ import {
 import {
     createSkiJumpCollider, sampleSkiJumpSurfaceYMax, SkiJumpCollider,
 } from '../scene/entities/skiJump';
-import { createHillCollider, HillCollider, sampleHillSurfaceY } from '../scene/entities/hillCollider';
 import { SurfacePadCollider, sampleSurfacePadYMax } from '../scene/entities/surfacePad';
 import { SceneryField, SceneryFieldSettings } from '../scene/entities/sceneryField';
 import { SimpleEntity } from '../scene/entities/simpleEntity';
-import { SpecklesEntity } from '../scene/entities/speckles';
 import { StaticSceneryEntity } from '../scene/entities/staticScenery';
 import { Entity } from '../scene/entity';
 import { SceneMaterialManager } from "../scene/materials/materials";
-import { Model, ModelManager } from "../scene/models/models";
-import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT } from '../scene/models/lib/mountainModelBuilder';
+import { ModelManager } from "../scene/models/models";
 import { Scene, SceneLayers } from '../scene/scene';
 import { updateTargetCamera } from '../scene/utils';
 import { assertIsDefined } from '../utils/asserts';
@@ -89,7 +86,7 @@ import { PLAYER_SIM_ID, aiSimId } from '../physics/sim/simIds';
 import { AiPilotModels } from './gameDefs';
 import {
     PlanetTerrainEntity, SPACE_SKY_ALTITUDE_M, cameraFarForAltitudeM, isTerrainWireframe, loadManifest,
-    resolveTerrainMode, setTerrainWireframe,
+    setTerrainWireframe,
 } from '../planet';
 import { OsmMapEntity } from '../scene/entities/osmMap';
 import {
@@ -305,12 +302,6 @@ export class Game {
     private state: GameState = GameState.SPAWN_MENU;
 
     private scene: Scene = new Scene();
-    private landTerrainMeshes: THREE.Object3D[] = [];
-    private waterTerrainMeshes: THREE.Object3D[] = [];
-    private readonly terrainCaster = new THREE.Raycaster();
-    private readonly terrainRayOrigin = new THREE.Vector3();
-    private readonly terrainRayDir = new THREE.Vector3(0, -1, 0);
-    private readonly hillColliders: HillCollider[] = [];
     private readonly skiJumps: SkiJumpCollider[] = [];
     private readonly carrierMeshes: CarrierMeshCollider[] = [];
     /** Flat solid surfaces (runway strip, pavement pads); gear rests on them, not the terrain below. */
@@ -324,7 +315,7 @@ export class Game {
      */
     private readonly stagedSceneryMeshes: CarrierMeshCollider[] = [];
     /** Geographic DEM / ocean terrain when `terrain=planet` (default). */
-    private planetTerrain: PlanetTerrainEntity | undefined;
+    private planetTerrain!: PlanetTerrainEntity;
     /** Canvas OSM for left MFD; when set, WebGL MAP target is skipped. */
     private osmMapEntity: OsmMapEntity | undefined;
     /** Atmospheric sky billboard; disabled above {@link SPACE_SKY_ALTITUDE_M}. */
@@ -1110,9 +1101,6 @@ export class Game {
 
     /** Prefetch DEM + pin meshes in a radius around the plane. */
     private async preloadTerrainAroundPlane(x: number, z: number, spawn?: SpawnMode): Promise<void> {
-        if (!this.planetTerrain) {
-            return;
-        }
         const plan = this.terrainSeedPlan(spawn);
         await this.planetTerrain.prefetchPlayArea(plan.prefetchRadiusM, x, z);
         for (const ring of plan.rings) {
@@ -1130,9 +1118,6 @@ export class Game {
     }
 
     private async waitForRequiredTerrain(min: number, max: number): Promise<void> {
-        if (!this.planetTerrain) {
-            return;
-        }
         await this.planetTerrain.waitForPinnedMeshes((meshed, total) => {
             this.reportTerrainBootProgress(meshed, total, min, max);
         });
@@ -1151,7 +1136,7 @@ export class Game {
         prefetchRadiusM: number;
         rings: { radiusM: number; zoom?: number; dense?: boolean }[];
     } {
-        const demMax = this.planetTerrain?.dem.manifest.maxZoom;
+        const demMax = this.planetTerrain.dem.manifest.maxZoom;
         if (spawn === 'highAlt' && demMax !== undefined) {
             return {
                 prefetchRadiusM: HIGH_ALT_OUTER_RADIUS_M,
@@ -1210,10 +1195,9 @@ export class Game {
 
     /** Highest solid ground Y at (x, z): DEM/flat datum, hills, ski jumps, surface pads, scenery + carrier meshes. */
     private groundHeightAt(x: number, z: number): number {
-        const demY = this.planetTerrain ? this.planetTerrain.heightAtEnu(x, z) : 0;
+        const demY = this.planetTerrain.heightAtEnu(x, z);
         return Math.max(
             demY,
-            sampleHillSurfaceY(x, z, this.hillColliders),
             sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
             sampleSurfacePadYMax(x, z, this.surfacePads),
             sampleCarrierMeshSurfaceYMax(x, z, this.sceneryMeshes),
@@ -2294,16 +2278,14 @@ export class Game {
         // to the sim worker so its AI pilots can navigate; then register the player as a
         // sim-owned aircraft (its physics + gun + autopilot all live there).
         this.combatSim.setWorld(serializeWorld(
-            this.hillColliders, this.obstacles, runway, this.skiJumps, this.carrierMeshes,
+            [], this.obstacles, runway, this.skiJumps, this.carrierMeshes,
             (() => {
                 const pose = this.carrierPose();
                 return [defaultArrestorCableField(
                     pose.position.x, pose.position.y, pose.position.z, pose.quaternion,
                 )];
             })(),
-            this.planetTerrain
-                ? sampleHeightGrid((x, z) => this.planetTerrain!.heightAtEnu(x, z), AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z)
-                : undefined,
+            sampleHeightGrid((x, z) => this.planetTerrain.heightAtEnu(x, z), AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z),
             this.surfacePads,
             this.sceneryMeshes,
         ));
@@ -2487,14 +2469,7 @@ export class Game {
     }
 
     private async setupScene(spawn: SpawnMode) {
-        const terrainMode = resolveTerrainMode();
-        const manifest = terrainMode === 'planet' ? await loadManifest() : undefined;
-
-        // Infinite green ground plane fights DEM relief — only use it for legacy mosaic.
-        if (!manifest) {
-            const ground = new SimpleEntity(this.models.getModel('lib:GROUND'), SceneLayers.BackgroundGround, SceneLayers.BackgroundGround);
-            this.scene.add(ground);
-        }
+        const manifest = await loadManifest();
 
         this.skyEntity = new SimpleEntity(this.models.getModel('lib:SKY'), SceneLayers.BackgroundSky, SceneLayers.BackgroundSky);
         this.skyEntity.position.set(0, 7, 0);
@@ -2556,55 +2531,32 @@ export class Game {
         );
         this.scene.add(this.cirrusField);
 
-        if (manifest) {
-            setBootProgress(35, 'Loading terrain...');
-            this.planetTerrain = new PlanetTerrainEntity(manifest, this.materials, {
-                enuOrigin: PLAY_ORIGIN,
-            });
-            this.scene.add(this.planetTerrain);
-            const center = this.spawnCenterEnu(spawn);
-            const plan = this.terrainSeedPlan(spawn);
-            setBootProgress(45, 'Loading terrain tiles...');
-            // Default 30 km; high-alt uses a fine core + coarse outer ring.
-            await this.planetTerrain.prefetchPlayArea(plan.prefetchRadiusM, center.x, center.z);
-            const [firstRing, ...extraRings] = plan.rings;
-            this.planetTerrain.lockAirbaseFlattenPad(
-                { ...AIRBASE_FLATTEN_PAD },
-                center.x,
-                center.z,
-                firstRing.radiusM,
-                firstRing.zoom,
+        setBootProgress(35, 'Loading terrain...');
+        this.planetTerrain = new PlanetTerrainEntity(manifest, this.materials, {
+            enuOrigin: PLAY_ORIGIN,
+        });
+        this.scene.add(this.planetTerrain);
+        const center = this.spawnCenterEnu(spawn);
+        const plan = this.terrainSeedPlan(spawn);
+        setBootProgress(45, 'Loading terrain tiles...');
+        // Default 30 km; high-alt uses a fine core + coarse outer ring.
+        await this.planetTerrain.prefetchPlayArea(plan.prefetchRadiusM, center.x, center.z);
+        const [firstRing, ...extraRings] = plan.rings;
+        this.planetTerrain.lockAirbaseFlattenPad(
+            { ...AIRBASE_FLATTEN_PAD },
+            center.x,
+            center.z,
+            firstRing.radiusM,
+            firstRing.zoom,
+        );
+        for (const ring of extraRings) {
+            this.planetTerrain.seedPlayArea(
+                center.x, center.z, ring.radiusM, ring.zoom, ring.dense,
             );
-            for (const ring of extraRings) {
-                this.planetTerrain.seedPlayArea(
-                    center.x, center.z, ring.radiusM, ring.zoom, ring.dense,
-                );
-            }
-            setBootProgress(50, 'Building terrain meshes...');
-            this.osmMapEntity = new OsmMapEntity(this.planetTerrain.frame.basis);
-            this.scene.add(this.osmMapEntity);
-        } else {
-            setBootProgress(35, 'Loading terrain...');
-            for (let x = -2; x <= 2; x++) {
-                for (let z = -2; z <= 2; z++) {
-                    const model = this.models.getModel('assets/map.gltf');
-                    const map = new SimpleEntity(model, SceneLayers.Terrain, SceneLayers.Terrain);
-                    map.position.x = x * TERRAIN_MODEL_SIZE * TERRAIN_SCALE;
-                    map.position.z = z * TERRAIN_MODEL_SIZE * TERRAIN_SCALE;
-                    map.scale.x = TERRAIN_SCALE * (Math.abs(x) % 2 === 0 ? 1 : -1);
-                    map.scale.z = TERRAIN_SCALE * (Math.abs(z) % 2 === 0 ? 1 : -1);
-                    this.scene.add(map);
-                }
-            }
-
-            await this.models.waitForModel('assets/map.gltf');
-            const mapModel = this.models.getModel('assets/map.gltf');
-            this.setupTerrainSampler(mapModel);
-            this.scatterHillsAndMountains(mapModel);
-
-            const speckles = new SpecklesEntity(this.materials);
-            this.scene.add(speckles);
         }
+        setBootProgress(50, 'Building terrain meshes...');
+        this.osmMapEntity = new OsmMapEntity(this.planetTerrain.frame.basis);
+        this.scene.add(this.osmMapEntity);
 
         setBootProgress(60, 'Loading airbase...');
         await this.addAirBase(this.scene, this.models);
@@ -2886,91 +2838,8 @@ export class Game {
         await this.addSolidSceneryMesh('assets/control01.gltf', tower);
     }
 
-    private setupTerrainSampler(mapModel: Model) {
-        const water = new Set<string>([
-            PaletteCategory.TERRAIN_WATER,
-            PaletteCategory.TERRAIN_SHALLOW_WATER,
-        ]);
-        this.landTerrainMeshes.length = 0;
-        this.waterTerrainMeshes.length = 0;
-        for (const mesh of mapModel.lod[0].flats) {
-            if (water.has(mesh.name)) {
-                this.waterTerrainMeshes.push(mesh);
-            } else {
-                this.landTerrainMeshes.push(mesh);
-            }
-        }
-    }
-
     private isLandAt(worldX: number, worldZ: number): boolean {
-        if (this.planetTerrain) {
-            return this.planetTerrain.isLandEnu(worldX, worldZ);
-        }
-        this.terrainRayOrigin.set(worldX / TERRAIN_SCALE, 500, worldZ / TERRAIN_SCALE);
-        this.terrainCaster.set(this.terrainRayOrigin, this.terrainRayDir);
-        const landHits = this.terrainCaster.intersectObjects(this.landTerrainMeshes, true);
-        if (landHits.length === 0) {
-            return false;
-        }
-        const waterHits = this.terrainCaster.intersectObjects(this.waterTerrainMeshes, true);
-        if (waterHits.length === 0) {
-            return true;
-        }
-        return landHits[0].distance <= waterHits[0].distance;
-    }
-
-    private scatterHillsAndMountains(mapModel: Model) {
-        this.hillColliders.length = 0;
-        const grass = mapModel.lod[0].flats.find(mesh => mesh.name === PaletteCategory.TERRAIN_GRASS);
-        assertIsDefined(grass);
-        for (let i = 0; i < 30; i++) {
-            const hill = new StaticSceneryEntity(this.models.getModel('lib:hill'));
-            this.randomPosOver(grass, hill.position, 20000);
-            hill.scale.set(
-                0.8 + Math.random() / 5.0,
-                0.5 + Math.random() / 2.0,
-                0.8 + Math.random() / 5.0);
-            hill.quaternion.setFromAxisAngle(UP, Math.PI / 4 + (Math.random() - 0.5) * Math.PI / 4);
-            this.hillColliders.push(createHillCollider(
-                hill.position, hill.quaternion, hill.scale,
-                HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT,
-            ));
-            this.scene.add(hill);
-        }
-
-        const bare = mapModel.lod[0].flats.find(mesh => mesh.name === PaletteCategory.TERRAIN_BARE);
-        assertIsDefined(bare);
-        for (let i = 0; i < 20; i++) {
-            const mountain = new StaticSceneryEntity(this.models.getModel('lib:mountain'));
-            this.randomPosOver(bare, mountain.position, 20000);
-            mountain.scale.x = 0.8 + Math.random() / 5.0;
-            mountain.scale.y = 0.5 + Math.random() / 2.0;
-            mountain.scale.z = 0.8 + Math.random() / 5.0;
-            mountain.quaternion.setFromAxisAngle(UP, Math.PI / 4 + (Math.random() - 0.5) * Math.PI / 4);
-            this.hillColliders.push(createHillCollider(
-                mountain.position, mountain.quaternion, mountain.scale,
-                MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT,
-            ));
-            this.scene.add(mountain);
-        }
-    }
-
-    private randomPosOver(surface: THREE.Object3D, position: THREE.Vector3, spread: number): THREE.Vector3 {
-        assertIsDefined(surface);
-        let intersections: THREE.Intersection[] = [];
-        const caster = new THREE.Raycaster();
-        const p = UP.clone();
-        const d = UP.clone().negate();
-        const scaledSpread = spread / TERRAIN_SCALE;
-        do {
-            intersections.length = 0;
-            p.x = Math.random() * scaledSpread - scaledSpread / 2;
-            p.z = Math.random() * scaledSpread - scaledSpread / 2;
-            caster.set(p, d);
-            intersections = caster.intersectObject(surface, true);
-        } while (intersections.length === 0);
-        position.copy(p).setY(0).multiplyScalar(TERRAIN_SCALE);
-        return position;
+        return this.planetTerrain.isLandEnu(worldX, worldZ);
     }
 
     private getPalette(): Palette {

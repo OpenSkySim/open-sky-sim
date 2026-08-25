@@ -4,9 +4,13 @@ import { PaletteCategory } from '../../../config/palettes/palette';
 import { updateUniforms } from '../../utils';
 import { Model, ModelLibBuilder } from "../models";
 
-const GROUND_SIZE = 1000000;
 const SKY_SIZE = 100000;
 
+/**
+ * The sky billboard. There used to be a matching GROUND plane here, but the
+ * planetary terrain supplies its own ground now and an infinite plane fights
+ * DEM relief, so only SKY remains.
+ */
 export class BackgroundModelLibBuilder implements ModelLibBuilder {
 
     constructor(public type: BackgroundModelLibBuilder.Type) { }
@@ -15,7 +19,7 @@ export class BackgroundModelLibBuilder implements ModelLibBuilder {
         const geometry = this.buildGeometry();
         const mesh = new THREE.Mesh(geometry, materials.build({
             type: SceneMaterialPrimitiveType.MESH,
-            category: this.type === BackgroundModelLibBuilder.Type.GROUND ? PaletteCategory.TERRAIN_DEFAULT : PaletteCategory.SKY,
+            category: PaletteCategory.SKY,
             depthWrite: false,
             highp: true,
             shaded: false
@@ -28,29 +32,21 @@ export class BackgroundModelLibBuilder implements ModelLibBuilder {
                 volumes: []
             }],
             animations: [],
-            maxSize: this.type === BackgroundModelLibBuilder.Type.GROUND ? GROUND_SIZE : SKY_SIZE,
+            maxSize: SKY_SIZE,
             center: new THREE.Vector3()
         };
     }
 
     private buildGeometry(): THREE.PlaneGeometry {
-        if (this.type === BackgroundModelLibBuilder.Type.GROUND) {
-            const geometry = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 1, 1);
-            geometry.center();
-            geometry.rotateX(-Math.PI / 2);
-            return geometry;
-        } else {
-            const geometry = new THREE.PlaneGeometry(SKY_SIZE, SKY_SIZE, 1, 1);
-            geometry.center();
-            geometry.rotateX(Math.PI / 2);
-            return geometry;
-        }
+        const geometry = new THREE.PlaneGeometry(SKY_SIZE, SKY_SIZE, 1, 1);
+        geometry.center();
+        geometry.rotateX(Math.PI / 2);
+        return geometry;
     }
 }
 
 export namespace BackgroundModelLibBuilder {
     export enum Type {
-        SKY = 'SKY',
-        GROUND = 'GROUND'
+        SKY = 'SKY'
     }
 }

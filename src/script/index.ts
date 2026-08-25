@@ -54,7 +54,6 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
     const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
     const renderer = new Renderer(materials, H_RES, V_RES, HDNoonPalette);
     const models = new ModelManager(materials, [
-        new BackgroundModelLibBuilder(BackgroundModelLibBuilder.Type.GROUND),
         new BackgroundModelLibBuilder(BackgroundModelLibBuilder.Type.SKY),
         new CloudModelLibBuilder('cloudNone', []),
         new CloudModelLibBuilder('cloudSmall', CLOUD_PUFF_SHAPES.small),
