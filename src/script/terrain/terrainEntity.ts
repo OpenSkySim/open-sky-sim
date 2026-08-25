@@ -22,6 +22,7 @@ import { Scene, SceneLayers } from '../scene/scene';
 import { Palette } from '../config/palettes/palette';
 import { CanvasPainter } from '../render/screen/canvasPainter';
 import { updateUniforms } from '../scene/utils';
+import { attachToRenderList } from '../render/renderList';
 import { DemTile, decodePdm } from './demTile';
 import { EnuBasis, WGS84_A, makeEnuBasis } from './geodesy';
 import { FlattenPad } from './flattenPad';
@@ -309,7 +310,11 @@ export class TerrainEntity implements Entity {
         }
         const list = lists.get(SceneLayers.Terrain);
         if (list) {
-            list.add(this.group);
+            // Must go through attachToRenderList, not list.add: the renderer
+            // stamps a generation on each build pass and pruneRenderList drops
+            // every child that is not stamped for the current one. A plain add
+            // is silently pruned again before anything is drawn.
+            attachToRenderList(list, this.group);
         }
     }
 
