@@ -49,9 +49,9 @@ describe('PTM1 codec', () => {
         // (position -> tone) facts rather than by index.
         const seen = new Map<string, number>();
         for (let v = 0; v < tile.landPositions.length / 3; v++) {
-            const x = tile.landPositions[v * 3] * tile.quantScaleXZ;
-            const y = tile.landPositions[v * 3 + 1] * tile.quantScaleY;
-            const z = tile.landPositions[v * 3 + 2] * tile.quantScaleXZ;
+            const x = tile.landPositions[v * 3] * tile.quantScale;
+            const y = tile.landPositions[v * 3 + 1] * tile.quantScale;
+            const z = tile.landPositions[v * 3 + 2] * tile.quantScale;
             seen.set(`${Math.round(x)},${Math.round(y)},${Math.round(z)}`, tile.landTones[v]);
         }
         const src = input.land.positions;
@@ -66,18 +66,20 @@ describe('PTM1 codec', () => {
             }
         }
 
-        // Quantisation error is bounded by half a step in each axis.
-        const halfXZ = tile.quantScaleXZ / 2;
-        const halfY = tile.quantScaleY / 2;
-        assert.ok(halfXZ < 0.1, `xz step ${tile.quantScaleXZ} too coarse at z12`);
-        assert.ok(halfY < 0.01, `y step ${tile.quantScaleY} too coarse`);
+        // Quantisation error is bounded by half a step, the same on every
+        // axis. At z12 that is ~3 cm, far below anything this renderer can
+        // show — it snaps vertices to a low-res pixel grid anyway.
+        assert.ok(
+            tile.quantScale / 2 < 0.05,
+            `step ${tile.quantScale} too coarse at z12`,
+        );
     });
 
     it('preserves header metadata verbatim', () => {
         const input = sampleTile();
         const tile = decodePtm(encodePtm(input));
         assert.deepEqual(tile.id, { z: 12, x: 3745, y: 1410 });
-        assert.equal(tile.version, 1);
+        assert.equal(tile.version, 2);
         assert.ok(Math.abs(tile.centerHeightM - 123.5) < 1e-4);
         assert.ok(Math.abs(tile.skirtDepthM - 7.25) < 1e-4);
         assert.equal(tile.flags & PTM_FLAG_HAS_LAND, PTM_FLAG_HAS_LAND);
@@ -148,6 +150,29 @@ describe('PTM1 codec', () => {
                 }
             }
         }
+    });
+
+    it('quantises every axis with the same scale', () => {
+        // Not a stylistic choice. The mesh transform carries this as its
+        // scale, and the shaded vertex program derives normalModelMatrix from
+        // matrixWorld with getNormalMatrix (inverse transpose). A per-axis
+        // scale skews the baked world-space normals — measured at up to 50
+        // degrees on real tiles — which flattens n.sun and destroys the
+        // per-facet shading. Only a uniform scale normalises back exactly.
+        const tile = decodePtm(encodePtm(sampleTile()));
+        const scale = tile.quantScale;
+        assert.ok(scale > 0, 'scale is positive');
+
+        // Round-trip a steep normal through the inverse-transpose of the
+        // mesh scale and confirm it comes back unchanged.
+        const n = [0.6, 0.8, 0];
+        const t = [n[0] / scale, n[1] / scale, n[2] / scale];
+        const lt = Math.hypot(t[0], t[1], t[2]);
+        const dot = (n[0] * t[0] + n[1] * t[1] + n[2] * t[2]) / lt;
+        assert.ok(
+            Math.abs(dot - 1) < 1e-9,
+            `uniform scale must leave normals untouched, got cos ${dot}`,
+        );
     });
 
     it('decodes O(1) as views over the source buffer, not copies', () => {

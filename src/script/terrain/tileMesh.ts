@@ -97,11 +97,12 @@ export function buildTileMeshes(
     const group = new THREE.Group();
     group.name = `tile:${tile.id.z}/${tile.id.x}/${tile.id.y}`;
     group.position.copy(tileOriginEnu(tile.id, tile.centerHeightM, basis));
-    // Positions are quantised; the mesh transform is what turns them into
-    // metres. The scale is deliberately non-uniform (horizontal and vertical
-    // quantise independently) — updateUniforms builds normalModelMatrix from
-    // matrixWorld with getNormalMatrix, so shading stays correct.
-    group.scale.set(tile.quantScaleXZ, tile.quantScaleY, tile.quantScaleXZ);
+    // Positions are quantised; the mesh transform turns them into metres.
+    // The scale must stay uniform: updateUniforms builds normalModelMatrix
+    // from matrixWorld with getNormalMatrix (inverse transpose), so a
+    // non-uniform scale would skew the baked world-space normals and wash out
+    // the per-facet shading. See PtmTile.quantScale.
+    group.scale.setScalar(tile.quantScale);
 
     let bytes = 0;
     const meshes: TileMeshes = { group, bytes: 0 };

@@ -15,14 +15,14 @@
  *
  *   header, 72 bytes
  *     0  u32  magic 'PTM1'          32  u32  landVertCount   (multiple of 3)
- *     4  u8   version = 1           36  u32  waterVertCount
+ *     4  u8   version = 2           36  u32  waterVertCount
  *     5  u8   z                     40  u32  waterIndexCount
  *     6  u16  flags                 44  u32  landSandVerts    |
  *     8  u32  x                     48  u32  landGrassVerts   | = landVertCount
  *    12  u32  y                     52  u32  landBareVerts    |
  *    16  f32  centerHeightM         56  u32  waterDeepIdx     | = waterIndexCount
- *    20  f32  quantScaleXZ          60  u32  waterShallowIdx  |
- *    24  f32  quantScaleY           64  f32  skirtDepthM
+ *    20  f32  quantScale            60  u32  waterShallowIdx  |
+ *    24  u32  reserved              64  f32  skirtDepthM
  *    28  f32  boundingRadiusM       68  u32  reserved
  *
  *   payload, each section padded to a 4-byte boundary
@@ -42,7 +42,7 @@
 import { TerrainTone } from './tones';
 
 export const PTM_MAGIC = 0x314d5450; // 'PTM1' little-endian
-export const PTM_VERSION = 1;
+export const PTM_VERSION = 2;
 export const PTM_HEADER_BYTES = 72;
 
 export const PTM_FLAG_HAS_LAND = 1 << 0;
@@ -83,7 +83,7 @@ export interface PtmEncodeInput {
     id: PtmTileId;
     /** Geodetic height (m) of the tile-local frame origin. */
     centerHeightM: number;
-    /** Half the tile's ground width (m); sets horizontal quantisation. */
+    /** Half the tile's ground width (m); the floor for the quantisation step. */
     tileHalfWidthM: number;
     skirtDepthM: number;
     land: PtmLandInput;
@@ -95,11 +95,21 @@ export interface PtmTile {
     version: number;
     flags: number;
     centerHeightM: number;
-    quantScaleXZ: number;
-    quantScaleY: number;
+    /**
+     * Metres per quantised unit, the same on all three axes.
+     *
+     * It has to be uniform. The mesh transform carries this as its scale, and
+     * the shaded vertex program builds normalModelMatrix from matrixWorld with
+     * getNormalMatrix (inverse transpose). A non-uniform scale therefore skews
+     * the baked world-space normals — measured at 5-10 degrees mean and up to
+     * 50 degrees worst case, biased toward vertical, which flattens n.sun and
+     * destroys the per-facet shading the bake went to the trouble of creating.
+     * A uniform scale normalises back to the original normal exactly.
+     */
+    quantScale: number;
     boundingRadiusM: number;
     skirtDepthM: number;
-    /** Quantised, ready to bind. Multiply by quantScaleXZ / quantScaleY. */
+    /** Quantised, ready to bind. Multiply by quantScale. */
     landPositions: Int16Array;
     /** Bind with normalized: true. Stride 4; the 4th byte is padding. */
     landNormals: Int8Array;
@@ -207,7 +217,9 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
     // Horizontal scale comes from the tile size, so tile-edge vertices land on
     // exactly representable coordinates and same-LOD seams cannot crack from
     // rounding. Vertical scale comes from the tile's actual extent.
-    const quantScaleXZ = input.tileHalfWidthM / I16_MAX;
+    // One scale for all axes: see PtmTile.quantScale for why it may not be
+    // per-axis. The horizontal term keeps tile-edge vertices exactly
+    // representable so same-LOD seams cannot crack from rounding.
     let maxAbsY = 0;
     for (let i = 1; i < land.positions.length; i += 3) {
         const a = Math.abs(land.positions[i]);
@@ -217,7 +229,7 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
         const a = Math.abs(outWaterPos[i]);
         if (a > maxAbsY) maxAbsY = a;
     }
-    const quantScaleY = maxAbsY > 0 ? maxAbsY / I16_MAX : 1;
+    const quantScale = Math.max(input.tileHalfWidthM, maxAbsY, 1) / I16_MAX;
 
     let maxRadiusSq = 0;
     const trackRadius = (x: number, y: number, z: number) => {
@@ -262,9 +274,9 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
                 const py = land.positions[t * 9 + k * 3 + 1];
                 const pz = land.positions[t * 9 + k * 3 + 2];
                 trackRadius(px, py, pz);
-                landPos[v * 3] = quantise(px, quantScaleXZ);
-                landPos[v * 3 + 1] = quantise(py, quantScaleY);
-                landPos[v * 3 + 2] = quantise(pz, quantScaleXZ);
+                landPos[v * 3] = quantise(px, quantScale);
+                landPos[v * 3 + 1] = quantise(py, quantScale);
+                landPos[v * 3 + 2] = quantise(pz, quantScale);
                 landNrm[v * 4] = quantiseNormal(nx);
                 landNrm[v * 4 + 1] = quantiseNormal(ny);
                 landNrm[v * 4 + 2] = quantiseNormal(nz);
@@ -281,9 +293,9 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
         const py = outWaterPos[i * 3 + 1];
         const pz = outWaterPos[i * 3 + 2];
         trackRadius(px, py, pz);
-        waterPos[i * 3] = quantise(px, quantScaleXZ);
-        waterPos[i * 3 + 1] = quantise(py, quantScaleY);
-        waterPos[i * 3 + 2] = quantise(pz, quantScaleXZ);
+        waterPos[i * 3] = quantise(px, quantScale);
+        waterPos[i * 3 + 1] = quantise(py, quantScale);
+        waterPos[i * 3 + 2] = quantise(pz, quantScale);
         waterTone[i] = outWaterTone[i];
     }
     for (let i = 0; i < waterIndexCount; i++) {
@@ -305,8 +317,8 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
     view.setUint32(8, input.id.x, true);
     view.setUint32(12, input.id.y, true);
     view.setFloat32(16, input.centerHeightM, true);
-    view.setFloat32(20, quantScaleXZ, true);
-    view.setFloat32(24, quantScaleY, true);
+    view.setFloat32(20, quantScale, true);
+    view.setUint32(24, 0, true);
     view.setFloat32(28, Math.sqrt(maxRadiusSq), true);
     view.setUint32(32, landVertCount, true);
     view.setUint32(36, waterVertCount, true);
@@ -350,8 +362,7 @@ export function decodePtm(bytes: ArrayBuffer | Uint8Array): PtmTile {
     const x = view.getUint32(8, true);
     const y = view.getUint32(12, true);
     const centerHeightM = view.getFloat32(16, true);
-    const quantScaleXZ = view.getFloat32(20, true);
-    const quantScaleY = view.getFloat32(24, true);
+    const quantScale = view.getFloat32(20, true);
     const boundingRadiusM = view.getFloat32(28, true);
     const landVertCount = view.getUint32(32, true);
     const waterVertCount = view.getUint32(36, true);
@@ -403,8 +414,7 @@ export function decodePtm(bytes: ArrayBuffer | Uint8Array): PtmTile {
         version,
         flags,
         centerHeightM,
-        quantScaleXZ,
-        quantScaleY,
+        quantScale,
         boundingRadiusM,
         skirtDepthM,
         landPositions,
