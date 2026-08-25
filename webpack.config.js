@@ -12,7 +12,15 @@ function isModAsset(resourcePath) {
         base === `${p}.aircraft.json` || base.startsWith(`${p}_`));
 }
 
-module.exports = {
+/**
+ * The baked terrain tree is a build product, not a tracked asset.
+ *
+ * In development it is served straight from the repo by tools/modserver.ts, so
+ * a build does not spend time copying ~82 MB it did not change. A production
+ * build does copy it, because dist/ has to be deployable on its own — anything
+ * serving dist/ with a plain static server would otherwise 404 the manifest.
+ */
+module.exports = (_env, argv) => ({
     entry: './src/script/index.ts',
     devtool: 'inline-source-map',
     output: {
@@ -69,11 +77,13 @@ module.exports = {
                     // directory tree so the JSBSim-native folder layout survives.
                     from: 'assets/jsbsim',
                     to: 'assets/jsbsim',
-                }
-                // NOTE: assets/planet is deliberately NOT copied. The baked
-                // terrain pyramid is a build product served straight from the
-                // repo by tools/modserver.ts, so builds do not duplicate it.
+                },
+                // Development serves assets/terrain from the repo; only a
+                // production build copies it into dist/ (see the note above).
+                ...(argv && argv.mode === 'production'
+                    ? [{ from: 'assets/terrain', to: 'assets/terrain', noErrorOnMissing: true }]
+                    : []),
             ]
         })
     ]
-}
+});
