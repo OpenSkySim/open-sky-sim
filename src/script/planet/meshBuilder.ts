@@ -5,13 +5,15 @@
 
 import { applyFlattenPad, FlattenPadSpec } from './flattenPad';
 import { buildCoastDistanceGrid, demTileIsCoastal } from './coast';
+import { CoastPolygon } from './coastVector';
 import { isNodataCell, isWaterCell } from './coastMask';
 import {
     Ecef, Enu, EnuBasis, geodeticToEcef, ecefToEnu,
 } from './geodesy';
 import { isOceanWaterCell, isWaterGridCell } from './landWater';
-import { buildErrorPyramid, extractMesh, getRtinIndex, RtinIndex, RtinMesh } from './rtin';
-import { TileKey, approxTileEdgeMetres, tileBounds } from './tiling';
+import { buildErrorPyramid, extractMesh, getRtinIndex, RtinIndex } from './rtin';
+import { LonLatBounds, TileKey, approxTileEdgeMetres, tileBounds } from './tiling';
+import { buildVectorCutMesh } from './vectorCutMesh';
 
 /** Palette categories encoded as small integers for the worker→main hop. */
 export const enum TerrainTone {
@@ -62,6 +64,8 @@ export interface MeshBuildRequest {
     skirtFactor?: number;
     /** OSM land/water raster mask (LWM cells, same length as height grid). */
     landMask?: Uint8Array;
+    /** OSM coastline polygons for this tile (cuts a vector-accurate shoreline). */
+    polygons?: CoastPolygon[];
 }
 
 export interface MeshBuildResult {
@@ -86,6 +90,43 @@ export interface MeshBuildResult {
 const _ecef: Ecef = { x: 0, y: 0, z: 0 };
 const _enu: Enu = { e: 0, n: 0, u: 0 };
 
+/** Structural shape shared by {@link RtinMesh} and {@link VectorCutMesh}. */
+type TileMeshSource = {
+    vertices: Uint16Array | Float32Array;
+    triangles: Uint32Array;
+    triangleCount: number;
+};
+
+/**
+ * Pick the tile's surface triangulation. When OSM coastline polygons are
+ * available, cut the mesh along the exact vector boundary (falls back to
+ * plain RTIN when the polygons don't intersect this tile or the CDT fails).
+ * `triangleLand` is only set for the vector-cut path — ground-truth land/water
+ * per triangle straight from the OSM polygons.
+ */
+export function buildSurfaceMesh(
+    heights: Float32Array,
+    bounds: LonLatBounds,
+    size: number,
+    seaLevel: number,
+    maxErrorM: number,
+    landMask: Uint8Array | undefined,
+    polygons: CoastPolygon[] | undefined,
+): { mesh: TileMeshSource; triangleLand?: Uint8Array } {
+    if (polygons && polygons.length > 0) {
+        const vc = buildVectorCutMesh({ bounds, size, heights, seaLevel, maxErrorM, polygons });
+        if (vc) {
+            return { mesh: vc, triangleLand: vc.triangleLand };
+        }
+    }
+    const index = getRtinIndex(size);
+    const errors = buildErrorPyramid(heights, size, index);
+    // Force RTIN to subdivide every land/water-crossing edge down to the grid
+    // so the shoreline follows the coast mask instead of long sawtooth diagonals.
+    boostCoastErrors(heights, errors, size, seaLevel, coastErrorBoost(maxErrorM), index, landMask);
+    return { mesh: extractMesh(errors, size, maxErrorM, index) };
+}
+
 export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
     const { id, size, maxErrorM, seaLevel, basis, pad, padHeightMsl } = req;
     // Nodata → sea level for RTIN; bathymetry is preserved as-is. Majority-water
@@ -94,12 +135,9 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
     const bounds = tileBounds(id);
     const landMask = req.landMask;
 
-    const index = getRtinIndex(size);
-    const errors = buildErrorPyramid(heights, size, index);
-    // Force RTIN to subdivide every land/water-crossing edge down to the grid
-    // so the shoreline follows the coast mask instead of long sawtooth diagonals.
-    boostCoastErrors(heights, errors, size, seaLevel, coastErrorBoost(maxErrorM), index, landMask);
-    const mesh: RtinMesh = extractMesh(errors, size, maxErrorM, index);
+    const { mesh, triangleLand } = buildSurfaceMesh(
+        heights, bounds, size, seaLevel, maxErrorM, landMask, req.polygons,
+    );
 
     const coastal = landMask ? maskTileIsCoastal(landMask) : demTileIsCoastal(heights, seaLevel);
     let coastGrid: Uint16Array | undefined;
@@ -114,7 +152,7 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
         if (!coastGrid) {
             return undefined;
         }
-        const cells = coastGrid[gy * size + gx];
+        const cells = coastGrid[gridIndex(gx, gy, size)];
         if (cells >= 65535) {
             return undefined;
         }
@@ -201,11 +239,18 @@ export function buildTileMesh(req: MeshBuildRequest): MeshBuildResult {
         const shoreDist = d0 !== undefined && d1 !== undefined && d2 !== undefined
             ? [d0, d1, d2] as const
             : undefined;
-        rawTones[t] = toneForTriangleAtGrid(
-            gx0, gy0, gx1, gy1, gx2, gy2,
-            surfaceH[i0], surfaceH[i1], surfaceH[i2],
-            landMask, size, seaLevel, i0 + i1 + i2, shoreDist,
-        );
+        rawTones[t] = triangleLand
+            ? toneForVectorCutTriangle(
+                triangleLand[t] === 1,
+                (surfaceH[i0] + surfaceH[i1] + surfaceH[i2]) / 3,
+                i0 + i1 + i2,
+                shoreDist,
+            )
+            : toneForTriangleAtGrid(
+                gx0, gy0, gx1, gy1, gx2, gy2,
+                surfaceH[i0], surfaceH[i1], surfaceH[i2],
+                landMask, size, seaLevel, i0 + i1 + i2, shoreDist,
+            );
     }
 
     // Skirt: top ring slightly below the surface, bottom ring dropped by skirtDepth.
@@ -450,6 +495,17 @@ export function boostCoastErrors(
     }
 }
 
+function heightAtOrSea(heights: Float32Array, size: number, x: number, y: number, sea: number): number {
+    const h = heights[y * size + x];
+    return Number.isFinite(h) ? h : sea;
+}
+
+/**
+ * Bilinear height sample. Vector-cut vertices sit at fractional grid
+ * coordinates (exact OSM/tile-edge intersections); RTIN vertices are always
+ * exact integers, so this reduces to nearest-neighbour for them — no
+ * behaviour change on the plain RTIN path.
+ */
 function sampleGridHeight(
     heights: Float32Array,
     size: number,
@@ -457,10 +513,22 @@ function sampleGridHeight(
     gy: number,
     sea: number,
 ): number {
-    const x0 = Math.min(size - 1, Math.max(0, Math.round(gx)));
-    const y0 = Math.min(size - 1, Math.max(0, Math.round(gy)));
-    const h = heights[y0 * size + x0];
-    return Number.isFinite(h) ? h : sea;
+    const max = size - 1;
+    const fx = Math.min(max, Math.max(0, gx));
+    const fy = Math.min(max, Math.max(0, gy));
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const x1 = Math.min(max, x0 + 1);
+    const y1 = Math.min(max, y0 + 1);
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const h00 = heightAtOrSea(heights, size, x0, y0, sea);
+    const h10 = heightAtOrSea(heights, size, x1, y0, sea);
+    const h01 = heightAtOrSea(heights, size, x0, y1, sea);
+    const h11 = heightAtOrSea(heights, size, x1, y1, sea);
+    const h0 = h00 + (h10 - h00) * tx;
+    const h1 = h01 + (h11 - h01) * tx;
+    return h0 + (h1 - h0) * ty;
 }
 
 function gridIndex(gx: number, gy: number, size: number): number {
@@ -557,6 +625,22 @@ function buildCoastDistanceGridFromMask(
     return dist;
 }
 
+/** Tone from vector-cut ground-truth land/water, still shallow-water aware. */
+function toneForVectorCutTriangle(
+    isLand: boolean,
+    hAvg: number,
+    salt: number,
+    shoreDistM?: readonly [number, number, number],
+): TerrainTone {
+    if (!isLand) {
+        if (shoreDistM && Math.min(shoreDistM[0], shoreDistM[1], shoreDistM[2]) <= SHALLOW_WATER_COAST_M) {
+            return TerrainTone.ShallowWater;
+        }
+        return TerrainTone.Water;
+    }
+    return toneForLandHeight(hAvg, salt);
+}
+
 function toneForTriangleAtGrid(
     gx0: number, gy0: number,
     gx1: number, gy1: number,
@@ -650,7 +734,7 @@ export function toneForLandHeight(_h: number, _salt: number): TerrainTone {
 }
 
 /** Compact indices of TIN vertices that sit on the tile border. */
-function collectBoundary(vertices: Uint16Array, vCount: number, size: number): number[] {
+function collectBoundary(vertices: Uint16Array | Float32Array, vCount: number, size: number): number[] {
     const max = size - 1;
     const out: number[] = [];
     for (let i = 0; i < vCount; i++) {
@@ -669,7 +753,7 @@ function collectBoundary(vertices: Uint16Array, vCount: number, size: number): n
  */
 function appendSkirt(
     triangles: Uint32Array,
-    vertices: Uint16Array,
+    vertices: Uint16Array | Float32Array,
     boundary: number[],
     skirtTopOffset: number,
     skirtBotOffset: number,

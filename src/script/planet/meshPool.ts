@@ -1,5 +1,6 @@
 /** Pool of mesh-build workers with cancellation. */
 
+import { CoastPolygon } from './coastVector';
 import { FlattenPadSpec } from './flattenPad';
 import { EnuBasis } from './geodesy';
 import { MeshBuildRequest, MeshBuildResult, buildEllipsoidTileMesh, buildTileMesh } from './meshBuilder';
@@ -17,6 +18,8 @@ export interface MeshJobInput {
     pad?: FlattenPadSpec;
     padHeightMsl?: number;
     landMask?: Uint8Array;
+    /** OSM coastline polygons for this tile (cuts a vector-accurate shoreline). */
+    polygons?: CoastPolygon[];
 }
 
 type JobResolve = (result: MeshBuildResult | null) => void;
@@ -200,5 +203,6 @@ function toRequest(input: MeshJobInput): MeshBuildRequest {
         pad: input.pad,
         padHeightMsl: input.padHeightMsl,
         landMask: input.landMask,
+        polygons: input.polygons,
     };
 }

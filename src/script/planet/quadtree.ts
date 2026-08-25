@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { behindHorizon, sphereInFrustum } from './culling';
 import { CoastStore } from './coastStore';
+import { CoastPolygon } from './coastVector';
 import { DemStore } from './demStore';
 import { EnuBasis, EnuFrame, geodeticToEcef, ecefToEnu } from './geodesy';
 import {
@@ -496,7 +497,7 @@ export class PlanetQuadtree {
     ): void {
         const id = node.id;
         const coastTile = this.coastStore?.getCached(id);
-        const build = (landMask?: Uint8Array) => {
+        const build = (landMask?: Uint8Array, polygons?: CoastPolygon[]) => {
             this.pool.request({
                 id,
                 heights,
@@ -508,10 +509,11 @@ export class PlanetQuadtree {
                 pad: this.pad,
                 padHeightMsl: this.padHeightMsl,
                 landMask,
+                polygons,
             }).then(finish);
         };
         if (coastTile?.cells) {
-            build(coastTile.cells.slice());
+            build(coastTile.cells.slice(), coastTile.vector?.polygons);
             return;
         }
         if (!this.coastStore?.enabled) {
@@ -519,7 +521,7 @@ export class PlanetQuadtree {
             return;
         }
         this.coastStore.request(id, 1).then(tile => {
-            build(tile?.cells.slice());
+            build(tile?.cells.slice(), tile?.vector?.polygons);
         }).catch(() => build(undefined));
     }
 

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildVectorCutMesh, clipSegmentToBounds } from './vectorCutMesh';
+import { buildVectorCutMesh, clipSegmentToBounds, isFlatWaterTriangle } from './vectorCutMesh';
 import { CoastPolygon } from './coastVector';
 import { LonLatBounds } from './tiling';
 
@@ -77,6 +77,39 @@ describe('buildVectorCutMesh', () => {
         assert.ok(water > 0);
     });
 
+    it('keeps sub-cell precision at a non-grid-aligned coastline (no Uint16 truncation)', () => {
+        const size = 17; // grid rows 0..16, so lat 0.53 maps to fractional row 16 * (1 - 0.53) = 7.52
+        const heights = flatHeights(size, 50, -10, false);
+        const polygons: CoastPolygon[] = [{
+            exterior: [
+                { lon: 0, lat: 0.53 },
+                { lon: 1, lat: 0.53 },
+                { lon: 1, lat: 1 },
+                { lon: 0, lat: 1 },
+            ],
+            holes: [],
+        }];
+        const mesh = buildVectorCutMesh({
+            bounds: BOUNDS,
+            size,
+            heights,
+            seaLevel: 0,
+            maxErrorM: 5,
+            polygons,
+        });
+        assert.ok(mesh);
+        assert.ok(mesh instanceof Object);
+        assert.ok(mesh!.vertices instanceof Float32Array);
+        let hasFractional = false;
+        for (let i = 0; i < mesh!.vertices.length; i++) {
+            if (!Number.isInteger(mesh!.vertices[i])) {
+                hasFractional = true;
+                break;
+            }
+        }
+        assert.ok(hasFractional, 'expected at least one sub-cell coastline vertex, got only grid-integer coords');
+    });
+
     it('returns undefined when no segments intersect the tile', () => {
         const size = 17;
         const heights = flatHeights(size, 50, -10, false);
@@ -98,5 +131,48 @@ describe('buildVectorCutMesh', () => {
             polygons,
         });
         assert.equal(mesh, undefined);
+    });
+});
+
+describe('isFlatWaterTriangle', () => {
+    // One square degree, 5x5 grid. Land is the eastern half (lon > 0.5).
+    const size = 5;
+    const land: CoastPolygon = {
+        exterior: [
+            { lon: 0.5, lat: 0 }, { lon: 1, lat: 0 },
+            { lon: 1, lat: 1 }, { lon: 0.5, lat: 1 },
+        ],
+        holes: [],
+    };
+    const tile = { polygons: [land] };
+    const toLonLat = (gx: number, gy: number) => ({
+        lon: BOUNDS.west + (gx / (size - 1)) * (BOUNDS.east - BOUNDS.west),
+        lat: BOUNDS.north - (gy / (size - 1)) * (BOUNDS.north - BOUNDS.south),
+    });
+
+    it('accepts a triangle wholly in open ocean at sea level', () => {
+        const heights = new Float32Array(size * size);
+        assert.equal(
+            isFlatWaterTriangle([[0, 0], [1, 0], [0, 3]], heights, size, 0, toLonLat, tile),
+            true,
+        );
+    });
+
+    it('rejects a triangle with any vertex on land', () => {
+        const heights = new Float32Array(size * size);
+        assert.equal(
+            isFlatWaterTriangle([[0, 0], [3, 2], [0, 3]], heights, size, 0, toLonLat, tile),
+            false,
+        );
+    });
+
+    it('rejects an inland-water triangle, which keeps its DEM height', () => {
+        // Water per the polygons, but the DEM puts it well above sea level —
+        // a lake, which meshBuilder does not snap flat.
+        const heights = new Float32Array(size * size).fill(400);
+        assert.equal(
+            isFlatWaterTriangle([[0, 0], [1, 0], [0, 3]], heights, size, 0, toLonLat, tile),
+            false,
+        );
     });
 });
