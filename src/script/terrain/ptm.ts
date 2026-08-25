@@ -218,18 +218,24 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
     // exactly representable coordinates and same-LOD seams cannot crack from
     // rounding. Vertical scale comes from the tile's actual extent.
     // One scale for all axes: see PtmTile.quantScale for why it may not be
-    // per-axis. The horizontal term keeps tile-edge vertices exactly
-    // representable so same-LOD seams cannot crack from rounding.
-    let maxAbsY = 0;
-    for (let i = 1; i < land.positions.length; i += 3) {
+    // per-axis.
+    //
+    // The tile half-width keeps tile-edge vertices exactly representable, so
+    // same-LOD seams cannot crack from rounding. But it is only a *floor*: at
+    // coarse zooms the tangent-plane ENU projection stretches a tile past its
+    // nominal ground width, and sizing from the nominal figure alone clamped
+    // real geometry onto +-32767 — distinct points collapsing onto the tile
+    // border. Take the actual extent on every axis as well.
+    let maxAbs = 0;
+    for (let i = 0; i < land.positions.length; i++) {
         const a = Math.abs(land.positions[i]);
-        if (a > maxAbsY) maxAbsY = a;
+        if (a > maxAbs) maxAbs = a;
     }
-    for (let i = 1; i < outWaterPos.length; i += 3) {
+    for (let i = 0; i < outWaterPos.length; i++) {
         const a = Math.abs(outWaterPos[i]);
-        if (a > maxAbsY) maxAbsY = a;
+        if (a > maxAbs) maxAbs = a;
     }
-    const quantScale = Math.max(input.tileHalfWidthM, maxAbsY, 1) / I16_MAX;
+    const quantScale = Math.max(input.tileHalfWidthM, maxAbs, 1) / I16_MAX;
 
     let maxRadiusSq = 0;
     const trackRadius = (x: number, y: number, z: number) => {
