@@ -30,6 +30,22 @@ $ npm i
 $ npm run build
 ```
 
+### Terrain data
+
+The planetary terrain under `assets/planet` is a **build product** and is not
+tracked in git, so a fresh clone has no terrain until you bake it. It is
+generated from `data/output_hh.tif` (tracked) plus OpenStreetMap coastlines:
+
+```
+$ pip install rasterio numpy shapely requests
+$ python tools/bake_planet_dem.py --input data/output_hh.tif --out assets/planet
+$ python tools/bake_osm_coast.py --manifest assets/planet/manifest.json
+$ npm run bake:mesh
+```
+
+See [`tools/README.md`](tools/README.md#planet-terrain) for the options, and
+`npm run verify:planet` to check a baked tree.
+
 ## How to run
 
 Start the local web server:
