@@ -31,32 +31,49 @@ describe('SunModelLibBuilder', () => {
         // Nothing in the background-sky pass writes depth, so the render order
         // is the only thing keeping the disc on top of its own glow.
         const flats = build();
-        assert.strictEqual(flats.length, 3);
+        assert.ok(flats.length >= 3, `only ${flats.length} pieces`);
 
         const orders = flats.map(m => m.renderOrder);
         for (let i = 1; i < orders.length; i++) {
             assert.ok(orders[i] > orders[i - 1], `render orders ${orders}`);
         }
-        // ...and above the sky billboard, which leaves renderOrder at 0.
+        // ...and above the sky dome, which leaves renderOrder at 0.
         assert.ok(orders[0] > 0, `first ${orders[0]}`);
     });
 
     it('draws the disc smallest and the corona stepped out around it', () => {
-        const [outer, inner, disc] = build().map(apparentDiameterDeg);
-        assert.ok(disc < inner && inner < outer, `${disc} ${inner} ${outer}`);
+        // Built outermost first, so the diameters have to fall all the way to
+        // the disc at the end.
+        const sizes = build().map(apparentDiameterDeg);
+        for (let i = 1; i < sizes.length; i++) {
+            assert.ok(sizes[i] < sizes[i - 1], `sizes ${sizes}`);
+        }
+
+        const disc = sizes[sizes.length - 1];
         // Oversize versus the real 0.53 degrees, or it would be a pixel and a
         // half at 320x200 — but not so large it reads as a moon.
         assert.ok(disc > 1.5 && disc < 4, `disc ${disc} deg`);
+        // The aureole is glare spread by the air, so it reaches several times
+        // the sun's own width rather than merely fringing it.
+        assert.ok(sizes[0] > 4 * disc, `corona ${sizes[0]} vs disc ${disc}`);
     });
 
-    it('stipples the corona and leaves the disc solid', () => {
-        const [outer, inner, disc] = build().map(m => (m.material as THREE.ShaderMaterial).uniforms.alphaDither.value as number);
+    it('thins the corona outwards and leaves the disc solid', () => {
+        const dither = build().map(m => (m.material as THREE.ShaderMaterial).uniforms.alphaDither.value as number);
+        const disc = dither[dither.length - 1];
         assert.strictEqual(disc, 0, 'the disc itself must be opaque');
-        assert.ok(outer > 0 && inner > outer, `outer ${outer} inner ${inner}`);
+
+        const corona = dither.slice(0, -1);
+        assert.ok(corona.length >= 2, 'a single step would band rather than fade');
+        for (let i = 1; i < corona.length; i++) {
+            assert.ok(corona[i] > corona[i - 1], `stipple should densen inwards: ${corona}`);
+        }
+        assert.ok(corona[0] > 0, `outermost step is invisible: ${corona[0]}`);
     });
 
     it('hides the disc once its upper limb is under the horizon', () => {
-        const disc = apparentDiameterDeg(build()[2]);
+        const flats = build();
+        const disc = apparentDiameterDeg(flats[flats.length - 1]);
         assert.ok(SUN_SET_ELEVATION_DEG < 0, `${SUN_SET_ELEVATION_DEG}`);
         assert.ok(Math.abs(SUN_SET_ELEVATION_DEG + disc / 2) < 0.05,
             `cutoff ${SUN_SET_ELEVATION_DEG} vs half-diameter ${disc / 2}`);

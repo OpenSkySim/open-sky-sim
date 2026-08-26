@@ -20,7 +20,6 @@ import { PLAYER_SIM_ID } from './physics/sim/simIds';
 import { Renderer } from './render/renderer';
 import { SceneMaterialManager } from './scene/materials/materials';
 import { setSunTime } from './scene/materials/shaders/sun';
-import { BackgroundModelLibBuilder } from './scene/models/lib/backgroundModelBuilder';
 import { CIRRUS_STREAK_SHAPES, CirrusModelLibBuilder } from './scene/models/lib/cirrusModelBuilder';
 import { CLOUD_PUFF_SHAPES, CloudModelLibBuilder } from './scene/models/lib/cloudModelBuilder';
 import { FieldModelLibBuilder, FieldModelType } from './scene/models/lib/fieldModelBuilder';
@@ -28,6 +27,7 @@ import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, 
 import { ArrestorCablesModelLibBuilder } from './scene/models/lib/arrestorCablesModelBuilder';
 import { TailhookModelLibBuilder } from './scene/models/lib/tailhookModelBuilder';
 import { SkiJumpModelLibBuilder } from './scene/models/lib/skiJumpModelBuilder';
+import { SkyDomeModelLibBuilder } from './scene/models/lib/skyDomeModelBuilder';
 import { SunModelLibBuilder } from './scene/models/lib/sunModelBuilder';
 import { TracerModelLibBuilder } from './scene/models/lib/tracerModelBuilder';
 import { ModelManager } from './scene/models/models';
@@ -59,7 +59,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
     const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
     const renderer = new Renderer(materials, H_RES, V_RES, HDNoonPalette);
     const models = new ModelManager(materials, [
-        new BackgroundModelLibBuilder(BackgroundModelLibBuilder.Type.SKY),
+        new SkyDomeModelLibBuilder('skyDome'),
         new SunModelLibBuilder('sun'),
         new CloudModelLibBuilder('cloudNone', []),
         new CloudModelLibBuilder('cloudSmall', CLOUD_PUFF_SHAPES.small),

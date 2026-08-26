@@ -3,6 +3,8 @@ import { LOG_DEPTH_FRAGMENT, LOG_DEPTH_PARS_FRAGMENT } from './logDepth';
 
 export const ParticleMeshFragProgram: string = `
 precision highp float;
+// Must match ParticleMeshVertProgram — see the note there.
+precision highp int;
 
 uniform vec3 vCameraPos;
 uniform vec3 vCameraNormal;

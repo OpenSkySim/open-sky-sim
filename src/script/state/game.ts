@@ -18,6 +18,7 @@ import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
 import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, HIGH_ALTITUDE_M, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, SPACE_ALTITUDE_M, V_RES } from '../defs';
 import { DEFAULT_SUN_HOURS, setSunTime, SUN_DIRECTION, SUN_STATE } from '../scene/materials/shaders/sun';
 import { placeSun, SUN_SET_ELEVATION_DEG } from '../scene/models/lib/sunModelBuilder';
+import { paintSkyDome, SkyDome, skyDomeOf } from '../scene/models/lib/skyDomeModelBuilder';
 import { terrainMaxZoomForAltitudeM } from '../terrain/lod';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
@@ -327,8 +328,10 @@ export class Game {
     private planetTerrain!: TerrainEntity;
     /** Canvas OSM for left MFD; when set, WebGL MAP target is skipped. */
     private osmMapEntity: OsmMapEntity | undefined;
-    /** Atmospheric sky billboard; disabled above {@link SPACE_SKY_ALTITUDE_M}. */
+    /** Atmospheric sky dome; disabled above {@link SPACE_SKY_ALTITUDE_M}. */
     private skyEntity: SimpleEntity | undefined;
+    /** Its vertex colours, repainted from the atmosphere when the sun moves. */
+    private skyDome: SkyDome | undefined;
     /** The sun disc; parked in the sun's direction by {@link updateSunEntity}. */
     private sunEntity: SimpleEntity | undefined;
     /** Puffy low-poly cloud deck; disabled above {@link SPACE_SKY_ALTITUDE_M} alongside the sky. */
@@ -2552,9 +2555,11 @@ export class Game {
     private async setupScene(spawn: SpawnMode) {
         const manifest = await loadTerrainManifest();
 
-        this.skyEntity = new SimpleEntity(this.models.getModel('lib:SKY'), SceneLayers.BackgroundSky, SceneLayers.BackgroundSky);
-        this.skyEntity.position.set(0, 7, 0);
+        const skyModel = this.models.getModel('lib:skyDome');
+        this.skyEntity = new SimpleEntity(skyModel, SceneLayers.BackgroundSky, SceneLayers.BackgroundSky);
         this.scene.add(this.skyEntity);
+        this.skyDome = skyDomeOf(skyModel);
+        this.repaintSkyDome();
 
         // Same layer as the billboard, so it rides the rotation-only background
         // camera and the terrain pass paints over it where the ground is.
@@ -2956,5 +2961,23 @@ export class Game {
         // Forwards to the material manager too, so every live material picks up
         // the new colours without a rebuild.
         this.renderer.setPalette(this.palette);
+        this.repaintSkyDome();
+    }
+
+    /**
+     * Rebakes the sky dome's vertex colours for the current sun and palette.
+     *
+     * Only when one of the two actually changes: the atmosphere is CPU code and
+     * the time of day is a setting here, not a running clock, so a few hundred
+     * vertices at that rate costs nothing. Both a new time of day and a new
+     * tech profile land here, since either changes what the dome should hold.
+     */
+    private repaintSkyDome() {
+        if (this.skyDome) {
+            paintSkyDome(this.skyDome, this.noonPalette, this.midnightPalette,
+                SUN_STATE.nightMix, SUN_DIRECTION);
+        }
+        // Dev aid, alongside __terrain / __shadowSettings.
+        (globalThis as Record<string, unknown>).__skyDome = this.skyDome;
     }
 }

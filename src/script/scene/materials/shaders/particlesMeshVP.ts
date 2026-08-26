@@ -2,6 +2,11 @@ import { LOG_DEPTH_PARS_VERTEX, LOG_DEPTH_VERTEX } from './logDepth';
 
 export const ParticleMeshVertProgram: string = `
 precision highp float;
+// RawShaderMaterial gets no precision prologue from three.js, so the GLSL ES
+// defaults apply: int is highp here but mediump in the fragment stage. Shared
+// int uniforms (shadingType) would then mismatch and ANGLE refuses to link the
+// program — silently dropping every particle effect. Both stages state it.
+precision highp int;
 
 uniform mat4 viewMatrix;
 uniform mat4 projectionMatrix;

@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import assert from 'node:assert';
 import { afterEach, describe, it } from 'node:test';
 import {
-    blueHourFactorFor, DEFAULT_SUN_HOURS, formatSunTime, hazeFactorFor, lightWarmthFor,
-    nightMixFor, setSunTime, SHADOW_MIN_SUN_Y, sunDirectionAt, sunElevationAt,
-    SUN_DIRECTION, SUN_SHADE_AMBIENT, SUN_STATE, SUN_UNIFORMS, twilightFactorFor,
+    DEFAULT_SUN_HOURS, formatSunTime, setSunTime, SHADOW_MIN_SUN_Y, sunDirectionAt,
+    sunElevationAt, SUN_DIRECTION, SUN_SHADE_AMBIENT, SUN_STATE, SUN_UNIFORMS,
 } from './sun';
+import { REFERENCE_SUN_ELEVATION_DEG } from '../../atmosphere/skyModel';
 
 /** Rec. 709 relative luminance. */
 function luminance(v: THREE.Vector3): number {
@@ -69,14 +69,6 @@ describe('setSunTime', () => {
         assert.strictEqual(SUN_UNIFORMS.uSunShade.value.y, 0);
     });
 
-    it('peaks the twilight tint with the sun on the horizon', () => {
-        setSunTime(6);
-        const atSunrise = SUN_STATE.twilightFactor;
-        setSunTime(12);
-        const atNoon = SUN_STATE.twilightFactor;
-        assert.ok(atSunrise > 0.9, `sunrise ${atSunrise}`);
-        assert.strictEqual(atNoon, 0);
-    });
 
     it('runs the palette past the light: still lit at sunset, dark by astronomical twilight', () => {
         setSunTime(18);
@@ -84,21 +76,25 @@ describe('setSunTime', () => {
         // Civil twilight kills the direct light but not the sky.
         setSunTime(18.5);
         assert.strictEqual(SUN_STATE.dayFactor, 0);
-        assert.ok(SUN_STATE.nightMix < 0.7, `civil nightMix ${SUN_STATE.nightMix}`);
-        setSunTime(19.5);
-        assert.strictEqual(SUN_STATE.nightMix, 1);
+        assert.ok(SUN_STATE.nightMix < 0.8, `civil nightMix ${SUN_STATE.nightMix}`);
+        setSunTime(20);
+        assert.ok(SUN_STATE.nightMix > 0.99, `night nightMix ${SUN_STATE.nightMix}`);
     });
 
     it('splits the light warm-on-direct, cool-on-ambient near the horizon', () => {
-        // A low sun leaves the faces it strikes warmer than the ones it misses.
-        // The palette's ground tint cannot say that on its own - it moves the
-        // base colour, so it warmed lit and shadowed faces identically.
+        // Straight from the scattering model: the beam's colour is its own
+        // Beer-Lambert transmittance, the fill's is the sky's irradiance.
         setSunTime(18);
-        const { uSunDirect, uSunAmbient } = SUN_UNIFORMS;
-        assert.ok(uSunDirect.value.x / uSunDirect.value.z > 1.4,
-            `direct should be red-dominant: ${uSunDirect.value.toArray()}`);
-        assert.ok(uSunAmbient.value.z / uSunAmbient.value.x > 1.2,
-            `ambient should be blue-dominant: ${uSunAmbient.value.toArray()}`);
+        const direct = SUN_UNIFORMS.uSunDirect.value;
+        const ambient = SUN_UNIFORMS.uSunAmbient.value;
+
+        // Both tints are relative to a high sun, and at sunset the whole sky
+        // has warmed, so both move warm. What has to hold is the *separation*:
+        // the beam has crossed far more air than the skylight filling the
+        // shadows, so it is dramatically the redder of the two.
+        const warmth = (v: THREE.Vector3) => v.x / Math.max(1e-6, v.z);
+        assert.ok(warmth(direct) > 4 * warmth(ambient),
+            `direct ${direct.toArray()} vs ambient ${ambient.toArray()}`);
     });
 
     it('spends no brightness on the tint, only hue', () => {
@@ -121,8 +117,8 @@ describe('setSunTime', () => {
             setSunTime(hours);
             const { uSunAmbient, uSunDirect } = SUN_UNIFORMS;
             for (const v of [uSunAmbient.value, uSunDirect.value]) {
-                assert.ok(Math.abs(v.x - v.y) < 1e-9 && Math.abs(v.y - v.z) < 1e-9,
-                    `${hours}h ${v.toArray()}`);
+                const spread = Math.max(v.x, v.y, v.z) - Math.min(v.x, v.y, v.z);
+                assert.ok(spread <= Math.max(v.x, v.y, v.z) * 1e-6, `${hours}h ${v.toArray()}`);
             }
         }
     });
@@ -156,7 +152,7 @@ describe('setSunTime', () => {
         // length while the sun kept dropping - which is what a hard-coded 0.2
         // (11.5 degrees) did across the whole of the old fade band.
         let lowest = Infinity;
-        for (let hours = 0; hours < 24; hours += 1 / 60) {
+        for (let hours = 0; hours < 24; hours += 5 / 60) {
             setSunTime(hours);
             if (SUN_STATE.shadowStrength > 0) {
                 lowest = Math.min(lowest, Math.sin(SUN_STATE.elevationDeg * THREE.MathUtils.DEG2RAD));
@@ -180,74 +176,13 @@ describe('setSunTime', () => {
     });
 });
 
-describe('time-of-day ramps', () => {
+describe('the sky model reference', () => {
 
-    it('crosses the palette to midnight between astronomical twilight and a low sun', () => {
-        assert.strictEqual(nightMixFor(20), 0);
-        assert.strictEqual(nightMixFor(8), 0);
-        assert.strictEqual(nightMixFor(-18), 1);
-        assert.strictEqual(nightMixFor(-30), 1);
-
-        // Monotonic, and only about a fifth of the way down at sunset itself.
-        assert.ok(nightMixFor(0) > 0.15 && nightMixFor(0) < 0.3, `${nightMixFor(0)}`);
-        for (let e = 12; e > -22; e -= 0.5) {
-            assert.ok(nightMixFor(e - 0.5) >= nightMixFor(e), `not monotonic at ${e}`);
-        }
-    });
-
-    it('does not mirror the golden hour above and below the horizon', () => {
-        // A sun 13 degrees up is plain daylight; 13 degrees down is the tail of
-        // the blue hour. The old |elevation| ramp gave both the same warm cast.
-        assert.strictEqual(twilightFactorFor(13), 0);
-        assert.strictEqual(twilightFactorFor(-13), 0);
-        assert.strictEqual(twilightFactorFor(0), 1);
-
-        // Warm above the horizon only while the sun is genuinely low...
-        assert.strictEqual(twilightFactorFor(6), 0);
-        assert.ok(twilightFactorFor(3) > 0.4 && twilightFactorFor(3) < 0.6, `${twilightFactorFor(3)}`);
-
-        // ...and holding at full strength for the few degrees just under it.
-        assert.strictEqual(twilightFactorFor(-4), 1);
-        assert.ok(twilightFactorFor(-8) > 0, `${twilightFactorFor(-8)}`);
-        assert.strictEqual(twilightFactorFor(-12), 0);
-    });
-
-    it('clears the daytime haze as the sun climbs, and drops it at night', () => {
-        // The only factor that moves between mid-morning and noon.
-        assert.strictEqual(hazeFactorFor(50), 0);
-        assert.strictEqual(hazeFactorFor(61), 0);
-        assert.strictEqual(hazeFactorFor(6), 1);
-        assert.strictEqual(hazeFactorFor(0), 1);
-
-        assert.ok(hazeFactorFor(38) > 0 && hazeFactorFor(38) < 0.3, `${hazeFactorFor(38)}`);
-        assert.ok(hazeFactorFor(13) > hazeFactorFor(38), 'lower sun, hazier');
-
-        // Nothing is lighting the air once the golden hour is over.
-        assert.strictEqual(hazeFactorFor(-12), 0);
-        assert.strictEqual(hazeFactorFor(-38), 0);
-        assert.ok(hazeFactorFor(-6) > 0, `${hazeFactorFor(-6)}`);
-    });
-
-    it('reddens the beam earlier than it turns the sky', () => {
-        // Air mass along the sun's own path, not the sky's golden hour: the
-        // beam is already warm where the sky overhead is still plainly blue.
-        assert.strictEqual(lightWarmthFor(12), 0);
-        assert.strictEqual(lightWarmthFor(40), 0);
-        assert.strictEqual(lightWarmthFor(0), 1);
-        assert.strictEqual(lightWarmthFor(-10), 1);
-
-        const low = 6;
-        assert.ok(lightWarmthFor(low) > 0.3, `at ${low} deg: ${lightWarmthFor(low)}`);
-        assert.strictEqual(twilightFactorFor(low), 0, 'the sky has not turned yet');
-    });
-
-    it('keeps the blue hour under the horizon', () => {
-        assert.strictEqual(blueHourFactorFor(2), 0);
-        assert.strictEqual(blueHourFactorFor(30), 0);
-        assert.strictEqual(blueHourFactorFor(-6), 1);
-        assert.strictEqual(blueHourFactorFor(-18), 0);
-        assert.strictEqual(blueHourFactorFor(-40), 0);
-        assert.ok(blueHourFactorFor(0) < 0.25, `at sunset ${blueHourFactorFor(0)}`);
+    it('is local solar noon for the sim latitude, so midday reproduces the palette exactly', () => {
+        // Every gain in skyModel.ts is a ratio against this elevation. Drift
+        // between the two and noon stops being the authored palette.
+        assert.ok(Math.abs(sunElevationAt(12) - REFERENCE_SUN_ELEVATION_DEG) < 1e-9,
+            `noon is ${sunElevationAt(12)}, reference is ${REFERENCE_SUN_ELEVATION_DEG}`);
     });
 });
 

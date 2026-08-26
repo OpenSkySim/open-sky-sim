@@ -18,15 +18,33 @@ import { Model, ModelLibBuilder } from "../models";
 export const SUN_DISTANCE = 500;
 
 /**
- * Apparent diameters, in degrees. The real sun spans 0.53, which at a 50 degree
- * vertical FOV over 200 scanlines is a pixel and a half: technically right and
- * visually absent. Every sim of the era drew it several times oversize, and so
- * does this - about four times, which lands it around 9 px at 320x200 and 18 px
- * at 640x400.
+ * Apparent diameter of the disc, in degrees. The real sun spans 0.53, which at
+ * a 50 degree vertical FOV over 200 scanlines is a pixel and a half:
+ * technically right and visually absent. Every sim of the era drew it several
+ * times oversize, and so does this - about four times, which lands it around
+ * 9 px at 320x200 and 18 px at 640x400.
  */
 const DISC_DIAMETER_DEG = 2.2;
-const INNER_GLOW_DIAMETER_DEG = 4.2;
-const OUTER_GLOW_DIAMETER_DEG = 7.5;
+
+/**
+ * The corona, outermost step first: apparent diameter in degrees, and the
+ * ordered-dither opacity of that step (higher = denser).
+ *
+ * There is no alpha blending in this pipeline, so the falloff around the disc
+ * is built the way the era built it: concentric rings at decreasing stipple
+ * densities. Three steps rather than two because the reach has roughly doubled,
+ * and two steps spread over fourteen degrees read as a pair of hard concentric
+ * bands rather than as a glow.
+ *
+ * Fourteen degrees is far wider than the disc, which is the point of an
+ * aureole: what you actually see around a low sun is glare scattered by the air
+ * between you and it, spreading many times the sun's own width.
+ */
+const CORONA_RINGS: readonly { diameterDeg: number; dither: number; }[] = [
+    { diameterDeg: 14.0, dither: 0.22 },
+    { diameterDeg: 9.0, dither: 0.40 },
+    { diameterDeg: 5.4, dither: 0.62 },
+];
 
 /**
  * Segment counts. Low enough that the silhouette is visibly faceted at the
@@ -34,25 +52,16 @@ const OUTER_GLOW_DIAMETER_DEG = 7.5;
  * sprite dropped into a flat-shaded scene.
  */
 const DISC_SEGMENTS = 12;
-const GLOW_SEGMENTS = 10;
+const GLOW_SEGMENTS = 12;
 
 /**
- * Ordered-dither opacity of the two corona steps (higher = denser). There is no
- * alpha blending in this pipeline, so the falloff around the disc is built the
- * way the era built it: concentric rings at decreasing stipple densities.
+ * Draw order within the background-sky pass. The sky dome leaves this at its
+ * default 0; nothing in the pass writes depth, so paint order alone decides
+ * what covers what, and each corona step has to land on top of the one outside
+ * it before the disc lands on top of them all.
  */
-const INNER_GLOW_DITHER = 0.62;
-const OUTER_GLOW_DITHER = 0.3;
-
-/**
- * Draw order within the background-sky pass. The sky billboard leaves this at
- * its default 0; nothing in the pass writes depth, so paint order alone decides
- * what covers what, and the corona has to land on top of the sky before the
- * disc lands on top of the corona.
- */
-const OUTER_GLOW_RENDER_ORDER = 1;
-const INNER_GLOW_RENDER_ORDER = 2;
-const DISC_RENDER_ORDER = 3;
+const CORONA_BASE_RENDER_ORDER = 1;
+const DISC_RENDER_ORDER = CORONA_BASE_RENDER_ORDER + CORONA_RINGS.length;
 
 /**
  * Elevation below which the disc is hidden: half its own apparent diameter
@@ -94,19 +103,22 @@ export class SunModelLibBuilder implements ModelLibBuilder {
     constructor(public type: string) { }
 
     build(materials: SceneMaterialManager): Model {
-        const flats = [
-            this.buildRing(materials, OUTER_GLOW_DIAMETER_DEG, GLOW_SEGMENTS, PaletteCategory.SKY_SUN_GLOW,
-                OUTER_GLOW_DITHER, OUTER_GLOW_RENDER_ORDER, 'sunGlowOuter'),
-            this.buildRing(materials, INNER_GLOW_DIAMETER_DEG, GLOW_SEGMENTS, PaletteCategory.SKY_SUN_GLOW,
-                INNER_GLOW_DITHER, INNER_GLOW_RENDER_ORDER, 'sunGlowInner'),
-            this.buildRing(materials, DISC_DIAMETER_DEG, DISC_SEGMENTS, PaletteCategory.SKY_SUN,
-                0, DISC_RENDER_ORDER, 'sunDisc'),
-        ];
+        // The disc's own colour, not a separate one. The aureole is the beam
+        // forward-scattered by the air in front of it, and Mie scattering is
+        // wavelength-independent, so what it spreads around the sun is the
+        // sun's own spectrum. A corona in its own hue read as a separate object
+        // ringing the disc rather than as light coming off it.
+        const flats = CORONA_RINGS.map((ring, i) => this.buildRing(
+            materials, ring.diameterDeg, GLOW_SEGMENTS, PaletteCategory.SKY_SUN,
+            ring.dither, CORONA_BASE_RENDER_ORDER + i, `sunGlow${i}`));
+        flats.push(this.buildRing(
+            materials, DISC_DIAMETER_DEG, DISC_SEGMENTS, PaletteCategory.SKY_SUN,
+            0, DISC_RENDER_ORDER, 'sunDisc'));
 
         return {
             lod: [{ flats, volumes: [] }],
             animations: [],
-            maxSize: 2 * radiusForDiameter(OUTER_GLOW_DIAMETER_DEG),
+            maxSize: 2 * radiusForDiameter(CORONA_RINGS[0].diameterDeg),
             center: new THREE.Vector3(),
         };
     }

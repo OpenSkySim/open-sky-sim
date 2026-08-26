@@ -1,6 +1,10 @@
 /**
  * Ship wake + four bow-wave arms (Kelvin inner ±19.47°, outer ±38.94°).
  * Stern foam is left in world space; bow spray drifts along each arm.
+ *
+ * The puffs here are the churn close to the ship. The long trail behind it is
+ * {@link SternWakeRibbon} — a dithered 2 km strip, which a particle pool this
+ * size cannot hold (see that module).
  */
 import * as THREE from 'three';
 import { Palette, PaletteCategory } from '../../config/palettes/palette';
@@ -13,6 +17,7 @@ import { updateUniforms } from '../utils';
 import { Entity } from '../entity';
 import { Scene, SceneLayers } from '../scene';
 import { ARRESTOR_DECK_MID_X, ArrestorCarrierPose } from './arrestorCables';
+import { SternWakeRibbon } from './sternWake';
 
 type FoamKind = 'stern' | 'bow';
 
@@ -54,24 +59,30 @@ const BOW_EMITTERS: FoamEmitter[] = [
 const ALL_EMITTERS: FoamEmitter[] = [...STERN_EMITTERS, ...BOW_EMITTERS];
 
 /**
- * Pool for a long single stern trail (~270–420 s = 3× prior) plus four bow arms.
+ * Pool for the stern churn plus four bow arms. At the rates and lifespans below
+ * the steady-state demand (~1700) fits, so no live puff is ever recycled away —
+ * which used to truncate both the stern trail and the far ends of the bow arms.
  */
 const FOAM_PARTICLE_COUNT = 2000;
 const FOAM_SURFACE_Y = 0.18;
 
-/** Matches game carrier cruise (45 km/h) so the seeded trail length is correct. */
-const CARRIER_SPEED_MPS = 45 / 3.6;
-/** How many stern puffs to plant along the full wake on first frame. */
-const STERN_SEED_COUNT = 1200;
-const STERN_LIFE_MIN = 270;
-const STERN_LIFE_SPAN = 150;
+/**
+ * Churn immediately astern, blending into the head of {@link SternWakeRibbon}.
+ * ~10–16 s at cruise ≈ 125–200 m; the ribbon carries the rest of the 2 km.
+ */
+const STERN_LIFE_MIN = 10;
+const STERN_LIFE_SPAN = 6;
 
 /** Speed of foam along each Kelvin arm (m/s), world frame. */
 const BOW_ARM_SPEED_MPS = 4.5;
 
-const STERN_DITHER_START = 0.55;
-/** Keep stern foam denser for longer — fade stays high until late life. */
-const STERN_DITHER_END = 0.28;
+/**
+ * Denser than the ribbon head (0.6) at the transom, fading to the ribbon's own
+ * density ~200 m astern — where these puffs expire — so the handover from
+ * churn to strip has no visible seam.
+ */
+const STERN_DITHER_START = 0.72;
+const STERN_DITHER_END = 0.55;
 const BOW_DITHER_START = 0.7;
 const BOW_DITHER_END = 0.1;
 
@@ -100,7 +111,8 @@ export class ShipWakeEntity implements Entity {
     private readonly armLocal = new THREE.Vector3();
     private readonly armWorld = new THREE.Vector3();
     private readonly aftWorld = new THREE.Vector3();
-    private sternSeeded = false;
+    private readonly sternWorld = new THREE.Vector3();
+    private readonly sternRibbon: SternWakeRibbon;
 
     // One instanced draw for the whole wake — a mesh per puff (2000 meshes and
     // materials) used to dominate the scene's draw-call count.
@@ -114,6 +126,11 @@ export class ShipWakeEntity implements Entity {
         materials: SceneMaterialManager,
         private readonly getCarrierPose: () => ArrestorCarrierPose,
     ) {
+        // Added first: neither the ribbon nor the puffs write depth, so draw
+        // order decides, and the puffs must sit on top of the strip.
+        this.sternRibbon = new SternWakeRibbon(materials);
+        this.root.add(this.sternRibbon.object);
+
         this.system = new ParticleSystem(
             {
                 systemMaxParticles: FOAM_PARTICLE_COUNT,
@@ -123,8 +140,8 @@ export class ShipWakeEntity implements Entity {
                 particleLifeMax: STERN_LIFE_MIN + STERN_LIFE_SPAN,
                 particleSizeStartMin: 4,
                 particleSizeStartMax: 7,
-                particleSizeEndMin: 28,
-                particleSizeEndMax: 48,
+                particleSizeEndMin: 16,
+                particleSizeEndMax: 26,
                 particleRotationStartMin: 0,
                 particleRotationStartMax: Math.PI * 2,
                 particleRotationEndMin: -Math.PI,
@@ -169,73 +186,25 @@ export class ShipWakeEntity implements Entity {
         //
     }
 
-    /**
-     * Plant the full stern trail behind the ship so it is complete on the first
-     * frame (age ∝ distance aft at cruise speed).
-     */
-    private seedFullSternWake(pose: ArrestorCarrierPose): void {
-        if (this.sternSeeded) {
-            return;
-        }
-        this.sternSeeded = true;
-
+    /** Feed the 2 km dithered strip the live transom point and aft heading. */
+    private updateSternRibbon(pose: ArrestorCarrierPose): void {
         const q = pose.quaternion;
         const [lx, , lz] = STERN_EMITTERS[0].local;
-        this.emitPos.set(lx, 0, lz);
-        if (q) {
-            this.emitPos.applyQuaternion(q);
-        }
-        this.emitPos.add(pose.position as THREE.Vector3);
-        this.emitPos.y = FOAM_SURFACE_Y;
-
-        // Aft along the wake = opposite bow (−Z local → world).
+        this.sternWorld.set(lx, 0, lz);
+        // Aft along the wake = opposite the bow (+Z local → world).
         this.aftWorld.set(0, 0, 1);
         if (q) {
+            this.sternWorld.applyQuaternion(q);
             this.aftWorld.applyQuaternion(q);
         }
-
-        this.system.position.copy(this.emitPos);
-        const want = Math.min(STERN_SEED_COUNT, FOAM_PARTICLE_COUNT - 400);
-        const spawned = this.system.burst(want, true);
-        let n = 0;
-        for (let i = 0; i < this.system.particles.length && n < spawned; i++) {
-            const p = this.system.particles[i];
-            if (!p.isActive || p.life > 1e-6) {
-                continue;
-            }
-            this.extras[i].kind = 'stern';
-            // t=0 at the stern (fresh), t=1 at the far end (oldest).
-            const t = spawned <= 1 ? 0 : n / (spawned - 1);
-            const lifespan = STERN_LIFE_MIN + Math.random() * STERN_LIFE_SPAN;
-            const age = t * lifespan * 0.98;
-            const dist = age * CARRIER_SPEED_MPS;
-            p.lifespan = lifespan;
-            p.life = age;
-            p.sizeStart = 4 + Math.random() * 3;
-            p.sizeEnd = 32 + Math.random() * 20;
-            p.rotationStart = Math.random() * Math.PI * 2;
-            p.rotationEnd = p.rotationStart + (Math.random() - 0.5) * Math.PI;
-            p.position.copy(this.emitPos).addScaledVector(this.aftWorld, dist);
-            p.position.x += (Math.random() - 0.5) * 3;
-            p.position.z += (Math.random() - 0.5) * 3;
-            p.position.y = FOAM_SURFACE_Y;
-            p.velocity.set(
-                (Math.random() - 0.5) * 0.2,
-                0,
-                (Math.random() - 0.5) * 0.2,
-            );
-            const extra = this.extras[i];
-            extra.r = STERN_COLOR.r;
-            extra.g = STERN_COLOR.g;
-            extra.b = STERN_COLOR.b;
-            n++;
-        }
+        this.sternWorld.add(pose.position as THREE.Vector3);
+        this.sternRibbon.update(this.sternWorld, this.aftWorld);
     }
 
     update(delta: number): void {
         const pose = this.getCarrierPose();
         const q = pose.quaternion;
-        this.seedFullSternWake(pose);
+        this.updateSternRibbon(pose);
 
         for (let e = 0; e < ALL_EMITTERS.length; e++) {
             const emitter = ALL_EMITTERS[e];
@@ -285,10 +254,10 @@ export class ShipWakeEntity implements Entity {
                     extra.g = BOW_COLOR.g;
                     extra.b = BOW_COLOR.b;
                 } else {
-                    // Continuous stern emit (trail already seeded to full length).
+                    // Churn astern; the ribbon carries the trail beyond it.
                     p.lifespan = STERN_LIFE_MIN + Math.random() * STERN_LIFE_SPAN;
                     p.sizeStart = 4 + Math.random() * 3;
-                    p.sizeEnd = 32 + Math.random() * 20;
+                    p.sizeEnd = 16 + Math.random() * 10;
                     p.velocity.set(
                         (Math.random() - 0.5) * 0.25,
                         0,
@@ -323,9 +292,9 @@ export class ShipWakeEntity implements Entity {
             if (extra.kind === 'bow') {
                 alpha = BOW_DITHER_START + (BOW_DITHER_END - BOW_DITHER_START) * t;
             } else {
-                // Ease-in fade: stay opaque most of life, drop only near the end.
-                const fadeT = t * t * t;
-                alpha = STERN_DITHER_START + (STERN_DITHER_END - STERN_DITHER_START) * fadeT;
+                // Linear, ending on the ribbon head's density so the handover
+                // from puffs to strip is invisible.
+                alpha = STERN_DITHER_START + (STERN_DITHER_END - STERN_DITHER_START) * t;
             }
             offsets[n * 3] = p.position.x;
             offsets[n * 3 + 1] = p.position.y;

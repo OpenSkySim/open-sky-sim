@@ -1,5 +1,7 @@
 import assert from 'node:assert';
 import { afterEach, describe, it } from 'node:test';
+import { Rgb } from '../../scene/atmosphere/atmosphere';
+import { skyFor, SkySample } from '../../scene/atmosphere/skyModel';
 import { DEFAULT_SUN_HOURS, setSunTime } from '../../scene/materials/shaders/sun';
 import { blendPalettes, daytimePalette } from './daytimePalette';
 import { HDMidnightPalette } from './hd-midnight';
@@ -10,11 +12,29 @@ import { VGANoonPalette } from './vga-noon';
 
 afterEach(() => setSunTime(DEFAULT_SUN_HOURS));
 
+const NEUTRAL: Rgb = [1, 1, 1];
+
+/** A sky that tints nothing, for exercising the blend on its own. */
+function plainSky(nightMix: number): SkySample {
+    return {
+        elevationDeg: 0,
+        nightMix,
+        zenith: NEUTRAL,
+        horizon: NEUTRAL,
+        horizonSunward: NEUTRAL,
+        cloud: NEUTRAL,
+        sunDisc: NEUTRAL,
+        ground: NEUTRAL,
+        directTint: NEUTRAL,
+        ambientTint: NEUTRAL,
+    };
+}
+
 describe('blendPalettes', () => {
 
     it('reproduces the authored palettes at both endpoints', () => {
-        const noon = blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0, warm: 0, cool: 0, haze: 0 });
-        const midnight = blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 1, warm: 0, cool: 0, haze: 0 });
+        const noon = blendPalettes(HDNoonPalette, HDMidnightPalette, plainSky(0));
+        const midnight = blendPalettes(HDNoonPalette, HDMidnightPalette, plainSky(1));
 
         for (const category of Object.values(PaletteCategory)) {
             assert.deepStrictEqual(
@@ -27,7 +47,8 @@ describe('blendPalettes', () => {
     });
 
     it('lands the halfway sky between the two authored skies, in linear light', () => {
-        const half = PaletteColor(blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0.5, warm: 0, cool: 0, haze: 0 }), PaletteCategory.SKY);
+        const half = PaletteColor(
+            blendPalettes(HDNoonPalette, HDMidnightPalette, plainSky(0.5)), PaletteCategory.SKY);
         // #7aa3c4 / #182028 mixed as light, not as gamma-encoded bytes. Brighter
         // than the componentwise sRGB midpoint (#496276) would be, which is the
         // point: half the light left is not half the encoded value.
@@ -42,99 +63,90 @@ describe('blendPalettes', () => {
         assert.notStrictEqual(day, night);
 
         for (const mix of [0, 0.25, 0.49, 0.5, 0.75, 1]) {
+            const sky = { ...plainSky(mix), ground: [3, 0.2, 0.2] as Rgb };
             const blended = PaletteColor(
-                blendPalettes(VGANoonPalette, VGAMidnightPalette, { nightMix: mix, warm: 1, cool: 0, haze: 0 }), PaletteCategory.HUD_TEXT);
+                blendPalettes(VGANoonPalette, VGAMidnightPalette, sky), PaletteCategory.HUD_TEXT);
             assert.ok(blended === day || blended === night, `mix ${mix} gave ${blended}`);
         }
     });
 
-    it('burns the horizon at golden hour and barely touches the zenith', () => {
-        // The sun sets into the horizon band, not into the whole dome: warming
-        // every sky category alike used to flatten the sky's vertical gradient
-        // just as a real one becomes most pronounced.
-        const plain = blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0.5, warm: 0, cool: 0, haze: 0 });
-        const golden = blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0.5, warm: 1, cool: 0, haze: 0 });
+    it('applies each slot its own gain', () => {
+        const sky: SkySample = { ...plainSky(0), zenith: [1, 1, 0.5], horizon: [1, 0.5, 1] };
+        const palette = blendPalettes(HDNoonPalette, HDMidnightPalette, sky);
 
-        const shift = (category: PaletteCategory) =>
-            redShift(PaletteColor(plain, category), PaletteColor(golden, category));
+        // Only the blue of the zenith and the green of the horizon should move.
+        const zenith = channels(PaletteColor(palette, PaletteCategory.SKY));
+        const authoredZenith = channels(PaletteColor(HDNoonPalette, PaletteCategory.SKY));
+        assert.strictEqual(zenith[0], authoredZenith[0]);
+        assert.ok(zenith[2] < authoredZenith[2], 'zenith blue should have dropped');
 
-        const horizon = shift(PaletteCategory.FOG_SKY);
-        const zenith = shift(PaletteCategory.SKY);
-        const ground = shift(PaletteCategory.TERRAIN_GRASS);
-
-        assert.ok(horizon > 0 && zenith > 0 && ground > 0, `${horizon} ${zenith} ${ground}`);
-        assert.ok(horizon > 2 * ground, `horizon ${horizon} vs ground ${ground}`);
-        assert.ok(ground > zenith, `ground ${ground} vs zenith ${zenith}`);
-    });
-
-    it('sinks the zenith into blue while the horizon keeps its warmth', () => {
-        const golden = blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0.5, warm: 1, cool: 0, haze: 0 });
-        const dusk = blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0.5, warm: 1, cool: 1, haze: 0 });
-
-        // The blue hour cools and darkens overhead...
-        assert.ok(luma(PaletteColor(dusk, PaletteCategory.SKY)) < luma(PaletteColor(golden, PaletteCategory.SKY)));
-        assert.ok(redShift(PaletteColor(golden, PaletteCategory.SKY), PaletteColor(dusk, PaletteCategory.SKY)) < 0);
-
-        // ...but the band the sun just left stays the warmer of the two.
-        assert.ok(
-            redShift(PaletteColor(dusk, PaletteCategory.SKY), PaletteColor(dusk, PaletteCategory.FOG_SKY)) > 0,
-            'horizon should stay warmer than the zenith through the blue hour');
-    });
-
-    it('warms lit surfaces without brightening them', () => {
-        // How much light is left is nightMix's job; the tint only says what
-        // colour it is. Without this the ground read *brighter* at sunset than
-        // at noon, because its dark base was being pulled towards a bright orange.
-        const plain = blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0.5, warm: 0, cool: 0, haze: 0 });
-        const golden = blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0.5, warm: 1, cool: 0, haze: 0 });
-
-        for (const category of [PaletteCategory.TERRAIN_GRASS, PaletteCategory.TERRAIN_SAND, PaletteCategory.VEHICLE_PLANE_GREY]) {
-            const ratio = luma(PaletteColor(golden, category)) / luma(PaletteColor(plain, category));
-            assert.ok(Math.abs(ratio - 1) < 0.05, `${category} luminance ratio ${ratio}`);
-        }
+        const horizon = channels(PaletteColor(palette, PaletteCategory.FOG_SKY));
+        const authoredHorizon = channels(PaletteColor(HDNoonPalette, PaletteCategory.FOG_SKY));
+        assert.strictEqual(horizon[2], authoredHorizon[2]);
+        assert.ok(horizon[1] < authoredHorizon[1], 'horizon green should have dropped');
     });
 
     it('flips to the night model set once the night mix passes halfway', () => {
-        assert.strictEqual(blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0.4, warm: 0, cool: 0, haze: 0 }).time, PaletteTime.DAY);
-        assert.strictEqual(blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0.6, warm: 0, cool: 0, haze: 0 }).time, PaletteTime.NIGHT);
+        assert.strictEqual(blendPalettes(HDNoonPalette, HDMidnightPalette, plainSky(0.4)).time, PaletteTime.DAY);
+        assert.strictEqual(blendPalettes(HDNoonPalette, HDMidnightPalette, plainSky(0.6)).time, PaletteTime.NIGHT);
     });
 });
 
 describe('daytimePalette', () => {
 
-    it('follows the sun: bright at noon, the night palette in the small hours', () => {
+    it('reproduces the authored palettes at noon and in the small hours', () => {
+        // Noon is the elevation every gain is a ratio against, so it has to
+        // come back untouched; deep night is past where any of them still bite.
         setSunTime(12);
-        assert.strictEqual(
-            PaletteColor(daytimePalette(HDNoonPalette, HDMidnightPalette), PaletteCategory.SKY),
-            PaletteColor(HDNoonPalette, PaletteCategory.SKY).toLowerCase());
+        for (const category of [PaletteCategory.SKY, PaletteCategory.FOG_SKY, PaletteCategory.TERRAIN_GRASS]) {
+            assert.strictEqual(
+                PaletteColor(daytimePalette(HDNoonPalette, HDMidnightPalette), category),
+                PaletteColor(HDNoonPalette, category).toLowerCase(), `noon ${category}`);
+        }
 
         setSunTime(0);
-        assert.strictEqual(
-            PaletteColor(daytimePalette(HDNoonPalette, HDMidnightPalette), PaletteCategory.SKY),
-            PaletteColor(HDMidnightPalette, PaletteCategory.SKY).toLowerCase());
+        for (const category of [PaletteCategory.SKY, PaletteCategory.FOG_SKY, PaletteCategory.TERRAIN_GRASS]) {
+            assert.strictEqual(
+                PaletteColor(daytimePalette(HDNoonPalette, HDMidnightPalette), category),
+                PaletteColor(HDMidnightPalette, category).toLowerCase(), `midnight ${category}`);
+        }
+    });
+
+    it('reddens the horizon into sunset while the zenith stays cool', () => {
+        // Rayleigh has taken the blue out of the long horizon path, and the
+        // short one overhead still has it. The two ends of the dome part
+        // company rather than sinking onto the same orange together.
+        setSunTime(18);
+        const palette = daytimePalette(HDNoonPalette, HDMidnightPalette);
+        const zenith = PaletteColor(palette, PaletteCategory.SKY);
+        const horizon = PaletteColor(palette, PaletteCategory.FOG_SKY);
+        assert.ok(redShift(zenith, horizon) > 40, `zenith ${zenith} horizon ${horizon}`);
+    });
+
+    it('makes the disc the reddest thing in the frame at sunset', () => {
+        // It looks through more air than anything else on screen.
+        setSunTime(18);
+        const palette = daytimePalette(HDNoonPalette, HDMidnightPalette);
+        const sun = PaletteColor(palette, PaletteCategory.SKY_SUN);
+        for (const category of [PaletteCategory.FOG_SKY, PaletteCategory.SKY, PaletteCategory.SKY_CLOUD]) {
+            assert.ok(redShift(PaletteColor(palette, category), sun) > 0,
+                `sun ${sun} vs ${category} ${PaletteColor(palette, category)}`);
+        }
     });
 
     it('is warmer at sunset than an hour before it', () => {
-        setSunTime(17);
-        const before = redShift('#000000', horizonAt(17));
-        const atSunset = redShift('#000000', horizonAt(18));
-        assert.ok(atSunset > before, `sunset ${atSunset} vs ${before}`);
+        assert.ok(redShift('#000000', horizonAt(18)) > redShift('#000000', horizonAt(17)));
     });
 
     it('still has a lit sky at sunset instead of a half-black one', () => {
         // Sunset is the brightest, most colourful moment of the cycle, so the
         // palette must not already be most of the way to midnight by then.
-        setSunTime(18);
         const horizon = luma(horizonAt(18));
-        const noon = luma(horizonAt(12));
-        const midnight = luma(horizonAt(0));
-        assert.ok(horizon > noon * 0.35, `sunset horizon ${horizon} vs noon ${noon}`);
-        assert.ok(horizon > midnight * 8, `sunset horizon ${horizon} vs midnight ${midnight}`);
+        assert.ok(horizon > luma(horizonAt(12)) * 0.35, 'sunset vs noon');
+        assert.ok(horizon > luma(horizonAt(0)) * 8, 'sunset vs midnight');
     });
 
     it('keeps darkening through nautical twilight, well past sunset', () => {
-        // The old ramp reached the midnight palette at 18:27 because it shared
-        // the direct light's cutoff at 6 degrees below the horizon.
         const dusk = [18, 18.5, 19, 19.5].map(h => luma(horizonAt(h)));
         for (let i = 1; i < dusk.length; i++) {
             assert.ok(dusk[i] < dusk[i - 1], `${dusk[i]} should be darker than ${dusk[i - 1]}`);
@@ -145,66 +157,35 @@ describe('daytimePalette', () => {
     it('lights the night models around civil twilight, not before sunset', () => {
         setSunTime(17.9);
         assert.strictEqual(daytimePalette(HDNoonPalette, HDMidnightPalette).time, PaletteTime.DAY);
-        setSunTime(18.6);
+        setSunTime(18.9);
         assert.strictEqual(daytimePalette(HDNoonPalette, HDMidnightPalette).time, PaletteTime.NIGHT);
     });
 
-    it('hazes the zenith down towards the horizon as the sun drops', () => {
-        // The one thing that told mid-morning from noon used to be nothing at
-        // all: from 07:30 to 16:30 every factor was pinned and the sky rendered
-        // bit-for-bit identically. The dome's vertical contrast now narrows as
-        // the sun comes down, which is what a thickening air path does to it.
-        const contrast = (hours: number) => {
-            setSunTime(hours);
+    it('no longer renders ten hours of the day identically', () => {
+        // The original complaint: every factor was pinned from 07:30 to 16:30
+        // and the sky came out bit-for-bit the same. Air mass varies all day,
+        // so the sky has to as well.
+        const skies = [9, 11, 12, 14, 16, 17].map(h => {
+            setSunTime(h);
             const palette = daytimePalette(HDNoonPalette, HDMidnightPalette);
-            return luma(PaletteColor(palette, PaletteCategory.FOG_SKY))
-                - luma(PaletteColor(palette, PaletteCategory.SKY));
+            return `${PaletteColor(palette, PaletteCategory.SKY)}/${PaletteColor(palette, PaletteCategory.FOG_SKY)}`;
+        });
+        assert.strictEqual(new Set(skies).size, skies.length, `repeats in ${skies}`);
+    });
+
+    it('darkens the ground into dusk rather than brightening it', () => {
+        // The cosine on a near-flat surface kills the beam long before the sky
+        // stops glowing, which is why a sunset landscape goes dark under a lit
+        // sky. Pulling the palette towards a bright orange used to do the
+        // opposite and leave the ground brighter at sunset than at noon.
+        const ground = (hours: number) => {
+            setSunTime(hours);
+            return luma(PaletteColor(daytimePalette(HDNoonPalette, HDMidnightPalette), PaletteCategory.TERRAIN_GRASS));
         };
-
-        const afternoon = [12, 15, 16, 17].map(contrast);
-        for (let i = 1; i < afternoon.length; i++) {
-            assert.ok(afternoon[i] < afternoon[i - 1], `${afternoon}`);
+        const noon = ground(12);
+        for (const hours of [16, 17, 17.5, 18]) {
+            assert.ok(ground(hours) < noon, `${hours}h is brighter than noon`);
         }
-        // Still a gradient, not a flat wash.
-        assert.ok(afternoon[afternoon.length - 1] > 0, `${afternoon}`);
-    });
-
-    it('keeps the hazed sky blue rather than warming it', () => {
-        // Haze is an air-path effect, not the golden hour: it must not smuggle
-        // in warmth an hour before the twilight ramp is meant to start.
-        setSunTime(12);
-        const noon = PaletteColor(daytimePalette(HDNoonPalette, HDMidnightPalette), PaletteCategory.SKY);
-        setSunTime(16);
-        const afternoon = PaletteColor(daytimePalette(HDNoonPalette, HDMidnightPalette), PaletteCategory.SKY);
-
-        assert.notStrictEqual(afternoon, noon);
-
-        // It does drift a little warm, but only because the pale horizon colour
-        // it moves towards is less blue-dominant than the zenith - the sky is
-        // paling, not reddening. Against the golden hour's own pull on the same
-        // category it has to stay small.
-        const golden = PaletteColor(
-            blendPalettes(HDNoonPalette, HDMidnightPalette, { nightMix: 0, warm: 1, cool: 0, haze: 0 }),
-            PaletteCategory.SKY);
-        const byHaze = redShift(noon, afternoon);
-        const byGoldenHour = redShift(noon, golden);
-        assert.ok(byHaze < byGoldenHour / 3, `haze ${byHaze} vs golden hour ${byGoldenHour}`);
-
-        // Bluer than it is red, at both ends of the afternoon.
-        for (const css of [noon, afternoon]) {
-            const [r, , b] = channels(css);
-            assert.ok(b > r, `${css} should still read as sky blue`);
-        }
-    });
-
-    it('leaves the authored gradient alone once the sun is properly down', () => {
-        // Nothing is lighting the air at night, so the night palette's own
-        // zenith-to-horizon gradient has to survive untouched.
-        setSunTime(0);
-        const palette = daytimePalette(HDNoonPalette, HDMidnightPalette);
-        assert.strictEqual(
-            PaletteColor(palette, PaletteCategory.SKY),
-            PaletteColor(HDMidnightPalette, PaletteCategory.SKY).toLowerCase());
     });
 });
 
