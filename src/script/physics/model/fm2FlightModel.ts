@@ -13,8 +13,7 @@
  */
 import * as THREE from 'three';
 import {
-    MAX_ALTITUDE, MAX_SPEED, PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE,
-    WORLD_HALF_EXTENT_M, YAW_RATE,
+    MAX_ALTITUDE, MAX_SPEED, PITCH_RATE, PLANE_DISTANCE_TO_GROUND, ROLL_RATE, YAW_RATE,
 } from '../../defs';
 import { clamp, FORWARD, isZero, RIGHT, UP } from '../../utils/math';
 import {
@@ -435,7 +434,6 @@ export class Fm2FlightModel extends FlightModel {
 
         this.updateStallState(speed, aoa, altitude);
         this.handleGroundState();
-        this.wrapPosition();
     }
 
     private spoolThrottle(delta: number): void {
@@ -834,17 +832,6 @@ export class Fm2FlightModel extends FlightModel {
         if (speed < env.landingMaxSpeedMps && Math.abs(rollAngle) < env.landingMaxRollRad) {
             this.landed = true;
         }
-    }
-
-    /**
-     * Keep the aircraft inside the baked world. This used to *wrap* to the
-     * opposite side, which teleported the plane while the terrain stayed put;
-     * clamping just stops it at the edge, over open ocean.
-     */
-    private wrapPosition(): void {
-        const h = WORLD_HALF_EXTENT_M;
-        this.obj.position.x = Math.max(-h, Math.min(h, this.obj.position.x));
-        this.obj.position.z = Math.max(-h, Math.min(h, this.obj.position.z));
     }
 
     getStallStatus(): number { return this.stall; }

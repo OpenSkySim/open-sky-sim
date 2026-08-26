@@ -13,7 +13,7 @@ import { SimHitEvent } from './simTypes';
  */
 
 /** Floats per aircraft row. Keep in sync with the AC_* offsets below. */
-export const AC_STRIDE = 53;
+export const AC_STRIDE = 54;
 
 export const AC = {
     posX: 0, posY: 1, posZ: 2,
@@ -55,6 +55,8 @@ export const AC = {
     hookX: 50,
     hookY: 51,
     hookZ: 52,
+    /** Tailhook lowered (arrestor-capable). */
+    hookDeployed: 53,
 } as const;
 
 /** Floats per projectile row: position (3) + quaternion (4). */

@@ -8,12 +8,6 @@ Quick and dirty attempt to replicate the visuals of late 80s / early 90s flight 
 
 ## Screenshots
 
-[<img src="doc/cga-day.png" width="320" height="200" />](doc/cga-day.png)
-[<img src="doc/cga-night.png" width="320" height="200" />](doc/cga-night.png)
-
-[<img src="doc/ega-day.png" width="320" height="200" />](doc/ega-day.png)
-[<img src="doc/ega-night.png" width="320" height="200" />](doc/ega-night.png)
-
 [<img src="doc/vga-day.png" width="320" height="200" />](doc/vga-day.png)
 [<img src="doc/vga-night.png" width="320" height="200" />](doc/vga-night.png)
 
@@ -91,8 +85,6 @@ fidelity (control surfaces + custom flight physics), include a
 #### Generation
 
 The generation of choice will simulate the experience of a game of that era:
-* 286/CGA: mid-80s
-* 286/EGA: late 80s
 * 386/VGA: early 90s
 * 486/SVGA: mid-90s before texture mapping
 * HD: full-color rendering at native viewport resolution with smooth shading and fog
@@ -157,9 +149,10 @@ The system supports a single device connected only. If the device has less than 
 * `W`: Wheel brakes (hold, on the ground)
 * `G`: Landing gear
 * `F`: Flaps
+* `H`: Tailhook (raise/lower; a wire only snags with the hook down)
 * `T`: Select target
 * `I`: Toggle night (386/VGA) or IR (486/SVGA/HD) for the tracking camera
-* `H`: Cycle through HUD focus modes (disabled, partial, full)
+* `U`: Cycle through HUD focus modes (disabled, partial, full)
 
 ### Views
 * `N`: Toggle day/night

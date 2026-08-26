@@ -12,9 +12,10 @@ export const ARRESTOR_DECK_MID_X = (-34.33 + 43.83) * 0.5;
 export const ARRESTOR_HALF_SPAN_M = 18;
 /**
  * Cable height in carrier-local Y.
- * Real kuz deck under the wires is ~13.55 m; landed hook sits ~deck+0.3
- * (CG at deck+2.0, hook body Y=-1.7). Keep cables at that height so a
- * gear-down roll-out can snag them.
+ * Real kuz deck under the wires is ~13.55 m; landed hook sits ~deck+1.0
+ * (CG at deck+2.0, hook body Y=-1.0 after {@link TAILHOOK_MOUNT_UP_M}). Keep
+ * cables at that height so a roll-out with the hook down can snag them —
+ * {@link ARRESTOR_CATCH_VERT_M} covers the offset.
  */
 export const ARRESTOR_CABLE_Y = 13.85;
 /** Local Z of the four wires, stern → bow (landing along −Z). */
@@ -35,10 +36,16 @@ export const ARRESTOR_PULL_OUT_M = 140;
 /** Cap on arrest deceleration (m/s²); ~4 g. */
 export const ARRESTOR_MAX_DECEL_MPS2 = 4.0 * 9.80665;
 
+/**
+ * Whole hook assembly (hinge and tip) sits this far above the belly line it was
+ * originally authored at, so the arm hangs off the fuselage instead of the air.
+ */
+export const TAILHOOK_MOUNT_UP_M = 0.7;
+
 /** Default body-frame hook tip — coincides with default nozzle exit Z. */
 export const DEFAULT_ARRESTOR_HOOK_BODY: [number, number, number] = [
     0,
-    -1.7,
+    -1.7 + TAILHOOK_MOUNT_UP_M,
     DEFAULT_ENGINE_NOZZLES[0][2],
 ];
 /** Hinge sits this far above the tip in body Y (m). */
@@ -121,7 +128,10 @@ export function arrestorHookPlacementForAircraft(def: {
     const authored = def.fx?.nozzles;
     const nozzles = authored && authored.length > 0 ? authored : DEFAULT_ENGINE_NOZZLES;
     const tipY = def.collisionMesh
-        ? Math.min(DEFAULT_ARRESTOR_HOOK_BODY[1], def.collisionMesh.aabb.min[1] + 0.35)
+        ? Math.min(
+            DEFAULT_ARRESTOR_HOOK_BODY[1],
+            def.collisionMesh.aabb.min[1] + 0.35 + TAILHOOK_MOUNT_UP_M,
+        )
         : DEFAULT_ARRESTOR_HOOK_BODY[1];
     const tip = resolveArrestorHookTip({
         explicitHook: def.flight?.hook,
@@ -353,9 +363,9 @@ export function trySnag(
     prevHook: THREE.Vector3 | null,
     vel: THREE.Vector3,
     field: ArrestorCableField,
-    gearDown: boolean,
+    hookDown: boolean,
 ): number {
-    if (!gearDown) return -1;
+    if (!hookDown) return -1;
     const along = vel.dot(field.deckAxis);
     if (along < ARRESTOR_MIN_SNAG_SPEED_MPS) return -1;
 

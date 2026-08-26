@@ -54,7 +54,7 @@ export function getAircraftDeviceStatusPosition(targetHeight: number, mfdSize: n
     };
 }
 
-/** Bottom-left GEAR / FLAPS / BRAKE stack beside the map MFD. */
+/** Bottom-left GEAR / FLAPS / HOOK / BRAKE stack beside the map MFD. */
 export function renderAircraftDeviceStatus(
     actor: PlayerEntity,
     x: number,
@@ -74,6 +74,9 @@ export function renderAircraftDeviceStatus(
     }
     if (actor.airbrakes === AircraftDeviceState.EXTENDED || actor.airbrakes === AircraftDeviceState.EXTENDING) {
         labels.push('AIRBRK');
+    }
+    if (actor.tailhook === AircraftDeviceState.EXTENDED || actor.tailhook === AircraftDeviceState.EXTENDING) {
+        labels.push('HOOK');
     }
     if (actor.wheelBrakesApplied) {
         labels.push('BRAKE');

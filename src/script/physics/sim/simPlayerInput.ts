@@ -34,9 +34,11 @@ export interface SimPlayerInputSink {
     isGearDeployed(): boolean;
     isFlapsExtended(): boolean;
     isAirbrakesExtended(): boolean;
+    isHookDeployed(): boolean;
     toggleGear(): void;
     toggleFlaps(): void;
     toggleAirbrakes(): void;
+    toggleHook(): void;
     toggleAutopilot(): void;
     setPitchLimiterMode(mode: FcsPitchLimiter): void;
 }
@@ -173,10 +175,10 @@ export class SimPlayerInput {
     /** Advance stick/throttle state and produce this frame's control inputs. */
     tick(delta: number, sink: SimPlayerInputSink): SimControlInputs {
         if (sink.health <= 0 || sink.isCrashed()) {
-            return this.neutralInputs(false);
+            return this.neutralInputs(false, sink);
         }
         if (!this.inputEnabled || sink.control === 'ai') {
-            return this.neutralInputs(false);
+            return this.neutralInputs(false, sink);
         }
 
         if (Number.isFinite(this.gamepadPitch)) {
@@ -193,6 +195,7 @@ export class SimPlayerInput {
             landingGearDeployed: sink.isGearDeployed(),
             flapsExtended: sink.isFlapsExtended(),
             airbrakesExtended: sink.isAirbrakesExtended(),
+            hookDeployed: sink.isHookDeployed(),
             wheelBrakesApplied: this.wheelBrakes,
             pitchLimiterMode: this.pitchLimiterMode,
             limitersEnabled: this.limitersEnabled,
@@ -431,6 +434,9 @@ export class SimPlayerInput {
             case 'b':
                 sink.toggleAirbrakes();
                 break;
+            case 'h':
+                sink.toggleHook();
+                break;
             case 'l':
                 this.toggleLimiters();
                 break;
@@ -566,10 +572,13 @@ export class SimPlayerInput {
         this.releaseWheelBrakes();
     }
 
-    private neutralInputs(firing: boolean): SimControlInputs {
+    private neutralInputs(firing: boolean, sink: SimPlayerInputSink): SimControlInputs {
         return {
             pitch: 0, roll: 0, yaw: 0, throttle: 0,
             landingGearDeployed: true, flapsExtended: true, airbrakesExtended: false,
+            // Keep the hook where the pilot left it: dropping it here would
+            // shed a latched wire whenever input is disabled mid-trap.
+            hookDeployed: sink.isHookDeployed(),
             wheelBrakesApplied: false,
             pitchLimiterMode: this.pitchLimiterMode,
             limitersEnabled: this.limitersEnabled,

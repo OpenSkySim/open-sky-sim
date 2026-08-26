@@ -2,8 +2,6 @@ import { AudioSystem } from './audio/audioSystem';
 import { ConfigService } from './config/configService';
 import { PaletteCategory } from './config/palettes/palette';
 import { HDNoonPalette } from './config/palettes/hd-noon';
-import { CGAProfile } from './config/profiles/cga';
-import { EGAProfile } from './config/profiles/ega';
 import { DisplayResolution, DisplayShading, FogQuality, TechProfile } from './config/profiles/profile';
 import { HDProfile } from './config/profiles/hd';
 import { SVGAProfile } from './config/profiles/svga';
@@ -40,7 +38,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
     // worker. AI opponents register with the same client (see Game.setupCombat).
     const combatSim = new CombatSimClient();
     const config = new ConfigService(
-        { [TechProfiles.CGA]: CGAProfile, [TechProfiles.EGA]: EGAProfile, [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
+        { [TechProfiles.VGA]: VGAProfile, [TechProfiles.SVGA]: SVGAProfile, [TechProfiles.HD]: HDProfile },
         {
             [FlightModels.FM2]: new SimProxyFlightModel(combatSim, PLAYER_SIM_ID, false),
             [FlightModels.DEBUG]: new SimProxyFlightModel(combatSim, PLAYER_SIM_ID, true),

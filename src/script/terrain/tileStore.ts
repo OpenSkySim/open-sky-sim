@@ -315,6 +315,10 @@ export class TileStore<T> {
         try {
             const res = await fetch(this.opts.url(job.id), { signal: job.controller.signal });
             if (res.status === 404) {
+                // The index said this tile exists, so a 404 means the index and
+                // the baked pyramid disagree. It is treated as ocean from here
+                // on, which silently turns land into flat water -- say so.
+                console.warn(`[terrain] ${job.key}: 404 though the index lists it; drawn as sea from now on`);
                 this.dead.add(job.key);
                 this.finish(job, null, started);
                 return;
@@ -348,6 +352,9 @@ export class TileStore<T> {
             }
             // Permanently failed: treat as absent so the quadtree falls back to
             // the parent tile instead of leaving a hole, and stop retrying.
+            // That fallback paints whatever was there as flat sea for the rest
+            // of the session, so it is not something to swallow quietly.
+            console.warn(`[terrain] ${job.key}: gave up after ${max} retries; drawn as sea from now on`, err);
             this.dead.add(job.key);
             this.failed++;
             this.finish(job, null, started);

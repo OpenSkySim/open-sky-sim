@@ -193,7 +193,14 @@ export class TerrainEntity implements Entity {
             manifest: opts.manifest,
             tilePosition: (id) => tileOriginEnu(id, 0, this.basis),
             tileRadius: (id) => approxTileEdgeMetres(id) * 0.75,
-            isResident: (id) => this.streamer.has(id) || this.oceans.has(tileKeyString(id)),
+            // Uploaded geometry only. A sea patch must never count here: one is
+            // also built as a stand-in for a land tile that has not arrived
+            // yet, and calling that resident tells the quadtree the tile is
+            // done -- it stops wanting it, the streamer cancels the fetch, and
+            // the island stays flat water for the rest of the session. Nodes
+            // the index says are ocean are covered by isOcean everywhere
+            // readiness is tested, so nothing needs this clause.
+            isResident: (id) => this.streamer.has(id),
             isOcean: (id) => this.meshStore.isAbsent(id),
             earthCenter: this.earthCenter,
             maxZoom: opts.maxZoom ?? opts.manifest.mesh.maxZoom,
@@ -445,6 +452,14 @@ export class TerrainEntity implements Entity {
         for (const node of this.drawList) {
             const meshes = this.streamer.get(node.id);
             if (meshes) {
+                // A sea patch built while this tile was still in flight has
+                // done its job; drop it rather than hold its buffers for a
+                // node that now has real geometry.
+                const standIn = this.oceans.get(node.key);
+                if (standIn) {
+                    disposeOceanPatch(standIn);
+                    this.oceans.delete(node.key);
+                }
                 this.group.add(meshes.group);
                 this.drawnTriangles += countTriangles(meshes);
                 continue;

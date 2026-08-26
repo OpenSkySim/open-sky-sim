@@ -8,7 +8,7 @@ import { SceneWorldQuery } from '../../ai/worldQuery';
 import { Combatant, Faction } from '../../weapons/combatant';
 import { Gun, GunConfig, ProjectileSink } from '../../weapons/gun';
 import { FORWARD } from '../../utils/math';
-import { PLANE_DISTANCE_TO_GROUND, WORLD_HALF_EXTENT_M } from '../../defs';
+import { PLANE_DISTANCE_TO_GROUND } from '../../defs';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { FcsPitchLimiter } from '../fm2/fcs';
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
@@ -72,7 +72,7 @@ const SOLID_CONTACT_DRAG_MAX_FRAC = 0.01;
 const NEUTRAL_INPUTS: SimControlInputs = {
     pitch: 0, roll: 0, yaw: 0, throttle: 0,
     landingGearDeployed: true, flapsExtended: true, airbrakesExtended: false,
-    wheelBrakesApplied: false,
+    hookDeployed: false, wheelBrakesApplied: false,
     pitchLimiterMode: FcsPitchLimiter.SOFT, limitersEnabled: true,
     wantForceVectors: false, firing: false,
 };
@@ -143,6 +143,8 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     private inGear = true;
     private inFlaps = true;
     private inAirbrakes = false;
+    /** Tailhook lowered (player 'H'); AI pilots auto-hook with the gear. */
+    private inHook = false;
     private inBrakes = false;
     private inLimiterMode = FcsPitchLimiter.SOFT;
     private inLimiters = true;
@@ -227,6 +229,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.inGear = !spawn.airborne;
         this.inFlaps = !spawn.airborne;
         this.inAirbrakes = false;
+        this.inHook = false;
         if (spawn.airborne) {
             this.model.syncEffectiveThrottle();
             this.model.snapPhysicsState();
@@ -239,6 +242,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.inPitch = this.inRoll = this.inYaw = 0;
         this.inBrakes = false;
         this.inAirbrakes = false;
+        this.inHook = false;
         this.gun?.reset();
         this.applySpawn(spawn);
         this.enabled = true;
@@ -256,6 +260,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.inGear = inputs.landingGearDeployed;
         this.inFlaps = inputs.flapsExtended;
         this.inAirbrakes = inputs.airbrakesExtended;
+        this.inHook = inputs.hookDeployed;
         this.inBrakes = inputs.wheelBrakesApplied;
         this.inLimiterMode = inputs.pitchLimiterMode;
         this.inLimiters = inputs.limitersEnabled;
@@ -334,6 +339,14 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.inAirbrakes = !this.inAirbrakes;
     }
 
+    toggleHook(): void {
+        this.inHook = !this.inHook;
+    }
+
+    setHookDeployed(deployed: boolean): void {
+        this.inHook = deployed;
+    }
+
     toggleAutopilot(): void {
         this.control = this.control === 'ai' ? 'external' : 'ai';
     }
@@ -361,6 +374,8 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     isGearDeployed(): boolean { return this.inGear; }
     isFlapsExtended(): boolean { return this.inFlaps; }
     isAirbrakesExtended(): boolean { return this.inAirbrakes; }
+    /** AI pilots have no hook control of their own: theirs follows the gear. */
+    isHookDeployed(): boolean { return this.control === 'ai' ? this.inGear : this.inHook; }
 
     // --- Combatant -----------------------------------------------------------
 
@@ -419,6 +434,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         out[base + AC.gearDeployed] = this.inGear ? 1 : 0;
         out[base + AC.flapsExtended] = this.inFlaps ? 1 : 0;
         out[base + AC.airbrakesExtended] = this.inAirbrakes ? 1 : 0;
+        out[base + AC.hookDeployed] = this.isHookDeployed() ? 1 : 0;
         out[base + AC.firing] = this.firing ? 1 : 0;
         out[base + AC.health] = this.health;
         out[base + AC.ammo] = this.gun?.ammoRemaining ?? 0;
@@ -489,8 +505,6 @@ export class CombatSim implements ProjectileSink {
     private readonly external = new Map<string, ExternalCombatant>();
     /** Worker-side keyboard/gamepad handlers for externally-controlled aircraft. */
     private readonly playerInputs = new Map<string, SimPlayerInput>();
-
-    private readonly terrainHalfSize = WORLD_HALF_EXTENT_M;
 
     private readonly projectiles: ProjectileSlot[] = [];
     private readonly hits: SimHitEvent[] = [];
@@ -655,9 +669,11 @@ export class CombatSim implements ProjectileSink {
         a.model.velocityVector = velocity;
         a.model.setLanded(landed);
         a.model.setThrottle(throttle);
-        // Match PlayerEntity.reset: gear/flaps down on every spawn/teleport.
+        // Match PlayerEntity.reset: gear/flaps down, hook stowed, on every
+        // spawn/teleport.
         a.setLandingGearDeployed(true);
         a.setFlapsExtended(true);
+        a.setHookDeployed(false);
         a.health = a.maxHealth;
         a.resetGun();
         this.playerInputs.get(id)?.syncThrottle(throttle);
@@ -801,7 +817,6 @@ export class CombatSim implements ProjectileSink {
             }
             this.resolveArrestor(a, delta);
             a.resolveFiring();
-            this.wrapBounds(a);
         }
         // 4. Guns + projectiles (hits already cleared; scrapes may have appended).
         for (const a of this.aircraft.values()) {
@@ -812,24 +827,6 @@ export class CombatSim implements ProjectileSink {
             }
         }
         this.updateProjectiles(delta);
-    }
-
-    /**
-     * Hold aircraft inside the baked world. This used to wrap to the opposite
-     * side, teleporting the aircraft while the terrain stayed put; it now
-     * clamps at the edge, out over open ocean.
-     */
-    private wrapBounds(a: SimAircraft): void {
-        const pos = a.model.position;
-        const h = this.terrainHalfSize;
-        const x = Math.max(-h, Math.min(h, pos.x));
-        const z = Math.max(-h, Math.min(h, pos.z));
-        const wrapped = x !== pos.x || z !== pos.z;
-        pos.x = x;
-        pos.z = z;
-        if (wrapped) {
-            a.model.snapPhysicsState();
-        }
     }
 
     /** {@link ProjectileSink} — guns push rounds here. */
@@ -878,8 +875,9 @@ export class CombatSim implements ProjectileSink {
     }
 
     /**
-     * Arrestor-cable snag + deck-axis deceleration. Auto-hook when gear is down;
-     * once latched, scrub along-deck speed to stop over {@link ARRESTOR_PULL_OUT_M}.
+     * Arrestor-cable snag + deck-axis deceleration. Snags only with the hook
+     * down; once latched, scrub along-deck speed to stop over
+     * {@link ARRESTOR_PULL_OUT_M}.
      * After stop the cable stays bent until the aircraft taxis away.
      */
     private resolveArrestor(a: SimAircraft, delta: number): void {
@@ -895,7 +893,7 @@ export class CombatSim implements ProjectileSink {
                     a.hasPrevHook ? a.prevHook : null,
                     a.model.velocityVector,
                     field,
-                    a.isGearDeployed(),
+                    a.isHookDeployed(),
                 );
                 if (idx >= 0) {
                     a.arrestorLatch = idx;
@@ -931,7 +929,7 @@ export class CombatSim implements ProjectileSink {
                     vel.x - this.carrierVel.x,
                     vel.z - this.carrierVel.z,
                 );
-                if (relSpeed > ARRESTOR_RELEASE_SPEED_MPS || !a.isGearDeployed()) {
+                if (relSpeed > ARRESTOR_RELEASE_SPEED_MPS || !a.isHookDeployed()) {
                     a.arrestorLatch = -1;
                     a.arrestorFieldIndex = -1;
                     a.arrestorHeld = false;

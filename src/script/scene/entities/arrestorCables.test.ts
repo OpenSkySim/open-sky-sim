@@ -128,7 +128,7 @@ describe('arrestorCables', () => {
         assert.equal(trySnag(mid, prev, vel, field, true), -1);
     });
 
-    it('misses when gear is up', () => {
+    it('misses when the hook is up', () => {
         const seg = field.segments[0];
         const hook = new THREE.Vector3().addVectors(seg.a, seg.b).multiplyScalar(0.5);
         const prev = hook.clone();

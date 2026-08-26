@@ -208,3 +208,53 @@ describe('culling follows the camera, not the aircraft (regression)', () => {
         );
     });
 });
+
+describe('a sea stand-in must not count as a loaded tile (regression)', () => {
+    /**
+     * A tile the index lists but the streamer has not uploaded yet is still
+     * drawn -- as a flat sea patch, the least-bad placeholder. That patch used
+     * to be counted as residency, which told the quadtree the tile was done:
+     * it stopped appearing in the want set, `setWants` cancelled the fetch as
+     * no-longer-wanted, and nothing ever asked for it again. The island stayed
+     * flat water for the rest of the session.
+     */
+    function spyOnWants(entity: TerrainEntity): () => Set<string> {
+        const streamer = (entity as unknown as {
+            streamer: { setWants: (...a: unknown[]) => void };
+        }).streamer;
+        const original = streamer.setWants.bind(streamer);
+        let seen = new Set<string>();
+        streamer.setWants = (...args: unknown[]) => {
+            const wants = args[0] as { id: { z: number; x: number; y: number } }[];
+            seen = new Set(wants.map(w => `${w.id.z}/${w.id.x}/${w.id.y}`));
+            return original(...args);
+        };
+        return () => seen;
+    }
+
+    function reconcilePass(entity: TerrainEntity, cam: THREE.PerspectiveCamera, gen: number): void {
+        (entity as unknown as { lastReconcile: number }).lastReconcile = 0;
+        const list = new THREE.Scene();
+        beginRenderListPass(list, gen);
+        entity.render3D(1280, 720, cam, new Map([[SceneLayers.Terrain, list]]), null as never);
+    }
+
+    it('keeps wanting a land tile it is drawing as sea', () => {
+        const entity = makeEntity();
+        const cam = camera();
+        entity.setLodCamera(cam);
+        const wanted = spyOnWants(entity);
+        const oceans = (entity as unknown as { oceans: Map<string, unknown> }).oceans;
+
+        reconcilePass(entity, cam, 1);
+        assert.ok(wanted().has('0/0/0'), 'precondition: the tile is wanted at first');
+        assert.ok(oceans.has('0/0/0'), 'precondition: it is drawn as a sea stand-in');
+
+        reconcilePass(entity, cam, 2);
+        assert.ok(
+            wanted().has('0/0/0'),
+            'the sea stand-in made the tile look resident, so its fetch is cancelled '
+            + 'and the land never loads',
+        );
+    });
+});

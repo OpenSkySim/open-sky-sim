@@ -38,6 +38,7 @@ const LANDING_GEAR_ANIM_DURATION = 3; // Seconds
 const FLAPS_ANIM_DURATION = 2; // Seconds
 const FLAPS_EXTENDED_ANGLE = Math.PI / 5; // Radians
 const AIRBRAKE_ANIM_DURATION = 1.5; // Seconds
+const TAILHOOK_ANIM_DURATION = 1.5; // Seconds
 
 /**
  * Visible roll-deflection gains (fraction of a surface's hinge range at full
@@ -116,6 +117,10 @@ export class PlayerEntity implements Entity {
     private airbrakesState: AircraftDeviceState = AircraftDeviceState.RETRACTED;
     private airbrakesProgress = 0;
     private airbrakesProgressUnit = 0;
+    /** Tailhook: sim owns the commanded state, this is the visible swing. */
+    private hookState: AircraftDeviceState = AircraftDeviceState.RETRACTED;
+    private hookProgress = 0;
+    private hookProgressUnit = 0;
 
     private readonly fx: AircraftFx;
     private forceVectors: AircraftForceVectors;
@@ -164,6 +169,8 @@ export class PlayerEntity implements Entity {
     private _q = new THREE.Quaternion();
     private readonly _hinge = new THREE.Vector3();
     private readonly _hookDir = new THREE.Vector3();
+    private readonly _hookStowedDir = new THREE.Vector3();
+    private readonly _qStowed = new THREE.Quaternion();
     private readonly _hookTip = new THREE.Vector3();
     private readonly _hookTipBody = new THREE.Vector3(...DEFAULT_ARRESTOR_HOOK_BODY);
     /** Live carrier pose for latched-hook sheave aiming; falls back to default origin. */
@@ -382,6 +389,10 @@ export class PlayerEntity implements Entity {
             if (airbrakes !== null) {
                 this.setAirbrakesExtended(airbrakes);
             }
+            const hook = this.flightModel.getSimHookDeployed();
+            if (hook !== null) {
+                this.setHookDeployed(hook);
+            }
         }
 
         this.obj.position.copy(this.flightModel.position);
@@ -404,6 +415,7 @@ export class PlayerEntity implements Entity {
             this.updateLandingGear(delta);
             this.updateFlaps(delta);
             this.updateAirbrakes(delta);
+            this.updateTailhook(delta);
         }
     }
 
@@ -519,6 +531,9 @@ export class PlayerEntity implements Entity {
         this.airbrakesState = AircraftDeviceState.RETRACTED;
         this.airbrakesProgress = 0;
         this.airbrakesProgressUnit = 0;
+        this.hookState = AircraftDeviceState.RETRACTED;
+        this.hookProgress = 0;
+        this.hookProgressUnit = 0;
 
         this.engineStarted = false;
 
@@ -568,6 +583,27 @@ export class PlayerEntity implements Entity {
         }
         if (this.airbrakesState === AircraftDeviceState.EXTENDING || this.airbrakesState === AircraftDeviceState.RETRACTING) {
             this.airbrakesProgressUnit = this.airbrakesProgress / AIRBRAKE_ANIM_DURATION;
+        }
+    }
+
+    private updateTailhook(delta: number) {
+        if (this.hookState === AircraftDeviceState.EXTENDING) {
+            this.hookProgress += delta;
+            if (this.hookProgress >= TAILHOOK_ANIM_DURATION) {
+                this.hookProgress = TAILHOOK_ANIM_DURATION;
+                this.hookProgressUnit = 1.0;
+                this.hookState = AircraftDeviceState.EXTENDED;
+            }
+        } else if (this.hookState === AircraftDeviceState.RETRACTING) {
+            this.hookProgress -= delta;
+            if (this.hookProgress <= 0) {
+                this.hookProgress = 0;
+                this.hookProgressUnit = 0;
+                this.hookState = AircraftDeviceState.RETRACTED;
+            }
+        }
+        if (this.hookState === AircraftDeviceState.EXTENDING || this.hookState === AircraftDeviceState.RETRACTING) {
+            this.hookProgressUnit = this.hookProgress / TAILHOOK_ANIM_DURATION;
         }
     }
 
@@ -755,9 +791,9 @@ export class PlayerEntity implements Entity {
                         targetWidth, camera, palette,
                         SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
                 }
-                // Tailhook only when gear is down (not while animated bay doors play retracted).
+                // Tailhook only once the pilot lowers it (H); hidden while stowed.
                 const showTailhook = this._showcaseMode
-                    || this.landingGearState !== AircraftDeviceState.RETRACTED;
+                    || this.hookState !== AircraftDeviceState.RETRACTED;
                 if (showTailhook && this.modelTailhook) {
                     this.renderTailhook(targetWidth, camera, palette, lists);
                 }
@@ -784,6 +820,7 @@ export class PlayerEntity implements Entity {
     /**
      * Place the tailhook at the belly hinge. Idle: points aft along the body
      * hinge→tip. Latched: tip on hinge→sheave ray so arm and cable leg align.
+     * Mid-swing it slerps between stowed (flush aft along the belly) and down.
      */
     private renderTailhook(
         targetWidth: number,
@@ -820,6 +857,15 @@ export class PlayerEntity implements Entity {
             this._hookDir.normalize();
         }
         this._q.setFromUnitVectors(FORWARD, this._hookDir);
+
+        const deploy = this._showcaseMode ? 1 : this.hookProgressUnit;
+        if (deploy < 1) {
+            // Stowed arm lies flush aft along the belly; it swings down from there.
+            this._hookStowedDir.set(0, 0, -1).applyQuaternion(this.displayQuaternion);
+            this._qStowed.setFromUnitVectors(FORWARD, this._hookStowedDir);
+            this._qStowed.slerp(this._q, deploy);
+            this._q.copy(this._qStowed);
+        }
 
         this.modelTailhook.addToRenderList(
             this._hinge, this._q, this.obj.scale,
@@ -1012,6 +1058,15 @@ export class PlayerEntity implements Entity {
             || this.airbrakesState === AircraftDeviceState.EXTENDING;
         if (extended !== isExtended) {
             this.toggleAirbrakes();
+        }
+    }
+
+    /** Drive the tailhook to a target state (sim-owned, toggled by the H key). */
+    setHookDeployed(deployed: boolean) {
+        const isDeployed = this.hookState === AircraftDeviceState.EXTENDED
+            || this.hookState === AircraftDeviceState.EXTENDING;
+        if (deployed !== isDeployed) {
+            this.toggleTailhook();
         }
     }
 
@@ -1299,6 +1354,10 @@ export class PlayerEntity implements Entity {
         return this.airbrakesState;
     }
 
+    get tailhook(): AircraftDeviceState {
+        return this.hookState;
+    }
+
     get wheelBrakesApplied(): boolean {
         return this.isWorkerControlled()
             ? this.flightModel.getWheelBrakesApplied()
@@ -1330,7 +1389,7 @@ export class PlayerEntity implements Entity {
                         this._nightVision = !this._nightVision;
                         break;
                     }
-                    case 'h': {
+                    case 'u': {
                         this.hudFocus += 1;
                         this.hudFocus %= HUDFocusMode._LENGTH;
                         break;
@@ -1388,6 +1447,14 @@ export class PlayerEntity implements Entity {
             this.airbrakesState = AircraftDeviceState.RETRACTING;
         } else {
             this.airbrakesState = AircraftDeviceState.EXTENDING;
+        }
+    }
+
+    private toggleTailhook() {
+        if (this.hookState === AircraftDeviceState.EXTENDED || this.hookState === AircraftDeviceState.EXTENDING) {
+            this.hookState = AircraftDeviceState.RETRACTING;
+        } else {
+            this.hookState = AircraftDeviceState.EXTENDING;
         }
     }
 

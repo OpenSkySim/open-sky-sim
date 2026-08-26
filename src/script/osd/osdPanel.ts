@@ -57,10 +57,6 @@ function setupButtons() {
 }
 
 function setupGenerationOptions(config: ConfigService) {
-    const genCGA = document.getElementById('gen-cga');
-    assertIsDefined(genCGA);
-    const genEGA = document.getElementById('gen-ega');
-    assertIsDefined(genEGA);
     const genVGA = document.getElementById('gen-vga');
     assertIsDefined(genVGA);
     const genSVGA = document.getElementById('gen-svga');
@@ -68,14 +64,6 @@ function setupGenerationOptions(config: ConfigService) {
     const genHD = document.getElementById('gen-hd');
     assertIsDefined(genHD);
 
-    genCGA.addEventListener('change', () => {
-        config.techProfiles.setActive(TechProfiles.CGA);
-        updateSettings({ techProfile: TechProfiles.CGA });
-    });
-    genEGA.addEventListener('change', () => {
-        config.techProfiles.setActive(TechProfiles.EGA);
-        updateSettings({ techProfile: TechProfiles.EGA });
-    });
     genVGA.addEventListener('change', () => {
         config.techProfiles.setActive(TechProfiles.VGA);
         updateSettings({ techProfile: TechProfiles.VGA });
@@ -191,8 +179,6 @@ function setupKeyboardHelp(keyboardInput: KeyboardControlDevice) {
 
 function syncSettingsUI(config: ConfigService, keyboardInput: KeyboardControlDevice) {
     const techProfileRadioIds: Record<string, string> = {
-        [TechProfiles.CGA]: 'gen-cga',
-        [TechProfiles.EGA]: 'gen-ega',
         [TechProfiles.VGA]: 'gen-vga',
         [TechProfiles.SVGA]: 'gen-svga',
         [TechProfiles.HD]: 'gen-hd',

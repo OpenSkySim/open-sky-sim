@@ -35,6 +35,7 @@ const IDLE_INPUT = {
     landingGearDeployed: true,
     flapsExtended: true,
     airbrakesExtended: false,
+    hookDeployed: true,
     wheelBrakesApplied: true,
     pitchLimiterMode: FcsPitchLimiter.SOFT,
     limitersEnabled: true,
@@ -92,6 +93,8 @@ describe('CombatSim arrestor trap', () => {
             },
             enabled: true,
         });
+        // Worker-side player input owns the hook: press H to lower it.
+        sim.keyDown('trap-test', 'h', false);
 
         const dt = 1 / 60;
         let latched = false;
@@ -104,6 +107,7 @@ describe('CombatSim arrestor trap', () => {
                     landingGearDeployed: true,
                     flapsExtended: true,
                     airbrakesExtended: false,
+                    hookDeployed: true,
                     wheelBrakesApplied: false,
                     pitchLimiterMode: FcsPitchLimiter.SOFT,
                     limitersEnabled: true,
@@ -138,6 +142,7 @@ describe('CombatSim arrestor trap', () => {
                     landingGearDeployed: true,
                     flapsExtended: true,
                     airbrakesExtended: false,
+                    hookDeployed: true,
                     wheelBrakesApplied: true,
                     pitchLimiterMode: FcsPitchLimiter.SOFT,
                     limitersEnabled: true,

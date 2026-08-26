@@ -1,10 +1,6 @@
 import * as THREE from 'three';
 import { AudioSystem } from '../audio/audioSystem';
 import { ConfigService } from '../config/configService';
-import { CGAMidnightPalette } from '../config/palettes/cga-midnight';
-import { CGANoonPalette } from '../config/palettes/cga-noon';
-import { EGAMidnightPalette } from '../config/palettes/ega-midnight';
-import { EGANoonPalette } from '../config/palettes/ega-noon';
 import { Palette, PaletteCategory, PaletteColor } from '../config/palettes/palette';
 import { SVGAMidnightPalette } from '../config/palettes/svga-midnight';
 import { SVGANoonPalette } from '../config/palettes/svga-noon';
@@ -1328,7 +1324,7 @@ export class Game {
 
     private getTextColors(): string[] {
         return Array.from(new Set(
-            [CGANoonPalette, CGAMidnightPalette, EGANoonPalette, EGAMidnightPalette, VGANoonPalette, VGAMidnightPalette, SVGANoonPalette, SVGAMidnightPalette, HDNoonPalette, HDMidnightPalette]
+            [VGANoonPalette, VGAMidnightPalette, SVGANoonPalette, SVGAMidnightPalette, HDNoonPalette, HDMidnightPalette]
                 .flatMap(p => ([
                     PaletteColor(p, PaletteCategory.HUD_TEXT),
                     PaletteColor(p, PaletteCategory.HUD_TEXT_WARN),

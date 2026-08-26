@@ -29,6 +29,8 @@ export interface SimControlInputs {
     landingGearDeployed: boolean;
     flapsExtended: boolean;
     airbrakesExtended: boolean;
+    /** Tailhook lowered — required to snag an arrestor cable. */
+    hookDeployed: boolean;
     wheelBrakesApplied: boolean;
     pitchLimiterMode: number;
     limitersEnabled: boolean;
