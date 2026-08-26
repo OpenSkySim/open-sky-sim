@@ -4,6 +4,7 @@ import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { AircraftCollisionMesh } from '../../scene/entities/aircraftDef';
 import { SerializedArrestorCables, SerializedWorld } from './serializedWorld';
+import { HeightTileUpdate, SerializedHeightField } from '../../terrain/heightMirror';
 
 /**
  * Serializable protocol for the unified combat sim worker. One worker owns the
@@ -138,6 +139,8 @@ export type SimToWorkerMessage =
     | { type: 'init' }
     | { type: 'attachSharedState'; buffer: SharedArrayBuffer }
     | { type: 'setWorld'; world: SerializedWorld }
+    | { type: 'setHeightField'; config: SerializedHeightField }
+    | { type: 'heightTiles'; update: HeightTileUpdate }
     | { type: 'setArrestorCables'; cables: SerializedArrestorCables[] }
     | { type: 'setCarrierMeshOrigins'; origins: { originX: number; originY: number; originZ: number }[] }
     | { type: 'setCarrierVelocity'; velocity: Vec3 }

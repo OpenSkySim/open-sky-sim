@@ -15,6 +15,9 @@ import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { ForceVectorSample } from '../model/flightModel';
 import { deserializeWorldQuery, deserializeArrestorCables, SerializedArrestorCables, SerializedWorld } from './serializedWorld';
 import {
+    HeightTileUpdate, MirroredHeightField, SerializedHeightField,
+} from '../../terrain/heightMirror';
+import {
     applyArrestorVelocity,
     ArrestorCableField,
     ARRESTOR_PULL_OUT_M,
@@ -523,6 +526,9 @@ export class CombatSim implements ProjectileSink {
     private readonly contactPoint = new THREE.Vector3();
     private readonly contactNormal = new THREE.Vector3();
 
+    /** The DEM, mirrored tile by tile from the render thread. */
+    private readonly heightField = new MirroredHeightField();
+
     constructor() {
         for (let i = 0; i < PROJECTILE_POOL_SIZE; i++) {
             this.projectiles.push({
@@ -533,8 +539,20 @@ export class CombatSim implements ProjectileSink {
         }
     }
 
+    /** Sampler config for the mirrored DEM (basis, sea level, zooms, pads). */
+    setHeightField(config: SerializedHeightField): void {
+        this.heightField.configure(config);
+    }
+
+    /** Add/drop mirrored DEM tiles. */
+    applyHeightTiles(update: HeightTileUpdate): void {
+        this.heightField.applyTiles(update);
+    }
+
     setWorld(world: SerializedWorld): void {
-        this.world = deserializeWorldQuery(world);
+        this.world = deserializeWorldQuery(
+            world, (x, z) => this.heightField.heightAtEnu(x, z),
+        );
         this.arrestorFields = deserializeArrestorCables(world);
         // Any aircraft added before the world arrived can now get its pilot + terrain.
         for (const a of this.aircraft.values()) {
@@ -1053,10 +1071,14 @@ export class CombatSim implements ProjectileSink {
 
         if (a.collision) {
             const terrainMargin = gearDown ? GEAR_TERRAIN_MARGIN_M : BELLY_TERRAIN_MARGIN_M;
-            return findCollisionMeshTerrainContact(
+            const contact = findCollisionMeshTerrainContact(
                 pos, quat, a.collision, groundAt, terrainMargin,
                 this.contactPoint, this.contactNormal,
             );
+            if (contact && this.isUnresolvedTerrain(contact.point.x, contact.point.z)) {
+                return null;
+            }
+            return contact;
         }
 
         // No baked mesh: CG belly vs terrain only.
@@ -1064,7 +1086,7 @@ export class CombatSim implements ProjectileSink {
         const margin = gearDown ? GEAR_TERRAIN_MARGIN_M : BELLY_TERRAIN_MARGIN_M;
         const bellyY = pos.y - (gearDown ? PLANE_DISTANCE_TO_GROUND : a.hitRadius * 0.35);
         const terrainPen = (groundY - margin) - bellyY;
-        if (terrainPen <= 0) {
+        if (terrainPen <= 0 || this.isUnresolvedTerrain(pos.x, pos.z)) {
             return null;
         }
         this.contactPoint.set(pos.x, bellyY, pos.z);
@@ -1074,6 +1096,27 @@ export class CombatSim implements ProjectileSink {
             normal: this.contactNormal,
             penetration: terrainPen,
         };
+    }
+
+    /**
+     * True when the solid here is DEM relief we only know at the coarse tier.
+     * Coarse is a ~600 m lattice over 3.7 km of relief: an aircraft must not be
+     * wrecked against a surface that inaccurate, so it flies through instead
+     * until the fine tiles for that spot have been mirrored — or until the
+     * render thread says there are none, in which case coarse is what everyone
+     * has and it stands. Water is exempt (sea level is exact at every tier), as
+     * is anything standing on the DEM (pads, decks, scenery): those are
+     * authored, not sampled.
+     */
+    private isUnresolvedTerrain(x: number, z: number): boolean {
+        if (!this.world || this.heightField.isAuthoritativeAt(x, z)) {
+            return false;
+        }
+        if (!this.heightField.isLandEnu(x, z)) {
+            return false;
+        }
+        const demY = this.heightField.heightAtEnu(x, z);
+        return Math.abs(this.world.groundHeightAt(x, z) - demY) < 0.01;
     }
 
     private applySolidWorldResponse(a: SimAircraft, contact: SolidWorldContact, delta: number): void {

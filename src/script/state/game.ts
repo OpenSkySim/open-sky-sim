@@ -76,7 +76,8 @@ import { WeaponsField } from '../scene/entities/weaponsField';
 import { Faction } from '../weapons/combatant';
 import { CombatSimClient } from '../physics/sim/combatSimClient';
 import { SimProxyFlightModel } from '../physics/model/simProxyFlightModel';
-import { serializeWorld, defaultArrestorCableField, sampleHeightGrid } from '../physics/sim/serializedWorld';
+import { serializeWorld, defaultArrestorCableField } from '../physics/sim/serializedWorld';
+import { HeightFieldSender, MirrorFocus } from '../terrain/heightMirror';
 import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/simTypes';
 import { PLAYER_SIM_ID, aiSimId } from '../physics/sim/simIds';
 import { AiPilotModels } from './gameDefs';
@@ -175,6 +176,12 @@ const PLAYER_STARTING_HEADING = 0;
 const LAND_APPROACH_FINAL_M = 3500;
 /** Boot / respawn DEM + mesh preload radius around the plane (m). */
 const TERRAIN_PRELOAD_RADIUS_M = 30000;
+/** Radius of the fine DEM the sim worker is given around each aircraft (m). */
+const SIM_TERRAIN_MIRROR_RADIUS_M = 12000;
+/** Mirror this far ahead of the player, so a fast run-in cannot outpace it (s). */
+const SIM_TERRAIN_MIRROR_LEAD_S = 30;
+/** Seconds between mirror refreshes. */
+const SIM_TERRAIN_MIRROR_INTERVAL_S = 0.25;
 /** High-alt seed: fine DEM zoom over a wider disk than approach (m). */
 const HIGH_ALT_PRELOAD_RADIUS_M = 50000;
 /** Outer coarse ring so the forward horizon is not an empty void (m). */
@@ -346,6 +353,10 @@ export class Game {
     private damageSmoke: DamageSmokeField | undefined;
     /** Countdown before AI opponents leave STRAIGHT and enter ENGAGE. */
     private aiStraightTimer = 0;
+    /** Ships DEM tiles to the sim worker so it collides against the drawn terrain. */
+    private heightSender: HeightFieldSender | undefined;
+    private heightMirrorTimer = 0;
+    private readonly heightMirrorFocus: MirrorFocus[] = [];
     /** All AI opponents; `aiOpponent` is the first, used by chase cam / targeting. */
     private readonly aiOpponents: AiAircraftEntity[] = [];
     private aiOpponent: AiAircraftEntity | undefined;
@@ -1440,12 +1451,59 @@ export class Game {
      * inject its live state so in-worker AI pilots can still target it.
      */
     private pumpCombatSim(delta: number): void {
+        this.updateHeightFieldMirror(delta);
         if (!(this.configService.flightModels.getActive() instanceof SimProxyFlightModel)) {
             this.combatSim.setExternalState(
                 PLAYER_SIM_ID, Faction.PLAYER,
                 this.player.position, this.player.velocityVector, this.player.isAlive());
         }
         this.combatSim.tick(delta);
+    }
+
+    /**
+     * Start mirroring the DEM into the sim worker. The worker decides crashes,
+     * so it reads the same tiles the renderer draws rather than a lattice
+     * sampled once at boot.
+     */
+    private startHeightFieldMirror(): void {
+        const heights = this.planetTerrain.heights;
+        this.combatSim.setHeightField({
+            basis: this.planetTerrain.basis,
+            seaLevel: heights.seaLevel,
+            queryZoom: heights.queryZoom,
+            coarseZoom: heights.coarseZoom,
+            pads: [...heights.flattenPads],
+        });
+        this.heightSender = new HeightFieldSender(
+            heights, update => this.combatSim.postHeightTiles(update),
+        );
+        this.heightSender.sendCoarse();
+        this.heightMirrorTimer = SIM_TERRAIN_MIRROR_INTERVAL_S;
+        this.updateHeightFieldMirror(0);
+    }
+
+    /** Keep the worker's fine tier over the player (lead included) and the AI. */
+    private updateHeightFieldMirror(delta: number): void {
+        if (!this.heightSender) return;
+        this.heightMirrorTimer += delta;
+        if (this.heightMirrorTimer < SIM_TERRAIN_MIRROR_INTERVAL_S) return;
+        this.heightMirrorTimer = 0;
+
+        const focus = this.heightMirrorFocus;
+        focus.length = 0;
+        const p = this.player.position;
+        const v = this.player.velocityVector;
+        focus.push({ x: p.x, z: p.z });
+        focus.push({
+            x: p.x + v.x * SIM_TERRAIN_MIRROR_LEAD_S,
+            z: p.z + v.z * SIM_TERRAIN_MIRROR_LEAD_S,
+        });
+        for (const ai of this.aiOpponents) {
+            if (ai.isAlive()) {
+                focus.push({ x: ai.position.x, z: ai.position.z });
+            }
+        }
+        this.heightSender.update(focus, SIM_TERRAIN_MIRROR_RADIUS_M);
     }
 
     render() {
@@ -2281,10 +2339,10 @@ export class Game {
                     pose.position.x, pose.position.y, pose.position.z, pose.quaternion,
                 )];
             })(),
-            sampleHeightGrid((x, z) => this.planetTerrain.heightAtEnu(x, z), AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z),
             this.surfacePads,
             this.sceneryMeshes,
         ));
+        this.startHeightFieldMirror();
         this.combatSim.addAircraft({
             id: PLAYER_SIM_ID,
             faction: Faction.PLAYER,

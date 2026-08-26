@@ -43,6 +43,12 @@ function handleMessage(data: SimToWorkerMessage): void {
         case 'setWorld':
             sim.setWorld(data.world);
             break;
+        case 'setHeightField':
+            sim.setHeightField(data.config);
+            break;
+        case 'heightTiles':
+            sim.applyHeightTiles(data.update);
+            break;
         case 'setArrestorCables':
             sim.setArrestorCables(data.cables);
             break;

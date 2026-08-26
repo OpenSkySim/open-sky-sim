@@ -4,6 +4,7 @@ import { Faction } from '../../weapons/combatant';
 import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { SerializedArrestorCables, SerializedWorld } from './serializedWorld';
+import { HeightTileUpdate, SerializedHeightField } from '../../terrain/heightMirror';
 import { AC_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
     createSimSharedState,
@@ -114,6 +115,19 @@ export class CombatSimClient {
 
     setWorld(world: SerializedWorld): void {
         this.post({ type: 'setWorld', world });
+    }
+
+    /** Sampler config for the mirrored DEM. Send before any tiles. */
+    setHeightField(config: SerializedHeightField): void {
+        this.post({ type: 'setHeightField', config });
+    }
+
+    /** Add/drop mirrored DEM tiles; height buffers are transferred, not copied. */
+    postHeightTiles(update: HeightTileUpdate): void {
+        this.worker.postMessage(
+            { type: 'heightTiles', update },
+            update.add.map(t => t.heights.buffer as ArrayBuffer),
+        );
     }
 
     setArrestorCables(cables: SerializedArrestorCables[]): void {

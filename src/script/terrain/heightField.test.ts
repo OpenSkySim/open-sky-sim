@@ -237,7 +237,11 @@ describe('HeightField', () => {
                     manifest: manifest(), store: h.store, basis: BASIS, pads: [pad],
                 });
                 await hf.ensureLoadedAroundEnu(9000, 0, 2000);
-                assert.equal(hf.heightAtEnu(9000, 0), 30);
+                assert.equal(hf.geodeticHeightAtEnu(9000, 0), 30);
+                // Scene Y is that elevation on the curved surface, ~6.3 m below
+                // the tangent plane at 9 km out. See HeightSampler.heightAtEnu.
+                const drop = 9000 ** 2 / (2 * 6378137);
+                assert.ok(Math.abs(hf.heightAtEnu(9000, 0) - (30 - drop)) < 0.2);
             } finally {
                 h.restore();
             }
@@ -250,7 +254,9 @@ describe('HeightField', () => {
                     manifest: manifest(), store: h.store, basis: BASIS, pads: [pad],
                 });
                 await hf.ensureLoadedAroundEnu(0, 0, 1000);
-                assert.equal(hf.heightAtEnu(0, 0), 0, 'sea stays at sea level');
+                // Scene Y goes through a geodetic round trip, so compare with
+                // a tolerance rather than for exact zero.
+                assert.ok(Math.abs(hf.heightAtEnu(0, 0)) < 1e-6, 'sea stays at sea level');
                 assert.equal(hf.isLandEnu(0, 0), false);
             } finally {
                 h.restore();
