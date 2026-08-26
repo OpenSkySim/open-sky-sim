@@ -1,6 +1,5 @@
 import { DITHER_PARS_FRAGMENT } from './dither';
 import { LOG_DEPTH_FRAGMENT, LOG_DEPTH_PARS_FRAGMENT } from './logDepth';
-import { SHADOW_PARS_FRAGMENT } from './shadow';
 
 export const ConstantFragProgram: string = `
   precision highp float;
@@ -15,10 +14,10 @@ export const ConstantFragProgram: string = `
   uniform float clipBelowY;
 
   varying float shade;
+  varying vec3 vLight;
   varying float vWorldY;
 ${LOG_DEPTH_PARS_FRAGMENT}
 ${DITHER_PARS_FRAGMENT}
-${SHADOW_PARS_FRAGMENT}
   void main() {
     // Hide ship hull (etc.) below the waterline. Disabled when clipBelowY is very negative.
     // Threshold is in camera-relative world Y (absolute clip − RENDER_ORIGIN.y).
@@ -49,15 +48,11 @@ ${SHADOW_PARS_FRAGMENT}
         diffuse = colorSecondary;
       }
     } else {
-      diffuse = color * shade;
+      // Coloured light, not a grey multiply: see vLight in shadedVP. The
+      // duotone branch above stays on the scalar shade on purpose: its two
+      // authored tones are the whole look, and warming them would break it.
+      diffuse = color * vLight;
     }
-
-#ifdef RECEIVE_SHADOW
-    // Stipple in the shadow tone, same as the planform silhouettes. The bias
-    // scale steepens on facets the sun barely grazes: their depth varies
-    // fastest across a shadow texel, which is where acne would show up.
-    diffuse = mix(diffuse, uShadowColor, sunShadowAmount(1.0 + 6.0 * (1.0 - shade), gl_FragCoord.xy));
-#endif
     gl_FragColor = mix(vec4(diffuse, 1.0), vec4(fogColor, 1.0), fogFactor * 0.92);
 ${LOG_DEPTH_FRAGMENT}
   }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { AudioSystem } from '../audio/audioSystem';
 import { ConfigService } from '../config/configService';
+import { daytimePalette } from '../config/palettes/daytimePalette';
 import { Palette, PaletteCategory, PaletteColor } from '../config/palettes/palette';
 import { SVGAMidnightPalette } from '../config/palettes/svga-midnight';
 import { SVGANoonPalette } from '../config/palettes/svga-noon';
@@ -15,6 +16,8 @@ import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { FlightRecorder } from '../physics/flightRecorder';
 import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
 import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FINAL_DISTANCE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HI_H_RES, HI_V_RES, HIGH_ALTITUDE_M, H_RES, isTelemetryGraphKey, LO_H_RES, LO_V_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, SPACE_ALTITUDE_M, V_RES } from '../defs';
+import { DEFAULT_SUN_HOURS, setSunTime, SUN_DIRECTION, SUN_STATE } from '../scene/materials/shaders/sun';
+import { placeSun, SUN_SET_ELEVATION_DEG } from '../scene/models/lib/sunModelBuilder';
 import { terrainMaxZoomForAltitudeM } from '../terrain/lod';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
@@ -92,6 +95,9 @@ import {
 
 /** How many AI opponents the combat sim spawns. */
 /** Loose cloud deck: base altitude and per-puff undulation, well under HIGH_ALTITUDE_M. */
+/** Scratch for {@link Game.updateSunEntity}. */
+const SUN_FACING = new THREE.Quaternion();
+
 const CLOUD_BASE_ALTITUDE_M = 1400;
 const CLOUD_ALTITUDE_VARIATION_M = 500;
 /** High-altitude cirrus streak layer, just under HIGH_ALTITUDE_M — a separate, higher band above the cumulus deck. */
@@ -323,6 +329,8 @@ export class Game {
     private osmMapEntity: OsmMapEntity | undefined;
     /** Atmospheric sky billboard; disabled above {@link SPACE_SKY_ALTITUDE_M}. */
     private skyEntity: SimpleEntity | undefined;
+    /** The sun disc; parked in the sun's direction by {@link updateSunEntity}. */
+    private sunEntity: SimpleEntity | undefined;
     /** Puffy low-poly cloud deck; disabled above {@link SPACE_SKY_ALTITUDE_M} alongside the sky. */
     private cloudField: SceneryField | undefined;
     /** High-altitude cirrus streak layer; disabled above {@link SPACE_SKY_ALTITUDE_M} alongside the sky. */
@@ -368,8 +376,11 @@ export class Game {
     private cameraUpdater: CameraUpdater;
     private player: PlayerEntity;
 
-    private palettes = [VGANoonPalette, VGAMidnightPalette];
-    private currentPalette = 0;
+    /** Endpoints the active palette is interpolated between, from the tech profile. */
+    private noonPalette: Palette = VGANoonPalette;
+    private midnightPalette: Palette = VGAMidnightPalette;
+    /** The two blended for the current time of day; see {@link daytimePalette}. */
+    private palette: Palette = VGANoonPalette;
 
     private cockpitRenderLayersLo: RenderLayer[];
     private cockpitTargetRenderLayersLo: RenderLayer[];
@@ -490,11 +501,19 @@ export class Game {
                 this.hdResolutionWidth = 0;
                 this.hdResolutionHeight = 0;
             }
-            this.palettes = [profile.noonPalette, profile.midnightPalette];
+            this.noonPalette = profile.noonPalette;
+            this.midnightPalette = profile.midnightPalette;
             this.materials.setFog(profile.fogQuality);
             this.materials.setShadingType(profile.shading);
-            this.renderer.setPalette(this.getPalette());
+            this.refreshDaytimePalette();
             this.renderer.setTextEffect(profile.textEffect);
+        });
+        this.configService.daytime.addChangeListener(hours => {
+            // Moves the sun for the shaded ramp and the shadow prisms, then
+            // rebuilds the sky/terrain palette that goes with it.
+            setSunTime(hours);
+            this.refreshDaytimePalette();
+            this.updateSunEntity();
         });
         this.configService.shadowQuality.addChangeListener(quality => {
             this.renderer.setShadowQuality(quality);
@@ -2028,8 +2047,10 @@ export class Game {
 
             switch (event.key) {
                 case 'n': {
-                    this.currentPalette = (this.currentPalette + 1) % this.palettes.length;
-                    this.renderer.setPalette(this.getPalette());
+                    // Quick day/night flip: jumps the time-of-day setting between
+                    // the default afternoon sun and midnight.
+                    this.configService.daytime.setActive(
+                        SUN_STATE.dayFactor > 0.5 ? 0 : DEFAULT_SUN_HOURS);
                     break;
                 }
             }
@@ -2535,6 +2556,12 @@ export class Game {
         this.skyEntity.position.set(0, 7, 0);
         this.scene.add(this.skyEntity);
 
+        // Same layer as the billboard, so it rides the rotation-only background
+        // camera and the terrain pass paints over it where the ground is.
+        this.sunEntity = new SimpleEntity(this.models.getModel('lib:sun'), SceneLayers.BackgroundSky, SceneLayers.BackgroundSky);
+        this.scene.add(this.sunEntity);
+        this.updateSunEntity();
+
         // Low-poly cumulus deck, tiled around the camera (see SceneryField) with a
         // huge bounding area so it always covers wherever the player roams. Altitude
         // undulates smoothly per puff so the deck doesn't look perfectly flat.
@@ -2896,6 +2923,38 @@ export class Game {
     }
 
     private getPalette(): Palette {
-        return this.palettes[this.currentPalette];
+        return this.palette;
+    }
+
+    /**
+     * Rebuilds the active palette from the current sun position and pushes it to
+     * the renderer and the materials.
+     */
+    /**
+     * Points the sun disc down {@link SUN_DIRECTION}. Only called when the sun
+     * actually moves - the time of day is a setting here, not a running clock.
+     *
+     * The disc is hidden once it is wholly under the geometric horizon. Terrain
+     * covers it before that, so the two hand over without a visible pop; what
+     * this does not model is the horizon dipping at altitude, where a real sun
+     * stays up a few degrees longer than it does at sea level.
+     */
+    private updateSunEntity() {
+        if (!this.sunEntity) {
+            return;
+        }
+        this.sunEntity.enabled = SUN_STATE.elevationDeg > SUN_SET_ELEVATION_DEG;
+        if (!this.sunEntity.enabled) {
+            return;
+        }
+        placeSun(SUN_DIRECTION, this.sunEntity.position, SUN_FACING);
+        this.sunEntity.quaternion = SUN_FACING;
+    }
+
+    private refreshDaytimePalette() {
+        this.palette = daytimePalette(this.noonPalette, this.midnightPalette);
+        // Forwards to the material manager too, so every live material picks up
+        // the new colours without a rebuild.
+        this.renderer.setPalette(this.palette);
     }
 }

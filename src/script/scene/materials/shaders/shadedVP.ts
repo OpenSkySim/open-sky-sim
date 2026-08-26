@@ -1,6 +1,4 @@
 import { LOG_DEPTH_PARS_VERTEX, LOG_DEPTH_VERTEX } from './logDepth';
-import { SHADOW_PARS_VERTEX, SHADOW_VERTEX } from './shadow';
-import { SUN_DIR_GLSL, SUN_SHADE_AMBIENT_GLSL, SUN_SHADE_DIRECT_GLSL } from './sun';
 
 export const ShadedVertProgram: string = `
   precision highp float;
@@ -9,11 +7,18 @@ export const ShadedVertProgram: string = `
   uniform float halfHeight;
   uniform mat3 normalModelMatrix;
   uniform int shadingType;
+  // Direction towards the sun (ENU) and its shading weights, all moved by the
+  // time-of-day setting; see shaders/sun.ts. uSunShade is the scalar (ambient,
+  // direct) pair; uSunAmbient / uSunDirect are the same two weights in colour.
+  uniform vec3 uSunDir;
+  uniform vec2 uSunShade;
+  uniform vec3 uSunAmbient;
+  uniform vec3 uSunDirect;
 
   varying float shade;
+  varying vec3 vLight;
   varying float vWorldY;
 ${LOG_DEPTH_PARS_VERTEX}
-${SHADOW_PARS_VERTEX}
   void main() {
     vec3 worldNormal;
 
@@ -24,13 +29,17 @@ ${SHADOW_PARS_VERTEX}
       worldNormal = normalize(normal);
     }
 
-    float ndl = max(dot(worldNormal, ${SUN_DIR_GLSL}), 0.0);
-    // Ambient floor so land keeps the palette base colour in shadow.
-    shade = ${SUN_SHADE_AMBIENT_GLSL} + ${SUN_SHADE_DIRECT_GLSL} * ndl;
+    float ndl = max(dot(worldNormal, uSunDir), 0.0);
+    // Ambient floor so land keeps the palette base colour in shadow. The direct
+    // weight fades to 0 as the sun sets, leaving night lit flat by its palette.
+    shade = uSunShade.x + uSunShade.y * ndl;
+    // Same ramp in colour: a reddened beam over a blue skylight fill, so a low
+    // sun leaves the faces it strikes warmer than the ones it misses. Both
+    // tints are luminance-normalised, so this matches shade in brightness.
+    vLight = uSunAmbient + uSunDirect * ndl;
 
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldY = worldPos.y;
-${SHADOW_VERTEX}
     vec4 pos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     if (shadingType != 3) {
       pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;

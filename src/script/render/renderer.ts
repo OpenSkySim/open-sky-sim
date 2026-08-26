@@ -9,8 +9,20 @@ import { CanvasPainter } from './screen/canvasPainter';
 import { TextEffect } from './screen/text';
 import { beginRenderListPass, pruneRenderList } from './renderList';
 import { clearRenderOrigin, setRenderOrigin } from './renderOrigin';
-import { SHADOW_MAP_SIZES, SHADOW_SETTINGS, ShadowMapPass } from './shadowMap';
+import { SHADOW_SETTINGS, ShadowVolumePass } from './shadowVolumes';
+import { SUN_STATE } from '../scene/materials/shaders/sun';
+import { DisplayShading } from '../config/profiles/profile';
 import { ShadowQualities } from '../state/gameDefs';
+
+/**
+ * Render lists whose objects can carry the shadow-caster layer. Solid model
+ * meshes all land in EntityVolumes; terrain, ground decals and FX never cast,
+ * so the shadow pass never needs to walk them.
+ */
+const SHADOW_CASTER_LISTS: string[] = [SceneLayers.EntityVolumes];
+
+/** Scratch: the caster lists handed to the shadow pass for one layer. */
+const SHADOW_ROOTS: THREE.Object3D[] = [];
 
 export interface RendererOptions {
     textColors?: string[];
@@ -83,7 +95,9 @@ export class Renderer {
     /** Camera-relative offset root: children drawn at world − camera.position. */
     private readonly relativeRoot = new THREE.Group();
     private readonly savedCamPos = new THREE.Vector3();
-    private readonly shadowPass = new ShadowMapPass();
+    private readonly shadowPass = new ShadowVolumePass();
+    /** Palette shadow tone, refreshed per shadowed pass. */
+    private readonly shadowColor = new THREE.Color();
     private renderListGeneration = 0;
 
     constructor(private materials: SceneMaterialManager, private composeWidth: number, private composeHeight: number, palette: Palette) {
@@ -119,23 +133,11 @@ export class Renderer {
     }
 
     /**
-     * Applies the menu's shadow setting. OFF skips the depth pass, which also
+     * Applies the menu's shadow setting. OFF skips the stencil pass, which also
      * brings the flat planform silhouettes back under the aircraft.
      */
     setShadowQuality(quality: ShadowQualities) {
-        SHADOW_SETTINGS.enabled = quality !== ShadowQualities.OFF;
-        if (!SHADOW_SETTINGS.enabled) {
-            // Leave the map at its current size: nothing renders into it, and
-            // switching back avoids a reallocation.
-            return;
-        }
-        const requested = SHADOW_MAP_SIZES[quality];
-        const maxSize = this.renderer.capabilities.maxTextureSize;
-        if (requested > maxSize) {
-            console.warn(`Shadow quality ${quality} wants a ${requested}px map; this GPU caps textures at ${maxSize}px.`);
-        }
-        SHADOW_SETTINGS.mapSize = Math.min(requested, maxSize);
-        this.shadowPass.setMapSize(SHADOW_SETTINGS.mapSize);
+        this.shadowPass.setQuality(quality);
     }
 
     setTextEffect(effect: TextEffect) {
@@ -269,8 +271,6 @@ export class Renderer {
     }
 
     render3D(renderTarget: WebGLRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette) {
-        // Off by default: only the pass that renders the map below may sample it.
-        this.materials.setShadowIntensity(0);
         if ((layer.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
             const camera = layer.camera as THREE.PerspectiveCamera;
             const aspect = renderTarget.width / renderTarget.height;
@@ -296,7 +296,7 @@ export class Renderer {
             pruneRenderList(list);
         }
 
-        this.submitCameraRelative(layer);
+        this.submitCameraRelative(layer, palette);
     }
 
     /** Live diagnostics: draw calls + triangles per layer (__drawStats). */
@@ -320,7 +320,7 @@ export class Renderer {
      * Float32 world matrices stay precise at planetary ranges. Physics positions
      * are unchanged.
      */
-    private submitCameraRelative(layer: RenderLayer): void {
+    private submitCameraRelative(layer: RenderLayer, palette: Palette): void {
         const cam = layer.camera;
         const rebase = Math.abs(cam.position.x) + Math.abs(cam.position.y) + Math.abs(cam.position.z) > 1e-6;
 
@@ -336,9 +336,12 @@ export class Renderer {
                 assertIsDefined(list);
                 this.relativeRoot.add(list);
             }
-            this.renderShadowMap(layer, this.savedCamPos);
             this.renderer.render(this.mergedListScene, cam);
             this.recordDrawStats(layer);
+            // Shadows last: the stencil count is taken against the depth buffer
+            // this submit just wrote, with the caster lists still parented under
+            // the camera-relative root they were drawn from.
+            this.renderShadowVolumes(layer, palette);
             while (this.relativeRoot.children.length > 0) {
                 this.relativeRoot.remove(this.relativeRoot.children[0]);
             }
@@ -368,18 +371,35 @@ export class Renderer {
     }
 
     /**
-     * Draws the shadow casters of this pass into the sun depth map and hands it
-     * to the materials. Runs with the lists already parented under the
-     * camera-relative root, so map and main pass share one coordinate space.
+     * Casts the shadows of this pass's casters into the target the scene was
+     * just drawn into. Runs with the lists still parented under the
+     * camera-relative root, so the volumes and what they fall on share one
+     * space, and after the main submit, because the stencil count is taken
+     * against the depth it wrote.
      */
-    private renderShadowMap(layer: RenderLayer, cameraPosition: THREE.Vector3): void {
-        if (!layer.shadows || !SHADOW_SETTINGS.enabled) {
+    private renderShadowVolumes(layer: RenderLayer, palette: Palette): void {
+        // Shadows fade out as the sun drops towards the horizon and the pass is
+        // skipped entirely below it: see SUN_STATE.shadowStrength.
+        const sunStrength = SUN_STATE.shadowStrength;
+        if (!layer.shadows || !SHADOW_SETTINGS.enabled || sunStrength <= 0) {
             return;
         }
-        this.shadowPass.render(this.renderer, this.mergedListScene, cameraPosition);
-        this.materials.setShadowState(
-            this.shadowPass.near, this.shadowPass.far,
-            SHADOW_SETTINGS.intensity, SHADOW_SETTINGS.stipple);
+        SHADOW_ROOTS.length = 0;
+        for (const listId of SHADOW_CASTER_LISTS) {
+            const list = this.current3DRenderLists.get(listId);
+            if (list !== undefined) {
+                SHADOW_ROOTS.push(list);
+            }
+        }
+        if (SHADOW_ROOTS.length === 0) {
+            return;
+        }
+        this.shadowColor.set(PaletteColor(palette, PaletteCategory.SCENERY_TREE_SHADOW));
+        // Every shading mode but FULL quantises vertices to the raster grid, and
+        // the volumes have to be quantised with them.
+        const snapping = this.materials.getShadingType() !== DisplayShading.FULL;
+        this.shadowPass.render(this.renderer, SHADOW_ROOTS, layer.camera, this.shadowColor,
+            sunStrength, snapping, this.savedCamPos.y);
     }
 
     render2D(renderTarget: CanvasRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette) {
@@ -402,7 +422,10 @@ export class Renderer {
             const target = new THREE.WebGLRenderTarget(width, height, {
                 minFilter: THREE.LinearFilter,
                 magFilter: THREE.NearestFilter,
-                format: THREE.RGBFormat
+                format: THREE.RGBFormat,
+                // The shadow volumes count into this; three leaves the stencil
+                // out by default and it cannot be attached afterwards.
+                stencilBuffer: true
             });
             const compositorObj = new THREE.Mesh(
                 new THREE.PlaneGeometry(width, height),

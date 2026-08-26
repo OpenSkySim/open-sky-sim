@@ -7,7 +7,7 @@ import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/m
 import { updateUniforms } from '../utils';
 import { aircraftPackStore, isPackUrl, parsePackUrl } from '../../state/aircraftPack';
 import { SHADOW_ALPHA_DITHER } from '../entities/aircraftShadow';
-import { SHADOW_CASTER_LAYER } from '../../render/shadowMap';
+import { SHADOW_CASTER_LAYER, SHADOW_RECEIVER_LAYER } from '../../render/shadowVolumes';
 
 
 export interface ModelLodLevel {
@@ -194,6 +194,7 @@ export class ModelManager {
         const worldAABB = new THREE.Box3();
         const isShadowModel = ModelManager.isShadowModelUrl(url);
         const isKuzModel = ModelManager.isKuzModelUrl(url);
+        const isAirframe = ModelManager.isAirframeModelUrl(url);
         model.lod = scenes.map(scene => {
             const level: ModelLodLevel = {
                 flats: [],
@@ -240,10 +241,17 @@ export class ModelManager {
                     obj.geometry.rotateY(0.0001); //! HACK: Fixes issue dithering axis-aligned triangles
                     level.volumes.push(obj);
                     // Solid geometry — an airframe, a hangar, a tower, the
-                    // carrier hull — casts into the sun shadow map. The flat
+                    // carrier hull — sweeps a shadow volume. The flat
                     // planform silhouettes of *_shadow models never do.
                     if ('isMesh' in obj && !isShadowModel) {
                         obj.layers.enable(SHADOW_CASTER_LAYER);
+                        // Anything but an airframe also *takes* shadows: a deck
+                        // or a roof is a solid surface, where an imported
+                        // airframe is a shell whose interior geometry would
+                        // stipple itself. See SHADOW_RECEIVER_LAYER.
+                        if (!isAirframe) {
+                            obj.layers.enable(SHADOW_RECEIVER_LAYER);
+                        }
                     }
                 }
 
@@ -331,6 +339,19 @@ export class ModelManager {
     private static isShadowModelUrl(url: string): boolean {
         const path = isPackUrl(url) ? parsePackUrl(url).path : url;
         return /_shadow\.(gltf|glb)(\?|#|$)/i.test(path);
+    }
+
+    /**
+     * True for a flyable airframe: everything an aircraft pack ships, plus the
+     * built-in `f22` family (body, gear and control surfaces — see
+     * state/aircraftRegistry). These are shells rather than solids, so they
+     * cast shadows but do not take them; everything else does both.
+     */
+    private static isAirframeModelUrl(url: string): boolean {
+        if (isPackUrl(url)) {
+            return true;
+        }
+        return /(^|\/)f22(_[^/]*)?\.(gltf|glb)(\?|#|$)/i.test(url);
     }
 
     /** True for the Kuznetsov carrier hull (`kuz.glb`). */

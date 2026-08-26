@@ -1,4 +1,5 @@
 import { FlightModel } from "../physics/model/flightModel";
+import { DEFAULT_SUN_HOURS } from "../scene/materials/shaders/sun";
 import { AiPilotModels, ShadowQualities, UnitSystems } from "../state/gameDefs";
 import { assertExpr, assertIsDefined } from "../utils/asserts";
 import { TechProfile } from "./profiles/profile";
@@ -8,6 +9,7 @@ export type FlightModelChangeListener = (flightModel: FlightModel, newId: string
 export type UnitSystemChangeListener = (unitSystem: UnitSystems) => void;
 export type AiPilotModelChangeListener = (model: AiPilotModels) => void;
 export type ShadowQualityChangeListener = (quality: ShadowQualities) => void;
+export type DaytimeChangeListener = (hours: number) => void;
 
 export class ConfigService {
 
@@ -16,6 +18,7 @@ export class ConfigService {
     readonly unitSystem: UnitSystemSetting;
     readonly aiPilotModels: AiPilotModelSetting;
     readonly shadowQuality: ShadowQualitySetting;
+    readonly daytime: DaytimeSetting;
 
     constructor(
         profiles: { [id: string]: TechProfile },
@@ -24,16 +27,64 @@ export class ConfigService {
         initialFlightModel?: string,
         initialAiPilotModel?: AiPilotModels,
         initialShadowQuality?: ShadowQualities,
+        initialDaytime?: number,
     ) {
         this.techProfiles = new ConfigSet(profiles, initialTechProfile);
         this.flightModels = new ConfigSet(flightModels, initialFlightModel);
         this.unitSystem = new UnitSystemSetting();
         this.aiPilotModels = new AiPilotModelSetting(initialAiPilotModel);
         this.shadowQuality = new ShadowQualitySetting(initialShadowQuality);
+        this.daytime = new DaytimeSetting(initialDaytime);
     }
 }
 
 export type ConfigSetChangeListener<T> = (item: T, newId: string, oldId: string) => void;
+
+/**
+ * Local solar time of day, in hours (0..24). Drives the sun direction, the
+ * blended sky/terrain palette and the cast shadows; see
+ * {@link setSunTime} and {@link daytimePalette}.
+ */
+export class DaytimeSetting {
+    private active: number;
+    private listeners: Set<DaytimeChangeListener> = new Set();
+
+    constructor(initialActive: number = DEFAULT_SUN_HOURS) {
+        this.active = clampDaytime(initialActive);
+    }
+
+    getActive(): number {
+        return this.active;
+    }
+
+    setActive(hours: number) {
+        const clamped = clampDaytime(hours);
+        if (clamped === this.active) return;
+        this.active = clamped;
+        this.notifyActive();
+    }
+
+    /** Push the current value to listeners (used once after they register). */
+    notifyActive() {
+        for (const listener of this.listeners.values()) {
+            listener(this.active);
+        }
+    }
+
+    addChangeListener(listener: DaytimeChangeListener) {
+        this.listeners.add(listener);
+    }
+
+    removeChangeListener(listener: DaytimeChangeListener) {
+        this.listeners.delete(listener);
+    }
+}
+
+/** 24:00 wraps to 00:00 so the slider's two ends are the same midnight. */
+export function clampDaytime(hours: number): number {
+    if (!Number.isFinite(hours)) return DEFAULT_SUN_HOURS;
+    return ((hours % 24) + 24) % 24;
+}
 
 class ConfigSet<T> {
     private active: string;

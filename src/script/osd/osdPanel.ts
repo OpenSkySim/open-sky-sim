@@ -2,6 +2,7 @@ import { ConfigService } from "../config/configService";
 import { updateSettings } from "../config/settingsStorage";
 import { JoystickControlDevice } from "../input/devices/joystickControlDevice";
 import { KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts } from "../input/devices/keyboardControlDevice";
+import { formatSunTime } from "../scene/materials/shaders/sun";
 import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles, UnitSystems } from "../state/gameDefs";
 import { assertIsDefined } from "../utils/asserts";
 
@@ -9,6 +10,7 @@ import { assertIsDefined } from "../utils/asserts";
 export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDevice, joystickInput: JoystickControlDevice) {
     setupButtons();
     setupGenerationOptions(config);
+    setupDaytime(config);
     setupShadowQuality(config);
     setupFlightModel(config);
     setupUnitSystem(config);
@@ -77,6 +79,34 @@ function setupGenerationOptions(config: ConfigService) {
         config.techProfiles.setActive(TechProfiles.HD);
         updateSettings({ techProfile: TechProfiles.HD });
     });
+}
+
+/**
+ * Time-of-day slider. The setting is the single source of truth: the in-game
+ * `N` day/night key writes to it too, and the change listener below is what
+ * moves the slider and persists the value, whichever end drove the change.
+ */
+function setupDaytime(config: ConfigService) {
+    const slider = document.getElementById('daytime-slider') as HTMLInputElement | null;
+    assertIsDefined(slider);
+    const readout = document.getElementById('daytime-value');
+    assertIsDefined(readout);
+
+    slider.addEventListener('input', () => {
+        config.daytime.setActive(parseFloat(slider.value));
+    });
+
+    config.daytime.addChangeListener(hours => {
+        const value = hours.toString();
+        if (slider.value !== value) {
+            slider.value = value;
+        }
+        readout.textContent = formatSunTime(hours);
+        updateSettings({ daytime: hours });
+    });
+
+    slider.value = config.daytime.getActive().toString();
+    readout.textContent = formatSunTime(config.daytime.getActive());
 }
 
 const SHADOW_QUALITY_RADIO_IDS: Record<ShadowQualities, string> = {

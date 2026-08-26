@@ -18,6 +18,9 @@ export enum PaletteCategory {
 
     SKY = 'SKY',
     SKY_CLOUD = 'SKY_CLOUD',
+    /** The sun disc itself, and the dithered corona stepped around it. */
+    SKY_SUN = 'SKY_SUN',
+    SKY_SUN_GLOW = 'SKY_SUN_GLOW',
 
     TERRAIN_DEFAULT = 'TERRAIN_DEFAULT',
     TERRAIN_SAND = 'TERRAIN_SAND',

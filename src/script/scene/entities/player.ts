@@ -16,7 +16,8 @@ import { Scene, SceneLayers } from "../scene";
 import { AircraftFx } from './aircraftFx';
 import { AircraftForceVectors } from './aircraftForceVectors';
 import { setAircraftShadowPose } from './aircraftShadow';
-import { SHADOW_SETTINGS } from '../../render/shadowMap';
+import { SHADOW_SETTINGS } from '../../render/shadowVolumes';
+import { SUN_STATE } from '../materials/shaders/sun';
 import { WeaponsTarget } from './weaponsTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { Combatant, Faction } from '../../weapons/combatant';
@@ -732,7 +733,9 @@ export class PlayerEntity implements Entity {
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
 
-        if (!SHADOW_SETTINGS.enabled && !this.isCrashed && !this._showcaseMode) {
+        // No planform silhouette once the sun is too low to cast one; the
+        // realtime shadow map fades out on the same ramp.
+        if (!SHADOW_SETTINGS.enabled && !this.isCrashed && !this._showcaseMode && SUN_STATE.shadowStrength > 0) {
             setAircraftShadowPose(
                 this.displayPosition, this.displayQuaternion, this.groundHeightAt,
                 this.shadowPosition, this.shadowQuaternion, this.shadowScale, this._v);

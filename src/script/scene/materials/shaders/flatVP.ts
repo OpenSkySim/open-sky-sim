@@ -1,5 +1,4 @@
 import { LOG_DEPTH_PARS_VERTEX, LOG_DEPTH_VERTEX } from './logDepth';
-import { SHADOW_PARS_VERTEX, SHADOW_VERTEX } from './shadow';
 
 const shader = (highp: boolean): string => `
   precision highp float;
@@ -10,7 +9,6 @@ const shader = (highp: boolean): string => `
 
   varying vec3 vPosition;
 ${LOG_DEPTH_PARS_VERTEX}
-${SHADOW_PARS_VERTEX}
   void main() {
   #ifdef USE_INSTANCING
     vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
@@ -20,7 +18,6 @@ ${SHADOW_PARS_VERTEX}
     vec4 viewPos = modelViewMatrix * vec4(position, 1.0);
   #endif
     vPosition = vec3(worldPos.x, 0.0, worldPos.z);
-${SHADOW_VERTEX}
     vec4 pos = projectionMatrix * viewPos;`+ (highp ? '' : `
     if (shadingType != 3) {
       pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;

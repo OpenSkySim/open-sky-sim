@@ -1,4 +1,5 @@
 import { KeyboardControlLayoutId } from "../input/devices/keyboardControlDevice";
+import { DEFAULT_SUN_HOURS } from "../scene/materials/shaders/sun";
 import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles } from "../state/gameDefs";
 
 const STORAGE_KEY = 'retroflightsim.settings';
@@ -17,6 +18,8 @@ export interface AppSettings {
     aircraftId: string;
     /** Last spawn mode used to start a flight. */
     spawnMode: SpawnMode;
+    /** Local solar time of day in hours (0..24); drives sun, palette and shadows. */
+    daytime: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -27,6 +30,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     shadowQuality: ShadowQualities.LOW,
     aircraftId: 'f22',
     spawnMode: 'headon',
+    daytime: DEFAULT_SUN_HOURS,
 };
 
 const TECH_PROFILES = new Set<string>(Object.values(TechProfiles));
@@ -52,6 +56,7 @@ export function loadSettings(): AppSettings {
             shadowQuality: isValidShadowQuality(parsed.shadowQuality) ? parsed.shadowQuality : DEFAULT_SETTINGS.shadowQuality,
             aircraftId: isValidAircraftId(parsed.aircraftId) ? parsed.aircraftId : DEFAULT_SETTINGS.aircraftId,
             spawnMode: isValidSpawnMode(parsed.spawnMode) ? parsed.spawnMode : DEFAULT_SETTINGS.spawnMode,
+            daytime: isValidDaytime(parsed.daytime) ? parsed.daytime : DEFAULT_SETTINGS.daytime,
         };
     } catch {
         return { ...DEFAULT_SETTINGS };
@@ -98,4 +103,8 @@ function isValidAircraftId(value: unknown): value is string {
 
 function isValidSpawnMode(value: unknown): value is SpawnMode {
     return typeof value === 'string' && SPAWN_MODES.has(value as SpawnMode);
+}
+
+function isValidDaytime(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 24;
 }
