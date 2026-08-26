@@ -1,5 +1,6 @@
 import { DITHER_PARS_FRAGMENT } from './dither';
 import { LOG_DEPTH_FRAGMENT, LOG_DEPTH_PARS_FRAGMENT } from './logDepth';
+import { SHADOW_PARS_FRAGMENT } from './shadow';
 
 export const DepthFragProgram: string = `
   precision lowp float;
@@ -19,6 +20,7 @@ export const DepthFragProgram: string = `
   varying vec3 vPosition;
 ${LOG_DEPTH_PARS_FRAGMENT}
 ${DITHER_PARS_FRAGMENT}
+${SHADOW_PARS_FRAGMENT}
   void main() {
     vec2 screen = gl_FragCoord.xy;
 
@@ -54,6 +56,11 @@ ${DITHER_PARS_FRAGMENT}
     } else {
       diffuse = color;
     }
+
+#ifdef RECEIVE_SHADOW
+    // Stipple in the shadow tone, same as the planform silhouettes.
+    diffuse = mix(diffuse, uShadowColor, sunShadowAmount(1.0, screen));
+#endif
 
     gl_FragColor = mix(vec4(diffuse, 1.0), vec4(fogColor, 1.0), fogFactor * 0.92);
 ${LOG_DEPTH_FRAGMENT}

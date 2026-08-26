@@ -2,13 +2,14 @@ import { ConfigService } from "../config/configService";
 import { updateSettings } from "../config/settingsStorage";
 import { JoystickControlDevice } from "../input/devices/joystickControlDevice";
 import { KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts } from "../input/devices/keyboardControlDevice";
-import { AiPilotModels, FlightModels, TechProfiles, UnitSystems } from "../state/gameDefs";
+import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles, UnitSystems } from "../state/gameDefs";
 import { assertIsDefined } from "../utils/asserts";
 
 
 export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDevice, joystickInput: JoystickControlDevice) {
     setupButtons();
     setupGenerationOptions(config);
+    setupShadowQuality(config);
     setupFlightModel(config);
     setupUnitSystem(config);
     setupAiPilotModel(config);
@@ -76,6 +77,25 @@ function setupGenerationOptions(config: ConfigService) {
         config.techProfiles.setActive(TechProfiles.HD);
         updateSettings({ techProfile: TechProfiles.HD });
     });
+}
+
+const SHADOW_QUALITY_RADIO_IDS: Record<ShadowQualities, string> = {
+    [ShadowQualities.OFF]: 'shadows-off',
+    [ShadowQualities.LOW]: 'shadows-low',
+    [ShadowQualities.MEDIUM]: 'shadows-medium',
+    [ShadowQualities.HIGH]: 'shadows-high',
+    [ShadowQualities.ULTRA]: 'shadows-ultra',
+};
+
+function setupShadowQuality(config: ConfigService) {
+    for (const quality of Object.values(ShadowQualities)) {
+        const input = document.getElementById(SHADOW_QUALITY_RADIO_IDS[quality]);
+        assertIsDefined(input);
+        input.addEventListener('change', () => {
+            config.shadowQuality.setActive(quality);
+            updateSettings({ shadowQuality: quality });
+        });
+    }
 }
 
 function setupFlightModel(config: ConfigService) {
@@ -205,6 +225,7 @@ function syncSettingsUI(config: ConfigService, keyboardInput: KeyboardControlDev
     checkRadio(flightModelRadioIds[config.flightModels.getActiveKey()]);
     checkRadio(keyboardLayoutRadioIds[keyboardInput.getKeyboardLayoutId()]);
     checkRadio(aiPilotModelRadioIds[config.aiPilotModels.getActive()]);
+    checkRadio(SHADOW_QUALITY_RADIO_IDS[config.shadowQuality.getActive()]);
 }
 
 function checkRadio(id: string | undefined) {

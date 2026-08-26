@@ -7,6 +7,7 @@ import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/m
 import { updateUniforms } from '../utils';
 import { aircraftPackStore, isPackUrl, parsePackUrl } from '../../state/aircraftPack';
 import { SHADOW_ALPHA_DITHER } from '../entities/aircraftShadow';
+import { SHADOW_CASTER_LAYER } from '../../render/shadowMap';
 
 
 export interface ModelLodLevel {
@@ -238,6 +239,12 @@ export class ModelManager {
                 } else {
                     obj.geometry.rotateY(0.0001); //! HACK: Fixes issue dithering axis-aligned triangles
                     level.volumes.push(obj);
+                    // Solid geometry — an airframe, a hangar, a tower, the
+                    // carrier hull — casts into the sun shadow map. The flat
+                    // planform silhouettes of *_shadow models never do.
+                    if ('isMesh' in obj && !isShadowModel) {
+                        obj.layers.enable(SHADOW_CASTER_LAYER);
+                    }
                 }
 
                 if ('isMesh' in obj) {

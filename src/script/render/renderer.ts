@@ -9,6 +9,8 @@ import { CanvasPainter } from './screen/canvasPainter';
 import { TextEffect } from './screen/text';
 import { beginRenderListPass, pruneRenderList } from './renderList';
 import { clearRenderOrigin, setRenderOrigin } from './renderOrigin';
+import { SHADOW_MAP_SIZES, SHADOW_SETTINGS, ShadowMapPass } from './shadowMap';
+import { ShadowQualities } from '../state/gameDefs';
 
 export interface RendererOptions {
     textColors?: string[];
@@ -57,6 +59,12 @@ export interface RenderLayer {
      * cost a second time.
      */
     entityFilter?: (entity: Entity) => boolean;
+    /**
+     * Render the realtime sun shadow map for this pass and let its lists
+     * receive it. The map is built in this camera's relative space, so only the
+     * layer that renders it can sample it; every other pass draws unshadowed.
+     */
+    shadows?: boolean;
 }
 
 export class Renderer {
@@ -75,6 +83,7 @@ export class Renderer {
     /** Camera-relative offset root: children drawn at world − camera.position. */
     private readonly relativeRoot = new THREE.Group();
     private readonly savedCamPos = new THREE.Vector3();
+    private readonly shadowPass = new ShadowMapPass();
     private renderListGeneration = 0;
 
     constructor(private materials: SceneMaterialManager, private composeWidth: number, private composeHeight: number, palette: Palette) {
@@ -107,6 +116,26 @@ export class Renderer {
     setPalette(palette: Palette) {
         this.palette = palette;
         this.materials.setPalette(palette);
+    }
+
+    /**
+     * Applies the menu's shadow setting. OFF skips the depth pass, which also
+     * brings the flat planform silhouettes back under the aircraft.
+     */
+    setShadowQuality(quality: ShadowQualities) {
+        SHADOW_SETTINGS.enabled = quality !== ShadowQualities.OFF;
+        if (!SHADOW_SETTINGS.enabled) {
+            // Leave the map at its current size: nothing renders into it, and
+            // switching back avoids a reallocation.
+            return;
+        }
+        const requested = SHADOW_MAP_SIZES[quality];
+        const maxSize = this.renderer.capabilities.maxTextureSize;
+        if (requested > maxSize) {
+            console.warn(`Shadow quality ${quality} wants a ${requested}px map; this GPU caps textures at ${maxSize}px.`);
+        }
+        SHADOW_SETTINGS.mapSize = Math.min(requested, maxSize);
+        this.shadowPass.setMapSize(SHADOW_SETTINGS.mapSize);
     }
 
     setTextEffect(effect: TextEffect) {
@@ -240,6 +269,8 @@ export class Renderer {
     }
 
     render3D(renderTarget: WebGLRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette) {
+        // Off by default: only the pass that renders the map below may sample it.
+        this.materials.setShadowIntensity(0);
         if ((layer.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
             const camera = layer.camera as THREE.PerspectiveCamera;
             const aspect = renderTarget.width / renderTarget.height;
@@ -305,6 +336,7 @@ export class Renderer {
                 assertIsDefined(list);
                 this.relativeRoot.add(list);
             }
+            this.renderShadowMap(layer, this.savedCamPos);
             this.renderer.render(this.mergedListScene, cam);
             this.recordDrawStats(layer);
             while (this.relativeRoot.children.length > 0) {
@@ -333,6 +365,21 @@ export class Renderer {
         const only = this.current3DRenderLists.get(layer.lists[0]);
         assertIsDefined(only);
         this.renderer.render(only, cam);
+    }
+
+    /**
+     * Draws the shadow casters of this pass into the sun depth map and hands it
+     * to the materials. Runs with the lists already parented under the
+     * camera-relative root, so map and main pass share one coordinate space.
+     */
+    private renderShadowMap(layer: RenderLayer, cameraPosition: THREE.Vector3): void {
+        if (!layer.shadows || !SHADOW_SETTINGS.enabled) {
+            return;
+        }
+        this.shadowPass.render(this.renderer, this.mergedListScene, cameraPosition);
+        this.materials.setShadowState(
+            this.shadowPass.near, this.shadowPass.far,
+            SHADOW_SETTINGS.intensity, SHADOW_SETTINGS.stipple);
     }
 
     render2D(renderTarget: CanvasRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette) {

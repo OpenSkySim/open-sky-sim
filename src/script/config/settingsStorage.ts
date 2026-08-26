@@ -1,5 +1,5 @@
 import { KeyboardControlLayoutId } from "../input/devices/keyboardControlDevice";
-import { AiPilotModels, FlightModels, TechProfiles } from "../state/gameDefs";
+import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles } from "../state/gameDefs";
 
 const STORAGE_KEY = 'retroflightsim.settings';
 
@@ -11,6 +11,8 @@ export interface AppSettings {
     flightModel: string;
     keyboardLayout: KeyboardControlLayoutId;
     aiPilotModel: AiPilotModels;
+    /** Realtime sun shadow map resolution (OFF disables shadows). */
+    shadowQuality: ShadowQualities;
     /** Last aircraft (+ livery) id chosen in the spawn menu. */
     aircraftId: string;
     /** Last spawn mode used to start a flight. */
@@ -22,6 +24,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     flightModel: FlightModels.FM2,
     keyboardLayout: KeyboardControlLayoutId.ARROWS,
     aiPilotModel: AiPilotModels.CLASSIC,
+    shadowQuality: ShadowQualities.LOW,
     aircraftId: 'f22',
     spawnMode: 'headon',
 };
@@ -30,6 +33,7 @@ const TECH_PROFILES = new Set<string>(Object.values(TechProfiles));
 const FLIGHT_MODELS = new Set<string>(Object.values(FlightModels));
 const KEYBOARD_LAYOUTS = new Set<number>(Object.values(KeyboardControlLayoutId).filter(v => typeof v === 'number') as number[]);
 const AI_PILOT_MODELS = new Set<string>(Object.values(AiPilotModels));
+const SHADOW_QUALITIES = new Set<string>(Object.values(ShadowQualities));
 const SPAWN_MODES = new Set<SpawnMode>(['approach', 'runway', 'headon', 'carrier', 'carrierTakeoff', 'highAlt', 'space']);
 
 export function loadSettings(): AppSettings {
@@ -45,6 +49,7 @@ export function loadSettings(): AppSettings {
             flightModel: isValidFlightModel(parsed.flightModel) ? parsed.flightModel : DEFAULT_SETTINGS.flightModel,
             keyboardLayout: isValidKeyboardLayout(parsed.keyboardLayout) ? parsed.keyboardLayout : DEFAULT_SETTINGS.keyboardLayout,
             aiPilotModel: isValidAiPilotModel(parsed.aiPilotModel) ? parsed.aiPilotModel : DEFAULT_SETTINGS.aiPilotModel,
+            shadowQuality: isValidShadowQuality(parsed.shadowQuality) ? parsed.shadowQuality : DEFAULT_SETTINGS.shadowQuality,
             aircraftId: isValidAircraftId(parsed.aircraftId) ? parsed.aircraftId : DEFAULT_SETTINGS.aircraftId,
             spawnMode: isValidSpawnMode(parsed.spawnMode) ? parsed.spawnMode : DEFAULT_SETTINGS.spawnMode,
         };
@@ -81,6 +86,10 @@ function isValidKeyboardLayout(value: unknown): value is KeyboardControlLayoutId
 
 function isValidAiPilotModel(value: unknown): value is AiPilotModels {
     return typeof value === 'string' && AI_PILOT_MODELS.has(value);
+}
+
+function isValidShadowQuality(value: unknown): value is ShadowQualities {
+    return typeof value === 'string' && SHADOW_QUALITIES.has(value);
 }
 
 function isValidAircraftId(value: unknown): value is string {

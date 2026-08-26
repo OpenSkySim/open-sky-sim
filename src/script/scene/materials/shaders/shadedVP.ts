@@ -1,10 +1,6 @@
 import { LOG_DEPTH_PARS_VERTEX, LOG_DEPTH_VERTEX } from './logDepth';
-
-/**
- * Directional sun in world/ENU space (+X east, +Y up, +Z north).
- * Fixed 14:00 local solar time at ~29°N (Canaries): ~49° elevation, SW azimuth.
- */
-const SUN_DIR = 'normalize(vec3(-0.47, 0.76, -0.45))';
+import { SHADOW_PARS_VERTEX, SHADOW_VERTEX } from './shadow';
+import { SUN_DIR_GLSL, SUN_SHADE_AMBIENT_GLSL, SUN_SHADE_DIRECT_GLSL } from './sun';
 
 export const ShadedVertProgram: string = `
   precision highp float;
@@ -17,6 +13,7 @@ export const ShadedVertProgram: string = `
   varying float shade;
   varying float vWorldY;
 ${LOG_DEPTH_PARS_VERTEX}
+${SHADOW_PARS_VERTEX}
   void main() {
     vec3 worldNormal;
 
@@ -27,13 +24,13 @@ ${LOG_DEPTH_PARS_VERTEX}
       worldNormal = normalize(normal);
     }
 
-    float ndl = max(dot(worldNormal, ${SUN_DIR}), 0.0);
+    float ndl = max(dot(worldNormal, ${SUN_DIR_GLSL}), 0.0);
     // Ambient floor so land keeps the palette base colour in shadow.
-    shade = 0.55 + 0.45 * ndl;
+    shade = ${SUN_SHADE_AMBIENT_GLSL} + ${SUN_SHADE_DIRECT_GLSL} * ndl;
 
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldY = worldPos.y;
-
+${SHADOW_VERTEX}
     vec4 pos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     if (shadingType != 3) {
       pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;

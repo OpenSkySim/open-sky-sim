@@ -16,6 +16,7 @@ import { Scene, SceneLayers } from "../scene";
 import { AircraftFx } from './aircraftFx';
 import { AircraftForceVectors } from './aircraftForceVectors';
 import { setAircraftShadowPose } from './aircraftShadow';
+import { SHADOW_SETTINGS } from '../../render/shadowMap';
 import { WeaponsTarget } from './weaponsTarget';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { Combatant, Faction } from '../../weapons/combatant';
@@ -731,7 +732,7 @@ export class PlayerEntity implements Entity {
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
 
-        if (!this.isCrashed && !this._showcaseMode) {
+        if (!SHADOW_SETTINGS.enabled && !this.isCrashed && !this._showcaseMode) {
             setAircraftShadowPose(
                 this.displayPosition, this.displayQuaternion, this.groundHeightAt,
                 this.shadowPosition, this.shadowQuaternion, this.shadowScale, this._v);

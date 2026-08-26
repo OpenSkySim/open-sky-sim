@@ -47,6 +47,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         settings.techProfile,
         settings.flightModel,
         settings.aiPilotModel,
+        settings.shadowQuality,
     );
     config.flightModels.getActive().activate();
     const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
@@ -73,6 +74,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
     // Apply persisted settings after Game registers change listeners.
     config.techProfiles.notifyActive();
     config.flightModels.notifyActive();
+    config.shadowQuality.notifyActive();
     await game.setup();
 
     const keyboardInput = new KeyboardControlDevice(

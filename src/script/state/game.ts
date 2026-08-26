@@ -496,6 +496,9 @@ export class Game {
             this.renderer.setPalette(this.getPalette());
             this.renderer.setTextEffect(profile.textEffect);
         });
+        this.configService.shadowQuality.addChangeListener(quality => {
+            this.renderer.setShadowQuality(quality);
+        });
         this.configService.flightModels.addChangeListener(flightModel => {
             this.player.setFlightModel(flightModel);
             flightModel.setAircraft(flightConfigWithArrestorHook(this.currentDef));
@@ -523,7 +526,8 @@ export class Game {
             {
                 target: MAIN_RENDER_TARGET_LO,
                 camera: this.playerCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
+                shadows: true
             }
         ];
         const playerLayersHi: RenderLayer[] = [
@@ -540,7 +544,8 @@ export class Game {
             {
                 target: MAIN_RENDER_TARGET_HI,
                 camera: this.playerCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
+                shadows: true
             }
         ];
         const targetLayersLo: RenderLayer[] = [
@@ -646,7 +651,8 @@ export class Game {
             {
                 target: MAIN_RENDER_TARGET_HD,
                 camera: this.playerCamera.main,
-                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX]
+                lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
+                shadows: true
             }
         ];
         const targetLayersHd: RenderLayer[] = [

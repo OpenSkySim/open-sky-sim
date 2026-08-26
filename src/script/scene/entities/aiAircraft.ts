@@ -14,6 +14,7 @@ import { SceneMaterialManager } from '../materials/materials';
 import { ControlAxis, ControlSurfaceConfig, FlyableAircraftDef } from './aircraftDef';
 import { AircraftFx } from './aircraftFx';
 import { setAircraftShadowPose } from './aircraftShadow';
+import { SHADOW_SETTINGS } from '../../render/shadowMap';
 import { ModelManager } from '../models/models';
 import { Scene, SceneLayers } from '../scene';
 import { WeaponsTarget } from './weaponsTarget';
@@ -457,7 +458,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             this.displayVelocity,
         );
 
-        if (!this.isCrashed()) {
+        if (!SHADOW_SETTINGS.enabled && !this.isCrashed()) {
             setAircraftShadowPose(
                 this.displayPosition, this.displayQuaternion, this.groundHeightAt,
                 this.shadowPosition, this.shadowQuaternion, this.shadowScale, this._v);

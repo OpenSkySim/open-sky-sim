@@ -39,6 +39,18 @@ export enum AiPilotModels {
     AGGRESSIVE = 'AGGRESSIVE',
 }
 
+/**
+ * Resolution of the realtime sun shadow map. OFF skips the depth pass entirely
+ * and brings back the flat planform silhouette under each aircraft.
+ */
+export enum ShadowQualities {
+    OFF = 'OFF',
+    LOW = 'LOW',
+    MEDIUM = 'MEDIUM',
+    HIGH = 'HIGH',
+    ULTRA = 'ULTRA',
+}
+
 export enum HUDFocusMode {
     DISABLED,
     PARTIAL,

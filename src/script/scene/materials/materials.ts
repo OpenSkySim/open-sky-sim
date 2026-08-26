@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { ShaderMaterial } from 'three';
-import { FogColorCategory, FogValueCategory, PALETTE_FX_PREFIX, Palette, PaletteCategory, PaletteColor, PaletteColorShade } from "../../config/palettes/palette";
+import { FogColorCategory, FogValueCategory, PALETTE_FX_PREFIX, PALETTE_VEHICLE_PREFIX, Palette, PaletteCategory, PaletteColor, PaletteColorShade } from "../../config/palettes/palette";
 import { DisplayShading, FogQuality } from '../../config/profiles/profile';
 import { KernelTask } from '../../core/kernel';
+import { ShadowCascadeView } from '../../render/shadowMap';
 import { assertExpr } from '../../utils/asserts';
 import { ConstantFragProgram } from './shaders/constantFP';
 import { DepthFragProgram } from './shaders/depthFP';
@@ -156,6 +157,21 @@ export class SceneMaterialManager implements KernelTask {
     private readonly particleMeshProto: THREE.ShaderMaterial;
     private readonly impostorProto: THREE.ShaderMaterial;
     private readonly colorCache: ColorCache = new ColorCache();
+    /**
+     * Realtime sun shadow state, shared by reference with every material built
+     * here: the shadow pass mutates these once per frame and all receivers see
+     * it, instead of walking the material list.
+     */
+    private readonly shadowUniforms = {
+        uShadowMapNear: { value: null as THREE.Texture | null },
+        uShadowMapFar: { value: null as THREE.Texture | null },
+        uShadowMatrixNear: { value: new THREE.Matrix4() },
+        uShadowMatrixFar: { value: new THREE.Matrix4() },
+        uShadowTone: { value: new THREE.Vector2(0, 0) },
+        uShadowColor: { value: new THREE.Color() },
+        uShadowNear: { value: new THREE.Vector2(0, 0) },
+        uShadowFar: { value: new THREE.Vector2(0, 0) },
+    };
     private palette: Palette;
     private fog: FogQuality;
     private shading: DisplayShading;
@@ -167,6 +183,8 @@ export class SceneMaterialManager implements KernelTask {
         this.palette = palette;
         this.fog = fog;
         this.shading = shading;
+        this.shadowUniforms.uShadowColor.value.copy(
+            this.colorCache.getColor(PaletteColor(palette, PaletteCategory.SCENERY_TREE_SHADOW)));
 
         this.flatProto = new THREE.ShaderMaterial({
             vertexShader: FlatVertProgram,
@@ -234,6 +252,9 @@ export class SceneMaterialManager implements KernelTask {
         material.depthWrite = p.depthWrite;
         material.userData = data;
         material.uniforms = this.buildUniforms(p);
+        if (this.receivesShadow(p)) {
+            material.defines = { RECEIVE_SHADOW: '' };
+        }
         this.materials.push(material);
         if (data.category === PaletteCategory.FX_FIRE) {
             this.fxFire.push(material);
@@ -352,6 +373,7 @@ export class SceneMaterialManager implements KernelTask {
                         : 0,
                 },
                 uRenderOrigin: { value: new THREE.Vector3() },
+                ...this.shadowUniforms,
             },
             ...(properties.type === SceneMaterialPrimitiveType.MESH && properties.shaded) ? {
                 distance: { value: 0 },
@@ -367,6 +389,50 @@ export class SceneMaterialManager implements KernelTask {
                 vCameraD: { value: 0 }
             }
         };
+    }
+
+    /**
+     * Surfaces the sun shadow map is projected onto: solid and flat meshes
+     * (terrain, water, buildings, decals). Lines, points, impostors, particles
+     * and FX are lit by their own palette colour and skip the lookup, and so do
+     * airframes — see {@link isAirframeSkin}.
+     */
+    private receivesShadow(properties: SceneMaterialProperties): boolean {
+        return properties.type === SceneMaterialPrimitiveType.MESH
+            && !this.isPoint(properties)
+            && !this.isFx(properties)
+            && !this.isAirframeSkin(properties);
+    }
+
+    /**
+     * Aircraft skin and canopy glass. An airframe casts into the shadow map but
+     * never samples it: a wing stippling its own fuselage reads as noise on the
+     * model rather than as shading, and the N·L ramp already gives the airframe
+     * its form. Costs an aircraft the shadow of a hangar it is parked under.
+     */
+    private isAirframeSkin(properties: SceneMaterialProperties): boolean {
+        return properties.category.startsWith(PALETTE_VEHICLE_PREFIX)
+            || properties.category === PaletteCategory.GLASS;
+    }
+
+    /**
+     * Publishes the current shadow cascades to every material. `intensity` 0
+     * turns the lookup off for the passes that were not rendered against these
+     * maps (the prisms are built in the main camera's relative space).
+     */
+    setShadowState(near: ShadowCascadeView, far: ShadowCascadeView, intensity: number, stipple: number): void {
+        this.shadowUniforms.uShadowMapNear.value = near.texture;
+        this.shadowUniforms.uShadowMapFar.value = far.texture;
+        this.shadowUniforms.uShadowMatrixNear.value.copy(near.matrix);
+        this.shadowUniforms.uShadowMatrixFar.value.copy(far.matrix);
+        this.shadowUniforms.uShadowTone.value.set(intensity, stipple);
+        this.shadowUniforms.uShadowNear.value.set(near.depthBias, near.texelSize);
+        this.shadowUniforms.uShadowFar.value.set(far.depthBias, far.texelSize);
+    }
+
+    /** Disables the shadow lookup without touching the maps themselves. */
+    setShadowIntensity(intensity: number): void {
+        this.shadowUniforms.uShadowTone.value.setX(intensity);
     }
 
     private isPoint(properties: SceneMaterialProperties): boolean {
@@ -404,6 +470,8 @@ export class SceneMaterialManager implements KernelTask {
 
     setPalette(palette: Palette) {
         this.palette = palette;
+        this.shadowUniforms.uShadowColor.value.copy(
+            this.colorCache.getColor(PaletteColor(palette, PaletteCategory.SCENERY_TREE_SHADOW)));
 
         for (let i = 0; i < this.materials.length; i++) {
             const m = this.materials[i];
