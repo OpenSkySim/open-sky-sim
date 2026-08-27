@@ -89,8 +89,37 @@ const SKY_BRIGHTNESS_RANGE: [number, number] = [0.75, 1.15];
  * washed pink; letting the whole ring darken from there instead leaves the
  * room a saturated orange needs.
  */
-const SUN_BRIGHTNESS_RANGE: [number, number] = [0.45, 1.4];
-const GROUND_BRIGHTNESS_RANGE: [number, number] = [0.4, 1.25];
+/**
+ * The disc, and the corona that is the same light spread around it.
+ *
+ * Floored high: the sun is the light source, and it has to read as one. Allowed
+ * to dim like everything else it came out at 1.5x the sky beside it, which
+ * after the tone curve meant both clipped together and the sun was a pale blob
+ * pasted on the haze. It is dimmer at sunset in absolute terms - that is why
+ * you can look at it - but never dim *relative to the sky it is lighting*.
+ */
+const SUN_BRIGHTNESS_RANGE: [number, number] = [0.85, 1.5];
+
+/**
+ * Cloud decks, which need to fall much further than the sky behind them.
+ *
+ * A cloud is lit by the beam plus the sky, and at sunset the beam has all but
+ * gone - so a deck goes from the brightest thing in the frame at noon to
+ * something the sun picks out in colour rather than in brightness. Held to the
+ * sky's own narrow range they stayed near white, blew straight through the top
+ * of the tone curve, and arrived as daylight cotton wool pasted onto a sunset.
+ */
+const CLOUD_BRIGHTNESS_RANGE: [number, number] = [0.22, 1.15];
+/**
+ * Lit surfaces. The floor is low because backlit land really is that dark:
+ * with the sun on the horizon the cosine on near-flat ground goes to nothing
+ * and all that is left is skylight, about a seventh of what the sky itself
+ * still radiates. Floored at 0.4 the land came out five times too bright
+ * against the sky, and no tone curve can rescue a range that is already
+ * collapsed - measured against a photograph the whole scene spanned 5.6x where
+ * the real thing spans 43x.
+ */
+const GROUND_BRIGHTNESS_RANGE: [number, number] = [0.12, 1.25];
 
 /**
  * The dome's own range, split in two.
@@ -146,13 +175,25 @@ function horizonMean(sample: AtmosphereSample): Rgb {
     ];
 }
 
-/** What lights a cloud deck: the beam that reaches it plus the sky around it. */
+/**
+ * What lights a cloud deck: overwhelmingly the beam, with a little skylight.
+ *
+ * A cloud is optically thick, so what you see off it is very largely the direct
+ * sun it caught, and the beam is the part of the lighting that collapses
+ * hardest as the sun goes down. Counting skylight equally kept the deck almost
+ * as bright at sunset as at noon, which drove it clean through the top of the
+ * tone curve - and a colour that clips has no colour left. They came out as
+ * daylight cotton wool against an orange sky instead of catching any of it.
+ */
+const CLOUD_BEAM_SHARE = 0.85;
+
 function cloudIllumination(sample: AtmosphereSample): Rgb {
-    return [
-        sample.directIrradiance[0] + sample.skyIrradiance[0],
-        sample.directIrradiance[1] + sample.skyIrradiance[1],
-        sample.directIrradiance[2] + sample.skyIrradiance[2],
-    ];
+    const out: Rgb = [0, 0, 0];
+    for (let c = 0; c < 3; c++) {
+        out[c] = sample.directIrradiance[c] * CLOUD_BEAM_SHARE
+            + sample.skyIrradiance[c] * (1 - CLOUD_BEAM_SHARE);
+    }
+    return out;
 }
 
 /**
@@ -168,6 +209,45 @@ function groundIllumination(sample: AtmosphereSample, sunElevationDeg: number): 
         sample.directIrradiance[1] * cosine + sample.skyIrradiance[1],
         sample.directIrradiance[2] * cosine + sample.skyIrradiance[2],
     ];
+}
+
+/**
+ * What a water surface shows: mostly the sky it reflects, with a little of the
+ * light on the bed beneath it. Weighted the opposite way round from haze.
+ */
+const WATER_SKY_SHARE = 0.75;
+
+function waterIllumination(sample: AtmosphereSample, sunElevationDeg: number): Rgb {
+    const horizon = horizonMean(sample);
+    const ground = groundIllumination(sample, sunElevationDeg);
+    const out: Rgb = [0, 0, 0];
+    for (let c = 0; c < 3; c++) {
+        out[c] = ground[c] + (horizon[c] - ground[c]) * WATER_SKY_SHARE;
+    }
+    return out;
+}
+
+/**
+ * What distant terrain fades into: mostly the light on the ground it is drawn
+ * over, with a minority share of the horizon's glow mixed in.
+ *
+ * Weighted this way round, and given the ground's brightness range rather than
+ * the sky's, because both halves of that matter. An even blend against the
+ * sky's range could not darken below three quarters, so far ridges at sunset
+ * came out *brighter* than at noon - a slab of glowing orange lying across the
+ * middle of the frame. Aerial perspective washes distant land towards the light
+ * between you and it; it does not make land outshine the ground it sits on.
+ */
+const HAZE_HORIZON_SHARE = 0.08;
+
+function hazeIllumination(sample: AtmosphereSample, sunElevationDeg: number): Rgb {
+    const horizon = horizonMean(sample);
+    const ground = groundIllumination(sample, sunElevationDeg);
+    const out: Rgb = [0, 0, 0];
+    for (let c = 0; c < 3; c++) {
+        out[c] = ground[c] + (horizon[c] - ground[c]) * HAZE_HORIZON_SHARE;
+    }
+    return out;
 }
 
 /**
@@ -207,16 +287,43 @@ export interface SkySample {
     horizon: Rgb;
     /** Kept for whatever can eventually vary the horizon by heading. */
     horizonSunward: Rgb;
+    /**
+     * Aerial perspective over land: the haze distant terrain fades into.
+     *
+     * Not the same thing as the horizon sky, though it used to share a slot
+     * with it. The sky at the horizon is the whole atmospheric path out to
+     * space; the haze in front of a hillside is the air between you and the
+     * hillside, with dark ground behind it rather than more sky. Given the
+     * horizon's colour outright it turned every distant ridge at sunset into a
+     * slab of glowing orange brighter than the land had any business being.
+     */
+    haze: Rgb;
     /** Cloud decks. */
     cloud: Rgb;
     /**
-     * The solar disc and the corona around it: pure Beer-Lambert reddening of
-     * the beam. One gain serves both - Mie scattering is wavelength-independent,
-     * so the aureole carries the beam's own colour rather than a hue of its own.
+     * The solar disc and the corona around it.
+     *
+     * Taken from the *sky beside the sun* rather than from the beam that
+     * reaches the viewer. Those are different colours - the beam is what
+     * survives the path, the aureole is what the path scattered out - and using
+     * the beam put an orange sun in a pink sky with a seam where they met. The
+     * disc is driven past white by its material anyway (see the overbright in
+     * sunModelBuilder), so what this actually decides is the colour of the
+     * bloom, which has to be the sky's or it is a sticker.
      */
     sunDisc: Rgb;
     /** Lit surfaces. */
     ground: Rgb;
+    /**
+     * Water, which is a mirror rather than a diffuse surface.
+     *
+     * Fresnel reflectance goes to 1 at grazing incidence, so a sea seen from
+     * anywhere near its own plane shows the sky rather than itself - which is
+     * why a sunset sea is one of the brightest things in the frame while the
+     * land beside it is a silhouette. Lit like ground it came out *darker* than
+     * the land, which is backwards.
+     */
+    water: Rgb;
     /** Colour of the direct beam, normalised to luminance 1 (hue only). */
     directTint: Rgb;
     /** Colour of the sky's fill light, normalised to luminance 1 (hue only). */
@@ -285,9 +392,15 @@ function build(elevationDeg: number): SkySample {
         zenith: settle(gain(now.zenith, ref.zenith, common, SKY_BRIGHTNESS_RANGE)),
         horizon: settle(gain(horizonMean(now), horizonMean(ref), common, SKY_BRIGHTNESS_RANGE)),
         horizonSunward: settle(gain(now.horizonSunward, ref.horizonSunward, common, SKY_BRIGHTNESS_RANGE)),
-        cloud: settle(gain(cloudIllumination(now), cloudIllumination(ref), common, SKY_BRIGHTNESS_RANGE)),
-        sunDisc: settle(gain(now.sunDisc, ref.sunDisc, common, SUN_BRIGHTNESS_RANGE)),
+        haze: settle(gain(
+            hazeIllumination(now, elevationDeg), hazeIllumination(ref, REFERENCE_SUN_ELEVATION_DEG),
+            common, GROUND_BRIGHTNESS_RANGE)),
+        cloud: settle(gain(cloudIllumination(now), cloudIllumination(ref), common, CLOUD_BRIGHTNESS_RANGE)),
+        sunDisc: settle(gain(now.sunward, ref.sunward, common, SUN_BRIGHTNESS_RANGE)),
         ground: settle(gain(groundNow, groundRef, common, GROUND_BRIGHTNESS_RANGE)),
+        water: settle(gain(
+            waterIllumination(now, elevationDeg), waterIllumination(ref, REFERENCE_SUN_ELEVATION_DEG),
+            common, SKY_BRIGHTNESS_RANGE)),
         // Relative to the reference sun, not absolute. Skylight is intensely
         // blue at every hour, so an absolute tint would wash the whole world
         // blue at noon - when the authored palette already *is* what noon
@@ -497,5 +610,3 @@ export function domeShade(
         brightness: Math.min(DOME_GAIN_RANGE[1], Math.max(DOME_GAIN_RANGE[0], ratio)),
     };
 }
-
-

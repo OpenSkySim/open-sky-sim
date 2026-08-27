@@ -166,6 +166,15 @@ export class CombatSimClient {
         this.post({ type: 'setTarget', id, targetId });
     }
 
+    setFormationLead(id: string, leadId: string | null): void {
+        this.post({ type: 'setFormationLead', id, leadId });
+    }
+
+    /** Engage every live aircraft of `faction`, re-picking as the fight develops. */
+    setTargetFaction(id: string, faction: Faction | null): void {
+        this.post({ type: 'setTargetFaction', id, faction });
+    }
+
     setPhase(id: string, phase: number): void {
         this.post({ type: 'setPhase', id, phase });
     }

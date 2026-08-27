@@ -30,13 +30,18 @@ export enum UnitSystems {
  * Selectable in-worker AI pilot models. CLASSIC is the existing BFM AiPilot;
  * SHAW is the Robert L. Shaw Fighter Combat tactical FSM + FCC; AGGRESSIVE is
  * a "Berserker" doctrine that never disengages/breaks defensively, always
- * pressing the attack.
+ * pressing the attack; ACE is an elite dogfighter that fights in the vertical,
+ * manages energy deliberately and flies post-stall maneuvers (Cobra, Kulbit).
  * Applied on the next opponent spawn/enable (not mid-dogfight).
+ *
+ * Note this is the AI *model* — orthogonal to `AiSkillLevel.ACE`, which is the
+ * difficulty tier the classic pilot's reaction/discipline tuning reads.
  */
 export enum AiPilotModels {
     CLASSIC = 'CLASSIC',
     SHAW = 'SHAW',
     AGGRESSIVE = 'AGGRESSIVE',
+    ACE = 'ACE',
 }
 
 /**

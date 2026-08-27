@@ -22,9 +22,11 @@ function plainSky(nightMix: number): SkySample {
         zenith: NEUTRAL,
         horizon: NEUTRAL,
         horizonSunward: NEUTRAL,
+        haze: NEUTRAL,
         cloud: NEUTRAL,
         sunDisc: NEUTRAL,
         ground: NEUTRAL,
+        water: NEUTRAL,
         directTint: NEUTRAL,
         ambientTint: NEUTRAL,
     };
@@ -123,15 +125,42 @@ describe('daytimePalette', () => {
         assert.ok(redShift(zenith, horizon) > 40, `zenith ${zenith} horizon ${horizon}`);
     });
 
-    it('makes the disc the reddest thing in the frame at sunset', () => {
-        // It looks through more air than anything else on screen.
+    it('keeps the haze over land well below the sky it fades into', () => {
+        // The reported bug: FOG_TERRAIN shared a slot with the sky's horizon,
+        // so at sunset every distant ridge became a slab of glowing orange
+        // brighter than the land had any business being. Aerial perspective
+        // washes distant land towards the light between you and it; it does not
+        // make land outshine the ground it sits on.
+        setSunTime(18);
+        const palette = daytimePalette(HDNoonPalette, HDMidnightPalette);
+        const haze = luma(PaletteColor(palette, PaletteCategory.FOG_TERRAIN));
+        const sky = luma(PaletteColor(palette, PaletteCategory.FOG_SKY));
+        assert.ok(haze < sky * 0.75, `haze ${haze} vs sky ${sky}`);
+    });
+
+    it('still fades distant land into the plain sky at noon', () => {
+        // ...while leaving ordinary aerial perspective exactly as authored.
+        setSunTime(12);
+        const palette = daytimePalette(HDNoonPalette, HDMidnightPalette);
+        assert.strictEqual(
+            PaletteColor(palette, PaletteCategory.FOG_TERRAIN),
+            PaletteColor(HDNoonPalette, PaletteCategory.FOG_TERRAIN).toLowerCase());
+    });
+
+    it('keeps the sun in step with the sky it is lighting', () => {
+        // SKY_SUN used to be the beam's own colour - what survives the path -
+        // which at sunset is far redder than the sky around it. That put an
+        // orange sun in a pink sky with a visible seam. It is the aureole's
+        // colour now, so it has to sit near the sky rather than run past it;
+        // the disc gets its brightness from its material, not from here.
         setSunTime(18);
         const palette = daytimePalette(HDNoonPalette, HDMidnightPalette);
         const sun = PaletteColor(palette, PaletteCategory.SKY_SUN);
-        for (const category of [PaletteCategory.FOG_SKY, PaletteCategory.SKY, PaletteCategory.SKY_CLOUD]) {
-            assert.ok(redShift(PaletteColor(palette, category), sun) > 0,
-                `sun ${sun} vs ${category} ${PaletteColor(palette, category)}`);
-        }
+        const sky = PaletteColor(palette, PaletteCategory.FOG_SKY);
+        assert.ok(Math.abs(redShift(sky, sun)) < 90, `sun ${sun} has left the sky ${sky}`);
+        // Still warmer than it was at noon, and warmer than the sky overhead.
+        assert.ok(redShift(PaletteColor(palette, PaletteCategory.SKY), sun) > 0,
+            `sun ${sun} vs zenith ${PaletteColor(palette, PaletteCategory.SKY)}`);
     });
 
     it('is warmer at sunset than an hour before it', () => {
@@ -147,10 +176,15 @@ describe('daytimePalette', () => {
     });
 
     it('keeps darkening through nautical twilight, well past sunset', () => {
+        // Only ever downwards. It levels off rather than stopping dead - once
+        // the night mix has arrived the authored midnight palette is the
+        // answer and there is nothing left to fade - so this allows a plateau
+        // at the bottom but never a rise.
         const dusk = [18, 18.5, 19, 19.5].map(h => luma(horizonAt(h)));
         for (let i = 1; i < dusk.length; i++) {
-            assert.ok(dusk[i] < dusk[i - 1], `${dusk[i]} should be darker than ${dusk[i - 1]}`);
+            assert.ok(dusk[i] <= dusk[i - 1] + 1e-9, `${dusk[i]} is brighter than ${dusk[i - 1]}`);
         }
+        assert.ok(dusk[dusk.length - 1] < dusk[0], 'dusk did not darken at all');
         assert.ok(dusk[1] > luma(horizonAt(0)) * 3, 'civil twilight should still be lit');
     });
 

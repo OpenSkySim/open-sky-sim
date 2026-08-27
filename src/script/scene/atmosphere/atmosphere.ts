@@ -70,13 +70,31 @@ export interface AtmosphereParams {
     groundAlbedo: Rgb;
 }
 
+/**
+ * Aerosol load, as a multiple of the clean-air Mie coefficients.
+ *
+ * The textbook figures describe an exceptionally clear day, and a clear day is
+ * not what a memorable sunset looks like. Haze scatters every wavelength alike,
+ * so what it spreads around a low sun is the beam's own deep orange - which is
+ * what turns the aureole gold, widens it, and roughly doubles its brightness.
+ * Left at 1 the sky beside the sun came out pink, because with so little
+ * aerosol the Rayleigh blue still outweighs what little green survives the
+ * path, and the sun sat on it as an obvious sticker.
+ *
+ * Around 5 is a hazy maritime atmosphere, which is what this sim flies over.
+ * It costs nothing at midday: every gain in skyModel.ts is a ratio against a
+ * reference sampled from this same atmosphere, so noon reproduces the authored
+ * palette whatever this is set to. What it changes is the journey.
+ */
+const TURBIDITY = 5;
+
 export const EARTH_ATMOSPHERE: AtmosphereParams = {
     groundRadius: 6_360_000,
     topRadius: 6_420_000,
     rayleighScattering: [5.802e-6, 13.558e-6, 33.1e-6],
     rayleighScaleHeight: 8_000,
-    mieScattering: 3.996e-6,
-    mieExtinction: 4.40e-6,
+    mieScattering: 3.996e-6 * TURBIDITY,
+    mieExtinction: 4.40e-6 * TURBIDITY,
     mieScaleHeight: 1_200,
     mieG: 0.8,
     ozoneAbsorption: [0.650e-6, 1.881e-6, 0.085e-6],
@@ -432,11 +450,25 @@ export interface AtmosphereSample {
     horizonOpposite: Rgb;
     /** What is left of the solar beam by the time it reaches the viewer. */
     sunDisc: Rgb;
+    /**
+     * The sky a few degrees off the sun - the aureole the disc sits in.
+     *
+     * Scattered light, not the beam, and the two are not the same colour: the
+     * beam is what survives a long path (deep red, almost no blue left), while
+     * the sky beside it is what that path scattered *out* (red, but with the
+     * blue put back by Rayleigh and the green eaten by ozone). Colouring the
+     * disc by the beam put an orange sun on a pink sky with a visible seam
+     * where the two met.
+     */
+    sunward: Rgb;
     /** Irradiance on a surface square to the sun: the direct light's colour. */
     directIrradiance: Rgb;
     /** Irradiance the sky alone puts on a flat surface: the fill in shadow. */
     skyIrradiance: Rgb;
 }
+
+/** How far off the sun the aureole is sampled, in degrees. */
+const SUNWARD_SAMPLE_ANGLE_DEG = 5;
 
 /** Elevation, in degrees, of the ring sampled as "the horizon". */
 const HORIZON_SAMPLE_ELEVATION_DEG = 0.5;
@@ -468,6 +500,8 @@ export function sampleAtmosphere(
     const sky = (dir: Vec3) => skyRadiance(params, altitude, dir, sunDir, msTable);
 
     const sunDisc = sunTransmittance(params, origin, sunDir);
+    // Just above the sun, so it stays sky even with the disc on the horizon.
+    const sunwardAngle = (sunElevationDeg + SUNWARD_SAMPLE_ANGLE_DEG) * DEG2RAD;
 
     const skyIrradiance: Rgb = [0, 0, 0];
     const hemisphere = hemisphereDirections(IRRADIANCE_DIRECTIONS);
@@ -489,6 +523,7 @@ export function sampleAtmosphere(
         horizonSunward: sky(inSunPlane(HORIZON_SAMPLE_ELEVATION_DEG, true)),
         horizonOpposite: sky(inSunPlane(HORIZON_SAMPLE_ELEVATION_DEG, false)),
         sunDisc,
+        sunward: sky([Math.cos(sunwardAngle), Math.sin(sunwardAngle), 0]),
         // Irradiance on a surface square to the beam is just what survives the
         // path; the N.L cosine is the shaded ramp's job, not the atmosphere's.
         directIrradiance: sunDisc,

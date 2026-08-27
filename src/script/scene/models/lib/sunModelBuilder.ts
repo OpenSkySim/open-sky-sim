@@ -3,6 +3,10 @@ import { PaletteCategory } from '../../../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from "../../materials/materials";
 import { updateUniforms } from '../../utils';
 import { Model, ModelLibBuilder } from "../models";
+import {
+    createSkyMaterial, makeSkyPainter, paintDirections, SkyPainter,
+} from './skyDomeModelBuilder';
+import { Palette } from '../../../config/palettes/palette';
 
 /**
  * Distance the disc is parked at, in the background-sky camera's space. That
@@ -27,24 +31,43 @@ export const SUN_DISTANCE = 500;
 const DISC_DIAMETER_DEG = 2.2;
 
 /**
- * The corona, outermost step first: apparent diameter in degrees, and the
- * ordered-dither opacity of that step (higher = denser).
+ * How far the glare reaches, as an apparent diameter in degrees.
  *
- * There is no alpha blending in this pipeline, so the falloff around the disc
- * is built the way the era built it: concentric rings at decreasing stipple
- * densities. Three steps rather than two because the reach has roughly doubled,
- * and two steps spread over fourteen degrees read as a pair of hard concentric
- * bands rather than as a glow.
- *
- * Fourteen degrees is far wider than the disc, which is the point of an
- * aureole: what you actually see around a low sun is glare scattered by the air
- * between you and it, spreading many times the sun's own width.
+ * Far wider than the disc, which is the point of an aureole: what you actually
+ * see around a low sun is light scattered by the air between you and it,
+ * spreading many times the sun's own width.
  */
-const CORONA_RINGS: readonly { diameterDeg: number; dither: number; }[] = [
-    { diameterDeg: 14.0, dither: 0.22 },
-    { diameterDeg: 9.0, dither: 0.40 },
-    { diameterDeg: 5.4, dither: 0.62 },
-];
+const GLARE_DIAMETER_DEG = 16.0;
+
+/**
+ * How hard the sky is driven at the glare's brightest, right at the sun's limb.
+ * The ramp falls from here to 1 - plain sky - at the outer edge.
+ */
+const GLARE_OVERBRIGHT = 2.6;
+
+/**
+ * Radial steps across the glare, which is what the falloff is sampled at.
+ *
+ * It was three fixed rings at fixed stipple densities before, in the era's own
+ * idiom, and it read as three hard concentric bands rather than as a glow -
+ * exactly the contouring the sky's own dither exists to break up. One annulus
+ * carrying a ramp costs a third of the draw calls and has no steps in it at
+ * all; with this many subdivisions the interpolation is finer than the 4x4
+ * stipple can resolve anyway.
+ */
+const GLARE_RADIAL_STEPS = 12;
+
+/**
+ * How far past white the disc itself is driven before the tone curve sees it.
+ *
+ * Enough that every channel clips, which is what makes it read as a light
+ * rather than as a coloured shape. Left at the palette's own value it was a
+ * saturated yellow against a nearly white sky and looked *dimmer* than the sky
+ * it was lighting - a saturated colour always does. The steps above carry the
+ * same figure outwards so the bloom fades from white at the core to the sun's
+ * own colour at its edge, which is one light source, not two.
+ */
+const DISC_OVERBRIGHT = 6.0;
 
 /**
  * Segment counts. Low enough that the silhouette is visibly faceted at the
@@ -52,16 +75,22 @@ const CORONA_RINGS: readonly { diameterDeg: number; dither: number; }[] = [
  * sprite dropped into a flat-shaded scene.
  */
 const DISC_SEGMENTS = 12;
-const GLOW_SEGMENTS = 12;
+const GLARE_SEGMENTS = 12;
 
 /**
- * Draw order within the background-sky pass. The sky dome leaves this at its
- * default 0; nothing in the pass writes depth, so paint order alone decides
- * what covers what, and each corona step has to land on top of the one outside
- * it before the disc lands on top of them all.
+ * How far inside the disc's radius the glare's hole starts. Just enough that
+ * the two overlap by a fraction of a pixel instead of leaving a hairline of
+ * background between them.
  */
-const CORONA_BASE_RENDER_ORDER = 1;
-const DISC_RENDER_ORDER = CORONA_BASE_RENDER_ORDER + CORONA_RINGS.length;
+const GLARE_INNER_OVERLAP = 0.98;
+
+/**
+ * Draw order, which matters only against the sky dome: nothing in either pass
+ * writes depth, and the dome leaves this at its default 0. The disc and the
+ * glare no longer contend, being one mesh each in two different passes.
+ */
+const DISC_RENDER_ORDER = 1;
+const GLARE_RENDER_ORDER = 1;
 
 /**
  * Elevation below which the disc is hidden: half its own apparent diameter
@@ -72,6 +101,11 @@ export const SUN_SET_ELEVATION_DEG = -DISC_DIAMETER_DEG / 2;
 /** Half-angle in degrees to a radius at {@link SUN_DISTANCE}. */
 function radiusForDiameter(diameterDeg: number): number {
     return SUN_DISTANCE * Math.tan(diameterDeg / 2 * THREE.MathUtils.DEG2RAD);
+}
+
+/** The inverse: the apparent diameter a radius at {@link SUN_DISTANCE} spans. */
+function diameterForRadius(radius: number): number {
+    return 2 * Math.atan(radius / SUN_DISTANCE) * THREE.MathUtils.RAD2DEG;
 }
 
 /** The model is built in the XY plane, so its face normal is +Z. */
@@ -91,9 +125,14 @@ export function placeSun(sunDir: THREE.Vector3, position: THREE.Vector3, quatern
 }
 
 /**
- * The sun: a faceted disc with a two-step dithered corona, drawn into the
- * background-sky layer so the terrain pass paints over it and the disc really
- * does set behind the horizon.
+ * The sun: a faceted disc inside a stippled glare that fades linearly out.
+ *
+ * The two halves are drawn in different passes, and the model keeps them in
+ * separate LOD collections so that whoever builds the entity can say so. The
+ * disc goes into the background-sky layer, which the terrain pass paints over,
+ * so it really does set behind the horizon. The corona goes into the foreground
+ * one, which runs after the scene: glare is scattered out of the air between
+ * the viewer and the sun, so it lies over the terrain rather than behind it.
  *
  * The model is built facing +Z; whoever places it owns pointing that normal
  * back down the sun direction (see Game.updateSunEntity).
@@ -103,44 +142,138 @@ export class SunModelLibBuilder implements ModelLibBuilder {
     constructor(public type: string) { }
 
     build(materials: SceneMaterialManager): Model {
-        // The disc's own colour, not a separate one. The aureole is the beam
-        // forward-scattered by the air in front of it, and Mie scattering is
-        // wavelength-independent, so what it spreads around the sun is the
-        // sun's own spectrum. A corona in its own hue read as a separate object
-        // ringing the disc rather than as light coming off it.
-        const flats = CORONA_RINGS.map((ring, i) => this.buildRing(
-            materials, ring.diameterDeg, GLOW_SEGMENTS, PaletteCategory.SKY_SUN,
-            ring.dither, CORONA_BASE_RENDER_ORDER + i, `sunGlow${i}`));
-        flats.push(this.buildRing(
-            materials, DISC_DIAMETER_DEG, DISC_SEGMENTS, PaletteCategory.SKY_SUN,
-            0, DISC_RENDER_ORDER, 'sunDisc'));
+        // The glare is sky, so it is drawn as sky: vertex-coloured from the
+        // same painter the dome uses. Painted rather than palette-driven
+        // because the two have to agree exactly - a glare whose colour is
+        // derived any other way shows a seam against the sky it sits in.
+        const glare = buildGlare();
 
-        return {
-            lod: [{ flats, volumes: [] }],
+        // The disc itself keeps the palette entry: driven far past white by its
+        // overbright, every channel clips, and what is left is a hole in the
+        // sky rather than a colour at all.
+        const model: Model = {
+            lod: [{ flats: [this.buildDisc(materials)], volumes: [glare] }],
             animations: [],
-            maxSize: 2 * radiusForDiameter(CORONA_RINGS[0].diameterDeg),
+            maxSize: 2 * radiusForDiameter(GLARE_DIAMETER_DEG),
             center: new THREE.Vector3(),
         };
+        return model;
     }
 
-    private buildRing(
-        materials: SceneMaterialManager, diameterDeg: number, segments: number,
-        category: PaletteCategory, alphaDither: number, renderOrder: number, name: string,
-    ): THREE.Mesh {
-        const geometry = new THREE.CircleGeometry(radiusForDiameter(diameterDeg), segments);
+    private buildDisc(materials: SceneMaterialManager): THREE.Mesh {
+        const geometry = new THREE.CircleGeometry(radiusForDiameter(DISC_DIAMETER_DEG), DISC_SEGMENTS);
         const mesh = new THREE.Mesh(geometry, materials.build({
             type: SceneMaterialPrimitiveType.MESH,
-            category,
+            category: PaletteCategory.SKY_SUN,
             depthWrite: false,
             shaded: false,
-            alphaDither,
-            // One flat tone per step. The corona's gradation comes from the
-            // stipple density, not from a second palette tone.
+            alphaDither: 0,
+            overbright: DISC_OVERBRIGHT,
             colorDither: false,
         }));
-        mesh.name = name;
-        mesh.renderOrder = renderOrder;
+        mesh.name = 'sunDisc';
+        mesh.renderOrder = DISC_RENDER_ORDER;
         mesh.onBeforeRender = updateUniforms;
         return mesh;
     }
+}
+
+/**
+ * Scratch view directions for the glare, one per vertex, rebuilt every repaint.
+ *
+ * Module-level rather than stored on the mesh because there is one sun, and
+ * because userData is the wrong place for a typed array: Object3D.clone()
+ * round-trips it through JSON, and ModelManager clones every mesh it hands out,
+ * so what came back was a plain object that merely happened to still index.
+ */
+let glareDirections = new Float32Array(0);
+
+/**
+ * The glare: one vertex-coloured annulus facing +Z, like the dome's shell.
+ *
+ * The hole is the disc, which is drawn in an earlier pass; leaving it open is
+ * what lets the disc show through unstippled. Its inner rim is pulled very
+ * slightly inside the disc's own radius so the two overlap rather than meeting
+ * at a seam, and both are built on the same segment count so their vertices
+ * line up around the rim.
+ *
+ * The falloff is linear in *angle* rather than in the mesh's own radius. Across
+ * eight degrees the two are within a percent of each other, but the angle is
+ * what an observer actually sees, and it is the one that stays right if the
+ * reach is ever widened.
+ */
+function buildGlare(): THREE.Mesh {
+    const innerRadius = radiusForDiameter(DISC_DIAMETER_DEG) * GLARE_INNER_OVERLAP;
+    const geometry = new THREE.RingGeometry(innerRadius, radiusForDiameter(GLARE_DIAMETER_DEG),
+        GLARE_SEGMENTS, GLARE_RADIAL_STEPS);
+
+    const position = geometry.getAttribute('position');
+    const innerDeg = diameterForRadius(innerRadius);
+    const span = GLARE_DIAMETER_DEG - innerDeg;
+    const falloff = new Float32Array(position.count);
+    for (let v = 0; v < position.count; v++) {
+        const deg = diameterForRadius(Math.hypot(position.getX(v), position.getY(v)));
+        falloff[v] = THREE.MathUtils.clamp((GLARE_DIAMETER_DEG - deg) / span, 0, 1);
+    }
+    geometry.setAttribute('skyFalloff', new THREE.BufferAttribute(falloff, 1));
+    geometry.setAttribute(
+        'skyColor', new THREE.BufferAttribute(new Float32Array(position.count * 3), 3));
+
+    const material = createSkyMaterial(GLARE_OVERBRIGHT, THREE.DoubleSide);
+    // Glare is scattered out of the air in front of whatever is out there, so
+    // it is laid over the finished frame rather than tested against it. Its
+    // pass runs last, after the terrain has drawn.
+    material.depthTest = false;
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'sunGlare';
+    mesh.renderOrder = GLARE_RENDER_ORDER;
+    mesh.frustumCulled = false;
+    return mesh;
+}
+
+/**
+ * Repaints the glare for the sun at `sunDir`, from the sky's own painter.
+ *
+ * The annulus is flat and faces the camera, so its vertices are not sky
+ * directions in themselves - they are offsets around the sun. They are turned
+ * into directions here, which is what lets every one of them ask the sky what
+ * colour it is at that exact bearing and elevation.
+ */
+export function paintSunBloom(
+    model: Model, noon: Palette, midnight: Palette, nightMix: number, sunDir: THREE.Vector3,
+): void {
+    const mesh = model.lod[0]?.volumes[0] as THREE.Mesh | undefined;
+    if (!mesh) {
+        return;
+    }
+    const position = mesh.geometry.getAttribute('position');
+    if (glareDirections.length !== position.count * 3) {
+        glareDirections = new Float32Array(position.count * 3);
+    }
+    const directions = glareDirections;
+    const paint = makeSkyPainter(noon, midnight, nightMix, sunDir);
+
+    // The rings are built in the XY plane and turned to face the camera, so a
+    // vertex at (x, y) sits that far across and up from the sun's own bearing.
+    const right = new THREE.Vector3();
+    const up = new THREE.Vector3();
+    right.set(sunDir.z, 0, -sunDir.x);
+    if (right.lengthSq() < 1e-9) {
+        right.set(1, 0, 0);
+    }
+    right.normalize();
+    up.crossVectors(sunDir, right).normalize();
+
+    const world = new THREE.Vector3();
+    for (let v = 0; v < position.count; v++) {
+        world.copy(sunDir)
+            .addScaledVector(right, position.getX(v) / SUN_DISTANCE)
+            .addScaledVector(up, position.getY(v) / SUN_DISTANCE)
+            .normalize();
+        directions[v * 3] = world.x;
+        directions[v * 3 + 1] = world.y;
+        directions[v * 3 + 2] = world.z;
+    }
+    paintDirections(mesh, directions, paint);
 }

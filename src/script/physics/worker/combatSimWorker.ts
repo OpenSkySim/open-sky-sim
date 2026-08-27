@@ -73,6 +73,12 @@ function handleMessage(data: SimToWorkerMessage): void {
         case 'setTarget':
             sim.setTarget(data.id, data.targetId);
             break;
+        case 'setFormationLead':
+            sim.setFormationLead(data.id, data.leadId);
+            break;
+        case 'setTargetFaction':
+            sim.setTargetFaction(data.id, data.faction);
+            break;
         case 'setPhase':
             sim.setPhase(data.id, data.phase);
             break;

@@ -123,6 +123,14 @@ export const SUN_UNIFORMS = {
     uSunShade: { value: new THREE.Vector2(SUN_SHADE_AMBIENT, 1 - SUN_SHADE_AMBIENT) },
     uSunAmbient: { value: new THREE.Vector3(SUN_SHADE_AMBIENT, SUN_SHADE_AMBIENT, SUN_SHADE_AMBIENT) },
     uSunDirect: { value: new THREE.Vector3(1 - SUN_SHADE_AMBIENT, 1 - SUN_SHADE_AMBIENT, 1 - SUN_SHADE_AMBIENT) },
+    /**
+     * The beam's colour with its weight divided out, luminance 1.
+     *
+     * The rim light needs the sun's hue but not its strength: the direct weight
+     * has all but gone by the time the sun is on the horizon, which is exactly
+     * when a backlit subject most needs an edge to separate it from the sky.
+     */
+    uSunTint: { value: new THREE.Vector3(1, 1, 1) },
 };
 
 /**
@@ -196,6 +204,7 @@ export function setSunTime(hours: number): SunState {
     SUN_UNIFORMS.uSunDirect.value
         .set(sky.directTint[0], sky.directTint[1], sky.directTint[2])
         .multiplyScalar(direct);
+    SUN_UNIFORMS.uSunTint.value.set(sky.directTint[0], sky.directTint[1], sky.directTint[2]);
 
     return SUN_STATE;
 }

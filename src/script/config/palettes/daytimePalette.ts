@@ -35,14 +35,18 @@ import { Palette, PaletteCategory, PaletteColor, PaletteColors, PaletteTime, Pal
  * sun was well down.
  */
 enum SkySlot {
-    /** The band the sun sets into: the clear colour and the fog colours. */
+    /** The band the sun sets into: the clear colour and the sky's own fog. */
     HORIZON = 'HORIZON',
+    /** Aerial perspective over land, which is darker than that band. */
+    HAZE = 'HAZE',
     /** Overhead, plus the canopy glass authored to match it. */
     ZENITH = 'ZENITH',
     /** Cloud decks, lit by the beam that reaches them plus the sky around. */
     CLOUD = 'CLOUD',
     /** The solar disc and its corona: Beer-Lambert reddening of the beam. */
     SUN = 'SUN',
+    /** Open water, which mirrors the sky instead of diffusing the sun. */
+    WATER = 'WATER',
     /** Everything the sun lands on. */
     GROUND = 'GROUND',
 }
@@ -50,20 +54,24 @@ enum SkySlot {
 const SLOT_BY_CATEGORY: ReadonlyMap<PaletteCategory, SkySlot> = new Map([
     [PaletteCategory.BACKGROUND, SkySlot.HORIZON],
     [PaletteCategory.FOG_SKY, SkySlot.HORIZON],
-    [PaletteCategory.FOG_TERRAIN, SkySlot.HORIZON],
+    [PaletteCategory.FOG_TERRAIN, SkySlot.HAZE],
     [PaletteCategory.FOG_LIGHT, SkySlot.HORIZON],
     [PaletteCategory.SKY, SkySlot.ZENITH],
     [PaletteCategory.GLASS, SkySlot.ZENITH],
     [PaletteCategory.SKY_CLOUD, SkySlot.CLOUD],
     [PaletteCategory.SKY_SUN, SkySlot.SUN],
+    [PaletteCategory.TERRAIN_WATER, SkySlot.WATER],
+    [PaletteCategory.TERRAIN_SHALLOW_WATER, SkySlot.WATER],
 ]);
 
 function gainForSlot(sky: SkySample, slot: SkySlot): Rgb {
     switch (slot) {
         case SkySlot.HORIZON: return sky.horizon;
+        case SkySlot.HAZE: return sky.haze;
         case SkySlot.ZENITH: return sky.zenith;
         case SkySlot.CLOUD: return sky.cloud;
         case SkySlot.SUN: return sky.sunDisc;
+        case SkySlot.WATER: return sky.water;
         case SkySlot.GROUND: return sky.ground;
     }
 }

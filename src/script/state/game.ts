@@ -19,6 +19,8 @@ import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_FIN
 import { DEFAULT_SUN_HOURS, setSunTime, SUN_DIRECTION, SUN_STATE } from '../scene/materials/shaders/sun';
 import { placeSun, SUN_SET_ELEVATION_DEG } from '../scene/models/lib/sunModelBuilder';
 import { paintSkyDome, SkyDome, skyDomeOf } from '../scene/models/lib/skyDomeModelBuilder';
+import { paintSunBloom } from '../scene/models/lib/sunModelBuilder';
+import { Model } from '../scene/models/models';
 import { terrainMaxZoomForAltitudeM } from '../terrain/lod';
 import { Renderer, RenderLayer, RenderTargetType } from "../render/renderer";
 import { SceneCamera } from '../scene/cameras/camera';
@@ -74,7 +76,7 @@ import { AircraftRegistry, buildF22Def, groupAircraftByModel } from './aircraftR
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 import { flightConfigWithArrestorHook } from '../scene/entities/arrestorCables';
 import { Obstacle, Runway } from '../ai/worldQuery';
-import { AiFlightPhase, AiPilotOptions, AiSkillLevel } from '../ai/aiPilot';
+import { AiFlightPhase, AiPilotOptions, AiSkillLevel, FORMATION_SLOT } from '../ai/aiPilot';
 import { AiAircraftEntity } from '../scene/entities/aiAircraft';
 import { WeaponsField } from '../scene/entities/weaponsField';
 import { Faction } from '../weapons/combatant';
@@ -83,7 +85,7 @@ import { SimProxyFlightModel } from '../physics/model/simProxyFlightModel';
 import { serializeWorld, defaultArrestorCableField } from '../physics/sim/serializedWorld';
 import { HeightFieldSender, MirrorFocus } from '../terrain/heightMirror';
 import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/simTypes';
-import { PLAYER_SIM_ID, aiSimId } from '../physics/sim/simIds';
+import { PLAYER_SIM_ID, WINGMAN_SIM_ID, aiSimId } from '../physics/sim/simIds';
 import { AiPilotModels } from './gameDefs';
 import {
     DEFAULT_TERRAIN_URL, SPACE_SKY_ALTITUDE_M, TerrainEntity, cameraFarForAltitudeM,
@@ -112,6 +114,16 @@ const AI_STRAIGHT_DURATION_SEC = 1;
 const AI_ENGAGE_SPAWN_DISTANCE_M = 300;
 /** Spawn distance ahead of the player for a head-on merge (m). */
 const AI_HEADON_SPAWN_DISTANCE_M = 3000;
+
+/**
+ * Height above the terrain (m) the wingman is spawned at while the player is
+ * still on the ground: there is no wing slot to fly on a parked lead, so it
+ * starts airborne and holds overhead until the player is rolling (see
+ * {@link AiFlightPhase.FORMATION}).
+ */
+const WINGMAN_HOLD_ALTITUDE_AGL_M = 900;
+/** Airspeed (m/s) the wingman is spawned with when holding overhead. */
+const WINGMAN_HOLD_SPEED_MPS = 180;
 
 /** Player/AI hit-sphere radius (m) — shared airframe. */
 const PLAYER_HIT_RADIUS_M = 10;
@@ -332,6 +344,8 @@ export class Game {
     private skyEntity: SimpleEntity | undefined;
     /** Its vertex colours, repainted from the atmosphere when the sun moves. */
     private skyDome: SkyDome | undefined;
+    /** The sun's model; its bloom is repainted from the same sky painter. */
+    private sunModel: Model | undefined;
     /** The sun disc; parked in the sun's direction by {@link updateSunEntity}. */
     private sunEntity: SimpleEntity | undefined;
     /** Puffy low-poly cloud deck; disabled above {@link SPACE_SKY_ALTITUDE_M} alongside the sky. */
@@ -371,6 +385,8 @@ export class Game {
     /** All AI opponents; `aiOpponent` is the first, used by chase cam / targeting. */
     private readonly aiOpponents: AiAircraftEntity[] = [];
     private aiOpponent: AiAircraftEntity | undefined;
+    /** The player's AI wingman: same airframe, Faction.PLAYER, flies our wing. */
+    private wingman: AiAircraftEntity | undefined;
 
     private playerCamera: SceneCamera;
     private targetCamera: SceneCamera;
@@ -550,6 +566,11 @@ export class Game {
                 camera: this.playerCamera.main,
                 lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
                 shadows: true
+            },
+            {
+                target: MAIN_RENDER_TARGET_LO,
+                camera: this.playerCamera.bgSky,
+                lists: [SceneLayers.ForegroundSky]
             }
         ];
         const playerLayersHi: RenderLayer[] = [
@@ -568,6 +589,11 @@ export class Game {
                 camera: this.playerCamera.main,
                 lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
                 shadows: true
+            },
+            {
+                target: MAIN_RENDER_TARGET_HI,
+                camera: this.playerCamera.bgSky,
+                lists: [SceneLayers.ForegroundSky]
             }
         ];
         const targetLayersLo: RenderLayer[] = [
@@ -586,6 +612,11 @@ export class Game {
                 camera: this.targetCamera.main,
                 lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
                 entityFilter: this.excludeSkyFieldsFilter
+            },
+            {
+                target: WEAPONSTARGET_RENDER_TARGET_LO,
+                camera: this.targetCamera.bgSky,
+                lists: [SceneLayers.ForegroundSky]
             }
         ];
         const targetLayersHi: RenderLayer[] = [
@@ -604,6 +635,11 @@ export class Game {
                 camera: this.targetCamera.main,
                 lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
                 entityFilter: this.excludeSkyFieldsFilter
+            },
+            {
+                target: WEAPONSTARGET_RENDER_TARGET_HI,
+                camera: this.targetCamera.bgSky,
+                lists: [SceneLayers.ForegroundSky]
             }
         ];
         const mapLayersLo: RenderLayer[] = [
@@ -675,6 +711,11 @@ export class Game {
                 camera: this.playerCamera.main,
                 lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
                 shadows: true
+            },
+            {
+                target: MAIN_RENDER_TARGET_HD,
+                camera: this.playerCamera.bgSky,
+                lists: [SceneLayers.ForegroundSky]
             }
         ];
         const targetLayersHd: RenderLayer[] = [
@@ -693,6 +734,11 @@ export class Game {
                 camera: this.targetCamera.main,
                 lists: [SceneLayers.Terrain, SceneLayers.EntityFlats, SceneLayers.EntityVolumes, SceneLayers.EntityFX],
                 entityFilter: this.excludeSkyFieldsFilter
+            },
+            {
+                target: WEAPONSTARGET_RENDER_TARGET_HD,
+                camera: this.targetCamera.bgSky,
+                lists: [SceneLayers.ForegroundSky]
             }
         ];
         const mapLayersHd: RenderLayer[] = [
@@ -864,6 +910,10 @@ export class Game {
         for (let i = 0; i < this.aiOpponents.length; i++) {
             this.aiOpponents[i].loadAircraft(def);
             this.combatSim.setCollision(this.aiOpponents[i].simId, def.collisionMesh);
+        }
+        if (this.wingman) {
+            this.wingman.loadAircraft(def);
+            this.combatSim.setCollision(this.wingman.simId, def.collisionMesh);
         }
     }
 
@@ -1531,6 +1581,9 @@ export class Game {
                 focus.push({ x: ai.position.x, z: ai.position.z });
             }
         }
+        if (this.wingman?.isAlive()) {
+            focus.push({ x: this.wingman.position.x, z: this.wingman.position.z });
+        }
         this.heightSender.update(focus, SIM_TERRAIN_MIRROR_RADIUS_M);
     }
 
@@ -1839,17 +1892,24 @@ export class Game {
         for (let i = 0; i < this.aiOpponents.length; i++) {
             const ai = this.aiOpponents[i];
             if (ai.simId === targetId && ai.enabled) {
-                ai.readVelocity(this._damageSmokeVel);
-                return {
-                    position: ai.getDisplayPosition(),
-                    quaternion: ai.getDisplayQuaternion(),
-                    velocity: this._damageSmokeVel,
-                    isAlive: ai.isAlive(),
-                    isCrashed: ai.isCrashed(),
-                };
+                return this.aiDamageSmokePose(ai);
             }
         }
+        if (this.wingman && this.wingman.simId === targetId && this.wingman.enabled) {
+            return this.aiDamageSmokePose(this.wingman);
+        }
         return undefined;
+    }
+
+    private aiDamageSmokePose(ai: AiAircraftEntity): { position: THREE.Vector3; quaternion: THREE.Quaternion; velocity: THREE.Vector3; isAlive: boolean; isCrashed: boolean } {
+        ai.readVelocity(this._damageSmokeVel);
+        return {
+            position: ai.getDisplayPosition(),
+            quaternion: ai.getDisplayQuaternion(),
+            velocity: this._damageSmokeVel,
+            isAlive: ai.isAlive(),
+            isCrashed: ai.isCrashed(),
+        };
     }
 
     private openTelemetryGraphWindow(): void {
@@ -2316,6 +2376,7 @@ export class Game {
         // Warm DEM/meshes around the live spawn (covers menu respawns too).
         await this.preloadTerrainAroundPlane(this.player.position.x, this.player.position.z, spawn);
         this.spawnOpponent(spawn === 'headon');
+        this.spawnWingman();
         this.setCockpitFrontView();
         if (this.aiOpponent?.enabled) {
             this.player.setWeaponsTarget(this.aiOpponent);
@@ -2445,6 +2506,33 @@ export class Game {
         }
         this.aiOpponent = this.aiOpponents[0];
 
+        // The player's wingman: identical airframe/FM/FX to the opponents, but
+        // Faction.PLAYER — so the projectile pool's same-faction check already
+        // rules out friendly fire in both directions — and flown in the
+        // FORMATION phase off the player rather than sent to ENGAGE.
+        this.wingman = new AiAircraftEntity(
+            this.models,
+            this.currentDef,
+            this.combatSim,
+            WINGMAN_SIM_ID,
+            Faction.PLAYER,
+            {
+                position: PLAYER_STARTING_POSITION.clone().add(
+                    RIGHT.clone().applyAxisAngle(UP, PLAYER_STARTING_HEADING).multiplyScalar(FORMATION_SLOT.side)),
+                heading: PLAYER_STARTING_HEADING,
+                airborne: true,
+                throttle: PLAYER_APPROACH_SPAWN.throttle,
+                velocity: PLAYER_APPROACH_SPAWN.velocity!.clone(),
+            },
+            this.materials,
+            PLAYER_GUN,
+            this.opponentPilotOptions(),
+        );
+        this.wingman.enabled = false;
+        this.combatSim.setEnabled(this.wingman.simId, false);
+        this.wingman.setGroundHeightAt((x, z) => this.groundHeightAt(x, z));
+        this.scene.add(this.wingman);
+
         this.cameraUpdaters.set(
             PlayerViewState.AI_CHASE,
             new AiExteriorCameraUpdater(this.player, this.playerCamera.main, this.aiOpponent!));
@@ -2523,7 +2611,10 @@ export class Game {
                 throttle: this.player.throttleUnit,
                 velocity,
             });
-            this.combatSim.setTarget(ai.simId, PLAYER_SIM_ID);
+            // Fight the whole friendly side — the player *and* the wingman —
+            // re-picking as the fight develops, rather than tunnelling on the
+            // one aircraft handed over at spawn.
+            this.combatSim.setTargetFaction(ai.simId, Faction.PLAYER);
             this.combatSim.setPhase(ai.simId, AiFlightPhase.ENGAGE);
         }
         this.aiStraightTimer = 0;
@@ -2532,6 +2623,51 @@ export class Game {
         // knows about the primary opponent should combat logic be enabled for it later.
         this.combatSim.setTarget(PLAYER_SIM_ID, this.aiOpponents[0].simId);
         this.combatSim.setPhase(PLAYER_SIM_ID, AiFlightPhase.RTB);
+    }
+
+    /**
+     * Put the wingman on the player's wing for this flight. It always spawns
+     * airborne: with the player parked on a runway or deck there is no wing slot
+     * to sit in, so it starts overhead at {@link WINGMAN_HOLD_ALTITUDE_AGL_M}
+     * and its pilot holds there until the player is actually flying.
+     */
+    private spawnWingman(): void {
+        const wingman = this.wingman;
+        if (!wingman) {
+            return;
+        }
+        const p = this.player.position;
+        const playerForward = FORWARD.clone()
+            .applyQuaternion(this.player.quaternion)
+            .setY(0)
+            .normalize();
+        const heading = Math.atan2(playerForward.x, playerForward.z);
+        const right = RIGHT.clone().applyAxisAngle(UP, heading);
+
+        const position = new THREE.Vector3(p.x, p.y, p.z)
+            .addScaledVector(playerForward, -FORMATION_SLOT.trail)
+            .addScaledVector(right, FORMATION_SLOT.side);
+        position.y += FORMATION_SLOT.stack;
+
+        let velocity: THREE.Vector3;
+        let throttle: number;
+        if (this.player.isLanded) {
+            position.y = this.groundHeightAt(position.x, position.z) + WINGMAN_HOLD_ALTITUDE_AGL_M;
+            velocity = playerForward.clone().multiplyScalar(WINGMAN_HOLD_SPEED_MPS);
+            throttle = 1;
+        } else {
+            velocity = this.player.velocityVector.clone();
+            throttle = this.player.throttleUnit;
+        }
+
+        // Rebuild the pilot so an OSD AI-model change applies to the wingman too.
+        this.combatSim.setPilotOptions(wingman.simId, this.opponentPilotOptions());
+        wingman.respawn({ position, heading, airborne: true, throttle, velocity });
+        this.combatSim.setFormationLead(wingman.simId, PLAYER_SIM_ID);
+        // Symmetrically, the wingman takes on whichever hostile is the best
+        // target, and drops back to the wing when none is left alive.
+        this.combatSim.setTargetFaction(wingman.simId, Faction.ENEMY);
+        this.combatSim.setPhase(wingman.simId, AiFlightPhase.FORMATION);
     }
 
     /** After the straight-flight hold, promote AI opponents into ENGAGE. */
@@ -2555,6 +2691,7 @@ export class Game {
     private async setupScene(spawn: SpawnMode) {
         const manifest = await loadTerrainManifest();
 
+        this.sunModel = this.models.getModel('lib:sun');
         const skyModel = this.models.getModel('lib:skyDome');
         this.skyEntity = new SimpleEntity(skyModel, SceneLayers.BackgroundSky, SceneLayers.BackgroundSky);
         this.scene.add(this.skyEntity);
@@ -2563,7 +2700,10 @@ export class Game {
 
         // Same layer as the billboard, so it rides the rotation-only background
         // camera and the terrain pass paints over it where the ground is.
-        this.sunEntity = new SimpleEntity(this.models.getModel('lib:sun'), SceneLayers.BackgroundSky, SceneLayers.BackgroundSky);
+        // Disc into the background pass, glare into the foreground one: the
+        // model keeps the two in separate LOD collections precisely so they can
+        // be routed apart here.
+        this.sunEntity = new SimpleEntity(this.sunModel, SceneLayers.BackgroundSky, SceneLayers.ForegroundSky);
         this.scene.add(this.sunEntity);
         this.updateSunEntity();
 
@@ -2977,7 +3117,16 @@ export class Game {
             paintSkyDome(this.skyDome, this.noonPalette, this.midnightPalette,
                 SUN_STATE.nightMix, SUN_DIRECTION);
         }
-        // Dev aid, alongside __terrain / __shadowSettings.
+        // The bloom shares the dome's painter, so the two agree by construction
+        // rather than by two sets of constants being kept in step by hand.
+        if (this.sunModel) {
+            paintSunBloom(this.sunModel, this.noonPalette, this.midnightPalette,
+                SUN_STATE.nightMix, SUN_DIRECTION);
+        }
+        // Dev aids, alongside __terrain / __shadowSettings. The sun is worth
+        // reaching for because its two halves are drawn in different passes,
+        // and the only way to see that from outside is to walk their parents.
         (globalThis as Record<string, unknown>).__skyDome = this.skyDome;
+        (globalThis as Record<string, unknown>).__sunModel = this.sunModel;
     }
 }

@@ -15,6 +15,7 @@ export const DepthFragProgram: string = `
   uniform vec3 fogColor;
   uniform float alphaDither;
   uniform float colorDither;
+  uniform float overbright;
 
   varying vec3 vPosition;
 ${LOG_DEPTH_PARS_FRAGMENT}
@@ -55,6 +56,10 @@ ${DITHER_PARS_FRAGMENT}
       diffuse = color;
     }
 
+    // Light sources first: a palette entry stops at white, which is nowhere
+    // near enough for the sun, so it is scaled up and left to clip the way a
+    // light does rather than sitting wherever the palette left it.
+    diffuse *= overbright;
     gl_FragColor = mix(vec4(diffuse, 1.0), vec4(fogColor, 1.0), fogFactor * 0.92);
 ${LOG_DEPTH_FRAGMENT}
   }

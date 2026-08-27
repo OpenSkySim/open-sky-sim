@@ -14,7 +14,18 @@ export enum SceneLayers {
     EntityFlats = 'EntityFlats',
     EntityVolumes = 'EntityVolumes',
     /** Aircraft VFX (wingtip trails) drawn after terrain and solid meshes. */
-    EntityFX = 'EntityFX'
+    EntityFX = 'EntityFX',
+    /**
+     * Sky drawn *over* the scene rather than behind it: the sun's glare.
+     *
+     * Rides the same rotation-only background camera as {@link BackgroundSky},
+     * so it is still at infinity, but its pass runs last. Glare is light
+     * scattered by the air between the viewer and the sun, so it is in front of
+     * whatever else is out there: a ridge across the sun does not hide the
+     * aureole, it sits inside it. The disc stays in the background pass,
+     * because that genuinely is behind the ridge.
+     */
+    ForegroundSky = 'ForegroundSky'
 }
 
 export class Scene {

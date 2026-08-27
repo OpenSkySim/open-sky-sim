@@ -7,7 +7,7 @@ import { PilotableAircraft } from '../../ai/aircraftControls';
 import { SceneWorldQuery } from '../../ai/worldQuery';
 import { Combatant, Faction } from '../../weapons/combatant';
 import { Gun, GunConfig, ProjectileSink } from '../../weapons/gun';
-import { FORWARD } from '../../utils/math';
+import { clamp, FORWARD } from '../../utils/math';
 import { PLANE_DISTANCE_TO_GROUND } from '../../defs';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { FcsPitchLimiter } from '../fm2/fcs';
@@ -54,6 +54,22 @@ const BELLY_TERRAIN_MARGIN_M = 0.05;
 const SOLID_CRASH_IMPACT_MPS = 55;
 /** Penetration past the margin that forces a wreck (m). */
 const SOLID_CRASH_PENETRATION_M = 3.5;
+
+// --- Faction target selection --------------------------------------------------
+/** Seconds between full re-scans for aircraft engaging a whole faction. */
+const TARGET_SCAN_INTERVAL = 0.5;
+/**
+ * A challenger must beat the incumbent's score by this factor to steal the
+ * fight. Without the margin, two enemies at similar range make the AI swap back
+ * and forth every scan instead of committing to one of them.
+ */
+const TARGET_SWITCH_MARGIN = 0.75;
+/**
+ * How hard a target off the nose is penalised, as a fraction of its range at
+ * 180 degrees off. Picking purely by range would have the AI turn its back on
+ * the aircraft it is already pointing at for one barely closer behind it.
+ */
+const TARGET_ATA_WEIGHT = 1.0;
 /** Minimum inward speed (m/s) before scrape FX / damage. */
 const SOLID_SCRAPE_FX_MPS = 6;
 /** Health lost per (m/s) of inward impact on a non-fatal scrape. */
@@ -115,6 +131,16 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
 
     /** Firing decision resolved this frame (pilot solution or external trigger). */
     firing = false;
+
+    /**
+     * When set, this aircraft engages *any* live combatant of this faction and
+     * the sim re-picks the best one as the fight develops (see
+     * {@link CombatSim.selectTargetFor}). Mutually exclusive with an explicit
+     * {@link CombatSim.setTarget}, which clears it.
+     */
+    targetFaction: Faction | undefined;
+    /** Id of the auto-selected target, so a re-scan can score the incumbent. */
+    autoTargetId: string | undefined;
 
     /** Seconds since last solid-world scrape FX (smoke/sparks). */
     scrapeFxCooldown = 0;
@@ -526,6 +552,15 @@ export class CombatSim implements ProjectileSink {
     private readonly contactPoint = new THREE.Vector3();
     private readonly contactNormal = new THREE.Vector3();
 
+    // Scratch + timing for faction target selection.
+    private targetScanTimer = 0;
+    private readonly selfPos = new THREE.Vector3();
+    private readonly selfFwd = new THREE.Vector3();
+    private readonly losTmp = new THREE.Vector3();
+    private readonly candidatePos = new THREE.Vector3();
+    /** Reused candidate-id set — {@link selectTargetFor} runs inside the step loop. */
+    private readonly candidateIds = new Set<string>();
+
     /** The DEM, mirrored tile by tile from the render thread. */
     private readonly heightField = new MirroredHeightField();
 
@@ -649,7 +684,34 @@ export class CombatSim implements ProjectileSink {
         const a = this.aircraft.get(id);
         if (!a) return;
         a.buildPilot(undefined, this.world);
+        // An explicit target wins over — and cancels — faction auto-selection.
+        a.targetFaction = undefined;
+        a.autoTargetId = undefined;
         a.pilot?.setTarget(targetId ? this.resolveCombatant(targetId) : undefined);
+    }
+
+    /**
+     * Engage a whole faction rather than one named aircraft: the sim picks the
+     * best live target of `faction` now and re-picks as the fight develops, so
+     * an opponent fights every hostile in the air instead of tunnelling on the
+     * one aircraft it was handed at spawn. Pass null to stop auto-selecting.
+     */
+    setTargetFaction(id: string, faction: Faction | null): void {
+        const a = this.aircraft.get(id);
+        if (!a) return;
+        a.buildPilot(undefined, this.world);
+        a.autoTargetId = undefined;
+        a.targetFaction = faction ?? undefined;
+        if (faction === null) return;
+        this.selectTargetFor(a, true);
+    }
+
+    /** Assign the aircraft whose wing this pilot flies in the FORMATION phase. */
+    setFormationLead(id: string, leadId: string | null): void {
+        const a = this.aircraft.get(id);
+        if (!a) return;
+        a.buildPilot(undefined, this.world);
+        a.pilot?.setFormationLead(leadId ? this.resolveCombatant(leadId) : undefined);
     }
 
     setPhase(id: string, phase: number): void {
@@ -783,6 +845,92 @@ export class CombatSim implements ProjectileSink {
         this.external.delete(id);
     }
 
+    /**
+     * Refresh auto-selected targets. A full re-scan runs on
+     * {@link TARGET_SCAN_INTERVAL}; a target that has died or gone away is
+     * replaced immediately, because waiting for the next scan would drop the
+     * pilot out of ENGAGE (and, for a wingman, back into formation) for up to
+     * half a second.
+     */
+    private updateAutoTargets(delta: number): void {
+        this.targetScanTimer -= delta;
+        const rescan = this.targetScanTimer <= 0;
+        if (rescan) {
+            this.targetScanTimer = TARGET_SCAN_INTERVAL;
+        }
+        for (const a of this.aircraft.values()) {
+            if (a.targetFaction === undefined || !a.enabled || !a.pilot) continue;
+            // Only the *loss* of a target forces an off-schedule scan. Having no
+            // target at all must not, or an aircraft with nothing to fight would
+            // re-scan every single step.
+            const current = a.autoTargetId === undefined
+                ? undefined
+                : this.resolveCombatant(a.autoTargetId);
+            const lost = a.autoTargetId !== undefined && (current === undefined || !current.isAlive());
+            if (rescan || lost) {
+                this.selectTargetFor(a, false);
+            }
+        }
+    }
+
+    /**
+     * Pick the best live target of `a.targetFaction`: nearest, penalised by how
+     * far off the nose it is, with {@link TARGET_SWITCH_MARGIN} hysteresis in
+     * favour of the fight already in progress. `force` assigns even when the
+     * winner is unchanged (used when the mode is first switched on).
+     */
+    private selectTargetFor(a: SimAircraft, force: boolean): void {
+        const faction = a.targetFaction;
+        if (faction === undefined) return;
+
+        a.readPosition(this.selfPos);
+        this.selfFwd.copy(FORWARD).applyQuaternion(a.model.quaternion);
+
+        let bestId: string | undefined;
+        let bestScore = Infinity;
+        for (const id of this.combatantIds()) {
+            if (id === a.id) continue;
+            const c = this.resolveCombatant(id);
+            // resolveCombatant falls back to a disabled aircraft when nothing
+            // else stands in for it; those are not in the air to be shot at.
+            if (!c || !c.isAlive() || c.faction !== faction) continue;
+            if (c instanceof SimAircraft && !c.enabled) continue;
+
+            c.readPosition(this.candidatePos);
+            this.losTmp.copy(this.candidatePos).sub(this.selfPos);
+            const range = this.losTmp.length();
+            if (range < 1e-3) continue;
+            const ata = Math.acos(clamp(this.losTmp.dot(this.selfFwd) / range, -1, 1));
+            let score = range * (1 + TARGET_ATA_WEIGHT * ata / Math.PI);
+            if (id === a.autoTargetId) {
+                score *= TARGET_SWITCH_MARGIN;
+            }
+            if (score < bestScore) {
+                bestScore = score;
+                bestId = id;
+            }
+        }
+
+        if (!force && bestId === a.autoTargetId) return;
+        a.autoTargetId = bestId;
+        a.pilot?.setTarget(bestId ? this.resolveCombatant(bestId) : undefined);
+    }
+
+    /**
+     * Every id that can resolve to a combatant: sim aircraft plus external
+     * mirrors, deduped. Returns a reused set — consume it before calling again.
+     */
+    private combatantIds(): Iterable<string> {
+        this.candidateIds.clear();
+        for (const id of this.aircraft.keys()) {
+            this.candidateIds.add(id);
+        }
+        for (const id of this.external.keys()) {
+            this.candidateIds.add(id);
+        }
+        return this.candidateIds;
+    }
+
     private resolveCombatant(id: string): Combatant | undefined {
         const a = this.aircraft.get(id);
         if (a && a.enabled) return a;
@@ -804,7 +952,9 @@ export class CombatSim implements ProjectileSink {
                 a.setExternalInputs(inputs[a.id] ?? NEUTRAL_INPUTS);
             }
         }
-        // 2. Run AI pilots, reading the previous step's world positions.
+        // 2. Re-pick faction targets before the pilots read them.
+        this.updateAutoTargets(delta);
+        // 3. Run AI pilots, reading the previous step's world positions.
         for (const a of this.aircraft.values()) {
             if (!a.enabled || a.control !== 'ai' || !a.pilot) continue;
             if (a.health <= 0) {
@@ -817,7 +967,7 @@ export class CombatSim implements ProjectileSink {
             }
             a.pilot.update(delta);
         }
-        // 3. Advance every model from the now-consistent command buffers.
+        // 4. Advance every model from the now-consistent command buffers.
         for (const a of this.aircraft.values()) {
             if (!a.enabled) continue;
             if (a.scrapeFxCooldown > 0) {
@@ -836,7 +986,7 @@ export class CombatSim implements ProjectileSink {
             this.resolveArrestor(a, delta);
             a.resolveFiring();
         }
-        // 4. Guns + projectiles (hits already cleared; scrapes may have appended).
+        // 5. Guns + projectiles (hits already cleared; scrapes may have appended).
         for (const a of this.aircraft.values()) {
             if (!a.enabled || !a.gun) continue;
             a.gun.update(delta);

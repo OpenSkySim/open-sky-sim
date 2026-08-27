@@ -10,3 +10,6 @@ export const AI_SIM_ID = 'ai0';
 export function aiSimId(index: number): string {
     return `ai${index}`;
 }
+
+/** The player's AI wingman (Faction.PLAYER, flies the FORMATION phase). */
+export const WINGMAN_SIM_ID = 'wing0';

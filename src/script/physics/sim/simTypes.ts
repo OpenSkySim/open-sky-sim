@@ -149,6 +149,8 @@ export type SimToWorkerMessage =
     | { type: 'setEnabled'; id: string; enabled: boolean }
     | { type: 'setControlMode'; id: string; control: SimControlMode }
     | { type: 'setTarget'; id: string; targetId: string | null }
+    | { type: 'setFormationLead'; id: string; leadId: string | null }
+    | { type: 'setTargetFaction'; id: string; faction: number | null }
     | { type: 'setPhase'; id: string; phase: number }
     | { type: 'setPilotOptions'; id: string; options: AiPilotOptions }
     | { type: 'respawn'; id: string; spawn: SimAircraftSpawn }

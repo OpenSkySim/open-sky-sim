@@ -63,6 +63,20 @@ export type SceneMaterialMeshProperties = {
             highp?: boolean;
             /** Screen-space ordered dither opacity (0 = opaque, 0.5 ≈ half transparent). */
             alphaDither?: number;
+            /**
+             * Multiplier applied before the tone curve, for surfaces that are
+             * brighter than a palette entry can say. Default 1.
+             *
+             * A palette colour tops out at #ffffff, which is nowhere near
+             * enough for a light source: the sun's disc at sunset is a deeply
+             * reddened orange whose blue channel is all but zero, so no
+             * exposure could ever drive it to white and it read as a dull
+             * yellow blob against a paler sky. Scaled up first, it clips the
+             * way a light actually does - every channel, white at the core -
+             * while the corona around it takes a smaller factor and keeps the
+             * colour, which is the same light spread thinner.
+             */
+            overbright?: number;
         }
     );
 
@@ -91,6 +105,7 @@ export interface SceneMaterialImpostorProperties {
 export type SceneMaterialUniforms = SceneFlatMaterialUniforms | SceneShadedMaterialUniforms;
 
 export interface SceneFlatMaterialUniforms {
+    overbright: { value: number; };
     halfWidth: { value: number; };
     halfHeight: { value: number; };
     vCameraPos: { value: THREE.Vector3; };
@@ -341,6 +356,11 @@ export class SceneMaterialManager implements KernelTask {
                     value: properties.type === SceneMaterialPrimitiveType.MESH && !properties.shaded
                         ? (properties.alphaDither ?? 0)
                         : 0,
+                },
+                overbright: {
+                    value: properties.type === SceneMaterialPrimitiveType.MESH && !properties.shaded
+                        ? (properties.overbright ?? 1)
+                        : 1,
                 },
                 // Fire renders as a steady two-tone ordered dither (orange/yellow)
                 // in every shading mode rather than a temporal colour flip.

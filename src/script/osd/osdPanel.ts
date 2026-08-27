@@ -171,6 +171,8 @@ function setupAiPilotModel(config: ConfigService) {
     assertIsDefined(shaw);
     const aggressive = document.getElementById('aipilot-aggressive');
     assertIsDefined(aggressive);
+    const ace = document.getElementById('aipilot-ace');
+    assertIsDefined(ace);
 
     classic.addEventListener('change', () => {
         config.aiPilotModels.setActive(AiPilotModels.CLASSIC);
@@ -183,6 +185,10 @@ function setupAiPilotModel(config: ConfigService) {
     aggressive.addEventListener('change', () => {
         config.aiPilotModels.setActive(AiPilotModels.AGGRESSIVE);
         updateSettings({ aiPilotModel: AiPilotModels.AGGRESSIVE });
+    });
+    ace.addEventListener('change', () => {
+        config.aiPilotModels.setActive(AiPilotModels.ACE);
+        updateSettings({ aiPilotModel: AiPilotModels.ACE });
     });
 }
 
@@ -249,6 +255,7 @@ function syncSettingsUI(config: ConfigService, keyboardInput: KeyboardControlDev
         [AiPilotModels.CLASSIC]: 'aipilot-classic',
         [AiPilotModels.SHAW]: 'aipilot-shaw',
         [AiPilotModels.AGGRESSIVE]: 'aipilot-aggressive',
+        [AiPilotModels.ACE]: 'aipilot-ace',
     };
 
     checkRadio(techProfileRadioIds[config.techProfiles.getActiveKey()]);

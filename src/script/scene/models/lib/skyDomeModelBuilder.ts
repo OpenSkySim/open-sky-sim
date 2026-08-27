@@ -93,10 +93,13 @@ const SKY_VERTEX_PROGRAM = `
   precision highp float;
 
   attribute vec3 skyColor;
+  attribute float skyFalloff;
   varying vec3 vSkyColor;
+  varying float vSkyFalloff;
 ${LOG_DEPTH_PARS_VERTEX}
   void main() {
     vSkyColor = skyColor;
+    vSkyFalloff = skyFalloff;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 ${LOG_DEPTH_VERTEX}
   }
@@ -106,7 +109,9 @@ const SKY_FRAGMENT_PROGRAM = `
   precision highp float;
 
   uniform float uBands;
+  uniform float uSkyOverbright;
   varying vec3 vSkyColor;
+  varying float vSkyFalloff;
 ${LOG_DEPTH_PARS_FRAGMENT}
 ${DITHER_PARS_FRAGMENT}
   void main() {
@@ -114,7 +119,16 @@ ${DITHER_PARS_FRAGMENT}
     // showing as contours. bayerThreshold is the same matrix the shadow and
     // cloud stipples use, so the sky grains like the rest of the frame.
     float threshold = bayerThreshold(gl_FragCoord.xy);
-    vec3 banded = floor(vSkyColor * uBands + 0.5 + threshold) / uBands;
+    // Falloff is what the glare fades along, interpolated across the annulus:
+    // 1 at the sun's limb, 0 at the far edge. It drives coverage and brightness
+    // from the one ramp, so there is nothing for the two to disagree about.
+    // Coverage is stippled rather than blended, this pipeline having no alpha,
+    // and the dome passes 1 here and keeps every pixel at its own brightness.
+    if (vSkyFalloff + threshold < 0.5) {
+      discard;
+    }
+    vec3 toned = vSkyColor * mix(1.0, uSkyOverbright, vSkyFalloff);
+    vec3 banded = floor(toned * uBands + 0.5 + threshold) / uBands;
     gl_FragColor = vec4(clamp(banded, 0.0, 1.0), 1.0);
 ${LOG_DEPTH_FRAGMENT}
   }
@@ -140,6 +154,35 @@ const SATURATION_HEADROOM_WARM = 6.0;
 /** Chromaticity red-minus-blue at which a colour counts as fully warm. */
 const FULLY_WARM_CHROMA = 0.3;
 
+/**
+ * A vertex-coloured sky material. `overbright` is what the geometry's own
+ * `skyFalloff` ramp climbs towards - the glare is the same sky driven harder
+ * near the sun - and the dome leaves it at 1 with a flat ramp.
+ *
+ * The dome is wound so that, seen from the camera at its centre, its triangles
+ * face it - so these are front faces, not back ones. BackSide reads like the
+ * obvious choice for a dome viewed from inside and is exactly wrong: it culled
+ * all 960 triangles, leaving the flat background clear colour standing in for
+ * the sky, which looks identical whichever way you turn.
+ */
+export function createSkyMaterial(
+    overbright: number, side: THREE.Side,
+): THREE.ShaderMaterial {
+    return new THREE.ShaderMaterial({
+        vertexShader: SKY_VERTEX_PROGRAM,
+        fragmentShader: SKY_FRAGMENT_PROGRAM,
+        uniforms: {
+            uBands: { value: SKY_BANDS },
+            uSkyOverbright: { value: overbright },
+        },
+        side,
+        depthWrite: false,
+        // Its colours are vertex data, not palette uniforms, so the material
+        // manager has nothing to do here and never sees it.
+        userData: {},
+    });
+}
+
 /** Rec. 709, for the night floor and the gamut fit. */
 const LUMA_WEIGHTS = [0.2126, 0.7152, 0.0722];
 
@@ -162,9 +205,24 @@ export interface SkyDome {
  * What the dome wants underneath is the plain authored gradient at the current
  * `nightMix`, with the directional gain supplying every bit of the change.
  */
-export function paintSkyDome(
-    dome: SkyDome, noon: Palette, midnight: Palette, nightMix: number, sunDir: THREE.Vector3,
-): void {
+/**
+ * A closure that answers "what colour is the sky in this direction", for one
+ * sun and one palette.
+ *
+ * Factored out of the dome so the sun's bloom can be painted from the very same
+ * function. The bloom *is* sky - the aureole is sunlight scattered forward by
+ * the air in front of the disc - so anything deriving its colour separately is
+ * guessing at a number this already knows. Three attempts to match them through
+ * the palette's ratio gains failed the same way: a ratio applied to a warm
+ * authored base cannot land on the sky's absolute chroma, so the bloom stayed
+ * gold while the sky went pink and the seam between them showed. Sharing the
+ * function removes the question.
+ */
+export type SkyPainter = (x: number, y: number, z: number, out: [number, number, number]) => void;
+
+export function makeSkyPainter(
+    noon: Palette, midnight: Palette, nightMix: number, sunDir: THREE.Vector3,
+): SkyPainter {
     const zenith = blendAuthored(noon, midnight, PaletteCategory.SKY, nightMix);
     const horizon = blendAuthored(noon, midnight, PaletteCategory.FOG_SKY, nightMix);
     // The authored midnight sky is the floor. Physics says the sky at civil
@@ -178,24 +236,16 @@ export function paintSkyDome(
     // Compass bearing of the sun, for the azimuth each vertex is measured from.
     const sunBearing = Math.atan2(sunDir.x, sunDir.z);
 
-    // The brightness ratio is raised to this. GAIN_SOFTNESS reins in
-    // the overshoot; the night term takes the exponent to zero as the authored
+    // The brightness ratio is raised to this. GAIN_SOFTNESS reins in the
+    // overshoot; the night term takes the exponent to zero as the authored
     // midnight palette takes over, so the two never darken the sky twice.
     // Multiplicative rather than a lerp towards 1 on purpose: a lerp crushes
     // the ratios between directions as it goes, and twilight - which is where
     // the sky is most obviously brighter towards the sun than away from it -
     // came out flat.
     const exponent = GAIN_SOFTNESS * (1 - nightMix);
-    const scratch: [number, number, number] = [0, 0, 0];
-    const attribute = dome.mesh.geometry.getAttribute('skyColor') as THREE.BufferAttribute;
-    const colors = attribute.array as Float32Array;
-    const directions = dome.directions;
 
-    for (let i = 0; i < colors.length; i += 3) {
-        const x = directions[i];
-        const y = directions[i + 1];
-        const z = directions[i + 2];
-
+    return (x, y, z, out) => {
         const elevationDeg = Math.asin(Math.max(-1, Math.min(1, y))) * THREE.MathUtils.RAD2DEG;
         let azimuth = Math.atan2(x, z) - sunBearing;
         // Fold onto 0..180: the sky is mirror-symmetric about the sun's plane.
@@ -204,14 +254,13 @@ export function paintSkyDome(
         const blend = verticalBlend(elevationDeg);
         const shade = domeShade(sunElevationDeg, elevationDeg, azimuth);
 
-        // Where the authored gradient sits for this vertex, and how much of the
-        // sky's own colour to put over it.
+        // Where the authored gradient sits here, and the night floor under it.
         let baseLuminance = 0;
         let baseTotal = 0;
         let floorLuminance = 0;
         for (let c = 0; c < 3; c++) {
             const base = horizon[c] + (zenith[c] - horizon[c]) * blend;
-            scratch[c] = base;
+            out[c] = base;
             baseLuminance += LUMA_WEIGHTS[c] * base;
             baseTotal += base;
             floorLuminance += LUMA_WEIGHTS[c]
@@ -222,16 +271,15 @@ export function paintSkyDome(
         // as the authored night takes over.
         const trust = shade.hueWeight * (1 - nightMix);
 
-        // How colourful the authored sky is, and how colourful the real one is,
-        // as distance from neutral. The real sky is far the more saturated of
-        // the two at every hour - deep blue where the palette is a gentle
-        // grey-blue - so its chroma is reined back towards the palette's own
-        // level before it is trusted. Taken neat it turned a mid-afternoon sky
-        // vivid periwinkle.
+        // How colourful the authored sky is against how colourful the real one
+        // is, as distance from neutral. The real sky is far the more saturated
+        // at every hour - deep blue where the palette is a gentle grey-blue -
+        // so its chroma is reined back towards the palette's level before it is
+        // trusted. Taken neat it turned a mid-afternoon sky vivid periwinkle.
         let authoredSaturation = 0;
         let skySaturation = 0;
         for (let c = 0; c < 3; c++) {
-            const authored = baseTotal > 1e-9 ? scratch[c] / baseTotal : NEUTRAL_CHROMA;
+            const authored = baseTotal > 1e-9 ? out[c] / baseTotal : NEUTRAL_CHROMA;
             authoredSaturation += Math.abs(authored - NEUTRAL_CHROMA);
             skySaturation += Math.abs(shade.chroma[c] - NEUTRAL_CHROMA);
         }
@@ -245,10 +293,10 @@ export function paintSkyDome(
 
         let chromaLuminance = 0;
         for (let c = 0; c < 3; c++) {
-            const authored = baseTotal > 1e-9 ? scratch[c] / baseTotal : NEUTRAL_CHROMA;
+            const authored = baseTotal > 1e-9 ? out[c] / baseTotal : NEUTRAL_CHROMA;
             const sky = NEUTRAL_CHROMA + (shade.chroma[c] - NEUTRAL_CHROMA) * reined;
-            scratch[c] = authored + (sky - authored) * trust;
-            chromaLuminance += LUMA_WEIGHTS[c] * scratch[c];
+            out[c] = authored + (sky - authored) * trust;
+            chromaLuminance += LUMA_WEIGHTS[c] * out[c];
         }
 
         // Brightness: the authored level, scaled by what the sky has actually
@@ -257,9 +305,35 @@ export function paintSkyDome(
             floorLuminance, baseLuminance * Math.pow(shade.brightness, exponent));
         const scale = chromaLuminance > 1e-9 ? target / chromaLuminance : 0;
         for (let c = 0; c < 3; c++) {
-            scratch[c] *= scale;
+            out[c] *= scale;
         }
+    };
+}
 
+/**
+ * Repaints `dome` for the sun at `sunDir`.
+ *
+ * Takes the two *authored* palettes rather than the blended one on purpose. The
+ * blended palette's sky colours already carry the atmosphere's slot gains - the
+ * azimuth-averaged horizon and the zenith - so painting the per-direction gain
+ * onto those applies the same physics twice, and the whole dome comes out
+ * orange at sunset, zenith included.
+ */
+export function paintSkyDome(
+    dome: SkyDome, noon: Palette, midnight: Palette, nightMix: number, sunDir: THREE.Vector3,
+): void {
+    paintDirections(dome.mesh, dome.directions, makeSkyPainter(noon, midnight, nightMix, sunDir));
+}
+
+/** Writes the sky colour for every vertex direction into a mesh's attribute. */
+export function paintDirections(
+    mesh: THREE.Mesh, directions: Float32Array, paint: SkyPainter,
+): void {
+    const scratch: [number, number, number] = [0, 0, 0];
+    const attribute = mesh.geometry.getAttribute('skyColor') as THREE.BufferAttribute;
+    const colors = attribute.array as Float32Array;
+    for (let i = 0; i < colors.length; i += 3) {
+        paint(directions[i], directions[i + 1], directions[i + 2], scratch);
         fitToGamut(scratch);
         colors[i] = scratch[0];
         colors[i + 1] = scratch[1];
@@ -323,23 +397,7 @@ export class SkyDomeModelLibBuilder implements ModelLibBuilder {
 
     build(_materials: SceneMaterialManager): Model {
         const { geometry, directions } = buildDomeGeometry();
-        const mesh = new THREE.Mesh(geometry, new THREE.ShaderMaterial({
-            vertexShader: SKY_VERTEX_PROGRAM,
-            fragmentShader: SKY_FRAGMENT_PROGRAM,
-            uniforms: { uBands: { value: SKY_BANDS } },
-            // The rings are wound so that, seen from the camera at the centre,
-            // the triangles face it - so these are front faces, not back ones.
-            // BackSide reads like the obvious choice for a dome viewed from
-            // inside and is exactly wrong here: it culled all 960 triangles,
-            // leaving the flat background clear colour standing in for the sky,
-            // which looks identical whichever way you turn. skyDomeModelBuilder
-            // .test.ts checks the winding against this, so the two cannot drift.
-            side: THREE.FrontSide,
-            depthWrite: false,
-            // Its colours are vertex data, not palette uniforms, so the
-            // material manager has nothing to do here and never sees it.
-            userData: {},
-        }));
+        const mesh = new THREE.Mesh(geometry, createSkyMaterial(1, THREE.FrontSide));
         mesh.name = 'skyDome';
         mesh.frustumCulled = false;
         // Directions only, never the mesh: userData is walked and serialised in
@@ -375,6 +433,8 @@ function buildDomeGeometry(): { geometry: THREE.BufferGeometry; directions: Floa
     const positions = new Float32Array(count * 3);
     const directions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
+    // Flat: the dome is the sky at face value, with nothing to fade along.
+    const falloff = new Float32Array(count).fill(1);
 
     for (let r = 0; r < rings; r++) {
         const elevation = RING_ELEVATIONS_DEG[r] * THREE.MathUtils.DEG2RAD;
@@ -408,6 +468,7 @@ function buildDomeGeometry(): { geometry: THREE.BufferGeometry; directions: Floa
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('skyColor', new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute('skyFalloff', new THREE.BufferAttribute(falloff, 1));
     geometry.setIndex(index);
     geometry.computeBoundingSphere();
     return { geometry, directions };

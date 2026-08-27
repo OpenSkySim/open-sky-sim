@@ -14,6 +14,19 @@ export const ShadedVertProgram: string = `
   uniform vec2 uSunShade;
   uniform vec3 uSunAmbient;
   uniform vec3 uSunDirect;
+  uniform vec3 uSunTint;
+
+  /**
+   * Skylight arrives from the dome overhead, not from all around, so how much
+   * of it a surface collects depends on how much sky it can see. A flat ambient
+   * term lit the underside of a wing exactly as brightly as its top, which is
+   * what kept backlit shapes looking lit-but-dim instead of going to silhouette.
+   */
+  const float AMBIENT_SKY_FLOOR = 0.65;
+
+  /** Fresnel rim: how sharply it tightens to the edge, and how far it lifts. */
+  const float RIM_POWER = 3.0;
+  const float RIM_STRENGTH = 0.35;
 
   varying float shade;
   varying vec3 vLight;
@@ -29,17 +42,36 @@ ${LOG_DEPTH_PARS_VERTEX}
       worldNormal = normalize(normal);
     }
 
+    // Clamped at zero: a surface turned away from the sun receives none of the
+    // beam, never a negative amount of it.
     float ndl = max(dot(worldNormal, uSunDir), 0.0);
+    // How much of the sky this surface can see, 1 looking up and a floor's
+    // worth looking straight down.
+    float skyView = mix(AMBIENT_SKY_FLOOR, 1.0, 0.5 + 0.5 * worldNormal.y);
+
     // Ambient floor so land keeps the palette base colour in shadow. The direct
     // weight fades to 0 as the sun sets, leaving night lit flat by its palette.
-    shade = uSunShade.x + uSunShade.y * ndl;
+    shade = uSunShade.x * skyView + uSunShade.y * ndl;
     // Same ramp in colour: a reddened beam over a blue skylight fill, so a low
     // sun leaves the faces it strikes warmer than the ones it misses. Both
     // tints are luminance-normalised, so this matches shade in brightness.
-    vLight = uSunAmbient + uSunDirect * ndl;
+    vLight = uSunAmbient * skyView + uSunDirect * ndl;
 
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldY = worldPos.y;
+
+    // Rim light. The lists are drawn camera-relative, so the camera is at the
+    // origin and the direction back to it is just the negated position.
+    //
+    // Gated twice over, because an ungated Fresnel is a chrome edge on
+    // everything: only where the surface is turned away from the sun, and only
+    // where the sun is behind the subject from where the camera stands. What is
+    // left is the one case it is for - a shape against a bright sky, which
+    // without it reads as a hole cut out of the background.
+    vec3 toCamera = normalize(-worldPos.xyz);
+    float backlit = max(-dot(toCamera, uSunDir), 0.0);
+    float fresnel = pow(1.0 - max(dot(worldNormal, toCamera), 0.0), RIM_POWER);
+    vLight += uSunTint * (fresnel * backlit * (1.0 - ndl) * RIM_STRENGTH);
     vec4 pos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     if (shadingType != 3) {
       pos.x = floor(pos.x / pos.w * halfWidth + 0.5) / halfWidth * pos.w;
