@@ -94,6 +94,85 @@ describe('blendPalettes', () => {
     });
 });
 
+describe('light, for colours the palette does not own', () => {
+
+    // A raw-colour material - a mod's own #rrggbb material name - never goes
+    // through the palette at all, so nothing here could reach it. Before this
+    // existed a mod's camo sat at noon brightness against a midnight
+    // landscape: a glowing aeroplane over black terrain.
+
+    const LIT = PaletteCategory.VEHICLE_PLANE_GREY;
+
+    function toLinear(v: number): number {
+        const s = v / 255;
+        return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    }
+
+    /** A palette colour as the linear-light triple a material uniform holds. */
+    function linear(css: string): Rgb {
+        const n = parseInt(css.slice(1), 16);
+        return [toLinear((n >> 16) & 0xff), toLinear((n >> 8) & 0xff), toLinear(n & 0xff)];
+    }
+
+    const relLuma = (c: readonly number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+
+    const lightAt = (hours: number) => {
+        setSunTime(hours);
+        return daytimePalette(HDNoonPalette, HDMidnightPalette).light!;
+    };
+
+    it('is neutral at noon, so an authored colour is left exactly as authored', () => {
+        const light = lightAt(12);
+        assert.ok(light, 'a blended palette must carry one');
+        for (const channel of light) {
+            assert.ok(Math.abs(channel - 1) < 1e-6, `noon is not neutral: ${light}`);
+        }
+    });
+
+    it('is absent from an authored palette, which means neutral', () => {
+        // The noon palette *is* noon; there is nothing to apply to it. Callers
+        // read it as optional rather than having to special-case a value.
+        assert.strictEqual(HDNoonPalette.light, undefined);
+        assert.strictEqual(HDMidnightPalette.light, undefined);
+    });
+
+    it('lands a raw colour where its palette equivalent lands', () => {
+        // The whole point: a mod plane and a stock plane have to agree. Feed it
+        // the very colour the palette authored for airframes and it should come
+        // out close to what the palette made of that colour.
+        for (const hours of [12, 16, 18, 22]) {
+            const light = lightAt(hours);
+            const palette = daytimePalette(HDNoonPalette, HDMidnightPalette);
+
+            const authored = linear(HDNoonPalette.colors[LIT] as string);
+            const asRaw = authored.map((v, i) => v * light[i]);
+            const asPalette = linear(PaletteColor(palette, LIT) as string);
+
+            // Not equal: the authored night colour carries a hue of its own,
+            // and this takes only its level so a camo keeps its colour. The
+            // brightness is what has to match.
+            const ratio = relLuma(asRaw) / Math.max(relLuma(asPalette), 1e-9);
+            assert.ok(ratio > 0.75 && ratio < 1.33,
+                `${hours}h: raw is ${ratio.toFixed(2)}x its palette equivalent`);
+        }
+    });
+
+    it('darkens a raw colour by more than an order of magnitude by night', () => {
+        const noon = relLuma(lightAt(12));
+        const night = relLuma(lightAt(22));
+        assert.ok(night < noon / 10, `night ${night} is not far enough below noon ${noon}`);
+        assert.ok(night > 0, 'a raw colour must not go absolutely black');
+    });
+
+    it('carries the light colour, not just its level', () => {
+        // A sunset is warm, and a raw colour standing in it has to be warm too
+        // or a mod plane reads as a cut-out against the sky behind it.
+        setSunTime(18);
+        const light = daytimePalette(HDNoonPalette, HDMidnightPalette).light!;
+        assert.notStrictEqual(light[0], light[2], 'the light is colourless at sunset');
+    });
+});
+
 describe('daytimePalette', () => {
 
     it('reproduces the authored palettes at noon and in the small hours', () => {

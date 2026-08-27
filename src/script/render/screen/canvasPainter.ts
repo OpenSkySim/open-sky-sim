@@ -195,11 +195,6 @@ export class CanvasPainter {
         this.ctx.fillRect(x, y, width, height);
     }
 
-    /** Blit an image (used for OSM MFD tiles). */
-    drawImage(image: CanvasImageSource, dx: number, dy: number, dw: number, dh: number): void {
-        this.ctx.drawImage(image, dx, dy, dw, dh);
-    }
-
     hLine(x0: number, x1: number, y: number) {
         this.batch()
             .hLine(x0, x1, y)

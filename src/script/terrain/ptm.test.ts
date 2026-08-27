@@ -3,12 +3,12 @@ import { describe, it } from 'node:test';
 import {
     PTM_FLAG_HAS_LAND, PTM_FLAG_HAS_WATER, PTM_HEADER_BYTES, decodePtm, encodePtm, PtmEncodeInput,
 } from './ptm';
-import { TerrainTone } from './tones';
+import { TerrainClass, TerrainTone } from './tones';
 
 /**
- * A tile with 3 land triangles (one per land tone) and 2 water triangles
- * (one deep, one shallow) sharing an edge, so the encoder has to duplicate the
- * two vertices that straddle the deep/shallow boundary.
+ * A tile with 3 land triangles (each a different cover class and colour) and
+ * 2 water triangles (one deep, one shallow) sharing an edge, so the encoder
+ * has to duplicate the two vertices that straddle the deep/shallow boundary.
  */
 function sampleTile(): PtmEncodeInput {
     const tri = (ox: number, oz: number) => [
@@ -24,7 +24,15 @@ function sampleTile(): PtmEncodeInput {
         land: {
             positions: new Float32Array([...tri(0, 0), ...tri(200, 0), ...tri(400, 0)]),
             faceNormals: new Float32Array([0, 1, 0, 0.6, 0.8, 0, -0.6, 0.8, 0]),
-            tones: new Uint8Array([TerrainTone.Grass, TerrainTone.Sand, TerrainTone.Bare]),
+            // Distinct at every corner, so the codec cannot pass by accidentally
+            // repeating the face normal.
+            smoothNormals: new Float32Array([
+                0, 1, 0, 0.6, 0.8, 0, -0.6, 0.8, 0,
+                0.8, 0.6, 0, 0, 0.8, 0.6, 0, 0.6, -0.8,
+                -0.8, 0.6, 0, 0, 1, 0, 0.6, 0, 0.8,
+            ]),
+            classes: new Uint8Array([TerrainClass.Tree, TerrainClass.Sand, TerrainClass.Bare]),
+            colors: new Uint8Array([10, 90, 20, 220, 200, 150, 120, 110, 100]),
         },
         water: {
             // Quad split into two triangles sharing the 1-2 edge.
@@ -45,24 +53,22 @@ describe('PTM1 codec', () => {
         const input = sampleTile();
         const tile = decodePtm(encodePtm(input));
 
-        // Land triangles are re-ordered by tone, so compare as a set of
-        // (position -> tone) facts rather than by index.
         const seen = new Map<string, number>();
         for (let v = 0; v < tile.landPositions.length / 3; v++) {
             const x = tile.landPositions[v * 3] * tile.quantScale;
             const y = tile.landPositions[v * 3 + 1] * tile.quantScale;
             const z = tile.landPositions[v * 3 + 2] * tile.quantScale;
-            seen.set(`${Math.round(x)},${Math.round(y)},${Math.round(z)}`, tile.landTones[v]);
+            seen.set(`${Math.round(x)},${Math.round(y)},${Math.round(z)}`, tile.landAttrs[v * 4 + 3]);
         }
         const src = input.land.positions;
-        for (let t = 0; t < input.land.tones.length; t++) {
+        for (let t = 0; t < input.land.classes.length; t++) {
             for (let k = 0; k < 3; k++) {
                 const key = [
                     Math.round(src[t * 9 + k * 3]),
                     Math.round(src[t * 9 + k * 3 + 1]),
                     Math.round(src[t * 9 + k * 3 + 2]),
                 ].join(',');
-                assert.equal(seen.get(key), input.land.tones[t], `vertex ${key}`);
+                assert.equal(seen.get(key), input.land.classes[t], `vertex ${key}`);
             }
         }
 
@@ -79,7 +85,7 @@ describe('PTM1 codec', () => {
         const input = sampleTile();
         const tile = decodePtm(encodePtm(input));
         assert.deepEqual(tile.id, { z: 12, x: 3745, y: 1410 });
-        assert.equal(tile.version, 2);
+        assert.equal(tile.version, 4);
         assert.ok(Math.abs(tile.centerHeightM - 123.5) < 1e-4);
         assert.ok(Math.abs(tile.skirtDepthM - 7.25) < 1e-4);
         assert.equal(tile.flags & PTM_FLAG_HAS_LAND, PTM_FLAG_HAS_LAND);
@@ -87,17 +93,31 @@ describe('PTM1 codec', () => {
         assert.ok(tile.boundingRadiusM > 100, `radius ${tile.boundingRadiusM}`);
     });
 
-    it('groups land vertices contiguously by tone and sums to the total', () => {
-        const tile = decodePtm(encodePtm(sampleTile()));
-        const [sand, grass, bare] = tile.landGroups;
-        assert.equal(sand[1] + grass[1] + bare[1], tile.landPositions.length / 3);
-        assert.equal(sand[0], 0);
-        assert.equal(grass[0], sand[1]);
-        assert.equal(bare[0], sand[1] + grass[1]);
-        for (const [tone, [start, count]] of
-            [[TerrainTone.Sand, sand], [TerrainTone.Grass, grass], [TerrainTone.Bare, bare]] as const) {
-            for (let v = start; v < start + count; v++) {
-                assert.equal(tile.landTones[v], tone);
+    it('keeps land triangles in input order, one group, no bucketing', () => {
+        const input = sampleTile();
+        const tile = decodePtm(encodePtm(input));
+        assert.equal(tile.landAttrs.length / 4, input.land.classes.length * 3);
+        for (let t = 0; t < input.land.classes.length; t++) {
+            for (let k = 0; k < 3; k++) {
+                const v = t * 3 + k;
+                assert.equal(tile.landAttrs[v * 4 + 3], input.land.classes[t], `tri ${t} class`);
+            }
+        }
+    });
+
+    it('replicates a facet colour across its three vertices, byte-exact', () => {
+        const input = sampleTile();
+        const tile = decodePtm(encodePtm(input));
+        for (let t = 0; t < input.land.classes.length; t++) {
+            for (let k = 0; k < 3; k++) {
+                const v = t * 3 + k;
+                for (let c = 0; c < 3; c++) {
+                    assert.equal(
+                        tile.landAttrs[v * 4 + c],
+                        input.land.colors[t * 3 + c],
+                        `tri ${t} corner ${k} channel ${c}`,
+                    );
+                }
             }
         }
     });
@@ -127,7 +147,7 @@ describe('PTM1 codec', () => {
 
     it('keeps normals unit-length after int8 quantisation', () => {
         const tile = decodePtm(encodePtm(sampleTile()));
-        for (let v = 0; v < tile.landTones.length; v++) {
+        for (let v = 0; v < tile.landAttrs.length / 4; v++) {
             const nx = tile.landNormals[v * 4] / 127;
             const ny = tile.landNormals[v * 4 + 1] / 127;
             const nz = tile.landNormals[v * 4 + 2] / 127;
@@ -139,7 +159,7 @@ describe('PTM1 codec', () => {
 
     it('gives all three vertices of a land triangle the same normal', () => {
         const tile = decodePtm(encodePtm(sampleTile()));
-        for (let t = 0; t < tile.landTones.length / 3; t++) {
+        for (let t = 0; t < tile.landAttrs.length / 12; t++) {
             for (let k = 1; k < 3; k++) {
                 for (let c = 0; c < 3; c++) {
                     assert.equal(
@@ -196,7 +216,9 @@ describe('PTM1 codec', () => {
         input.land = {
             positions: new Float32Array(0),
             faceNormals: new Float32Array(0),
-            tones: new Uint8Array(0),
+            smoothNormals: new Float32Array(0),
+            classes: new Uint8Array(0),
+            colors: new Uint8Array(0),
         };
         const tile = decodePtm(encodePtm(input));
         assert.equal(tile.flags & PTM_FLAG_HAS_LAND, 0);
@@ -235,21 +257,66 @@ describe('PTM1 codec', () => {
         assert.throws(() => decodePtm(badVersion), /version/);
     });
 
-    it('rejects a tone that belongs to the other stream', () => {
+    it('rejects a land tone smuggled into the water stream', () => {
         const landInWater = sampleTile();
         landInWater.water.tones = new Uint8Array([TerrainTone.Grass, TerrainTone.ShallowWater]);
         assert.throws(() => encodePtm(landInWater), /non-water tone/);
+    });
 
-        const waterInLand = sampleTile();
-        waterInLand.land.tones = new Uint8Array([
-            TerrainTone.Water, TerrainTone.Sand, TerrainTone.Bare,
-        ]);
-        assert.throws(() => encodePtm(waterInLand), /non-land tone/);
+    it('rejects a cover class the attribute nibble cannot hold', () => {
+        const bad = sampleTile();
+        bad.land.classes = new Uint8Array([TerrainClass.Tree, 16, TerrainClass.Bare]);
+        assert.throws(() => encodePtm(bad), /class 16/);
+    });
+
+    it('names the re-bake in the version error, since that is the only fix', () => {
+        const bytes = encodePtm(sampleTile());
+        const stale = bytes.slice();
+        stale[4] = 3;
+        assert.throws(() => decodePtm(stale), /bake:mesh/);
+    });
+
+    it('carries a separate smooth normal per vertex', () => {
+        const input = sampleTile();
+        const tile = decodePtm(encodePtm(input));
+        assert.equal(tile.landSmoothNormals.length, tile.landNormals.length);
+        for (let v = 0; v < input.land.smoothNormals.length / 3; v++) {
+            for (let c = 0; c < 3; c++) {
+                const want = Math.round(input.land.smoothNormals[v * 3 + c] * 127);
+                assert.equal(tile.landSmoothNormals[v * 4 + c], want, `vertex ${v} axis ${c}`);
+            }
+            assert.equal(tile.landSmoothNormals[v * 4 + 3], 0, 'pad byte');
+        }
+    });
+
+    it('keeps the smooth normal independent of the face normal', () => {
+        // The whole point of baking both: if they were forced equal the smooth
+        // shading path would be indistinguishable from the flat one.
+        const tile = decodePtm(encodePtm(sampleTile()));
+        let differing = 0;
+        for (let v = 0; v < tile.landNormals.length / 4; v++) {
+            for (let c = 0; c < 3; c++) {
+                if (tile.landNormals[v * 4 + c] !== tile.landSmoothNormals[v * 4 + c]) {
+                    differing++;
+                    break;
+                }
+            }
+        }
+        assert.ok(differing > 0, 'smooth normals must not just mirror the face normals');
     });
 
     it('rejects inconsistent input array lengths', () => {
         const bad = sampleTile();
         bad.land.faceNormals = new Float32Array([0, 1, 0]);
         assert.throws(() => encodePtm(bad), /land normals/);
+
+        const shortColors = sampleTile();
+        shortColors.land.colors = new Uint8Array([1, 2, 3]);
+        assert.throws(() => encodePtm(shortColors), /land colors/);
+
+        // Nine floats per triangle, not three: this one is per vertex.
+        const shortSmooth = sampleTile();
+        shortSmooth.land.smoothNormals = new Float32Array([0, 1, 0]);
+        assert.throws(() => encodePtm(shortSmooth), /land smooth normals/);
     });
 });

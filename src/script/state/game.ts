@@ -30,7 +30,10 @@ import { GroundTargetEntity } from '../scene/entities/groundTarget';
 import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
 import { ARRESTOR_CARRIER_ORIGIN, ArrestorCarrierPose } from '../scene/entities/arrestorCables';
 import { ShipWakeEntity } from '../scene/entities/shipWake';
-import { CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize } from '../scene/entities/overlay/cockpit';
+import {
+    CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize,
+    MAP_CAMERA_ALTITUDE, MAP_CAMERA_FAR, MAP_CAMERA_HALF_EXTENT, MAP_CAMERA_NEAR,
+} from '../scene/entities/overlay/cockpit';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
 import { HUDEntity } from '../scene/entities/overlay/hud';
 import { PerfHudEntity } from '../scene/entities/overlay/perfHud';
@@ -91,7 +94,6 @@ import {
     DEFAULT_TERRAIN_URL, SPACE_SKY_ALTITUDE_M, TerrainEntity, cameraFarForAltitudeM,
     isTerrainWireframe, loadTerrainManifest, setTerrainWireframe,
 } from '../terrain';
-import { OsmMapEntity } from '../scene/entities/osmMap';
 import {
     AIRBASE_LOCAL, TARGET_LOCAL, airbaseOffset, PLAY_ORIGIN, SCENERY_SURFACE_EPS_M,
 } from './worldLayout';
@@ -338,8 +340,6 @@ export class Game {
     private readonly stagedSceneryMeshes: CarrierMeshCollider[] = [];
     /** Geographic DEM / ocean terrain when `terrain=planet` (default). */
     private planetTerrain!: TerrainEntity;
-    /** Canvas OSM for left MFD; when set, WebGL MAP target is skipped. */
-    private osmMapEntity: OsmMapEntity | undefined;
     /** Atmospheric sky dome; disabled above {@link SPACE_SKY_ALTITUDE_M}. */
     private skyEntity: SimpleEntity | undefined;
     /** Its vertex colours, repainted from the atmosphere when the sun moves. */
@@ -470,9 +470,12 @@ export class Game {
 
         this.playerCamera = new SceneCamera(new THREE.PerspectiveCamera(COCKPIT_FOV, H_RES / V_RES, PLANE_DISTANCE_TO_GROUND, COCKPIT_FAR));
         this.targetCamera = new SceneCamera(new THREE.PerspectiveCamera(COCKPIT_FOV, 1, PLANE_DISTANCE_TO_GROUND, COCKPIT_FAR));
-        this.mapCamera = new THREE.OrthographicCamera(-10000, 10000, 10000, -10000, 10, 1000);
+        this.mapCamera = new THREE.OrthographicCamera(
+            -MAP_CAMERA_HALF_EXTENT, MAP_CAMERA_HALF_EXTENT,
+            MAP_CAMERA_HALF_EXTENT, -MAP_CAMERA_HALF_EXTENT,
+            MAP_CAMERA_NEAR, MAP_CAMERA_FAR);
         this.mapCamera.setRotationFromAxisAngle(RIGHT, -Math.PI / 2);
-        this.mapCamera.position.set(0, 500, 0);
+        this.mapCamera.position.set(0, MAP_CAMERA_ALTITUDE, 0);
 
         this.currentDef = buildF22Def();
         this.player = new PlayerEntity(this.models,
@@ -1697,13 +1700,6 @@ export class Game {
                 }
             }
         }
-        // Canvas OSM paints MFD1; empty WebGL MAP target would cover it (compose order).
-        if (this.osmMapEntity) {
-            layers = layers.filter(l =>
-                l.target !== MAP_RENDER_TARGET_LO
-                && l.target !== MAP_RENDER_TARGET_HI
-                && l.target !== MAP_RENDER_TARGET_HD);
-        }
         this.applySpaceClearColor(layers);
         this.renderer.render(this.scene, layers);
     }
@@ -2769,6 +2765,7 @@ export class Game {
             manifestUrl: DEFAULT_TERRAIN_URL,
             materials: this.materials,
             enuOrigin: PLAY_ORIGIN,
+            terrainColour: this.configService.terrainColour,
         });
         await this.planetTerrain.load(DEFAULT_TERRAIN_URL);
         this.planetTerrain.setLodCamera(this.playerCamera.main);
@@ -2780,9 +2777,6 @@ export class Game {
         // the re-mesh it forced were the slowest step in the old boot.
         await this.preloadTerrainAroundPlane(center.x, center.z, spawn);
         setBootProgress(50, 'Building terrain meshes...');
-        this.osmMapEntity = new OsmMapEntity(this.planetTerrain.basis);
-        this.scene.add(this.osmMapEntity);
-
         setBootProgress(60, 'Loading airbase...');
         await this.addAirBase(this.scene, this.models);
 
@@ -2818,7 +2812,7 @@ export class Game {
         this.scene.add(hud);
 
         const cockpit = new CockpitEntity(
-            this.player, this.playerCamera.main, this.targetCamera.main, this.mapCamera, this.osmMapEntity,
+            this.player, this.playerCamera.main, this.targetCamera.main, this.mapCamera,
         );
         this.cockpitEntities.push(cockpit);
         this.scene.add(cockpit);

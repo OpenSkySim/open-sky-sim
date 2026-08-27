@@ -43,7 +43,13 @@ import { TileStore } from './tileStore';
 import { TileStreamer, TileWant, predictViewTarget } from './tileStreamer';
 import { TileKey, approxTileEdgeMetres, tileKeyString } from './tiling';
 import { enuToGeodeticApprox } from './geodesy';
-import { TONE_COUNT, TerrainTone } from './tones';
+import {
+    CLASS_TO_TONE, LAND_TONE_BASE, LAND_TONE_COUNT, TONE_COUNT, TerrainTone,
+} from './tones';
+import {
+    TERRAIN_COLOUR_MODE_INDEX, TERRAIN_COLOUR_SMOOTH, TerrainColours,
+} from '../state/gameDefs';
+import { TerrainColourSetting } from '../config/configService';
 import { publishTerrainStats, trackTerrainMaterial } from './debug';
 
 const TONE_CATEGORIES: Record<number, PaletteCategory> = {
@@ -52,7 +58,28 @@ const TONE_CATEGORIES: Record<number, PaletteCategory> = {
     [TerrainTone.Sand]: PaletteCategory.TERRAIN_SAND,
     [TerrainTone.Grass]: PaletteCategory.TERRAIN_GRASS,
     [TerrainTone.Bare]: PaletteCategory.TERRAIN_BARE,
+    [TerrainTone.Forest]: PaletteCategory.TERRAIN_FOREST,
+    [TerrainTone.Scrub]: PaletteCategory.TERRAIN_SCRUB,
+    [TerrainTone.Crop]: PaletteCategory.TERRAIN_CROP,
+    [TerrainTone.Urban]: PaletteCategory.TERRAIN_URBAN,
+    [TerrainTone.Snow]: PaletteCategory.TERRAIN_SNOW,
+    [TerrainTone.Wetland]: PaletteCategory.TERRAIN_WETLAND,
 };
+
+/**
+ * HYBRID mode banding: how many shade steps the imagery's luminance is cut
+ * into, and how far the outermost step moves the palette tone.
+ *
+ * Five steps at +-35% is where it stopped reading as noise and started reading
+ * as terrain: fewer and a hillside is one flat slab, more and neighbouring
+ * facets stop sharing a step, which is the thing that makes it look painted
+ * rather than photographed.
+ */
+const HYBRID_SHADE_STEPS = 5;
+const HYBRID_SHADE_RANGE = 0.35;
+
+/** Used when the pyramid predates the bake measuring its own luminance. */
+const HYBRID_SHADE_FALLBACK = { mid: 0.5, spread: 0.2 };
 
 export interface TerrainEntityOptions {
     manifest: TerrainManifest;
@@ -61,6 +88,8 @@ export interface TerrainEntityOptions {
     /** Override the ENU origin; defaults to the manifest's. */
     enuOrigin?: { lat: number; lon: number; height?: number };
     maxZoom?: number;
+    /** Live terrain colour mode. Omit and the entity stays on its default. */
+    terrainColour?: TerrainColourSetting;
 }
 
 export interface TerrainStats {
@@ -96,6 +125,17 @@ export class TerrainEntity implements Entity {
     private readonly oceans = new Map<string, OceanPatch>();
     private readonly pinned = new Set<string>();
     private readonly earthCenter: THREE.Vector3;
+    private readonly landMaterial: THREE.ShaderMaterial;
+
+    /**
+     * Switch colour model and shading. Two uniforms: every setting reads the
+     * same baked bytes - both normals travel with every tile - so nothing
+     * re-streams, re-uploads or re-meshes.
+     */
+    setTerrainColour(mode: TerrainColours): void {
+        this.landMaterial.uniforms.uTerrainMode.value = TERRAIN_COLOUR_MODE_INDEX[mode];
+        this.landMaterial.uniforms.uSmoothShading.value = TERRAIN_COLOUR_SMOOTH[mode] ? 1 : 0;
+    }
 
     private meshIndex: TileIndex | undefined;
     private lodCamera: THREE.Camera | undefined;
@@ -120,25 +160,62 @@ export class TerrainEntity implements Entity {
 
         const base = baseUrlOf(opts.manifestUrl);
 
+        // Land is a single material now: colour is a per-facet decision inside
+        // the shader, so the three tone materials it used to need have become
+        // one uniform. The array is still indexed by tone, because water's two
+        // groups are draw-group indices into it and the ocean patch reaches in
+        // by TerrainTone.Water.
+        this.landMaterial = opts.materials.build({
+            type: SceneMaterialPrimitiveType.MESH,
+            category: PaletteCategory.TERRAIN_GRASS,
+            depthWrite: true,
+            shaded: true as const,
+            terrain: {
+                toneCategories: Array.from(
+                    { length: LAND_TONE_COUNT },
+                    (_, i) => TONE_CATEGORIES[LAND_TONE_BASE + i],
+                ),
+                classTones: CLASS_TO_TONE.map(tone => tone - LAND_TONE_BASE),
+                swatches: opts.manifest.mesh.swatches ?? [],
+                shadeSteps: HYBRID_SHADE_STEPS,
+                shadeRange: HYBRID_SHADE_RANGE,
+                shadeMid: (opts.manifest.mesh.luminance ?? HYBRID_SHADE_FALLBACK).mid,
+                shadeSpread: (opts.manifest.mesh.luminance ?? HYBRID_SHADE_FALLBACK).spread,
+            },
+        }) as THREE.ShaderMaterial;
+        this.landMaterial.side = THREE.DoubleSide;
+        this.landMaterial.polygonOffset = true;
+        this.landMaterial.polygonOffsetFactor = 1;
+        this.landMaterial.polygonOffsetUnits = 1;
+        trackTerrainMaterial(this.landMaterial);
+
         for (let tone = 0; tone < TONE_COUNT; tone++) {
             // Water is a flat palette fill: no sun shade, no normal smoothing.
             const water = tone === TerrainTone.Water || tone === TerrainTone.ShallowWater;
+            if (!water) {
+                this.materials.push(this.landMaterial);
+                continue;
+            }
             const mat = opts.materials.build({
                 type: SceneMaterialPrimitiveType.MESH,
                 category: TONE_CATEGORIES[tone],
                 depthWrite: true,
-                ...(water
-                    ? { shaded: false as const, highp: true }
-                    : { shaded: true as const }),
+                shaded: false as const,
+                highp: true,
             }) as THREE.ShaderMaterial;
             mat.side = THREE.DoubleSide;
             mat.polygonOffset = true;
             // Water sits farther back than land so a coplanar beach edge
             // resolves to land rather than sky-coloured sparkles.
-            mat.polygonOffsetFactor = water ? 2 : 1;
-            mat.polygonOffsetUnits = water ? 2 : 1;
+            mat.polygonOffsetFactor = 2;
+            mat.polygonOffsetUnits = 2;
             trackTerrainMaterial(mat);
             this.materials.push(mat);
+        }
+
+        if (opts.terrainColour) {
+            this.setTerrainColour(opts.terrainColour.getActive());
+            opts.terrainColour.addChangeListener(mode => this.setTerrainColour(mode));
         }
 
         this.meshStore = new TileStore<PtmTile>({
@@ -146,7 +223,8 @@ export class TerrainEntity implements Entity {
             url: (id) => meshTileUrl(this.manifest, id.z, id.x, id.y, base),
             decode: (buf) => decodePtm(buf),
             sizeOf: (t) => t.landPositions.byteLength + t.waterPositions.byteLength
-                + t.landNormals.byteLength + t.waterIndices.byteLength,
+                + t.landNormals.byteLength + t.landSmoothNormals.byteLength
+                + t.landAttrs.byteLength + t.waterIndices.byteLength,
             maxBytes: MESH_CACHE_BYTES,
             exists: (id) => (this.meshIndex ? this.meshIndex.has(id) : true),
         });
@@ -317,7 +395,10 @@ export class TerrainEntity implements Entity {
             this.viewportHeightPx = targetHeight;
             this.reconcile(camera);
         }
-        const list = lists.get(SceneLayers.Terrain);
+        // MapBasemap is the MFD moving map's own list: the same tiles, drawn
+        // by the top-down ortho pass. It never appears in the same layer as
+        // Terrain, so one lookup or the other hits, never both.
+        const list = lists.get(SceneLayers.Terrain) ?? lists.get(SceneLayers.MapBasemap);
         if (list) {
             // Must go through attachToRenderList, not list.add: the renderer
             // stamps a generation on each build pass and pruneRenderList drops

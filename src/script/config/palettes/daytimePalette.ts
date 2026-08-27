@@ -152,6 +152,40 @@ function isUnlit(category: PaletteCategory): boolean {
     return UNLIT_PREFIXES.some(prefix => (category as string).startsWith(prefix));
 }
 
+/**
+ * The category whose day-to-night travel stands for every lit surface.
+ *
+ * Airframe grey, because it is what the raw colours this is for are: a neutral
+ * mid-grey with no hue of its own to skew the ratio, authored at both ends.
+ */
+const LIT_REFERENCE = PaletteCategory.VEHICLE_PLANE_GREY;
+
+/** A dither pair's first tone, or the colour itself. */
+function firstTone(entry: string | [string, string]): string {
+    return typeof entry === 'string' ? entry : entry[0];
+}
+
+/**
+ * What a colour the palette does not own must be multiplied by to sit in the
+ * same light as one it does. See {@link Palette.light}.
+ *
+ * Two parts, matching what a palette entry itself gets. The authored travel
+ * from day to night is taken as a scalar - the reference category's luminance
+ * ratio - rather than as a colour, because a raw colour has no authored night
+ * counterpart to blend towards and pulling it towards the reference's grey
+ * would drain a mod's camo to nothing. The atmosphere's own gain then goes on
+ * top in full colour, so the light stays warm through a sunset.
+ */
+function lightFor(day: Palette, night: Palette, sky: SkySample): Rgb {
+    const dayLuma = luma(linearOf(firstTone(day.colors[LIT_REFERENCE])));
+    const nightLuma = luma(linearOf(firstTone(night.colors[LIT_REFERENCE])));
+    const level = dayLuma > 1e-6
+        ? 1 + (nightLuma / dayLuma - 1) * sky.nightMix
+        : 1;
+    const gain = gainForSlot(sky, SkySlot.GROUND);
+    return [gain[0] * level, gain[1] * level, gain[2] * level];
+}
+
 function blendColor(dayCss: string, nightCss: string, nightMix: number, gain: Rgb): string {
     const base = mix(linearOf(dayCss), linearOf(nightCss), nightMix);
     return toHex(toSrgb([base[0] * gain[0], base[1] * gain[1], base[2] * gain[2]]));
@@ -198,6 +232,7 @@ export function blendPalettes(day: Palette, night: Palette, sky: SkySample): Pal
         colors,
         values,
         time: nightMix < NIGHT_MODELS_THRESHOLD ? PaletteTime.DAY : PaletteTime.NIGHT,
+        light: lightFor(day, night, sky),
     };
 }
 

@@ -9,8 +9,13 @@
  * the runtime needs no mesh workers at all.
  *
  * Two meshes come out per tile — land and water — because the streams have
- * different vertex layouts. Each carries one draw group per tone, so a tile is
- * at most five draws, matching what the old system did.
+ * different vertex layouts. Water carries one draw group per tone; land is a
+ * single group whose colour the shader resolves per vertex from the baked
+ * cover attribute, so a tile is at most three draws.
+ *
+ * Two normals per land vertex are bound, not one: the facet's own and the
+ * average of the facets meeting at that vertex. Which one shades is a uniform,
+ * so flat and Gouraud are the same geometry.
  *
  * Tiles are placed by translation only, never rotation. The shaded vertex
  * program treats the normal attribute as world-space in the STATIC and DUOTONE
@@ -22,7 +27,7 @@ import * as THREE from 'three';
 import { EnuBasis, ecefToEnu, geodeticToEcef } from './geodesy';
 import { PtmTile } from './ptm';
 import { TileKey, tileBounds } from './tiling';
-import { TerrainTone } from './tones';
+import { LAND_TONE_BASE, TerrainTone } from './tones';
 
 export interface TileMeshes {
     group: THREE.Group;
@@ -51,12 +56,23 @@ function landGeometry(tile: PtmTile): THREE.BufferGeometry | undefined {
         new THREE.InterleavedBufferAttribute(normalBuffer, 3, 0, true),
     );
 
-    for (let slot = 0; slot < tile.landGroups.length; slot++) {
-        const [start, count] = tile.landGroups[slot];
-        if (count > 0) {
-            g.addGroup(start, count, TerrainTone.Sand + slot);
-        }
-    }
+    const smoothBuffer = new THREE.InterleavedBuffer(
+        tile.landSmoothNormals as unknown as Int8Array, 4);
+    g.setAttribute(
+        'smoothNormal',
+        new THREE.InterleavedBufferAttribute(smoothBuffer, 3, 0, true),
+    );
+
+    // One buffer, two views: the colour wants normalising to 0..1, the class
+    // index does not. Splitting them into separate attributes would mean two
+    // uploads of data that is already interleaved on the wire.
+    const attrBuffer = new THREE.InterleavedBuffer(tile.landAttrs, 4);
+    g.setAttribute('coverColor', new THREE.InterleavedBufferAttribute(attrBuffer, 3, 0, true));
+    g.setAttribute('coverClass', new THREE.InterleavedBufferAttribute(attrBuffer, 1, 3, false));
+
+    // Land is one draw: the shader resolves colour per vertex from coverColor
+    // and coverClass, so there is nothing left to bucket into tone groups.
+    g.addGroup(0, vertexCount, LAND_TONE_BASE);
     return g;
 }
 
@@ -116,7 +132,8 @@ export function buildTileMeshes(
         }
         group.add(mesh);
         meshes.land = mesh;
-        bytes += tile.landPositions.byteLength + tile.landNormals.byteLength;
+        bytes += tile.landPositions.byteLength + tile.landNormals.byteLength
+            + tile.landSmoothNormals.byteLength + tile.landAttrs.byteLength;
     }
 
     const wg = waterGeometry(tile);

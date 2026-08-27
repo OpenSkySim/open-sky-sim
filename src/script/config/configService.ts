@@ -1,6 +1,6 @@
 import { FlightModel } from "../physics/model/flightModel";
 import { DEFAULT_SUN_HOURS } from "../scene/materials/shaders/sun";
-import { AiPilotModels, ShadowQualities, UnitSystems } from "../state/gameDefs";
+import { AiPilotModels, ShadowQualities, TerrainColours, UnitSystems } from "../state/gameDefs";
 import { assertExpr, assertIsDefined } from "../utils/asserts";
 import { TechProfile } from "./profiles/profile";
 
@@ -9,6 +9,7 @@ export type FlightModelChangeListener = (flightModel: FlightModel, newId: string
 export type UnitSystemChangeListener = (unitSystem: UnitSystems) => void;
 export type AiPilotModelChangeListener = (model: AiPilotModels) => void;
 export type ShadowQualityChangeListener = (quality: ShadowQualities) => void;
+export type TerrainColourChangeListener = (mode: TerrainColours) => void;
 export type DaytimeChangeListener = (hours: number) => void;
 
 export class ConfigService {
@@ -18,6 +19,7 @@ export class ConfigService {
     readonly unitSystem: UnitSystemSetting;
     readonly aiPilotModels: AiPilotModelSetting;
     readonly shadowQuality: ShadowQualitySetting;
+    readonly terrainColour: TerrainColourSetting;
     readonly daytime: DaytimeSetting;
 
     constructor(
@@ -28,12 +30,14 @@ export class ConfigService {
         initialAiPilotModel?: AiPilotModels,
         initialShadowQuality?: ShadowQualities,
         initialDaytime?: number,
+        initialTerrainColour?: TerrainColours,
     ) {
         this.techProfiles = new ConfigSet(profiles, initialTechProfile);
         this.flightModels = new ConfigSet(flightModels, initialFlightModel);
         this.unitSystem = new UnitSystemSetting();
         this.aiPilotModels = new AiPilotModelSetting(initialAiPilotModel);
         this.shadowQuality = new ShadowQualitySetting(initialShadowQuality);
+        this.terrainColour = new TerrainColourSetting(initialTerrainColour);
         this.daytime = new DaytimeSetting(initialDaytime);
     }
 }
@@ -192,6 +196,46 @@ export class AiPilotModelSetting {
     }
 
     removeChangeListener(listener: AiPilotModelChangeListener) {
+        this.listeners.delete(listener);
+    }
+}
+
+/**
+ * Which of the four terrain colour models is on screen.
+ *
+ * Every one of them is served by the same baked bytes, so this is a uniform
+ * write and nothing else - no re-stream, no re-upload, no re-bake.
+ */
+export class TerrainColourSetting {
+    private active: TerrainColours;
+    private listeners: Set<TerrainColourChangeListener> = new Set();
+
+    constructor(initialActive: TerrainColours = TerrainColours.HYBRID) {
+        this.active = initialActive;
+    }
+
+    getActive(): TerrainColours {
+        return this.active;
+    }
+
+    setActive(mode: TerrainColours) {
+        if (mode === this.active) return;
+        this.active = mode;
+        this.notifyActive();
+    }
+
+    /** Push the current value to listeners (used once after they register). */
+    notifyActive() {
+        for (const listener of this.listeners.values()) {
+            listener(this.active);
+        }
+    }
+
+    addChangeListener(listener: TerrainColourChangeListener) {
+        this.listeners.add(listener);
+    }
+
+    removeChangeListener(listener: TerrainColourChangeListener) {
         this.listeners.delete(listener);
     }
 }

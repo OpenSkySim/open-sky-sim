@@ -10,7 +10,10 @@ export const LOG_DEPTH_PARS_VERTEX = `
 export const LOG_DEPTH_VERTEX = `
 #ifdef USE_LOGARITHMIC_DEPTH_BUFFER
   vFragDepth = 1.0 + gl_Position.w;
-  vIsPerspective = 1.0;
+  // Orthographic projections leave w at 1, so the log curve would hand every
+  // fragment the same depth and the pass would z-fight itself. Same test
+  // Three's own chunk makes; the ortho branch falls back to gl_FragCoord.z.
+  vIsPerspective = projectionMatrix[2][3] == -1.0 ? 1.0 : 0.0;
 #endif
 `;
 

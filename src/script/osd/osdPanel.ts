@@ -3,7 +3,7 @@ import { updateSettings } from "../config/settingsStorage";
 import { JoystickControlDevice } from "../input/devices/joystickControlDevice";
 import { KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts } from "../input/devices/keyboardControlDevice";
 import { formatSunTime } from "../scene/materials/shaders/sun";
-import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles, UnitSystems } from "../state/gameDefs";
+import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles, TerrainColours, UnitSystems } from "../state/gameDefs";
 import { assertIsDefined } from "../utils/asserts";
 
 
@@ -12,6 +12,7 @@ export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDe
     setupGenerationOptions(config);
     setupDaytime(config);
     setupShadowQuality(config);
+    setupTerrainColour(config);
     setupFlightModel(config);
     setupUnitSystem(config);
     setupAiPilotModel(config);
@@ -124,6 +125,28 @@ function setupShadowQuality(config: ConfigService) {
         input.addEventListener('change', () => {
             config.shadowQuality.setActive(quality);
             updateSettings({ shadowQuality: quality });
+        });
+    }
+}
+
+const TERRAIN_COLOUR_RADIO_IDS: Record<TerrainColours, string> = {
+    [TerrainColours.LANDCOVER]: 'terraincolour-landcover',
+    [TerrainColours.SWATCH]: 'terraincolour-swatch',
+    [TerrainColours.HYBRID]: 'terraincolour-hybrid',
+    [TerrainColours.IMAGERY]: 'terraincolour-imagery',
+    [TerrainColours.LANDCOVER_SMOOTH]: 'terraincolour-landcover-smooth',
+    [TerrainColours.SWATCH_SMOOTH]: 'terraincolour-swatch-smooth',
+    [TerrainColours.HYBRID_SMOOTH]: 'terraincolour-hybrid-smooth',
+    [TerrainColours.IMAGERY_SMOOTH]: 'terraincolour-imagery-smooth',
+};
+
+function setupTerrainColour(config: ConfigService) {
+    for (const mode of Object.values(TerrainColours)) {
+        const input = document.getElementById(TERRAIN_COLOUR_RADIO_IDS[mode]);
+        assertIsDefined(input);
+        input.addEventListener('change', () => {
+            config.terrainColour.setActive(mode);
+            updateSettings({ terrainColour: mode });
         });
     }
 }
@@ -263,6 +286,7 @@ function syncSettingsUI(config: ConfigService, keyboardInput: KeyboardControlDev
     checkRadio(keyboardLayoutRadioIds[keyboardInput.getKeyboardLayoutId()]);
     checkRadio(aiPilotModelRadioIds[config.aiPilotModels.getActive()]);
     checkRadio(SHADOW_QUALITY_RADIO_IDS[config.shadowQuality.getActive()]);
+    checkRadio(TERRAIN_COLOUR_RADIO_IDS[config.terrainColour.getActive()]);
 }
 
 function checkRadio(id: string | undefined) {

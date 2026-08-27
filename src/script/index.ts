@@ -51,6 +51,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         settings.aiPilotModel,
         settings.shadowQuality,
         settings.daytime,
+        settings.terrainColour,
     );
     config.flightModels.getActive().activate();
     // Place the sun before the first material is built, so the shaded ramp and

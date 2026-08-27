@@ -34,8 +34,15 @@ generated from `data/output_hh.tif` (tracked) plus OpenStreetMap coastlines:
 $ pip install rasterio numpy shapely requests
 $ python tools/bake_planet_dem.py --input data/output_hh.tif --out assets/planet
 $ python tools/bake_osm_coast.py --manifest assets/planet/manifest.json
+$ npm run fetch:cover        # landcover + satellite imagery, optional
+$ npm run bake:cover
 $ npm run bake:mesh
 ```
+
+The cover stage is what gives terrain its colour: every facet is baked with
+both a landcover class and a satellite colour, and the *Terrain colour*
+setting picks which one paints it. Skip those two commands and the terrain
+comes out a uniform green.
 
 See [`tools/README.md`](tools/README.md#planet-terrain) for the options, and
 `npm run verify:planet` to check a baked tree.

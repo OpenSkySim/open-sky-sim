@@ -9,7 +9,7 @@ export enum SceneLayers {
     BackgroundSky = 'BackgroundSky',
     BackgroundGround = 'BackgroundGround',
     Terrain = 'Terrain',
-    /** Ortho MFD basemap (OSM tiles) — not drawn in the main 3D view. */
+    /** Ortho MFD basemap — not drawn in the main 3D view. */
     MapBasemap = 'MapBasemap',
     EntityFlats = 'EntityFlats',
     EntityVolumes = 'EntityVolumes',

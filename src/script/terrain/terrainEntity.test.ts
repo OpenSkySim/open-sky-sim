@@ -88,6 +88,23 @@ describe('TerrainEntity render list attachment', () => {
         }
     });
 
+    /**
+     * The MFD moving map is its own layer, drawn by the top-down ortho pass
+     * over the same tiles. Without this the map target renders nothing and
+     * MFD1 is blank.
+     */
+    it('attaches to the map basemap pass', () => {
+        const entity = makeEntity();
+        const list = new THREE.Scene();
+        const lists = new Map<string, THREE.Scene>([[SceneLayers.MapBasemap, list]]);
+
+        beginRenderListPass(list, 1);
+        entity.render3D(256, 256, camera(), lists, null as never);
+        pruneRenderList(list);
+
+        assert.equal(list.children.length, 1, 'terrain group reached the map pass');
+    });
+
     it('does not attach to a pass that has no terrain layer', () => {
         const entity = makeEntity();
         const other = new THREE.Scene();

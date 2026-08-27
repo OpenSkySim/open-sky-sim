@@ -13,6 +13,10 @@ import { ParticleMeshFragProgram } from './shaders/particlesMeshFP';
 import { ParticleMeshVertProgram } from './shaders/particlesMeshVP';
 import { PointVertProgram } from './shaders/pointVP';
 import { ShadedVertProgram } from './shaders/shadedVP';
+import { TerrainFragProgram } from './shaders/terrainFP';
+import {
+    TERRAIN_CLASS_COUNT, TERRAIN_SWATCH_COUNT, TERRAIN_TONE_COUNT, TerrainVertProgram,
+} from './shaders/terrainVP';
 import { SUN_UNIFORMS } from './shaders/sun';
 
 
@@ -46,11 +50,40 @@ export interface SceneMaterialCommonProperties {
     colorDither?: boolean;
 }
 
+/**
+ * Turns a shaded mesh material into the terrain one: colour comes from the
+ * mesh's own baked cover attributes rather than from this material's category.
+ *
+ * The material still owns everything else a terrain surface needs to match its
+ * surroundings - the sun, the fog, the resolution snapping - so this is a
+ * variant of the shaded material rather than a separate system.
+ */
+export interface TerrainMaterialSpec {
+    /**
+     * Palette category per land tone, index 0 being the first land tone. Read
+     * on every palette change, so time of day reaches the LANDCOVER and HYBRID
+     * modes the same way it reaches everything else.
+     */
+    toneCategories: readonly PaletteCategory[];
+    /** Land tone index per cover class, in the same 0-based basis as above. */
+    classTones: readonly number[];
+    /** `#rrggbb` colours the SWATCH mode snaps to, from the bake manifest. */
+    swatches: readonly string[];
+    /** HYBRID mode: how many shade bands, and how far they reach either way. */
+    shadeSteps: number;
+    shadeRange: number;
+    /** The bake's mean sRGB luminance, and one standard deviation of it. */
+    shadeMid: number;
+    shadeSpread: number;
+}
+
 export type SceneMaterialMeshProperties = {
     type: SceneMaterialPrimitiveType.MESH;
 } & (
         {
             shaded: true;
+            /** Present on the terrain land material only. */
+            terrain?: TerrainMaterialSpec;
             /**
              * Discard fragments with world Y below this (metres). Used to hide
              * ship hull below the waterline. Omit / undefined = no clip.
@@ -160,6 +193,7 @@ export interface SceneShadedMaterialData {
     shaded: true;
     /** Absolute ENU Y waterline clip (metres); adjusted by RENDER_ORIGIN each draw. */
     clipBelowYAbs: number;
+    terrain?: TerrainMaterialSpec;
 }
 
 export class SceneMaterialManager implements KernelTask {
@@ -168,6 +202,7 @@ export class SceneMaterialManager implements KernelTask {
     private readonly highpFlatProto: THREE.ShaderMaterial;
     private readonly lineProto: THREE.ShaderMaterial;
     private readonly shadedProto: THREE.ShaderMaterial;
+    private readonly terrainProto: THREE.ShaderMaterial;
     private readonly pointProto: THREE.ShaderMaterial;
     private readonly particleMeshProto: THREE.ShaderMaterial;
     private readonly impostorProto: THREE.ShaderMaterial;
@@ -211,6 +246,14 @@ export class SceneMaterialManager implements KernelTask {
         this.shadedProto = new THREE.ShaderMaterial({
             vertexShader: ShadedVertProgram,
             fragmentShader: ConstantFragProgram,
+            side: THREE.FrontSide,
+            depthWrite: true,
+            userData: {},
+            uniforms: {}
+        });
+        this.terrainProto = new THREE.ShaderMaterial({
+            vertexShader: TerrainVertProgram,
+            fragmentShader: TerrainFragProgram,
             side: THREE.FrontSide,
             depthWrite: true,
             userData: {},
@@ -307,6 +350,7 @@ export class SceneMaterialManager implements KernelTask {
             fog: this.fog,
             ...(shaded ? {
                 clipBelowYAbs: typeof properties.clipBelowY === 'number' ? properties.clipBelowY : -1e30,
+                terrain: properties.terrain,
             } : {}),
             ramp: (properties.type === SceneMaterialPrimitiveType.PARTICLE_MESH && (
                 properties.category === PaletteCategory.FX_SMOKE
@@ -385,11 +429,46 @@ export class SceneMaterialManager implements KernelTask {
                         ? properties.clipBelowY
                         : -1e30,
                 },
+                ...(properties.terrain ? this.buildTerrainUniforms(properties.terrain) : {}),
             } : {
                 vCameraPos: { value: new THREE.Vector3() },
                 vCameraNormal: { value: new THREE.Vector3() },
                 vCameraD: { value: 0 }
             }
+        };
+    }
+
+    private buildTerrainUniforms(spec: TerrainMaterialSpec): Record<string, THREE.IUniform> {
+        // Uniform arrays are fixed-length in GLSL, so both tables are padded to
+        // the size the shader declares rather than to what this bake happens to
+        // use. uSwatchCount is what stops the shader reading the padding.
+        const toneColors: THREE.Color[] = [];
+        for (let i = 0; i < TERRAIN_TONE_COUNT; i++) {
+            const category = spec.toneCategories[i] ?? PaletteCategory.TERRAIN_DEFAULT;
+            toneColors.push(this.colorCache.getColor(PaletteColor(this.palette, category)).clone());
+        }
+        // Vector3, not Color, and on purpose: THREE.Color decodes sRGB to the
+        // linear working space, and the shader wants these in the space the
+        // bake picked them in. See uSwatch in terrainVP.
+        const swatches: THREE.Vector3[] = [];
+        for (let i = 0; i < TERRAIN_SWATCH_COUNT; i++) {
+            swatches.push(srgbVector(spec.swatches[i]));
+        }
+        const classTones = new Float32Array(TERRAIN_CLASS_COUNT);
+        for (let i = 0; i < TERRAIN_CLASS_COUNT; i++) {
+            classTones[i] = spec.classTones[i] ?? 0;
+        }
+        return {
+            uTerrainMode: { value: 0 },
+            uToneColor: { value: toneColors },
+            uClassTone: { value: classTones },
+            uSwatch: { value: swatches },
+            uSwatchCount: { value: Math.min(spec.swatches.length, TERRAIN_SWATCH_COUNT) },
+            uSmoothShading: { value: 0 },
+            uShadeSteps: { value: spec.shadeSteps },
+            uShadeRange: { value: spec.shadeRange },
+            uShadeWindow: { value: new THREE.Vector2(spec.shadeMid, spec.shadeSpread) },
+            uRawLight: { value: new THREE.Vector3(1, 1, 1) },
         };
     }
 
@@ -412,7 +491,7 @@ export class SceneMaterialManager implements KernelTask {
             return this.lineProto.clone();
         } else if (properties.type === SceneMaterialPrimitiveType.MESH) {
             if (properties.shaded) {
-                return this.shadedProto.clone();
+                return properties.terrain ? this.terrainProto.clone() : this.shadedProto.clone();
             } else if (properties.highp) {
                 return this.highpFlatProto.clone();
             } else {
@@ -440,6 +519,28 @@ export class SceneMaterialManager implements KernelTask {
             if (!d.rawColor) {
                 u.color.value.copy(this.colorCache.getColor(PaletteColor(palette, c)));
                 u.colorSecondary.value.copy(this.colorCache.getColor(PaletteColorShade(palette, c)));
+            } else if (palette.light) {
+                // A raw colour opted out of the palette, so the blend above
+                // never reaches it: a mod's camo used to stay at noon
+                // brightness against a midnight landscape, lit or not. The
+                // uniforms are linear light, which is what the factor is in,
+                // so it multiplies straight in with no round trip.
+                const raw = this.colorCache.getColor(d.rawColor);
+                const light = palette.light;
+                u.color.value.setRGB(raw.r * light[0], raw.g * light[1], raw.b * light[2]);
+                u.colorSecondary.value.copy(u.color.value);
+            }
+            if (d.shaded && d.terrain) {
+                // Two halves, matching what the modes are made of: the tone
+                // table follows the blended palette like any authored colour,
+                // and the imagery light factor is the raw-colour one above.
+                const tones = u.uToneColor.value as THREE.Color[];
+                for (let t = 0; t < tones.length; t++) {
+                    const category = d.terrain.toneCategories[t] ?? PaletteCategory.TERRAIN_DEFAULT;
+                    tones[t].copy(this.colorCache.getColor(PaletteColor(palette, category)));
+                }
+                const light = palette.light ?? [1, 1, 1];
+                (u.uRawLight.value as THREE.Vector3).set(light[0], light[1], light[2]);
             }
             u.fogDensity.value = palette.values[FogValueCategory(c)];
             u.fogColor.value.copy(this.colorCache.getColor(PaletteColor(palette, FogColorCategory(c))));
@@ -488,6 +589,23 @@ export class SceneMaterialManager implements KernelTask {
             u.shadingType.value = shadingType;
         }
     }
+}
+
+/** `#rrggbb` to its raw 0..1 sRGB components, with no colour-space decode. */
+function srgbVector(css: string | undefined): THREE.Vector3 {
+    const hex = css?.trim().replace(/^#/, '') ?? '';
+    if (hex.length !== 6) {
+        return new THREE.Vector3(0, 0, 0);
+    }
+    const n = parseInt(hex, 16);
+    if (Number.isNaN(n)) {
+        return new THREE.Vector3(0, 0, 0);
+    }
+    return new THREE.Vector3(
+        ((n >> 16) & 0xff) / 255,
+        ((n >> 8) & 0xff) / 255,
+        (n & 0xff) / 255,
+    );
 }
 
 class ColorCache {

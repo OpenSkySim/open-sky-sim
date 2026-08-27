@@ -14,6 +14,19 @@ export interface MeshStreamManifest {
     triangleBudget: number;
     levelGeometricErrorM: number[];
     levelSkirtDepthM: number[];
+    /**
+     * The colours the SWATCH terrain mode quantises to, `#rrggbb`, most-used
+     * first. Derived by the bake from the imagery it actually sampled, so it
+     * describes this pyramid and travels with it. Absent on a pyramid baked
+     * without cover, which leaves that mode with nothing to quantise to.
+     */
+    swatches?: string[];
+    /**
+     * Where this pyramid's baked colours sit in brightness. The HYBRID terrain
+     * mode bands a facet against it, so it has to describe the ground actually
+     * baked rather than an assumed mid-grey.
+     */
+    luminance?: { mid: number; spread: number };
 }
 
 export interface HeightStreamManifest {

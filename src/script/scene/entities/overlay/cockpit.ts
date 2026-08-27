@@ -13,7 +13,22 @@ import { AircraftDeviceState, PlayerEntity } from "../player";
 import { formatHeading, getAircraftDeviceStatusPosition, getOverlayLayout, renderAircraftDeviceStatus } from './overlayUtils';
 
 
-import { OsmMapEntity } from '../osmMap';
+
+/**
+ * The MFD1 moving map: an orthographic top-down pass over the terrain, framed
+ * on the aircraft.
+ *
+ * Half-extent is metres of world either side of the plane, so the MFD shows a
+ * {@link MAP_CAMERA_HALF_EXTENT} * 2 metre square. The camera rides at a fixed
+ * altitude rather than the aircraft's, so the framing never changes with
+ * height, and near/far are sized to keep the whole DEM elevation range inside
+ * the slab at that altitude -- the old 10..1000 range at 500 m clipped every
+ * ridge above 490 m out of the map.
+ */
+export const MAP_CAMERA_HALF_EXTENT = 10000;
+export const MAP_CAMERA_ALTITUDE = 20000;
+export const MAP_CAMERA_NEAR = 1;
+export const MAP_CAMERA_FAR = 40000;
 
 // Pixels
 export function CockpitMFDSize(height: number, width?: number): number {
@@ -51,8 +66,7 @@ export class CockpitEntity implements Entity {
     constructor(private actor: PlayerEntity,
         private camera: THREE.PerspectiveCamera,
         private targetCamera: THREE.PerspectiveCamera,
-        private mapCamera: THREE.OrthographicCamera,
-        private osmMap?: OsmMapEntity) { }
+        private mapCamera: THREE.OrthographicCamera) { }
 
     private aiPitch: number = 0;
     private aiRoll: number = 0;
@@ -94,8 +108,7 @@ export class CockpitEntity implements Entity {
         this.flaps = this.actor.flaps;
         this.landingGear = this.actor.landingGear;
         const pos = this.actor.getDisplayPosition();
-        this.mapCamera.position.copy(pos).setY(500);
-        this.osmMap?.setPlayerEnu(pos.x, pos.z);
+        this.mapCamera.position.copy(pos).setY(MAP_CAMERA_ALTITUDE);
     }
 
     private refreshVisualState(): void {
@@ -274,14 +287,9 @@ export class CockpitEntity implements Entity {
     private renderMFD1(x: number, y: number, size: number, painter: CanvasPainter, hudColor: string) {
         painter.setColor(hudColor);
         painter.rectangle(x - 1, y - 1, size + 2, size + 2);
-        // Opaque basemap (do not punch through to empty WebGL).
-        painter.setBackground('#1a3040');
-        painter.fillRect(x, y, size, size);
-        this.osmMap?.paint(painter, x, y, size);
+        painter.clear(x, y, size, size);
 
         this.renderPlaneMarker(x, y, size, painter);
-        painter.setColor(hudColor);
-        painter.text(Font.HUD_SMALL, x + 2, y + size - Font.HUD_SMALL.charHeight - 1, 'OSM', hudColor);
     }
 
     private renderPlaneMarker(x: number, y: number, size: number, painter: CanvasPainter) {
