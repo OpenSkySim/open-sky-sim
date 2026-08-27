@@ -464,7 +464,6 @@ export class SceneMaterialManager implements KernelTask {
             uClassTone: { value: classTones },
             uSwatch: { value: swatches },
             uSwatchCount: { value: Math.min(spec.swatches.length, TERRAIN_SWATCH_COUNT) },
-            uSmoothShading: { value: 0 },
             uShadeSteps: { value: spec.shadeSteps },
             uShadeRange: { value: spec.shadeRange },
             uShadeWindow: { value: new THREE.Vector2(spec.shadeMid, spec.shadeSpread) },

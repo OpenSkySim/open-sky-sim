@@ -71,16 +71,8 @@ export const TerrainVertProgram: string = `
    */
   uniform vec3 uRawLight;
 
-  /**
-   * 0 paints with the facet's own normal, 1 with the average of the facets
-   * meeting at this vertex. A float rather than a bool so the two can be
-   * crossfaded; the setting only ever sends the ends.
-   */
-  uniform float uSmoothShading;
-
   attribute vec3 coverColor;
   attribute float coverClass;
-  attribute vec3 smoothNormal;
 
   const float AMBIENT_SKY_FLOOR = 0.65;
   const float RIM_POWER = 3.0;
@@ -184,12 +176,7 @@ ${LOG_DEPTH_PARS_VERTEX}
   void main() {
     // Land normals are baked in world ENU and tiles are placed by translation
     // only, so the attribute is already the world normal.
-    //
-    // The flat normal is constant across a facet, so the lighting computed
-    // here interpolates to a constant and the facet reads flat. The smoothed
-    // one differs at each corner, and the same interpolation becomes Gouraud -
-    // the shading model is not switched, only the normal it is given.
-    vec3 worldNormal = normalize(mix(normal, smoothNormal, uSmoothShading));
+    vec3 worldNormal = normalize(normal);
 
     float ndl = max(dot(worldNormal, uSunDir), 0.0);
     float skyView = mix(AMBIENT_SKY_FLOOR, 1.0, 0.5 + 0.5 * worldNormal.y);

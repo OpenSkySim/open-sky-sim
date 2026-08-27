@@ -13,10 +13,6 @@
  * single group whose colour the shader resolves per vertex from the baked
  * cover attribute, so a tile is at most three draws.
  *
- * Two normals per land vertex are bound, not one: the facet's own and the
- * average of the facets meeting at that vertex. Which one shades is a uniform,
- * so flat and Gouraud are the same geometry.
- *
  * Tiles are placed by translation only, never rotation. The shaded vertex
  * program treats the normal attribute as world-space in the STATIC and DUOTONE
  * shading paths, so a rotated tile would shade wrong; the bake writes normals
@@ -54,13 +50,6 @@ function landGeometry(tile: PtmTile): THREE.BufferGeometry | undefined {
     g.setAttribute(
         'normal',
         new THREE.InterleavedBufferAttribute(normalBuffer, 3, 0, true),
-    );
-
-    const smoothBuffer = new THREE.InterleavedBuffer(
-        tile.landSmoothNormals as unknown as Int8Array, 4);
-    g.setAttribute(
-        'smoothNormal',
-        new THREE.InterleavedBufferAttribute(smoothBuffer, 3, 0, true),
     );
 
     // One buffer, two views: the colour wants normalising to 0..1, the class
@@ -133,7 +122,7 @@ export function buildTileMeshes(
         group.add(mesh);
         meshes.land = mesh;
         bytes += tile.landPositions.byteLength + tile.landNormals.byteLength
-            + tile.landSmoothNormals.byteLength + tile.landAttrs.byteLength;
+            + tile.landAttrs.byteLength;
     }
 
     const wg = waterGeometry(tile);

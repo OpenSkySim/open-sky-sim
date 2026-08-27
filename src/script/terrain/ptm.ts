@@ -15,7 +15,7 @@
  *
  *   header, 72 bytes
  *     0  u32  magic 'PTM1'          32  u32  landVertCount   (multiple of 3)
- *     4  u8   version = 4           36  u32  waterVertCount
+ *     4  u8   version = 3           36  u32  waterVertCount
  *     5  u8   z                     40  u32  waterIndexCount
  *     6  u16  flags                 44  u32  reserved
  *     8  u32  x                     48  u32  reserved
@@ -27,8 +27,7 @@
  *
  *   payload, each section padded to a 4-byte boundary
  *     landPos    i16 x3 per vertex   tile-local (x=E, y=U, z=N)
- *     landNrm    i8  x4 per vertex   face normal, xyz + pad, /127
- *     landSmNrm  i8  x4 per vertex   smoothed normal, same layout
+ *     landNrm    i8  x4 per vertex   xyz + pad, /127
  *     landAttr   u8  x4 per vertex   r, g, b, TerrainClass
  *     waterPos   i16 x3 per vertex
  *     waterTone  u8  x1 per vertex   0..1
@@ -40,14 +39,6 @@
  * blend) to paint with. Land is therefore a single draw group - there is no
  * tone bucketing left to do here.
  *
- * The two normals do the same for shading. landNrm is the facet's own normal,
- * constant across its three vertices, which interpolates to nothing and gives
- * the flat look; landSmNrm is that normal averaged with every other facet
- * meeting at the vertex, which interpolates to Gouraud. Both are baked because
- * neither can be derived from the other at load time - averaging is a
- * per-vertex pass over shared positions, which is exactly what this format
- * exists to avoid.
- *
  * The tile's centre lon/lat is derived from (z, x, y) and is deliberately not
  * stored. Positions are tile-local; the loader places the tile by translation
  * only, never rotation, because the shaded vertex program treats normals as
@@ -57,7 +48,7 @@
 import { CLASS_COUNT, TerrainTone } from './tones';
 
 export const PTM_MAGIC = 0x314d5450; // 'PTM1' little-endian
-export const PTM_VERSION = 4;
+export const PTM_VERSION = 3;
 export const PTM_HEADER_BYTES = 72;
 
 export const PTM_FLAG_HAS_LAND = 1 << 0;
@@ -83,12 +74,6 @@ export interface PtmLandInput {
     positions: Float32Array;
     /** 3 floats per triangle: the unit face normal. */
     faceNormals: Float32Array;
-    /**
-     * 9 floats per triangle (3 verts x xyz): the normal at each corner,
-     * averaged over every facet meeting there. Feeds the smooth shading path;
-     * a facet with no neighbours to average with just repeats its own normal.
-     */
-    smoothNormals: Float32Array;
     /** 1 byte per triangle: a {@link TerrainClass}, 0..15. */
     classes: Uint8Array;
     /** 3 bytes per triangle: mean sRGB over the triangle's ground footprint. */
@@ -139,8 +124,6 @@ export interface PtmTile {
     landPositions: Int16Array;
     /** Bind with normalized: true. Stride 4; the 4th byte is padding. */
     landNormals: Int8Array;
-    /** The same, averaged across facets meeting at each vertex. */
-    landSmoothNormals: Int8Array;
     /**
      * Stride 4: rgb at 0..2 (bind normalized), {@link TerrainClass} at 3 (bind
      * raw). Two interleaved views over the one buffer, because the two halves
@@ -186,10 +169,6 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
     }
     if (land.faceNormals.length !== landTriCount * 3) {
         throw new Error(`PTM1: land normals ${land.faceNormals.length} != ${landTriCount * 3}`);
-    }
-    if (land.smoothNormals.length !== landTriCount * 9) {
-        throw new Error(
-            `PTM1: land smooth normals ${land.smoothNormals.length} != ${landTriCount * 9}`);
     }
     if (land.colors.length !== landTriCount * 3) {
         throw new Error(`PTM1: land colors ${land.colors.length} != ${landTriCount * 3}`);
@@ -278,14 +257,13 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
 
     const landPosBytes = align4(landVertCount * 6);
     const landNrmBytes = align4(landVertCount * 4);
-    const landSmNrmBytes = align4(landVertCount * 4);
     const landAttrBytes = align4(landVertCount * 4);
     const waterPosBytes = align4(waterVertCount * 6);
     const waterToneBytes = align4(waterVertCount);
     const waterIdxBytes = align4(waterIndexCount * 2);
 
-    const total = PTM_HEADER_BYTES + landPosBytes + landNrmBytes + landSmNrmBytes
-        + landAttrBytes + waterPosBytes + waterToneBytes + waterIdxBytes;
+    const total = PTM_HEADER_BYTES + landPosBytes + landNrmBytes + landAttrBytes
+        + waterPosBytes + waterToneBytes + waterIdxBytes;
     const out = new Uint8Array(total);
     const view = new DataView(out.buffer);
 
@@ -294,8 +272,6 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
     off += landPosBytes;
     const landNrm = new Int8Array(out.buffer, off, landVertCount * 4);
     off += landNrmBytes;
-    const landSmNrm = new Int8Array(out.buffer, off, landVertCount * 4);
-    off += landSmNrmBytes;
     const landAttr = new Uint8Array(out.buffer, off, landVertCount * 4);
     off += landAttrBytes;
     const waterPos = new Int16Array(out.buffer, off, waterVertCount * 3);
@@ -325,10 +301,6 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
             landNrm[v * 4 + 1] = quantiseNormal(ny);
             landNrm[v * 4 + 2] = quantiseNormal(nz);
             landNrm[v * 4 + 3] = 0;
-            landSmNrm[v * 4] = quantiseNormal(land.smoothNormals[t * 9 + k * 3]);
-            landSmNrm[v * 4 + 1] = quantiseNormal(land.smoothNormals[t * 9 + k * 3 + 1]);
-            landSmNrm[v * 4 + 2] = quantiseNormal(land.smoothNormals[t * 9 + k * 3 + 2]);
-            landSmNrm[v * 4 + 3] = 0;
             landAttr[v * 4] = cr;
             landAttr[v * 4 + 1] = cg;
             landAttr[v * 4 + 2] = cb;
@@ -431,13 +403,12 @@ export function decodePtm(bytes: ArrayBuffer | Uint8Array): PtmTile {
 
     const landPosBytes = align4(landVertCount * 6);
     const landNrmBytes = align4(landVertCount * 4);
-    const landSmNrmBytes = align4(landVertCount * 4);
     const landAttrBytes = align4(landVertCount * 4);
     const waterPosBytes = align4(waterVertCount * 6);
     const waterToneBytes = align4(waterVertCount);
     const waterIdxBytes = align4(waterIndexCount * 2);
-    const expected = PTM_HEADER_BYTES + landPosBytes + landNrmBytes + landSmNrmBytes
-        + landAttrBytes + waterPosBytes + waterToneBytes + waterIdxBytes;
+    const expected = PTM_HEADER_BYTES + landPosBytes + landNrmBytes + landAttrBytes
+        + waterPosBytes + waterToneBytes + waterIdxBytes;
     if (raw.byteLength < expected) {
         throw new Error(`PTM1 truncated: ${raw.byteLength} < ${expected}`);
     }
@@ -447,8 +418,6 @@ export function decodePtm(bytes: ArrayBuffer | Uint8Array): PtmTile {
     off += landPosBytes;
     const landNormals = new Int8Array(raw.buffer, off, landVertCount * 4);
     off += landNrmBytes;
-    const landSmoothNormals = new Int8Array(raw.buffer, off, landVertCount * 4);
-    off += landSmNrmBytes;
     const landAttrs = new Uint8Array(raw.buffer, off, landVertCount * 4);
     off += landAttrBytes;
     const waterPositions = new Int16Array(raw.buffer, off, waterVertCount * 3);
@@ -467,7 +436,6 @@ export function decodePtm(bytes: ArrayBuffer | Uint8Array): PtmTile {
         skirtDepthM,
         landPositions,
         landNormals,
-        landSmoothNormals,
         landAttrs,
         waterPositions,
         waterTones,

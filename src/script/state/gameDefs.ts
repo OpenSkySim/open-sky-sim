@@ -73,11 +73,6 @@ export enum TerrainColours {
     HYBRID = 'HYBRID',
     /** The satellite colour itself. */
     IMAGERY = 'IMAGERY',
-    /** The same four, shaded Gouraud instead of flat. */
-    LANDCOVER_SMOOTH = 'LANDCOVER_SMOOTH',
-    SWATCH_SMOOTH = 'SWATCH_SMOOTH',
-    HYBRID_SMOOTH = 'HYBRID_SMOOTH',
-    IMAGERY_SMOOTH = 'IMAGERY_SMOOTH',
 }
 
 /** uTerrainMode value per setting. */
@@ -86,28 +81,6 @@ export const TERRAIN_COLOUR_MODE_INDEX: Readonly<Record<TerrainColours, TerrainC
     [TerrainColours.SWATCH]: TerrainColourMode.Swatch,
     [TerrainColours.HYBRID]: TerrainColourMode.Hybrid,
     [TerrainColours.IMAGERY]: TerrainColourMode.Imagery,
-    [TerrainColours.LANDCOVER_SMOOTH]: TerrainColourMode.Landcover,
-    [TerrainColours.SWATCH_SMOOTH]: TerrainColourMode.Swatch,
-    [TerrainColours.HYBRID_SMOOTH]: TerrainColourMode.Hybrid,
-    [TerrainColours.IMAGERY_SMOOTH]: TerrainColourMode.Imagery,
-};
-
-/**
- * Whether a setting shades Gouraud.
- *
- * Colour and shading are independent choices sharing one control, so this is a
- * second lookup rather than a wider mode enum - the shader branches on the
- * colour model and multiplies by this, and neither has to know about the other.
- */
-export const TERRAIN_COLOUR_SMOOTH: Readonly<Record<TerrainColours, boolean>> = {
-    [TerrainColours.LANDCOVER]: false,
-    [TerrainColours.SWATCH]: false,
-    [TerrainColours.HYBRID]: false,
-    [TerrainColours.IMAGERY]: false,
-    [TerrainColours.LANDCOVER_SMOOTH]: true,
-    [TerrainColours.SWATCH_SMOOTH]: true,
-    [TerrainColours.HYBRID_SMOOTH]: true,
-    [TerrainColours.IMAGERY_SMOOTH]: true,
 };
 
 export enum HUDFocusMode {

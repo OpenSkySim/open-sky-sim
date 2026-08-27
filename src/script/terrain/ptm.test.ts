@@ -24,13 +24,6 @@ function sampleTile(): PtmEncodeInput {
         land: {
             positions: new Float32Array([...tri(0, 0), ...tri(200, 0), ...tri(400, 0)]),
             faceNormals: new Float32Array([0, 1, 0, 0.6, 0.8, 0, -0.6, 0.8, 0]),
-            // Distinct at every corner, so the codec cannot pass by accidentally
-            // repeating the face normal.
-            smoothNormals: new Float32Array([
-                0, 1, 0, 0.6, 0.8, 0, -0.6, 0.8, 0,
-                0.8, 0.6, 0, 0, 0.8, 0.6, 0, 0.6, -0.8,
-                -0.8, 0.6, 0, 0, 1, 0, 0.6, 0, 0.8,
-            ]),
             classes: new Uint8Array([TerrainClass.Tree, TerrainClass.Sand, TerrainClass.Bare]),
             colors: new Uint8Array([10, 90, 20, 220, 200, 150, 120, 110, 100]),
         },
@@ -85,7 +78,7 @@ describe('PTM1 codec', () => {
         const input = sampleTile();
         const tile = decodePtm(encodePtm(input));
         assert.deepEqual(tile.id, { z: 12, x: 3745, y: 1410 });
-        assert.equal(tile.version, 4);
+        assert.equal(tile.version, 3);
         assert.ok(Math.abs(tile.centerHeightM - 123.5) < 1e-4);
         assert.ok(Math.abs(tile.skirtDepthM - 7.25) < 1e-4);
         assert.equal(tile.flags & PTM_FLAG_HAS_LAND, PTM_FLAG_HAS_LAND);
@@ -216,7 +209,6 @@ describe('PTM1 codec', () => {
         input.land = {
             positions: new Float32Array(0),
             faceNormals: new Float32Array(0),
-            smoothNormals: new Float32Array(0),
             classes: new Uint8Array(0),
             colors: new Uint8Array(0),
         };
@@ -272,37 +264,8 @@ describe('PTM1 codec', () => {
     it('names the re-bake in the version error, since that is the only fix', () => {
         const bytes = encodePtm(sampleTile());
         const stale = bytes.slice();
-        stale[4] = 3;
+        stale[4] = 2;
         assert.throws(() => decodePtm(stale), /bake:mesh/);
-    });
-
-    it('carries a separate smooth normal per vertex', () => {
-        const input = sampleTile();
-        const tile = decodePtm(encodePtm(input));
-        assert.equal(tile.landSmoothNormals.length, tile.landNormals.length);
-        for (let v = 0; v < input.land.smoothNormals.length / 3; v++) {
-            for (let c = 0; c < 3; c++) {
-                const want = Math.round(input.land.smoothNormals[v * 3 + c] * 127);
-                assert.equal(tile.landSmoothNormals[v * 4 + c], want, `vertex ${v} axis ${c}`);
-            }
-            assert.equal(tile.landSmoothNormals[v * 4 + 3], 0, 'pad byte');
-        }
-    });
-
-    it('keeps the smooth normal independent of the face normal', () => {
-        // The whole point of baking both: if they were forced equal the smooth
-        // shading path would be indistinguishable from the flat one.
-        const tile = decodePtm(encodePtm(sampleTile()));
-        let differing = 0;
-        for (let v = 0; v < tile.landNormals.length / 4; v++) {
-            for (let c = 0; c < 3; c++) {
-                if (tile.landNormals[v * 4 + c] !== tile.landSmoothNormals[v * 4 + c]) {
-                    differing++;
-                    break;
-                }
-            }
-        }
-        assert.ok(differing > 0, 'smooth normals must not just mirror the face normals');
     });
 
     it('rejects inconsistent input array lengths', () => {
@@ -313,10 +276,5 @@ describe('PTM1 codec', () => {
         const shortColors = sampleTile();
         shortColors.land.colors = new Uint8Array([1, 2, 3]);
         assert.throws(() => encodePtm(shortColors), /land colors/);
-
-        // Nine floats per triangle, not three: this one is per vertex.
-        const shortSmooth = sampleTile();
-        shortSmooth.land.smoothNormals = new Float32Array([0, 1, 0]);
-        assert.throws(() => encodePtm(shortSmooth), /land smooth normals/);
     });
 });

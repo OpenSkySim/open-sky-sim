@@ -134,10 +134,6 @@ const TERRAIN_COLOUR_RADIO_IDS: Record<TerrainColours, string> = {
     [TerrainColours.SWATCH]: 'terraincolour-swatch',
     [TerrainColours.HYBRID]: 'terraincolour-hybrid',
     [TerrainColours.IMAGERY]: 'terraincolour-imagery',
-    [TerrainColours.LANDCOVER_SMOOTH]: 'terraincolour-landcover-smooth',
-    [TerrainColours.SWATCH_SMOOTH]: 'terraincolour-swatch-smooth',
-    [TerrainColours.HYBRID_SMOOTH]: 'terraincolour-hybrid-smooth',
-    [TerrainColours.IMAGERY_SMOOTH]: 'terraincolour-imagery-smooth',
 };
 
 function setupTerrainColour(config: ConfigService) {

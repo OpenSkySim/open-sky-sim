@@ -46,9 +46,7 @@ import { enuToGeodeticApprox } from './geodesy';
 import {
     CLASS_TO_TONE, LAND_TONE_BASE, LAND_TONE_COUNT, TONE_COUNT, TerrainTone,
 } from './tones';
-import {
-    TERRAIN_COLOUR_MODE_INDEX, TERRAIN_COLOUR_SMOOTH, TerrainColours,
-} from '../state/gameDefs';
+import { TERRAIN_COLOUR_MODE_INDEX, TerrainColours } from '../state/gameDefs';
 import { TerrainColourSetting } from '../config/configService';
 import { publishTerrainStats, trackTerrainMaterial } from './debug';
 
@@ -128,13 +126,11 @@ export class TerrainEntity implements Entity {
     private readonly landMaterial: THREE.ShaderMaterial;
 
     /**
-     * Switch colour model and shading. Two uniforms: every setting reads the
-     * same baked bytes - both normals travel with every tile - so nothing
-     * re-streams, re-uploads or re-meshes.
+     * Switch colour model. One uniform: every mode reads the same baked bytes,
+     * so nothing re-streams, re-uploads or re-meshes.
      */
     setTerrainColour(mode: TerrainColours): void {
         this.landMaterial.uniforms.uTerrainMode.value = TERRAIN_COLOUR_MODE_INDEX[mode];
-        this.landMaterial.uniforms.uSmoothShading.value = TERRAIN_COLOUR_SMOOTH[mode] ? 1 : 0;
     }
 
     private meshIndex: TileIndex | undefined;
@@ -223,8 +219,8 @@ export class TerrainEntity implements Entity {
             url: (id) => meshTileUrl(this.manifest, id.z, id.x, id.y, base),
             decode: (buf) => decodePtm(buf),
             sizeOf: (t) => t.landPositions.byteLength + t.waterPositions.byteLength
-                + t.landNormals.byteLength + t.landSmoothNormals.byteLength
-                + t.landAttrs.byteLength + t.waterIndices.byteLength,
+                + t.landNormals.byteLength + t.landAttrs.byteLength
+                + t.waterIndices.byteLength,
             maxBytes: MESH_CACHE_BYTES,
             exists: (id) => (this.meshIndex ? this.meshIndex.has(id) : true),
         });
