@@ -24,7 +24,9 @@ import { CanvasPainter } from '../render/screen/canvasPainter';
 import { updateUniforms } from '../scene/utils';
 import { attachToRenderList } from '../render/renderList';
 import { DemTile, decodePdm } from './demTile';
-import { EnuBasis, WGS84_A, makeEnuBasis } from './geodesy';
+import {
+    EnuBasis, WGS84_A, ecefToEnu, enuFrameRotation, geodeticToEcef, makeEnuBasis,
+} from './geodesy';
 import { FlattenPad } from './flattenPad';
 import { HeightField, HeightTier } from './heightField';
 import {
@@ -111,6 +113,8 @@ export class TerrainEntity implements Entity {
     enabled = true;
 
     readonly basis: EnuBasis;
+    /** Bake frame -> drawing frame, for the baked tile offsets. */
+    private readonly frameFix: THREE.Quaternion;
     readonly heights: HeightField;
 
     private readonly manifest: TerrainManifest;
@@ -134,6 +138,7 @@ export class TerrainEntity implements Entity {
     }
 
     private meshIndex: TileIndex | undefined;
+    private heightIndex: TileIndex | undefined;
     private lodCamera: THREE.Camera | undefined;
     private lastReconcile = 0;
     private lastFrame = 0;
@@ -150,6 +155,13 @@ export class TerrainEntity implements Entity {
         this.manifest = opts.manifest;
         const origin = opts.enuOrigin ?? opts.manifest.enuOrigin;
         this.basis = makeEnuBasis(origin.lat, origin.lon, origin.height ?? 0);
+        // Tiles are baked as offsets from their centre in the *bake's* ENU
+        // axes. Drawing them from a different origin means turning those
+        // offsets into the drawing frame's axes; identity when the two agree.
+        const baked = opts.manifest.enuOrigin;
+        this.frameFix = enuFrameRotation(
+            makeEnuBasis(baked.lat, baked.lon, baked.height ?? 0), this.basis,
+        );
         this.group.name = 'Terrain';
         // Dev aid, alongside globalThis.__terrainStats.
         (globalThis as Record<string, unknown>).__terrain = this;
@@ -231,18 +243,37 @@ export class TerrainEntity implements Entity {
             decode: (buf) => decodePdm(buf),
             sizeOf: (t) => t.heights.byteLength,
             maxBytes: 64 * 1024 * 1024,
+            // Same gate the mesh store has. Without it every height tile the
+            // coverage box implies but the bake never wrote costs a request, a
+            // 404 and a retry — which with two areas baked far apart is most
+            // of the box. The zoom clause is because the index describes the
+            // .pdm pyramid, which runs deeper than the height tiles copied
+            // alongside the meshes.
+            exists: (id) => id.z <= this.manifest.height.maxZoom
+                && (this.heightIndex ? this.heightIndex.has(id) : true),
         });
 
-        const pads: FlattenPad[] = (opts.manifest.flattenPads ?? []).map(p => ({
-            // The bake records the pad geodetically; the runtime works in ENU,
-            // and the play origin is the pad centre by construction.
-            centerX: 0,
-            centerZ: 0,
-            halfW: p.halfW,
-            halfD: p.halfD,
-            featherM: p.featherM,
-            heightMsl: p.heightMsl,
-        }));
+        // The bake records each pad geodetically. It used to be enough to
+        // assume the play origin *was* the pad centre, because there was one
+        // origin and it was the airbase. Now that the origin follows the
+        // selected area, a pad has to be placed where it actually is: put it
+        // at the origin regardless and an imported area gets a patch of itself
+        // flattened to the airbase's altitude, half a world away.
+        //
+        // Positioned properly, a pad belonging to another area simply lands
+        // hundreds of kilometres off and never touches anything.
+        const pads: FlattenPad[] = (opts.manifest.flattenPads ?? []).map(p => {
+            const enu = ecefToEnu(this.basis, geodeticToEcef(p.lat, p.lon, 0));
+            return {
+                // Scene axes are x=east, y=up, z=north, as in tileOriginEnu.
+                centerX: enu.e,
+                centerZ: enu.n,
+                halfW: p.halfW,
+                halfD: p.halfD,
+                featherM: p.featherM,
+                heightMsl: p.heightMsl,
+            };
+        });
 
         this.heights = new HeightField({
             manifest: opts.manifest,
@@ -254,7 +285,7 @@ export class TerrainEntity implements Entity {
         this.streamer = new TileStreamer<PtmTile, TileMeshes>({
             store: this.meshStore,
             upload: (id, tile) => buildTileMeshes(
-                tile, this.basis, this.materials, updateUniforms,
+                tile, this.basis, this.materials, updateUniforms, this.frameFix,
             ),
             release: (_id, m) => disposeTileMeshes(m),
         });
@@ -292,12 +323,13 @@ export class TerrainEntity implements Entity {
     async load(manifestUrl: string): Promise<void> {
         this.manifestUrl = manifestUrl;
         const base = baseUrlOf(manifestUrl);
-        const [meshIdx] = await Promise.all([
+        const [meshIdx, heightIdx] = await Promise.all([
             fetchIndex(meshIndexUrl(this.manifest, base)),
             fetchIndex(heightIndexUrl(this.manifest, base)),
         ]);
         this.meshIndex = meshIdx;
-        await this.heights.loadCoarse();
+        this.heightIndex = heightIdx;
+        await this.heights.loadCoarse(heightIdx);
     }
 
     /** Deepest zoom the baked pyramid provides. */

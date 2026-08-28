@@ -39,6 +39,15 @@ $ npm run bake:cover
 $ npm run bake:mesh
 ```
 
+`data/output_hh.tif` only covers the Canaries. To add somewhere else, press
+**`F9`** in the running app and drag a box on the OpenStreetMap map — the dev
+server runs the whole bake for that area and streams the progress back. From
+the command line it is the same five stages, sharing one `--bbox`; fetch a DEM
+for that area first — `npm run fetch:dem -- --bbox 7.6,45.9,7.8,46.0 --out
+data/imports/alps.tif` pulls it from the public Copernicus GLO-30 archive and
+writes the GeoTIFF the first command above takes as `--input`. See
+[`tools/README.md`](tools/README.md#height-sources).
+
 The cover stage is what gives terrain its colour: every facet is baked with
 both a landcover class and a satellite colour, and the *Terrain colour*
 setting picks which one paints it. Skip those two commands and the terrain

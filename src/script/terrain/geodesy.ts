@@ -149,6 +149,41 @@ export function enuToGeodeticApprox(basis: EnuBasis, e: number, n: number, u: nu
     return ecefToGeodetic(ecef.x, ecef.y, ecef.z);
 }
 
+/** Scene-space (x=east, y=up, z=north) rotation of one ENU basis. */
+function sceneRotation(basis: EnuBasis, out: THREE.Matrix4): THREE.Matrix4 {
+    const m = basis.ecefToEnu;
+    // Rows of `m` are the east, north and up axes; scene order is east, up, north.
+    return out.set(
+        m[0], m[1], m[2], 0,
+        m[6], m[7], m[8], 0,
+        m[3], m[4], m[5], 0,
+        0, 0, 0, 1,
+    );
+}
+
+const _from = new THREE.Matrix4();
+const _to = new THREE.Matrix4();
+
+/**
+ * Rotation carrying vectors expressed in `from`'s axes into `to`'s axes.
+ *
+ * ENU is a tangent frame, so two of them at different points are related by a
+ * rotation, not just an offset: at Tenerife the axes of a Gran Canaria frame
+ * are turned half a degree, and in the Alps by sixteen.
+ *
+ * This matters because a baked tile stores its vertices as offsets from the
+ * tile centre *in the frame the bake used*. Place that tile in a different
+ * frame without rotating it and every vertex lands wrong in proportion to its
+ * distance from the tile centre — 62 m at Tenerife, 2.5 km in the Alps,
+ * measured half a z12 tile out. The offset is exact, not an approximation, and
+ * collapses to the identity when the two frames share an origin.
+ */
+export function enuFrameRotation(from: EnuBasis, to: EnuBasis): THREE.Quaternion {
+    sceneRotation(from, _from).transpose();
+    sceneRotation(to, _to);
+    return new THREE.Quaternion().setFromRotationMatrix(_to.multiply(_from));
+}
+
 /**
  * Maps ECEF metres into Three.js render space.
  * Fixed ENU: +X east, +Y up, +Z north (sim forward).

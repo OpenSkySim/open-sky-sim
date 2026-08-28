@@ -22,6 +22,15 @@ export interface AppSettings {
     spawnMode: SpawnMode;
     /** Local solar time of day in hours (0..24); drives sun, palette and shadows. */
     daytime: number;
+    /**
+     * Name of the baked terrain area to fly in, from the terrain manifest's
+     * `areas` list. Empty means the area holding the authored scenery.
+     *
+     * Not validated against a fixed set the way the others are: what is baked
+     * differs per clone, and the terrain manifest is the only authority. An
+     * unknown name falls back to home when the world is built.
+     */
+    terrainArea: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -34,6 +43,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     aircraftId: 'f22',
     spawnMode: 'headon',
     daytime: DEFAULT_SUN_HOURS,
+    terrainArea: '',
 };
 
 const TECH_PROFILES = new Set<string>(Object.values(TechProfiles));
@@ -62,6 +72,8 @@ export function loadSettings(): AppSettings {
             aircraftId: isValidAircraftId(parsed.aircraftId) ? parsed.aircraftId : DEFAULT_SETTINGS.aircraftId,
             spawnMode: isValidSpawnMode(parsed.spawnMode) ? parsed.spawnMode : DEFAULT_SETTINGS.spawnMode,
             daytime: isValidDaytime(parsed.daytime) ? parsed.daytime : DEFAULT_SETTINGS.daytime,
+            terrainArea: typeof parsed.terrainArea === 'string'
+                ? parsed.terrainArea : DEFAULT_SETTINGS.terrainArea,
         };
     } catch {
         return { ...DEFAULT_SETTINGS };

@@ -57,12 +57,26 @@ export interface FlattenPadManifest {
     heightMsl: number;
 }
 
+/**
+ * One area the bake was told to cover, named.
+ *
+ * `coverage` is the union box of every area, so with two of them it describes
+ * a rectangle spanning the sea in between and cannot name either. This list
+ * can, which is what makes "fly somewhere else" a thing the runtime can offer.
+ * Absent on a pyramid baked before areas were recorded — treat that as one
+ * unnamed area covering `coverage`.
+ */
+export interface TerrainArea extends LonLatBounds {
+    name: string;
+}
+
 export interface TerrainManifest {
     version: number;
     scheme: 'retro-terrain/1';
     ellipsoid: 'WGS84';
     seaLevel: number;
     coverage: LonLatBounds;
+    areas?: TerrainArea[];
     enuOrigin: { lat: number; lon: number; height: number };
     mesh: MeshStreamManifest;
     height: HeightStreamManifest;

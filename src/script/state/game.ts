@@ -27,6 +27,8 @@ import { SceneCamera } from '../scene/cameras/camera';
 import { DebrisField } from '../scene/entities/debrisField';
 import { DamageSmokeField } from '../scene/entities/damageSmokeField';
 import { GroundTargetEntity } from '../scene/entities/groundTarget';
+import { ActivePlayArea, resolvePlayArea } from '../terrain/playArea';
+import { AreaPicker } from '../osd/areaPicker';
 import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
 import { ARRESTOR_CARRIER_ORIGIN, ArrestorCarrierPose } from '../scene/entities/arrestorCables';
 import { ShipWakeEntity } from '../scene/entities/shipWake';
@@ -365,6 +367,9 @@ export class Game {
     /** F9-toggled live FPS / draw-call / terrain-LOD readout. */
     private perfHud: PerfHudEntity | undefined;
 
+    /** Baked area this session flies in; decides the ENU origin and the scenery. */
+    private playArea!: ActivePlayArea;
+
     /** Live Kuznetsov entity; cables / trap physics / ILS follow its pose. */
     private kuz: GroundTargetEntity | undefined;
     private readonly syncedCarrierPos = new THREE.Vector3(Number.NaN, Number.NaN, Number.NaN);
@@ -456,6 +461,16 @@ export class Game {
     private selectedAircraftId = 'f22';
     private modUploadInput?: HTMLInputElement;
     private modImportInFlight = false;
+    private areaPickerInstance: AreaPicker | undefined;
+
+    /** Built on first use: the dialog is rarely opened and touches the DOM. */
+    private areaPicker(): AreaPicker {
+        if (!this.areaPickerInstance) {
+            this.areaPickerInstance = new AreaPicker();
+        }
+        return this.areaPickerInstance;
+    }
+
     private modStatusToken?: symbol;
     private showcaseRaycaster = new THREE.Raycaster();
     private showcasePointerNdc = new THREE.Vector2();
@@ -1165,6 +1180,22 @@ export class Game {
     }
 
     /** Horizontal ENU spawn of the plane (used for terrain preload before Y is known). */
+    /**
+     * The spawn actually usable in this area.
+     *
+     * Every area has an airbase now — the bake flattens a pad at the centre of
+     * each — so runway and approach starts work anywhere. The carrier does not
+     * travel: it needs the open water east of Gran Canaria, so its two spawns
+     * fall back to the runway rather than dropping the player at a ship that
+     * is not there.
+     */
+    private spawnForArea(spawn: SpawnMode): SpawnMode {
+        if (this.playArea === undefined || this.playArea.isHome) {
+            return spawn;
+        }
+        return spawn === 'carrier' || spawn === 'carrierTakeoff' ? 'runway' : spawn;
+    }
+
     private spawnCenterEnu(spawn: SpawnMode): { x: number; z: number } {
         if (spawn === 'runway') {
             return { x: PLAYER_LAND_POSITION.x, z: PLAYER_LAND_POSITION.z };
@@ -1939,6 +1970,11 @@ export class Game {
                 this.openTelemetryGraphWindow();
                 return;
             }
+            if (event.code === 'F9') {
+                event.preventDefault();
+                void this.areaPicker().show();
+                return;
+            }
             if (event.code === 'F10') {
                 event.preventDefault();
                 this.triggerModImport();
@@ -2334,8 +2370,12 @@ export class Game {
     }
 
     /** Begin a flight using the aircraft + livery chosen in the spawn menu. */
-    private async beginFlight(spawn: SpawnMode) {
-        this.persistSpawnSelection(spawn);
+    private async beginFlight(requested: SpawnMode) {
+        // Persist what was asked for, fly what this area allows: coming back
+        // home should restore the runway start rather than the one an
+        // imported area forced.
+        this.persistSpawnSelection(requested);
+        const spawn = this.spawnForArea(requested);
         const def = this.selectedAircraftDef();
         if (def) {
             await this.preloadAircraftModels(def);
@@ -2388,7 +2428,7 @@ export class Game {
         this.obstacles.length = 0;
         const addObstacle = (x: number, z: number, radius: number, height: number) =>
             this.obstacles.push({ position: new THREE.Vector3(x, 0, z), radius, height });
-        // Airbase hangars + control tower.
+        // Airbase hangars + control tower — placed wherever the airbase is.
         {
             const h1 = airbaseOffset(AIRBASE_LOCAL.hangar1.x, AIRBASE_LOCAL.hangar1.z);
             const h2 = airbaseOffset(AIRBASE_LOCAL.hangar2.x, AIRBASE_LOCAL.hangar2.z);
@@ -2400,6 +2440,9 @@ export class Game {
             addObstacle(h3.x, h3.z, 45, 22);
             addObstacle(h4.x, h4.z, 45, 22);
             addObstacle(tw.x, tw.z, 25, 45);
+        }
+        // Scenario scenery: only where it was actually placed.
+        if (this.playArea.isHome) {
             const ref = airbaseOffset(TARGET_LOCAL.refinery.x, TARGET_LOCAL.refinery.z);
             addObstacle(ref.x, ref.z, 70, 60);
             const sam = airbaseOffset(TARGET_LOCAL.sam.x, TARGET_LOCAL.sam.z);
@@ -2686,6 +2729,19 @@ export class Game {
 
     private async setupScene(spawn: SpawnMode) {
         const manifest = await loadTerrainManifest();
+        // Which baked area this session flies in, and therefore where the ENU
+        // origin sits. Home keeps PLAY_ORIGIN exactly and gets the authored
+        // scenery; anywhere else is terrain only, rebased onto its own centre
+        // so vertices stay near the origin instead of a continent away from it.
+        this.playArea = resolvePlayArea(
+            manifest, PLAY_ORIGIN, loadSettings().terrainArea,
+        );
+        if (!this.playArea.isHome) {
+            console.log(`flying in imported area "${this.playArea.area.name}" `
+                + `(${this.playArea.origin.lat.toFixed(4)}, `
+                + `${this.playArea.origin.lon.toFixed(4)}) — terrain only`);
+        }
+        spawn = this.spawnForArea(spawn);
 
         this.sunModel = this.models.getModel('lib:sun');
         const skyModel = this.models.getModel('lib:skyDome');
@@ -2764,7 +2820,7 @@ export class Game {
             manifest,
             manifestUrl: DEFAULT_TERRAIN_URL,
             materials: this.materials,
-            enuOrigin: PLAY_ORIGIN,
+            enuOrigin: this.playArea.origin,
             terrainColour: this.configService.terrainColour,
         });
         await this.planetTerrain.load(DEFAULT_TERRAIN_URL);
@@ -2777,28 +2833,37 @@ export class Game {
         // the re-mesh it forced were the slowest step in the old boot.
         await this.preloadTerrainAroundPlane(center.x, center.z, spawn);
         setBootProgress(50, 'Building terrain meshes...');
+        // The airbase goes wherever the bake flattened a pad for it, which is
+        // every area: local ENU (0, 0) is the pad centre by construction, and
+        // that is exactly what airbaseOffset measures from.
         setBootProgress(60, 'Loading airbase...');
         await this.addAirBase(this.scene, this.models);
 
+        // The rest is the Canaries scenario rather than the airfield — a
+        // refinery, a SAM site and a warehouse at fixed offsets chosen for that
+        // island. Somewhere else they would land on whatever happened to be
+        // there.
         setBootProgress(75, 'Loading scenery...');
-        await this.addRefinery(this.scene, this.models);
+        if (this.playArea.isHome) {
+            await this.addRefinery(this.scene, this.models);
 
-        const samradar = new GroundTargetEntity(this.models.getModel('assets/samradar01.glb'), 0, 'SAM Radar', 'Stosneehar');
-        {
-            const p = airbaseOffset(TARGET_LOCAL.sam.x, TARGET_LOCAL.sam.z);
-            samradar.position.set(p.x, this.groundHeightMaxUnder(p.x, p.z, 25, 25), p.z);
-        }
-        this.scene.add(samradar);
-        await this.addSolidSceneryMesh('assets/samradar01.glb', samradar);
+            const samradar = new GroundTargetEntity(this.models.getModel('assets/samradar01.glb'), 0, 'SAM Radar', 'Stosneehar');
+            {
+                const p = airbaseOffset(TARGET_LOCAL.sam.x, TARGET_LOCAL.sam.z);
+                samradar.position.set(p.x, this.groundHeightMaxUnder(p.x, p.z, 25, 25), p.z);
+            }
+            this.scene.add(samradar);
+            await this.addSolidSceneryMesh('assets/samradar01.glb', samradar);
 
-        const warehouse = new GroundTargetEntity(this.models.getModel('assets/hangar01.gltf'), undefined, 'Warehouse', 'Radlydd');
-        {
-            const p = airbaseOffset(TARGET_LOCAL.warehouse.x, TARGET_LOCAL.warehouse.z);
-            warehouse.position.set(p.x, this.groundHeightMaxUnder(p.x, p.z, 30, 40), p.z);
+            const warehouse = new GroundTargetEntity(this.models.getModel('assets/hangar01.gltf'), undefined, 'Warehouse', 'Radlydd');
+            {
+                const p = airbaseOffset(TARGET_LOCAL.warehouse.x, TARGET_LOCAL.warehouse.z);
+                warehouse.position.set(p.x, this.groundHeightMaxUnder(p.x, p.z, 30, 40), p.z);
+            }
+            warehouse.quaternion.setFromAxisAngle(UP, Math.PI / 2);
+            this.scene.add(warehouse);
+            await this.addSolidSceneryMesh('assets/hangar01.gltf', warehouse);
         }
-        warehouse.quaternion.setFromAxisAngle(UP, Math.PI / 2);
-        this.scene.add(warehouse);
-        await this.addSolidSceneryMesh('assets/hangar01.gltf', warehouse);
 
         // All scenery is placed — its colliders become solid ground from here on.
         this.activateSceneryColliders();
@@ -2945,6 +3010,14 @@ export class Game {
             RUNWAY_HALF_LENGTH_M, RUNWAY_PAVEMENT_HALF_WIDTH,
             runway.position.y, runwayPadY,
         );
+
+        // The carrier and its cables need open water ten kilometres east, which
+        // is a fact about Gran Canaria and not about airbases. An imported area
+        // gets the runway and the hangars; a ship parked on a mountainside it
+        // does not.
+        if (!this.playArea.isHome) {
+            return;
+        }
 
         // Kuznetsov carrier from data/kuz.blend (exported via tools/export_kuz.py).
         // Collision soup is baked from the same GLB used for rendering.

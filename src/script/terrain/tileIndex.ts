@@ -13,7 +13,7 @@ interface LevelIndex {
 }
 
 export class TileIndex {
-    private readonly levels = new Map<number, LevelIndex>();
+    private readonly levels_ = new Map<number, LevelIndex>();
     readonly minZoom: number;
     readonly maxZoom: number;
 
@@ -48,7 +48,7 @@ export class TileIndex {
             const byteCount = Math.ceil((h.w * h.h) / 8);
             const bits = raw.subarray(o, o + byteCount);
             o += byteCount;
-            idx.levels.set(h.z, {
+            idx.levels_.set(h.z, {
                 minX: h.minX,
                 minY: h.minY,
                 w: h.w,
@@ -59,9 +59,42 @@ export class TileIndex {
         return idx;
     }
 
+    /** Levels the index describes, ascending. */
+    get levels(): number[] {
+        return [...this.levels_.keys()].sort((a, b) => a - b);
+    }
+
+    /**
+     * Every tile the index holds at `z`.
+     *
+     * `has` answers "is this one there", which is all the streamer needs
+     * because it starts from a camera and descends. Loading a tier in full
+     * needs the other direction: the tiles themselves, rather than a box to
+     * guess them from. A box works only while the baked area is one blob —
+     * once a second area is added the box spans the gap between them, and
+     * walking it asks for hundreds of tiles that were never baked.
+     */
+    tilesAt(z: number): TileKey[] {
+        const level = this.levels_.get(z);
+        if (!level) {
+            return [];
+        }
+        const out: TileKey[] = [];
+        for (let i = 0; i < level.w * level.h; i++) {
+            if (level.bits[i >> 3] & (1 << (i & 7))) {
+                out.push({
+                    z,
+                    x: level.minX + (i % level.w),
+                    y: level.minY + Math.floor(i / level.w),
+                });
+            }
+        }
+        return out;
+    }
+
     /** True when a baked land tile exists for `key`. Missing → sea ellipsoid. */
     has(key: TileKey): boolean {
-        const level = this.levels.get(key.z);
+        const level = this.levels_.get(key.z);
         if (!level) {
             return false;
         }

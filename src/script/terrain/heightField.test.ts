@@ -5,6 +5,7 @@ import { makeEnuBasis } from './geodesy';
 import { HeightField } from './heightField';
 import { TerrainManifest } from './manifest';
 import { TileKey, tileAtLonLat, tileBounds, tileKeyString } from './tiling';
+import { TileIndex } from './tileIndex';
 import { TileStore } from './tileStore';
 
 const ORIGIN = { lat: 28.0015, lon: -15.3937, height: 0 };
@@ -73,6 +74,30 @@ function makeStore(heights: (id: TileKey) => number | undefined) {
     return { store, served, restore: () => { globalThis.fetch = originalFetch; } };
 }
 
+/** A TileIndex over `tiles`, in the bytes the bake writes. */
+function indexOf(tiles: TileKey[], z: number): TileIndex {
+    const minX = Math.min(...tiles.map(t => t.x));
+    const minY = Math.min(...tiles.map(t => t.y));
+    const w = Math.max(...tiles.map(t => t.x)) - minX + 1;
+    const h = Math.max(...tiles.map(t => t.y)) - minY + 1;
+    const bits = new Uint8Array(Math.ceil((w * h) / 8));
+    for (const t of tiles) {
+        const i = (t.y - minY) * w + (t.x - minX);
+        bits[i >> 3] |= 1 << (i & 7);
+    }
+    const out = new Uint8Array(8 + 16 + bits.byteLength);
+    const view = new DataView(out.buffer);
+    view.setUint32(0, 0x31584950, true); // 'PIX1'
+    view.setUint16(4, z, true);
+    view.setUint16(6, z, true);
+    view.setUint32(8, minX, true);
+    view.setUint32(12, minY, true);
+    view.setUint32(16, w, true);
+    view.setUint32(20, h, true);
+    out.set(bits, 24);
+    return TileIndex.decode(out);
+}
+
 /** A lon/lat inside the coverage, and the ENU point matching it. */
 const TEST_LON = -15.40;
 const TEST_LAT = 28.00;
@@ -100,6 +125,52 @@ describe('HeightField', () => {
         try {
             const hf = new HeightField({ manifest: manifest(), store: h.store, basis: BASIS });
             await hf.loadCoarse();
+            assert.equal(hf.heightAtLonLat(TEST_LON, TEST_LAT), 40);
+        } finally {
+            h.restore();
+        }
+    });
+
+    it('loads only the tiles the index lists, not the whole coverage box', async () => {
+        // Two areas far apart: the coverage box spans both and the sea between,
+        // but only four coarse tiles were ever baked. Walking the box would ask
+        // for every tile in it and 404 on almost all of them.
+        const baked: TileKey[] = [
+            { z: COARSE_ZOOM, x: 120, y: 42 }, { z: COARSE_ZOOM, x: 121, y: 42 },
+            { z: COARSE_ZOOM, x: 133, y: 31 }, { z: COARSE_ZOOM, x: 134, y: 31 },
+        ];
+        const isBaked = (id: TileKey) => baked.some(
+            b => b.z === id.z && b.x === id.x && b.y === id.y,
+        );
+        const h = makeStore(id => (isBaked(id) ? 55 : undefined));
+        try {
+            const hf = new HeightField({
+                manifest: manifest({ coverage: { west: -19, south: 26, east: 9, north: 47 } }),
+                store: h.store,
+                basis: BASIS,
+            });
+            await hf.loadCoarse(indexOf(baked, COARSE_ZOOM));
+            assert.equal(h.served.length, baked.length,
+                `asked for ${h.served.length} tiles, only ${baked.length} exist`);
+            assert.deepEqual(
+                [...h.served].sort(), baked.map(tileKeyString).sort(),
+            );
+            assert.equal(hf.coarseTiles().length, baked.length);
+        } finally {
+            h.restore();
+        }
+    });
+
+    it('still walks the coverage box when there is no index', async () => {
+        // A pyramid whose index failed to fetch must keep booting, just less
+        // efficiently — the box is the only other description of what exists.
+        const coarseId = tileAtLonLat(COARSE_ZOOM, TEST_LON, TEST_LAT);
+        const h = makeStore(id => (id.z === COARSE_ZOOM && id.x === coarseId.x
+            && id.y === coarseId.y ? 40 : undefined));
+        try {
+            const hf = new HeightField({ manifest: manifest(), store: h.store, basis: BASIS });
+            await hf.loadCoarse(undefined);
+            assert.ok(h.served.length > 1, 'the box covers more than the one baked tile');
             assert.equal(hf.heightAtLonLat(TEST_LON, TEST_LAT), 40);
         } finally {
             h.restore();

@@ -98,10 +98,22 @@ export function buildTileMeshes(
     basis: EnuBasis,
     materials: ToneMaterials,
     onBeforeRender?: THREE.Mesh['onBeforeRender'],
+    /**
+     * Rotation from the frame the tile was baked in into the one being drawn.
+     * Identity whenever they are the same, which is every session flying in
+     * the area the bake was centred on. See `enuFrameRotation`.
+     */
+    frameFix?: THREE.Quaternion,
 ): TileMeshes {
     const group = new THREE.Group();
     group.name = `tile:${tile.id.z}/${tile.id.x}/${tile.id.y}`;
     group.position.copy(tileOriginEnu(tile.id, tile.centerHeightM, basis));
+    if (frameFix) {
+        // Vertices are offsets from the tile centre in the bake's axes; the
+        // position above is already in the drawing frame, so only the offsets
+        // need turning. Normals ride along via the object's world matrix.
+        group.quaternion.copy(frameFix);
+    }
     // Positions are quantised; the mesh transform turns them into metres.
     // The scale must stay uniform: updateUniforms builds normalModelMatrix
     // from matrixWorld with getNormalMatrix (inverse transpose), so a

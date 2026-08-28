@@ -20,6 +20,7 @@ import { FlattenPad } from './flattenPad';
 import { HeightSampler, HeightTier } from './heightSampler';
 import { TerrainManifest } from './manifest';
 import { LonLatBounds, TileKey } from './tiling';
+import { TileIndex } from './tileIndex';
 import { TileStore } from './tileStore';
 
 export { WATER_HEIGHT_EPS_M, isWaterHeight } from './heightSampler';
@@ -76,28 +77,45 @@ export class HeightField {
         return this.pads;
     }
 
-    /** Load the coarse tier in full. Cheap: a handful of tiles. */
-    async loadCoarse(): Promise<void> {
+    /**
+     * Load the coarse tier in full. Cheap: a handful of tiles.
+     *
+     * Driven by the index when one is available, and only by the coverage box
+     * when it is not. The box is the bounding rectangle of everything baked,
+     * which is the same thing as the baked area only while that area is a
+     * single blob. Add a second area on the far side of the world and the box
+     * swells to span the ocean between them, so walking it asks for hundreds
+     * of tiles that were never baked — each one an HTTP request, a 404, and a
+     * retry before the store gives up on it.
+     */
+    async loadCoarse(index?: TileIndex): Promise<void> {
         const z = this.coarseZoom;
+        const ids = index ? index.tilesAt(z) : this.coarseIdsFromCoverage(z);
+        const jobs = ids.map(id => this.store.request(id, Number.MAX_SAFE_INTEGER)
+            .then(tile => {
+                if (tile) {
+                    this.coarse.set(`${id.z}/${id.x}/${id.y}`, tile);
+                    this.store.setPinned(id, true);
+                }
+            }));
+        await Promise.all(jobs);
+    }
+
+    /** Every tile in the coverage rectangle at `z`, baked or not. */
+    private coarseIdsFromCoverage(z: number): TileKey[] {
         const cov = this.manifest.coverage;
         const span = 180 / (1 << z);
         const x0 = Math.floor((cov.west + 180) / span);
         const x1 = Math.floor((cov.east + 180) / span);
         const y0 = Math.floor((90 - cov.north) / span);
         const y1 = Math.floor((90 - cov.south) / span);
-        const jobs: Array<Promise<void>> = [];
+        const ids: TileKey[] = [];
         for (let y = y0; y <= y1; y++) {
             for (let x = x0; x <= x1; x++) {
-                const id: TileKey = { z, x, y };
-                jobs.push(this.store.request(id, Number.MAX_SAFE_INTEGER).then(tile => {
-                    if (tile) {
-                        this.coarse.set(`${z}/${x}/${y}`, tile);
-                        this.store.setPinned(id, true);
-                    }
-                }));
+                ids.push({ z, x, y });
             }
         }
-        await Promise.all(jobs);
+        return ids;
     }
 
     /** Ensure the fine tier covers a lon/lat box. Await before relying on it. */

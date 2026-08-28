@@ -11,4 +11,11 @@ dist
 
 # Fetched cover sources — regenerate with `tools/fetch_cover_sources.py`
 /data/cover/
+
+# Fetched DEM sources for imported areas — regenerate with `tools/fetch_planet_dem.py`
+/data/imports/
+
+# OSM raster tiles cached for the in-app area picker
+/tools/osm-cache/
+
 /build/

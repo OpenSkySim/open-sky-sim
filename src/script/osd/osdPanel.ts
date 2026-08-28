@@ -1,5 +1,9 @@
 import { ConfigService } from "../config/configService";
-import { updateSettings } from "../config/settingsStorage";
+import { loadSettings, updateSettings } from "../config/settingsStorage";
+import { DEFAULT_TERRAIN_URL, loadTerrainManifest } from "../terrain/manifest";
+import { terrainAreas } from "../terrain/playArea";
+import { PLAY_ORIGIN } from "../state/worldLayout";
+import { homeArea } from "../terrain/playArea";
 import { JoystickControlDevice } from "../input/devices/joystickControlDevice";
 import { KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts } from "../input/devices/keyboardControlDevice";
 import { formatSunTime } from "../scene/materials/shaders/sun";
@@ -13,6 +17,7 @@ export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDe
     setupDaytime(config);
     setupShadowQuality(config);
     setupTerrainColour(config);
+    setupArea();
     setupFlightModel(config);
     setupUnitSystem(config);
     setupAiPilotModel(config);
@@ -108,6 +113,62 @@ function setupDaytime(config: ConfigService) {
 
     slider.value = config.daytime.getActive().toString();
     readout.textContent = formatSunTime(config.daytime.getActive());
+}
+
+/**
+ * The area picker.
+ *
+ * Populated from the terrain manifest rather than from a fixed list, because
+ * what is baked differs per clone — a fresh one has whatever areas its owner
+ * imported, and possibly only the shipped one.
+ *
+ * Switching reloads the page. The ENU origin is chosen once when the world is
+ * built and everything from scenery placement to the physics worker's terrain
+ * mirror is positioned against it, so moving it in a live session would mean
+ * tearing all of that down; a reload runs the boot path that already does it
+ * correctly.
+ */
+function setupArea() {
+    const select = document.getElementById('area-select') as HTMLSelectElement | null;
+    const fly = document.getElementById('area-fly') as HTMLButtonElement | null;
+    const row = document.getElementById('area-row');
+    if (!select || !fly || !row) {
+        return;
+    }
+
+    loadTerrainManifest(DEFAULT_TERRAIN_URL).then(manifest => {
+        const areas = terrainAreas(manifest);
+        const home = homeArea(areas, PLAY_ORIGIN);
+        if (areas.length < 2) {
+            // Nothing to choose between. Hide it rather than show a combobox
+            // with one entry and a button that reloads to where you already are.
+            row.classList.add('hidden');
+            const heading = row.previousElementSibling?.previousElementSibling;
+            heading?.classList.add('hidden');
+            row.previousElementSibling?.classList.add('hidden');
+            return;
+        }
+        const saved = loadSettings().terrainArea;
+        for (const area of areas) {
+            const option = document.createElement('option');
+            option.value = area.name;
+            const isHome = home !== undefined && area.name === home.name;
+            option.textContent = isHome ? `${area.name} (home)` : area.name;
+            select.appendChild(option);
+        }
+        const selectable = areas.some(a => a.name === saved);
+        select.value = selectable ? saved : (home?.name ?? areas[0].name);
+        const initial = select.value;
+        const sync = () => { fly.disabled = select.value === initial; };
+        select.addEventListener('change', sync);
+        sync();
+        fly.addEventListener('click', () => {
+            updateSettings({ terrainArea: select.value });
+            window.location.reload();
+        });
+    }).catch(() => {
+        row.classList.add('hidden');
+    });
 }
 
 const SHADOW_QUALITY_RADIO_IDS: Record<ShadowQualities, string> = {
