@@ -9,6 +9,7 @@ import { CanvasPainter } from './screen/canvasPainter';
 import { TextEffect } from './screen/text';
 import { beginRenderListPass, pruneRenderList } from './renderList';
 import { clearRenderOrigin, setRenderOrigin } from './renderOrigin';
+import { SceneDepthPass } from './sceneDepthPass';
 import { SHADOW_SETTINGS, ShadowVolumePass } from './shadowVolumes';
 import { SUN_STATE } from '../scene/materials/shaders/sun';
 import { DisplayShading } from '../config/profiles/profile';
@@ -77,6 +78,29 @@ export interface RenderLayer {
      * layer that renders it can sample it; every other pass draws unshadowed.
      */
     shadows?: boolean;
+    /**
+     * Resolve the depth already standing in this target before the layer draws,
+     * so its materials can sample how far away what they cover is. Set on the
+     * foreground sky pass, whose glare veils the scene rather than replacing it.
+     *
+     * The camera here is the one whose pass *wrote* that depth - the main one -
+     * not the layer's own. Its far plane is the curve the log depth has to be
+     * read back through, and the background sky camera's is a different number.
+     */
+    sceneDepthFrom?: THREE.PerspectiveCamera;
+}
+
+/**
+ * The depth+stencil attachment for a scene target, as a sampleable texture.
+ *
+ * DEPTH24_STENCIL8 rather than plain depth: the shadow volume pass counts into
+ * the stencil, and a target cannot carry a depth texture and a separate stencil
+ * renderbuffer at once.
+ */
+function sceneDepthTexture(width: number, height: number): THREE.DepthTexture {
+    const texture = new THREE.DepthTexture(width, height, THREE.UnsignedInt248Type);
+    texture.format = THREE.DepthStencilFormat;
+    return texture;
 }
 
 export class Renderer {
@@ -96,6 +120,7 @@ export class Renderer {
     private readonly relativeRoot = new THREE.Group();
     private readonly savedCamPos = new THREE.Vector3();
     private readonly shadowPass = new ShadowVolumePass();
+    private readonly sceneDepthPass = new SceneDepthPass();
     /** Palette shadow tone, refreshed per shadowed pass. */
     private readonly shadowColor = new THREE.Color();
     private renderListGeneration = 0;
@@ -296,7 +321,26 @@ export class Renderer {
             pruneRenderList(list);
         }
 
+        // Before the submit, not after: the layer's own materials sample this.
+        // Skipped when the layer drew up empty, which for the glare is every
+        // frame between sunset and sunrise - a full-screen resolve per view is
+        // not worth paying for a pass with nothing in it.
+        if (layer.sceneDepthFrom !== undefined && this.hasAnythingToDraw(layer)) {
+            this.sceneDepthPass.resolve(this.renderer, renderTarget.target, layer.sceneDepthFrom.far);
+        }
+
         this.submitCameraRelative(layer, palette);
+    }
+
+    /** Whether this layer's lists came out of the build with anything in them. */
+    private hasAnythingToDraw(layer: RenderLayer): boolean {
+        for (const listId of layer.lists) {
+            const list = this.current3DRenderLists.get(listId);
+            if (list !== undefined && list.children.length > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Live diagnostics: draw calls + triangles per layer (__drawStats). */
@@ -425,7 +469,12 @@ export class Renderer {
                 format: THREE.RGBFormat,
                 // The shadow volumes count into this; three leaves the stencil
                 // out by default and it cannot be attached afterwards.
-                stencilBuffer: true
+                stencilBuffer: true,
+                // Depth as a texture rather than a renderbuffer, so a later
+                // pass in this same target can be told what it is covering
+                // (SceneDepthPass). Packed with the stencil, which the shadow
+                // volumes still need - the two share one attachment.
+                depthTexture: sceneDepthTexture(width, height)
             });
             const compositorObj = new THREE.Mesh(
                 new THREE.PlaneGeometry(width, height),

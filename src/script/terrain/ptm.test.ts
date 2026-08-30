@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-    PTM_FLAG_HAS_LAND, PTM_FLAG_HAS_WATER, PTM_HEADER_BYTES, decodePtm, encodePtm, PtmEncodeInput,
+    PTM_FLAG_HAS_LAND,
+    PTM_FLAG_HAS_RIVERS,
+    PTM_FLAG_HAS_WATER,
+    PTM_HEADER_BYTES,
+    PTM_VERSION,
+    PtmEncodeInput,
+    decodePtm,
+    encodePtm,
 } from './ptm';
 import { TerrainClass, TerrainTone } from './tones';
 
@@ -78,7 +85,7 @@ describe('PTM1 codec', () => {
         const input = sampleTile();
         const tile = decodePtm(encodePtm(input));
         assert.deepEqual(tile.id, { z: 12, x: 3745, y: 1410 });
-        assert.equal(tile.version, 3);
+        assert.equal(tile.version, PTM_VERSION);
         assert.ok(Math.abs(tile.centerHeightM - 123.5) < 1e-4);
         assert.ok(Math.abs(tile.skirtDepthM - 7.25) < 1e-4);
         assert.equal(tile.flags & PTM_FLAG_HAS_LAND, PTM_FLAG_HAS_LAND);
@@ -264,7 +271,7 @@ describe('PTM1 codec', () => {
     it('names the re-bake in the version error, since that is the only fix', () => {
         const bytes = encodePtm(sampleTile());
         const stale = bytes.slice();
-        stale[4] = 2;
+        stale[4] = 3;
         assert.throws(() => decodePtm(stale), /bake:mesh/);
     });
 
@@ -276,5 +283,75 @@ describe('PTM1 codec', () => {
         const shortColors = sampleTile();
         shortColors.land.colors = new Uint8Array([1, 2, 3]);
         assert.throws(() => encodePtm(shortColors), /land colors/);
+    });
+
+    describe('watercourse strokes', () => {
+        /** Two centreline points, doubled: four vertices, one quad. */
+        function withRivers(halfWidthM = 6): PtmEncodeInput {
+            const input = sampleTile();
+            input.rivers = {
+                positions: new Float32Array([
+                    0, 10, 0, 0, 10, 0,
+                    100, 12, 0, 100, 12, 0,
+                ]),
+                directions: new Float32Array([
+                    0, 0, 1, 0, 0, -1,
+                    0, 0, 1, 0, 0, -1,
+                ]),
+                halfWidthsM: new Float32Array([
+                    halfWidthM, halfWidthM, halfWidthM, halfWidthM,
+                ]),
+                indices: new Uint32Array([0, 1, 3, 0, 3, 2]),
+            };
+            return input;
+        }
+
+        it('round-trips the centreline, its offsets and its width', () => {
+            const tile = decodePtm(encodePtm(withRivers()));
+            assert.equal(tile.flags & PTM_FLAG_HAS_RIVERS, PTM_FLAG_HAS_RIVERS);
+            assert.equal(tile.riverHalfWidths.length, 4);
+            assert.deepEqual(Array.from(tile.riverIndices), [0, 1, 3, 0, 3, 2]);
+            // Decimetres on the wire.
+            assert.equal(tile.riverHalfWidths[0], 60);
+            // Both vertices of a pair sit at the same place: the ribbon's
+            // width is not in the positions at all.
+            const at = (v: number) => Array.from(tile.riverPositions.slice(v * 3, v * 3 + 3));
+            assert.deepEqual(at(0), at(1));
+            // ...and carry opposite offsets, /127.
+            assert.equal(tile.riverDirections[2], 127);
+            assert.equal(tile.riverDirections[6], -127);
+        });
+
+        it('leaves a tile with no watercourse byte-identical to before', () => {
+            const plain = encodePtm(sampleTile());
+            const empty = encodePtm({
+                ...sampleTile(),
+                rivers: {
+                    positions: new Float32Array(0),
+                    directions: new Float32Array(0),
+                    halfWidthsM: new Float32Array(0),
+                    indices: new Uint32Array(0),
+                },
+            });
+            assert.deepEqual(Array.from(empty), Array.from(plain));
+            const tile = decodePtm(plain);
+            assert.equal(tile.flags & PTM_FLAG_HAS_RIVERS, 0);
+            assert.equal(tile.riverIndices.length, 0);
+        });
+
+        it('quantises stroke positions on the same scale as everything else', () => {
+            const tile = decodePtm(encodePtm(withRivers()));
+            assert.ok(Math.abs(tile.riverPositions[3 * 2] * tile.quantScale - 100) < 1);
+        });
+
+        it('rejects inconsistent stroke arrays', () => {
+            const bad = withRivers();
+            bad.rivers!.directions = new Float32Array([0, 0, 1]);
+            assert.throws(() => encodePtm(bad), /river directions/);
+
+            const oddIndices = withRivers();
+            oddIndices.rivers!.indices = new Uint32Array([0, 1]);
+            assert.throws(() => encodePtm(oddIndices), /riverIndexCount/);
+        });
     });
 });

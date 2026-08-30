@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PaletteCategory } from '../../../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from "../../materials/materials";
 import { updateUniforms } from '../../utils';
@@ -78,11 +79,29 @@ const DISC_SEGMENTS = 12;
 const GLARE_SEGMENTS = 12;
 
 /**
- * How far inside the disc's radius the glare's hole starts. Just enough that
- * the two overlap by a fraction of a pixel instead of leaving a hairline of
- * background between them.
+ * How far inside the disc's radius the glare's cap meets its ring. Just enough
+ * that the two overlap by a fraction of a pixel instead of leaving a hairline
+ * of background between the ring and the disc.
  */
 const GLARE_INNER_OVERLAP = 0.98;
+
+/**
+ * How much more of the aureole reaches the eye than the fog's own extinction
+ * over the same path.
+ *
+ * The veil in front of a ridge is airlight, which is what FOG_TERRAIN already
+ * measures - so the glare is driven by that density rather than by a reach of
+ * its own, and a hazy palette gets a hazy aureole for free. But fog is
+ * broadband extinction averaged over every direction, while an aureole is the
+ * Mie forward lobe: within a few degrees of the sun the air scatters an order
+ * of magnitude more light towards the eye than that average. Hence a gain, not
+ * a second density.
+ *
+ * At the blended dusk density this puts half the aureole in at about 10 km,
+ * which leaves a near ridge cleanly silhouetted and a far one sitting inside
+ * the glow. It is the one number to turn if the balance reads wrong.
+ */
+const GLARE_VEIL_GAIN = 12;
 
 /**
  * Draw order, which matters only against the sky dome: nothing in either pass
@@ -189,13 +208,23 @@ export class SunModelLibBuilder implements ModelLibBuilder {
 let glareDirections = new Float32Array(0);
 
 /**
- * The glare: one vertex-coloured annulus facing +Z, like the dome's shell.
+ * The glare: one vertex-coloured disc facing +Z, like the dome's shell.
  *
- * The hole is the disc, which is drawn in an earlier pass; leaving it open is
- * what lets the disc show through unstippled. Its inner rim is pulled very
- * slightly inside the disc's own radius so the two overlap rather than meeting
- * at a seam, and both are built on the same segment count so their vertices
- * line up around the rim.
+ * It is built as a cap inside a ring rather than as one solid disc, because the
+ * two are gated differently. The ring is the aureole proper. The cap is the part
+ * that lies over the sun's own disc, and it draws only where something in the
+ * scene has taken that disc: with the disc visible it has to stay out of the
+ * way, and with the disc behind a ridge it has to fill in, or the brightest
+ * point in the sky is a hole showing the ground. Which of the two applies is a
+ * per-pixel question about the depth under it, so it is asked in the shader off
+ * a `skyCap` flag rather than decided here.
+ *
+ * That gate is also why the cap is not simply left out: an annulus is right only
+ * for as long as the disc is there to fill it, and around sunset it is not.
+ *
+ * The cap's rim is pulled very slightly inside the disc's own radius so the two
+ * overlap rather than meeting at a seam, and everything is built on the same
+ * segment count so the vertices line up around that rim.
  *
  * The falloff is linear in *angle* rather than in the mesh's own radius. Across
  * eight degrees the two are within a percent of each other, but the angle is
@@ -204,25 +233,45 @@ let glareDirections = new Float32Array(0);
  */
 function buildGlare(): THREE.Mesh {
     const innerRadius = radiusForDiameter(DISC_DIAMETER_DEG) * GLARE_INNER_OVERLAP;
-    const geometry = new THREE.RingGeometry(innerRadius, radiusForDiameter(GLARE_DIAMETER_DEG),
+    const cap = new THREE.CircleGeometry(innerRadius, GLARE_SEGMENTS);
+    const ring = new THREE.RingGeometry(innerRadius, radiusForDiameter(GLARE_DIAMETER_DEG),
         GLARE_SEGMENTS, GLARE_RADIAL_STEPS);
+    // Merged indexed rather than through the vegetation builder's own helper,
+    // which flattens to non-indexed: these vertices are repainted from the sky
+    // model whenever the sun moves, and there is no reason to paint each one
+    // six times over.
+    const capCount = cap.getAttribute('position').count;
+    const geometry = mergeGeometries([cap, ring]);
+    cap.dispose();
+    ring.dispose();
 
     const position = geometry.getAttribute('position');
     const innerDeg = diameterForRadius(innerRadius);
     const span = GLARE_DIAMETER_DEG - innerDeg;
     const falloff = new Float32Array(position.count);
+    const capFlag = new Float32Array(position.count);
     for (let v = 0; v < position.count; v++) {
         const deg = diameterForRadius(Math.hypot(position.getX(v), position.getY(v)));
+        // The cap sits inside the ramp's start, where this is already over 1,
+        // so the clamp hands it the limb's own value without a special case.
         falloff[v] = THREE.MathUtils.clamp((GLARE_DIAMETER_DEG - deg) / span, 0, 1);
+        // By vertex order, not by radius: the cap's rim and the ring's inner rim
+        // are the same circle, and a radius test would split that seam and gate
+        // the two sides of it differently.
+        capFlag[v] = v < capCount ? 1 : 0;
     }
     geometry.setAttribute('skyFalloff', new THREE.BufferAttribute(falloff, 1));
+    geometry.setAttribute('skyCap', new THREE.BufferAttribute(capFlag, 1));
     geometry.setAttribute(
         'skyColor', new THREE.BufferAttribute(new Float32Array(position.count * 3), 3));
 
-    const material = createSkyMaterial(GLARE_OVERBRIGHT, THREE.DoubleSide);
+    const material = createSkyMaterial(GLARE_OVERBRIGHT, THREE.DoubleSide, true);
     // Glare is scattered out of the air in front of whatever is out there, so
     // it is laid over the finished frame rather than tested against it. Its
-    // pass runs last, after the terrain has drawn.
+    // pass runs last, after the terrain has drawn. How much of it survives over
+    // any given pixel is the shader's job, off the resolved scene depth: a hard
+    // depth test would put the aureole behind a ridge instead of in front of
+    // it, and no test at all stipples the ridge away.
     material.depthTest = false;
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -235,18 +284,30 @@ function buildGlare(): THREE.Mesh {
 /**
  * Repaints the glare for the sun at `sunDir`, from the sky's own painter.
  *
- * The annulus is flat and faces the camera, so its vertices are not sky
+ * The glare is flat and faces the camera, so its vertices are not sky
  * directions in themselves - they are offsets around the sun. They are turned
  * into directions here, which is what lets every one of them ask the sky what
  * colour it is at that exact bearing and elevation.
+ *
+ * `active` is the blended palette the scene is being drawn with, for the veil
+ * density; the two authored ones are what the sky painter needs.
  */
 export function paintSunBloom(
     model: Model, noon: Palette, midnight: Palette, nightMix: number, sunDir: THREE.Vector3,
+    active: Palette,
 ): void {
     const mesh = model.lod[0]?.volumes[0] as THREE.Mesh | undefined;
     if (!mesh) {
         return;
     }
+    // How far the aureole reaches in front of the scene, from the blended
+    // palette rather than from the two authored ones: this is the same airlight
+    // the terrain is fogged by, so it has to be the density the terrain
+    // actually used. Set here because this is the one call both the palette and
+    // the sun come through.
+    (mesh.material as THREE.ShaderMaterial).uniforms.uVeilDensity.value =
+        active.values[PaletteCategory.FOG_TERRAIN] * GLARE_VEIL_GAIN;
+
     const position = mesh.geometry.getAttribute('position');
     if (glareDirections.length !== position.count * 3) {
         glareDirections = new Float32Array(position.count * 3);

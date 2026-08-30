@@ -147,7 +147,11 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         this.syncGearVisual(this.gearDeployed, false);
     }
 
-    /** Solid-ground sampler used to place the planform shadow (carrier/hills/flat). */
+    /**
+     * Solid-ground sampler used to place the planform shadow (carrier/hills/flat).
+     * Reads the terrain mesh on screen, not the DEM: the shadow has to land on
+     * the triangles the depth test compares it against. See drawnGroundHeightAt.
+     */
     setGroundHeightAt(fn: (x: number, z: number) => number): void {
         this.groundHeightAt = fn;
     }
@@ -464,6 +468,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         if (!SHADOW_SETTINGS.enabled && !this.isCrashed() && SUN_STATE.shadowStrength > 0) {
             setAircraftShadowPose(
                 this.displayPosition, this.displayQuaternion, this.groundHeightAt,
+                0.5 * this.modelShadow.model.maxSize,
                 this.shadowPosition, this.shadowQuaternion, this.shadowScale, this._v);
             this.modelShadow.addToRenderList(
                 this.shadowPosition, this.shadowQuaternion, this.shadowScale,

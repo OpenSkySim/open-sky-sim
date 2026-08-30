@@ -13,7 +13,7 @@
  */
 
 import * as THREE from 'three';
-import { EnuBasis, ecefToEnu, geodeticToEcef } from './geodesy';
+import { EnuBasis, ecefToEnu, geodeticToEcef, sceneZFromNorth } from './geodesy';
 import { TileKey, tileBounds } from './tiling';
 import { TerrainTone } from './tones';
 
@@ -46,16 +46,18 @@ export function buildOceanPatch(
     const positions: number[] = [];
     const indices: number[] = [];
 
-    const enuAt = (lon: number, lat: number, h: number) => {
+    // Scene-space offsets from the patch origin: z runs south, so the north
+    // component flips. See sceneFromEnu.
+    const localAt = (lon: number, lat: number, h: number) => {
         const e = ecefToEnu(basis, geodeticToEcef(lat, lon, h));
-        return [e.e - origin.e, e.u - origin.u, e.n - origin.n];
+        return [e.e - origin.e, e.u - origin.u, sceneZFromNorth(e.n - origin.n)];
     };
 
     for (let row = 0; row < n; row++) {
         const lat = b.north + (b.south - b.north) * (row / DIVISIONS);
         for (let col = 0; col < n; col++) {
             const lon = b.west + (b.east - b.west) * (col / DIVISIONS);
-            positions.push(...enuAt(lon, lat, seaLevel));
+            positions.push(...localAt(lon, lat, seaLevel));
         }
     }
     for (let row = 0; row < DIVISIONS; row++) {
@@ -108,7 +110,7 @@ export function buildOceanPatch(
 
     const group = new THREE.Group();
     group.name = `ocean:${id.z}/${id.x}/${id.y}`;
-    group.position.set(origin.e, origin.u, origin.n);
+    group.position.set(origin.e, origin.u, sceneZFromNorth(origin.n));
     group.add(mesh);
 
     return { group, bytes: pos.byteLength + idx.byteLength };

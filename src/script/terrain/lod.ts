@@ -13,8 +13,19 @@ export const SPACE_SKY_ALTITUDE_M = 80_000;
 /** Subtracted from the altitude zoom curve for inland / open-ocean tiles only. */
 export const TERRAIN_ZOOM_OFFSET = 1;
 
-/** Target projected error in pixels before a tile is refined. */
-export const SSE_TARGET_PX = 2;
+/**
+ * Target projected error in pixels before a tile is refined.
+ *
+ * Halved from 2, which refines each tile at twice the distance and brings the
+ * finer level in well before it reaches the aircraft. At 2 px the mid-field sat
+ * a level coarser than the altitude cap allowed, so terrain that could have
+ * been drawn at z12 was drawn at z11 and read as flat blocks.
+ *
+ * This is the knob the frame-time governor scales against (see detailScaleFor),
+ * so it is a target rather than a promise: if the frame budget cannot carry the
+ * extra tiles the governor multiplies it back up and the detail recedes again.
+ */
+export const SSE_TARGET_PX = 1;
 
 /** LOD reconcile cadence; rendering stays per-frame. */
 export const RECONCILE_INTERVAL_MS = 100;

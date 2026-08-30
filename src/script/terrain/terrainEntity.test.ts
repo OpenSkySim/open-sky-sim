@@ -88,23 +88,6 @@ describe('TerrainEntity render list attachment', () => {
         }
     });
 
-    /**
-     * The MFD moving map is its own layer, drawn by the top-down ortho pass
-     * over the same tiles. Without this the map target renders nothing and
-     * MFD1 is blank.
-     */
-    it('attaches to the map basemap pass', () => {
-        const entity = makeEntity();
-        const list = new THREE.Scene();
-        const lists = new Map<string, THREE.Scene>([[SceneLayers.MapBasemap, list]]);
-
-        beginRenderListPass(list, 1);
-        entity.render3D(256, 256, camera(), lists, null as never);
-        pruneRenderList(list);
-
-        assert.equal(list.children.length, 1, 'terrain group reached the map pass');
-    });
-
     it('does not attach to a pass that has no terrain layer', () => {
         const entity = makeEntity();
         const other = new THREE.Scene();
@@ -117,7 +100,7 @@ describe('TerrainEntity render list attachment', () => {
         /**
          * SceneLayers.Terrain appears in six render-layer definitions, so
          * render3D runs several times per frame with different cameras. Only
-         * the nominated one may drive LOD, or the MFD and target passes corrupt
+         * the nominated one may drive LOD, or the target MFD pass corrupts
          * the frame-time EMA and the traversal.
          */
         it('only reconciles for the nominated camera', () => {
@@ -152,7 +135,7 @@ describe('TerrainEntity render list attachment', () => {
             pruneRenderList(list);
             assert.equal(
                 list.children.length, 1,
-                'the MFD pass must still draw whatever the main pass produced',
+                'the target MFD pass must still draw whatever the main pass produced',
             );
         });
     });

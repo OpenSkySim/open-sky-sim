@@ -8,19 +8,23 @@
  * bytes to drawable without touching a single vertex on the CPU, which is why
  * the runtime needs no mesh workers at all.
  *
- * Two meshes come out per tile — land and water — because the streams have
- * different vertex layouts. Water carries one draw group per tone; land is a
- * single group whose colour the shader resolves per vertex from the baked
- * cover attribute, so a tile is at most three draws.
+ * Up to three meshes come out per tile — land, water and watercourse strokes —
+ * because the streams have different vertex layouts. Water carries one draw
+ * group per tone; land is a single group whose colour the shader resolves per
+ * vertex from the baked cover attribute. The strokes are a centreline the
+ * vertex program widens, so they need their own material as well as their own
+ * attributes, and they are the one stream drawn after the surface rather than
+ * as part of it.
  *
  * Tiles are placed by translation only, never rotation. The shaded vertex
  * program treats the normal attribute as world-space in the STATIC and DUOTONE
- * shading paths, so a rotated tile would shade wrong; the bake writes normals
- * in global ENU for exactly this reason.
+ * shading paths, so a rotated tile would shade wrong; the bake writes both
+ * positions and normals in scene axes (x=east, y=up, z=south) for exactly this
+ * reason. See `sceneFromEnu` for why z runs south.
  */
 
 import * as THREE from 'three';
-import { EnuBasis, ecefToEnu, geodeticToEcef } from './geodesy';
+import { EnuBasis, ecefToEnu, geodeticToEcef, sceneFromEnu } from './geodesy';
 import { PtmTile } from './ptm';
 import { TileKey, tileBounds } from './tiling';
 import { LAND_TONE_BASE, TerrainTone } from './tones';
@@ -29,6 +33,7 @@ export interface TileMeshes {
     group: THREE.Group;
     land?: THREE.Mesh;
     water?: THREE.Mesh;
+    rivers?: THREE.Mesh;
     /** Bytes of GPU buffer, for the cache budget. */
     bytes: number;
 }
@@ -81,22 +86,46 @@ function waterGeometry(tile: PtmTile): THREE.BufferGeometry | undefined {
     return g;
 }
 
-/** ENU position of a tile's local frame origin. */
-export function tileOriginEnu(
+/**
+ * The watercourse strokes: a centreline, doubled, plus what the vertex program
+ * needs to widen it.
+ *
+ * Both vertices of a pair sit at the same position and differ only in
+ * `riverDir`, so nothing here says how wide the ribbon is on screen — that is
+ * settled per frame, in pixels, by RiverVertProgram.
+ */
+function riverGeometry(tile: PtmTile): THREE.BufferGeometry | undefined {
+    if (tile.riverIndices.length === 0) {
+        return undefined;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(tile.riverPositions, 3));
+    // Directions are stored xyz + one pad byte, like land normals, so each
+    // vertex stays 4-byte aligned.
+    const dirBuffer = new THREE.InterleavedBuffer(tile.riverDirections as unknown as Int8Array, 4);
+    g.setAttribute('riverDir', new THREE.InterleavedBufferAttribute(dirBuffer, 3, 0, true));
+    // Raw, not normalised: the shader wants decimetres, not a 0..1 fraction.
+    g.setAttribute('riverHalf', new THREE.BufferAttribute(tile.riverHalfWidths, 1, false));
+    g.setIndex(new THREE.BufferAttribute(tile.riverIndices, 1));
+    return g;
+}
+
+/** Scene position of a tile's local frame origin. */
+export function tileOriginWorld(
     id: TileKey, centerHeightM: number, basis: EnuBasis,
 ): THREE.Vector3 {
     const b = tileBounds(id);
     const lon = (b.west + b.east) / 2;
     const lat = (b.south + b.north) / 2;
-    const enu = ecefToEnu(basis, geodeticToEcef(lat, lon, centerHeightM));
-    // Scene axes are x=east, y=up, z=north.
-    return new THREE.Vector3(enu.e, enu.u, enu.n);
+    // Scene axes are x=east, y=up, z=south; see sceneFromEnu.
+    return sceneFromEnu(ecefToEnu(basis, geodeticToEcef(lat, lon, centerHeightM)));
 }
 
 export function buildTileMeshes(
     tile: PtmTile,
     basis: EnuBasis,
     materials: ToneMaterials,
+    riverMaterial?: THREE.Material,
     onBeforeRender?: THREE.Mesh['onBeforeRender'],
     /**
      * Rotation from the frame the tile was baked in into the one being drawn.
@@ -107,7 +136,7 @@ export function buildTileMeshes(
 ): TileMeshes {
     const group = new THREE.Group();
     group.name = `tile:${tile.id.z}/${tile.id.x}/${tile.id.y}`;
-    group.position.copy(tileOriginEnu(tile.id, tile.centerHeightM, basis));
+    group.position.copy(tileOriginWorld(tile.id, tile.centerHeightM, basis));
     if (frameFix) {
         // Vertices are offsets from the tile centre in the bake's axes; the
         // position above is already in the drawing frame, so only the offsets
@@ -149,6 +178,23 @@ export function buildTileMeshes(
         bytes += tile.waterPositions.byteLength + tile.waterIndices.byteLength;
     }
 
+    const rg = riverMaterial ? riverGeometry(tile) : undefined;
+    if (rg) {
+        const mesh = new THREE.Mesh(rg, riverMaterial);
+        mesh.frustumCulled = false;
+        // After the surface it lies on, always. The stroke is lifted off the
+        // ground by the pixel floor rather than sunk into it, so it has to win
+        // ties against the terrain it covers rather than lose them.
+        mesh.renderOrder = 1;
+        if (onBeforeRender) {
+            mesh.onBeforeRender = onBeforeRender;
+        }
+        group.add(mesh);
+        meshes.rivers = mesh;
+        bytes += tile.riverPositions.byteLength + tile.riverDirections.byteLength
+            + tile.riverHalfWidths.byteLength + tile.riverIndices.byteLength;
+    }
+
     meshes.bytes = bytes;
     return meshes;
 }
@@ -156,5 +202,6 @@ export function buildTileMeshes(
 export function disposeTileMeshes(m: TileMeshes): void {
     m.land?.geometry.dispose();
     m.water?.geometry.dispose();
+    m.rivers?.geometry.dispose();
     m.group.clear();
 }

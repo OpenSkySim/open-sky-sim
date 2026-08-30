@@ -34,7 +34,6 @@ import { ARRESTOR_CARRIER_ORIGIN, ArrestorCarrierPose } from '../scene/entities/
 import { ShipWakeEntity } from '../scene/entities/shipWake';
 import {
     CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize,
-    MAP_CAMERA_ALTITUDE, MAP_CAMERA_FAR, MAP_CAMERA_HALF_EXTENT, MAP_CAMERA_NEAR,
 } from '../scene/entities/overlay/cockpit';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
 import { HUDEntity } from '../scene/entities/overlay/hud';
@@ -152,11 +151,8 @@ const CANVAS_RENDER_TARGET_HI = 'CANVAS_RENDER_TARGET_HI';
 const MAIN_RENDER_TARGET_HD = 'MAIN_RENDER_TARGET_HD';
 const CANVAS_RENDER_TARGET_HD = 'CANVAS_RENDER_TARGET_HD';
 const WEAPONSTARGET_RENDER_TARGET_LO = 'WEAPONSTARGET_RENDER_TARGET_LO';
-const MAP_RENDER_TARGET_LO = 'MAP_RENDER_TARGET_LO';
 const WEAPONSTARGET_RENDER_TARGET_HI = 'WEAPONSTARGET_RENDER_TARGET_HI';
-const MAP_RENDER_TARGET_HI = 'MAP_RENDER_TARGET_HI';
 const WEAPONSTARGET_RENDER_TARGET_HD = 'WEAPONSTARGET_RENDER_TARGET_HD';
-const MAP_RENDER_TARGET_HD = 'MAP_RENDER_TARGET_HD';
 
 const AIRBASE_RUNWAY = new THREE.Vector3(AIRBASE_RUNWAY_RAW.x, AIRBASE_RUNWAY_RAW.y, AIRBASE_RUNWAY_RAW.z);
 const RUNWAY_SPAWN_INSET_M = 120;
@@ -395,7 +391,6 @@ export class Game {
 
     private playerCamera: SceneCamera;
     private targetCamera: SceneCamera;
-    private mapCamera: THREE.OrthographicCamera;
     private cameraUpdaters: Map<PlayerViewState, CameraUpdater> = new Map();
     private cameraUpdater: CameraUpdater;
     private player: PlayerEntity;
@@ -485,12 +480,6 @@ export class Game {
 
         this.playerCamera = new SceneCamera(new THREE.PerspectiveCamera(COCKPIT_FOV, H_RES / V_RES, PLANE_DISTANCE_TO_GROUND, COCKPIT_FAR));
         this.targetCamera = new SceneCamera(new THREE.PerspectiveCamera(COCKPIT_FOV, 1, PLANE_DISTANCE_TO_GROUND, COCKPIT_FAR));
-        this.mapCamera = new THREE.OrthographicCamera(
-            -MAP_CAMERA_HALF_EXTENT, MAP_CAMERA_HALF_EXTENT,
-            MAP_CAMERA_HALF_EXTENT, -MAP_CAMERA_HALF_EXTENT,
-            MAP_CAMERA_NEAR, MAP_CAMERA_FAR);
-        this.mapCamera.setRotationFromAxisAngle(RIGHT, -Math.PI / 2);
-        this.mapCamera.position.set(0, MAP_CAMERA_ALTITUDE, 0);
 
         this.currentDef = buildF22Def();
         this.player = new PlayerEntity(this.models,
@@ -588,7 +577,11 @@ export class Game {
             {
                 target: MAIN_RENDER_TARGET_LO,
                 camera: this.playerCamera.bgSky,
-                lists: [SceneLayers.ForegroundSky]
+                lists: [SceneLayers.ForegroundSky],
+                // The glare veils the scene rather than replacing it, so it needs
+                // the depth the main pass just wrote - read back through that
+                // camera's far plane, not the background one's.
+                sceneDepthFrom: this.playerCamera.main
             }
         ];
         const playerLayersHi: RenderLayer[] = [
@@ -611,7 +604,11 @@ export class Game {
             {
                 target: MAIN_RENDER_TARGET_HI,
                 camera: this.playerCamera.bgSky,
-                lists: [SceneLayers.ForegroundSky]
+                lists: [SceneLayers.ForegroundSky],
+                // The glare veils the scene rather than replacing it, so it needs
+                // the depth the main pass just wrote - read back through that
+                // camera's far plane, not the background one's.
+                sceneDepthFrom: this.playerCamera.main
             }
         ];
         const targetLayersLo: RenderLayer[] = [
@@ -634,7 +631,11 @@ export class Game {
             {
                 target: WEAPONSTARGET_RENDER_TARGET_LO,
                 camera: this.targetCamera.bgSky,
-                lists: [SceneLayers.ForegroundSky]
+                lists: [SceneLayers.ForegroundSky],
+                // The glare veils the scene rather than replacing it, so it needs
+                // the depth the main pass just wrote - read back through that
+                // camera's far plane, not the background one's.
+                sceneDepthFrom: this.targetCamera.main
             }
         ];
         const targetLayersHi: RenderLayer[] = [
@@ -657,21 +658,11 @@ export class Game {
             {
                 target: WEAPONSTARGET_RENDER_TARGET_HI,
                 camera: this.targetCamera.bgSky,
-                lists: [SceneLayers.ForegroundSky]
-            }
-        ];
-        const mapLayersLo: RenderLayer[] = [
-            {
-                target: MAP_RENDER_TARGET_LO,
-                camera: this.mapCamera,
-                lists: [SceneLayers.MapBasemap]
-            }
-        ];
-        const mapLayersHi: RenderLayer[] = [
-            {
-                target: MAP_RENDER_TARGET_HI,
-                camera: this.mapCamera,
-                lists: [SceneLayers.MapBasemap]
+                lists: [SceneLayers.ForegroundSky],
+                // The glare veils the scene rather than replacing it, so it needs
+                // the depth the main pass just wrote - read back through that
+                // camera's far plane, not the background one's.
+                sceneDepthFrom: this.targetCamera.main
             }
         ];
         const canvasLayersLo: RenderLayer[] = [
@@ -688,8 +679,8 @@ export class Game {
                 lists: [SceneLayers.Overlay]
             }
         ];
-        this.cockpitRenderLayersLo = [...playerLayersLo, ...mapLayersLo, ...canvasLayersLo];
-        this.cockpitTargetRenderLayersLo = [...playerLayersLo, ...mapLayersLo, ...targetLayersLo, ...canvasLayersLo];
+        this.cockpitRenderLayersLo = [...playerLayersLo, ...canvasLayersLo];
+        this.cockpitTargetRenderLayersLo = [...playerLayersLo, ...targetLayersLo, ...canvasLayersLo];
         this.exteriorRenderLayersLo = [...playerLayersLo, ...canvasLayersLo];
         const showcaseLayersLo: RenderLayer[] = [
             {
@@ -700,8 +691,8 @@ export class Game {
             }
         ];
         this.showcaseRenderLayersLo = showcaseLayersLo;
-        this.cockpitRenderLayersHi = [...playerLayersHi, ...mapLayersHi, ...canvasLayersHi];
-        this.cockpitTargetRenderLayersHi = [...playerLayersHi, ...mapLayersHi, ...targetLayersHi, ...canvasLayersHi];
+        this.cockpitRenderLayersHi = [...playerLayersHi, ...canvasLayersHi];
+        this.cockpitTargetRenderLayersHi = [...playerLayersHi, ...targetLayersHi, ...canvasLayersHi];
         this.exteriorRenderLayersHi = [...playerLayersHi, ...canvasLayersHi];
         const showcaseLayersHi: RenderLayer[] = [
             {
@@ -733,7 +724,11 @@ export class Game {
             {
                 target: MAIN_RENDER_TARGET_HD,
                 camera: this.playerCamera.bgSky,
-                lists: [SceneLayers.ForegroundSky]
+                lists: [SceneLayers.ForegroundSky],
+                // The glare veils the scene rather than replacing it, so it needs
+                // the depth the main pass just wrote - read back through that
+                // camera's far plane, not the background one's.
+                sceneDepthFrom: this.playerCamera.main
             }
         ];
         const targetLayersHd: RenderLayer[] = [
@@ -756,14 +751,11 @@ export class Game {
             {
                 target: WEAPONSTARGET_RENDER_TARGET_HD,
                 camera: this.targetCamera.bgSky,
-                lists: [SceneLayers.ForegroundSky]
-            }
-        ];
-        const mapLayersHd: RenderLayer[] = [
-            {
-                target: MAP_RENDER_TARGET_HD,
-                camera: this.mapCamera,
-                lists: [SceneLayers.MapBasemap]
+                lists: [SceneLayers.ForegroundSky],
+                // The glare veils the scene rather than replacing it, so it needs
+                // the depth the main pass just wrote - read back through that
+                // camera's far plane, not the background one's.
+                sceneDepthFrom: this.targetCamera.main
             }
         ];
         const canvasLayersHd: RenderLayer[] = [
@@ -773,8 +765,8 @@ export class Game {
                 lists: [SceneLayers.Overlay]
             }
         ];
-        this.cockpitRenderLayersHd = [...playerLayersHd, ...mapLayersHd, ...canvasLayersHd];
-        this.cockpitTargetRenderLayersHd = [...playerLayersHd, ...mapLayersHd, ...targetLayersHd, ...canvasLayersHd];
+        this.cockpitRenderLayersHd = [...playerLayersHd, ...canvasLayersHd];
+        this.cockpitTargetRenderLayersHd = [...playerLayersHd, ...targetLayersHd, ...canvasLayersHd];
         this.exteriorRenderLayersHd = [...playerLayersHd, ...canvasLayersHd];
         const showcaseLayersHd: RenderLayer[] = [
             {
@@ -796,10 +788,8 @@ export class Game {
         this.renderer.createRenderTarget(MAIN_RENDER_TARGET_HI, RenderTargetType.WEBGL, 0, 0, HI_H_RES, HI_V_RES);
         this.renderer.createRenderTarget(CANVAS_RENDER_TARGET_HI, RenderTargetType.CANVAS, 0, 0, HI_H_RES, HI_V_RES, { textColors });
         const LO_MFD_SIZE = CockpitMFDSize(LO_V_RES, LO_H_RES);
-        this.renderer.createRenderTarget(MAP_RENDER_TARGET_LO, RenderTargetType.WEBGL, CockpitMFD1X(LO_H_RES, LO_V_RES, LO_MFD_SIZE), CockpitMFD1Y(LO_H_RES, LO_V_RES, LO_MFD_SIZE), LO_MFD_SIZE, LO_MFD_SIZE);
         this.renderer.createRenderTarget(WEAPONSTARGET_RENDER_TARGET_LO, RenderTargetType.WEBGL, CockpitMFD2X(LO_H_RES, LO_V_RES, LO_MFD_SIZE), CockpitMFD2Y(LO_H_RES, LO_V_RES, LO_MFD_SIZE), LO_MFD_SIZE, LO_MFD_SIZE);
         const HI_MFD_SIZE = CockpitMFDSize(HI_V_RES, HI_H_RES);
-        this.renderer.createRenderTarget(MAP_RENDER_TARGET_HI, RenderTargetType.WEBGL, CockpitMFD1X(HI_H_RES, HI_V_RES, HI_MFD_SIZE), CockpitMFD1Y(HI_H_RES, HI_V_RES, HI_MFD_SIZE), HI_MFD_SIZE, HI_MFD_SIZE);
         this.renderer.createRenderTarget(WEAPONSTARGET_RENDER_TARGET_HI, RenderTargetType.WEBGL, CockpitMFD2X(HI_H_RES, HI_V_RES, HI_MFD_SIZE), CockpitMFD2Y(HI_H_RES, HI_V_RES, HI_MFD_SIZE), HI_MFD_SIZE, HI_MFD_SIZE);
         this.renderer.setPalette(this.getPalette());
         this.materials.setPalette(this.getPalette());
@@ -1314,9 +1304,29 @@ export class Game {
 
     /** Highest solid ground Y at (x, z): DEM/flat datum, hills, ski jumps, surface pads, scenery + carrier meshes. */
     private groundHeightAt(x: number, z: number): number {
-        const demY = this.planetTerrain.heightAtEnu(x, z);
+        const demY = this.planetTerrain.heightAtWorld(x, z);
         return Math.max(
             demY,
+            sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
+            sampleSurfacePadYMax(x, z, this.surfacePads),
+            sampleCarrierMeshSurfaceYMax(x, z, this.sceneryMeshes),
+            sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes),
+        );
+    }
+
+    /**
+     * Same surface, but reading the terrain off the mesh on screen rather than
+     * the DEM where the two disagree — which they routinely do, because the
+     * DEM query tier is a level coarser than the deepest drawn mesh.
+     *
+     * Only decals want this. A ground shadow has to land on the triangles the
+     * depth test will compare it against or it is simply not drawn, whereas
+     * physics wants the one surface that does not shift under an LOD change.
+     */
+    private drawnGroundHeightAt(x: number, z: number): number {
+        const drawnY = this.planetTerrain.drawnHeightAtWorld(x, z);
+        return Math.max(
+            drawnY ?? this.planetTerrain.heightAtWorld(x, z),
             sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
             sampleSurfacePadYMax(x, z, this.surfacePads),
             sampleCarrierMeshSurfaceYMax(x, z, this.sceneryMeshes),
@@ -1414,13 +1424,11 @@ export class Game {
             this.renderer.createRenderTarget(MAIN_RENDER_TARGET_HD, RenderTargetType.WEBGL, 0, 0, width, height);
             this.renderer.createRenderTarget(CANVAS_RENDER_TARGET_HD, RenderTargetType.CANVAS, 0, 0, width, height, { textColors });
             const mfdSize = CockpitMFDSize(height, width);
-            this.renderer.createRenderTarget(MAP_RENDER_TARGET_HD, RenderTargetType.WEBGL, CockpitMFD1X(width, height, mfdSize), CockpitMFD1Y(width, height, mfdSize), mfdSize, mfdSize);
             this.renderer.createRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, RenderTargetType.WEBGL, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize);
         } else {
             this.renderer.resizeRenderTarget(MAIN_RENDER_TARGET_HD, 0, 0, width, height);
             this.renderer.resizeRenderTarget(CANVAS_RENDER_TARGET_HD, 0, 0, width, height);
             const mfdSize = CockpitMFDSize(height, width);
-            this.renderer.resizeRenderTarget(MAP_RENDER_TARGET_HD, CockpitMFD1X(width, height, mfdSize), CockpitMFD1Y(width, height, mfdSize), mfdSize, mfdSize);
             this.renderer.resizeRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize);
         }
 
@@ -1692,21 +1700,14 @@ export class Game {
             const weaponsTargetId = resolution === DisplayResolution.LO_RES ? WEAPONSTARGET_RENDER_TARGET_LO
                 : resolution === DisplayResolution.HI_RES ? WEAPONSTARGET_RENDER_TARGET_HI
                     : WEAPONSTARGET_RENDER_TARGET_HD;
-            const mapTargetId = resolution === DisplayResolution.LO_RES ? MAP_RENDER_TARGET_LO
-                : resolution === DisplayResolution.HI_RES ? MAP_RENDER_TARGET_HI
-                    : MAP_RENDER_TARGET_HD;
             const nightVisionPalette = this.player.nightVision ? this.configService.techProfiles.getActive().nightVisionPalette : undefined;
-            // Interleave map/target MFD refreshes so both never rebuild in one frame.
-            const slot = this.targetMfdFrame++ % 4;
-            const refreshMap = slot === 0 || slot === 2;
-            const refreshTargetMfd = slot === 1;
+            // The target MFD is a full scene pass; rebuild it every fourth frame.
+            const refreshTargetMfd = this.targetMfdFrame++ % 4 === 1;
             for (let i = 0; i < layers.length; i++) {
                 const layer = layers[i];
                 if (layer.target === weaponsTargetId) {
                     layer.palette = nightVisionPalette;
                     layer.skipRefresh = !refreshTargetMfd;
-                } else if (layer.target === mapTargetId) {
-                    layer.skipRefresh = !refreshMap;
                 } else {
                     layer.skipRefresh = false;
                 }
@@ -1720,15 +1721,6 @@ export class Game {
             for (let i = 0; i < layers.length; i++) {
                 layers[i].palette = undefined;
                 layers[i].skipRefresh = false;
-            }
-            // HD cockpit map still costs a terrain pass every frame with no lock — half-rate it.
-            if (resolution === DisplayResolution.HD_RES && this.view === PlayerViewState.COCKPIT_FRONT) {
-                const refreshMap = (this.targetMfdFrame++ & 1) === 0;
-                for (let i = 0; i < layers.length; i++) {
-                    if (layers[i].target === MAP_RENDER_TARGET_HD) {
-                        layers[i].skipRefresh = !refreshMap;
-                    }
-                }
             }
         }
         this.applySpaceClearColor(layers);
@@ -2489,7 +2481,7 @@ export class Game {
         });
         this.player.setCombatSimClient(this.combatSim);
         this.player.setHasGun(true);
-        this.player.setGroundHeightAt((x, z) => this.groundHeightAt(x, z));
+        this.player.setGroundHeightAt((x, z) => this.drawnGroundHeightAt(x, z));
 
         // The weapons field is now a pure renderer of the worker's projectile pool.
         this.weaponsField = new WeaponsField(this.models, this.combatSim);
@@ -2539,7 +2531,7 @@ export class Game {
             );
             ai.enabled = false;
             this.combatSim.setEnabled(ai.simId, false);
-            ai.setGroundHeightAt((x, z) => this.groundHeightAt(x, z));
+            ai.setGroundHeightAt((x, z) => this.drawnGroundHeightAt(x, z));
             this.scene.add(ai);
             this.aiOpponents.push(ai);
         }
@@ -2569,7 +2561,7 @@ export class Game {
         );
         this.wingman.enabled = false;
         this.combatSim.setEnabled(this.wingman.simId, false);
-        this.wingman.setGroundHeightAt((x, z) => this.groundHeightAt(x, z));
+        this.wingman.setGroundHeightAt((x, z) => this.drawnGroundHeightAt(x, z));
         this.scene.add(this.wingman);
 
         this.cameraUpdaters.set(
@@ -2877,7 +2869,7 @@ export class Game {
         this.scene.add(hud);
 
         const cockpit = new CockpitEntity(
-            this.player, this.playerCamera.main, this.targetCamera.main, this.mapCamera,
+            this.player, this.playerCamera.main, this.targetCamera.main,
         );
         this.cockpitEntities.push(cockpit);
         this.scene.add(cockpit);
@@ -3131,7 +3123,7 @@ export class Game {
     }
 
     private isLandAt(worldX: number, worldZ: number): boolean {
-        return this.planetTerrain.isLandEnu(worldX, worldZ);
+        return this.planetTerrain.isLandAtWorld(worldX, worldZ);
     }
 
     private getPalette(): Palette {
@@ -3188,7 +3180,7 @@ export class Game {
         // rather than by two sets of constants being kept in step by hand.
         if (this.sunModel) {
             paintSunBloom(this.sunModel, this.noonPalette, this.midnightPalette,
-                SUN_STATE.nightMix, SUN_DIRECTION);
+                SUN_STATE.nightMix, SUN_DIRECTION, this.palette);
         }
         // Dev aids, alongside __terrain / __shadowSettings. The sun is worth
         // reaching for because its two halves are drawn in different passes,

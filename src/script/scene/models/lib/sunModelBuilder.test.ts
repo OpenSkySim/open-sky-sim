@@ -9,7 +9,8 @@ import { DisplayShading, FogQuality } from '../../../config/profiles/profile';
 import { SceneMaterialManager } from '../../materials/materials';
 import { COCKPIT_FOV, H_RES, V_RES } from '../../../defs';
 import { DEFAULT_SUN_HOURS, setSunTime, SUN_DIRECTION } from '../../materials/shaders/sun';
-import { placeSun, SUN_DISTANCE, SUN_SET_ELEVATION_DEG, SunModelLibBuilder } from './sunModelBuilder';
+import { paintSunBloom, placeSun, SUN_DISTANCE, SUN_SET_ELEVATION_DEG, SunModelLibBuilder } from './sunModelBuilder';
+import { SCENE_DEPTH_UNIFORMS } from '../../materials/shaders/sceneDepth';
 import { SimpleEntity } from '../../entities/simpleEntity';
 import { SceneLayers } from '../../scene';
 
@@ -29,17 +30,20 @@ function build(): { disc: THREE.Mesh; glare: THREE.Mesh; } {
     return { disc: lod.flats[0] as THREE.Mesh, glare: lod.volumes[0] as THREE.Mesh };
 }
 
-/** Every vertex of `mesh` as (apparent diameter in degrees, falloff). */
-function falloffByAngle(mesh: THREE.Mesh): { deg: number; falloff: number; }[] {
+/** Every vertex of `mesh` as (apparent diameter in degrees, falloff, cap). */
+function falloffByAngle(mesh: THREE.Mesh): { deg: number; falloff: number; cap: boolean; }[] {
     const position = mesh.geometry.getAttribute('position');
     const falloff = mesh.geometry.getAttribute('skyFalloff');
+    const cap = mesh.geometry.getAttribute('skyCap');
     assert.ok(falloff, 'the glare carries no falloff ramp');
-    const samples: { deg: number; falloff: number; }[] = [];
+    assert.ok(cap, 'the glare carries no cap flag');
+    const samples: { deg: number; falloff: number; cap: boolean; }[] = [];
     for (let v = 0; v < position.count; v++) {
         const radius = Math.hypot(position.getX(v), position.getY(v));
         samples.push({
             deg: 2 * Math.atan(radius / SUN_DISTANCE) * THREE.MathUtils.RAD2DEG,
             falloff: falloff.getX(v),
+            cap: cap.getX(v) > 0.5,
         });
     }
     return samples.sort((a, b) => a.deg - b.deg);
@@ -74,7 +78,9 @@ describe('SunModelLibBuilder', () => {
         // very contouring the sky's dither exists to break up - so the falloff
         // is one straight line from the sun's limb to the outer edge, sampled
         // finely enough that the 4x4 stipple cannot resolve the steps in it.
-        const samples = falloffByAngle(build().glare);
+        // The ring only: the cap over the disc is deliberately flat at the
+        // limb's own value, and is gated on occlusion rather than on angle.
+        const samples = falloffByAngle(build().glare).filter(s => !s.cap);
 
         const inner = samples[0];
         const outer = samples[samples.length - 1];
@@ -119,18 +125,83 @@ describe('SunModelLibBuilder', () => {
             'the glare would occlude what is drawn after it');
     });
 
-    it('opens a hole in the glare for the disc', () => {
-        // The glare is drawn after the disc now rather than under it, so a
-        // solid annulus would stipple over the one thing in the frame that has
-        // to stay clean. The hole overlaps the disc slightly instead of meeting
-        // it exactly, or the two leave a hairline of background between them.
+    it('caps the glare over the disc, for the shader to gate', () => {
+        // The glare is drawn after the disc rather than under it, so it must not
+        // stipple over the one thing in the frame that has to stay clean - but
+        // it cannot simply leave a hole either, because once terrain has taken
+        // the disc that hole shows the ground at the brightest point of the sky.
+        // So the cap is geometry that is always there and drawn only where the
+        // depth under it says the disc is gone. Everything here is what the
+        // shader's `skyCap` branch needs to be able to make that call.
         const { disc, glare } = build();
         const discRadius = radiusOf(disc);
-        const inner = innerRadiusOf(glare);
-        assert.ok(inner > 0, 'the glare is solid and will stipple the disc');
-        assert.ok(inner < discRadius, `glare hole ${inner} exposes the disc ${discRadius}`);
-        assert.ok(inner > discRadius * 0.9,
-            `glare hole ${inner} is far enough inside ${discRadius} to show stipple`);
+        const samples = falloffByAngle(glare);
+
+        assert.strictEqual(innerRadiusOf(glare), 0,
+            'the cap leaves a hole and the ground will show through it');
+
+        const cap = samples.filter(s => s.cap);
+        const ring = samples.filter(s => !s.cap);
+        assert.ok(cap.length > 0, 'there is no cap to fill the disc with');
+
+        // The cap covers the disc and stops just inside it, so the two overlap
+        // rather than meeting exactly and leaving a hairline of background.
+        const capRadius = SUN_DISTANCE * Math.tan(
+            cap[cap.length - 1].deg / 2 * THREE.MathUtils.DEG2RAD);
+        assert.ok(capRadius < discRadius, `cap ${capRadius} exposes the disc ${discRadius}`);
+        assert.ok(capRadius > discRadius * 0.9,
+            `cap ${capRadius} is far enough inside ${discRadius} to show stipple`);
+
+        // The cap's rim and the ring's inner rim are the same circle. A gap
+        // would show as a ring of background; an overlap would gate the two
+        // sides of one seam differently.
+        assert.ok(Math.abs(ring[0].deg - cap[cap.length - 1].deg) < 1e-6,
+            `ring starts at ${ring[0].deg} but the cap ends at ${cap[cap.length - 1].deg}`);
+
+        // Flat at the limb's value across the cap: the aureole is still rising
+        // as it goes in, so anything less would dip at the very centre.
+        for (const { deg, falloff } of cap) {
+            assert.ok(Math.abs(falloff - 1) < 1e-6,
+                `the cap dips to ${falloff} at ${deg.toFixed(2)} deg`);
+        }
+    });
+
+    it('veils the glare against the scene instead of replacing it', () => {
+        // The aureole is light scattered by the air *in front of* what the pixel
+        // shows, so how much of it survives depends on how much air that is. The
+        // shader needs the scene's own depth to know, and only the glare compiles
+        // that branch - the dome shares the program and has no use for it.
+        const { glare } = build();
+        const material = glare.material as THREE.ShaderMaterial;
+
+        assert.ok('SKY_GLARE' in (material.defines ?? {}),
+            'the glare will draw at full strength over the terrain');
+        assert.ok(material.uniforms.uSceneDepth, 'the glare cannot see what it covers');
+        assert.strictEqual(material.uniforms.uSceneDepth, SCENE_DEPTH_UNIFORMS.uSceneDepth,
+            'the glare holds its own copy and the pass will never reach it');
+    });
+
+    it('takes the veil density from the palette the terrain was fogged with', () => {
+        // Same airlight, so the same number: a ridge that has receded into haze
+        // sits inside the glow, and one that has not is silhouetted against it.
+        // Deriving it separately would let the two disagree at exactly the
+        // distances where the difference is visible.
+        const materials = new SceneMaterialManager(HDNoonPalette, FogQuality.HIGH, DisplayShading.FULL);
+        const model = new SunModelLibBuilder('sun').build(materials);
+        const palette = daytimePalette(HDNoonPalette, HDMidnightPalette);
+        paintSunBloom(model, HDNoonPalette, HDMidnightPalette, 0, SUN_DIRECTION, palette);
+
+        const glare = model.lod[0].volumes[0] as THREE.Mesh;
+        const density =
+            (glare.material as THREE.ShaderMaterial).uniforms.uVeilDensity.value as number;
+        const fog = palette.values[PaletteCategory.FOG_TERRAIN];
+        assert.ok(density > 0, `the glare would vanish over every surface at ${density}`);
+        assert.ok(density > fog,
+            `the aureole is the forward lobe, not the average: ${density} vs fog ${fog}`);
+        // Tied to the palette rather than to a reach of its own, so a hazy
+        // profile gets a hazy aureole without a second number to keep in step.
+        assert.ok(Math.abs(density / fog - Math.round(density / fog)) < 1e-9,
+            `${density} is not a clean multiple of the fog density ${fog}`);
     });
 
     it('draws the disc small and the glare spread wide around it', () => {

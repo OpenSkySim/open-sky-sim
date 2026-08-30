@@ -7,7 +7,7 @@
  * One thing to know about how this is driven: `SceneLayers.Terrain` appears in
  * six different render-layer definitions, and the renderer builds render lists
  * once per layer. So `render3D` runs several times per frame, with *different
- * cameras* — the MFD and target passes among them. The old entity did all its
+ * cameras* — the target MFD pass among them. The old entity did all its
  * LOD work in `render3D` unguarded, which corrupted the frame-time EMA, the
  * detail scale and the quadtree traversal every single frame. Here LOD runs
  * only for the camera nominated by `setLodCamera`; every other pass just
@@ -26,6 +26,7 @@ import { attachToRenderList } from '../render/renderList';
 import { DemTile, decodePdm } from './demTile';
 import {
     EnuBasis, WGS84_A, ecefToEnu, enuFrameRotation, geodeticToEcef, makeEnuBasis,
+    northFromSceneZ,
 } from './geodesy';
 import { FlattenPad } from './flattenPad';
 import { HeightField, HeightTier } from './heightField';
@@ -40,10 +41,11 @@ import { OceanPatch, buildOceanPatch, disposeOceanPatch } from './oceanPatch';
 import { PtmTile, decodePtm } from './ptm';
 import { QuadNode, Quadtree } from './quadtree';
 import { TileIndex } from './tileIndex';
-import { TileMeshes, buildTileMeshes, disposeTileMeshes, tileOriginEnu } from './tileMesh';
+import { TileMeshes, buildTileMeshes, disposeTileMeshes, tileOriginWorld } from './tileMesh';
 import { TileStore } from './tileStore';
 import { TileStreamer, TileWant, predictViewTarget } from './tileStreamer';
-import { TileKey, approxTileEdgeMetres, tileKeyString } from './tiling';
+import { TileHeightIndex } from './tileHeightIndex';
+import { TileKey, approxTileEdgeMetres, tileAtLonLat, tileKeyString } from './tiling';
 import { enuToGeodeticApprox } from './geodesy';
 import {
     CLASS_TO_TONE, LAND_TONE_BASE, LAND_TONE_COUNT, TONE_COUNT, TerrainTone,
@@ -128,6 +130,12 @@ export class TerrainEntity implements Entity {
     private readonly pinned = new Set<string>();
     private readonly earthCenter: THREE.Vector3;
     private readonly landMaterial: THREE.ShaderMaterial;
+    /**
+     * Watercourse strokes. Its own material because its own vertex program
+     * widens the centreline, and because it is the one part of a tile drawn
+     * over the surface rather than as part of it.
+     */
+    private readonly riverMaterial: THREE.ShaderMaterial;
 
     /**
      * Switch colour model. One uniform: every mode reads the same baked bytes,
@@ -146,6 +154,15 @@ export class TerrainEntity implements Entity {
     private detailScale = 1;
     private drawList: QuadNode[] = [];
     private drawnTriangles = 0;
+    /**
+     * Plan-view triangle indices for the drawn tiles something has asked the
+     * surface height of. Built on demand and dropped as soon as the tile stops
+     * being drawn, so in practice this holds the one or two tiles under the
+     * aircraft. See {@link drawnHeightAtWorld}.
+     */
+    private readonly drawnHeightIndices = new Map<string, TileHeightIndex>();
+    /** Draw list by key, rebuilt with the draw list rather than per query. */
+    private drawnByKey = new Map<string, QuadNode>();
     private readonly prevCameraPos = new THREE.Vector3();
     private prevCameraTime = 0;
     private readonly cameraVel = new THREE.Vector3();
@@ -196,6 +213,20 @@ export class TerrainEntity implements Entity {
         this.landMaterial.polygonOffsetFactor = 1;
         this.landMaterial.polygonOffsetUnits = 1;
         trackTerrainMaterial(this.landMaterial);
+
+        // Rivers take the deep-water colour: a canal is water, and reading as
+        // a different blue from the lake it runs into would be worse than any
+        // width error. Flat, unshaded, and never depth-written — it is a
+        // stroke lying over the terrain, and writing depth would let it
+        // occlude the aircraft's own shadow on the bank beside it.
+        this.riverMaterial = opts.materials.build({
+            type: SceneMaterialPrimitiveType.MESH,
+            category: TONE_CATEGORIES[TerrainTone.Water],
+            depthWrite: false,
+            shaded: false as const,
+            river: true,
+        }) as THREE.ShaderMaterial;
+        trackTerrainMaterial(this.riverMaterial);
 
         for (let tone = 0; tone < TONE_COUNT; tone++) {
             // Water is a flat palette fill: no sun shade, no normal smoothing.
@@ -265,7 +296,9 @@ export class TerrainEntity implements Entity {
         const pads: FlattenPad[] = (opts.manifest.flattenPads ?? []).map(p => {
             const enu = ecefToEnu(this.basis, geodeticToEcef(p.lat, p.lon, 0));
             return {
-                // Scene axes are x=east, y=up, z=north, as in tileOriginEnu.
+                // A pad is compared against ENU east/north inside the sampler
+                // (and inside the bake), not against scene axes, so it is
+                // stored in ENU and no north flip belongs here.
                 centerX: enu.e,
                 centerZ: enu.n,
                 halfW: p.halfW,
@@ -285,7 +318,8 @@ export class TerrainEntity implements Entity {
         this.streamer = new TileStreamer<PtmTile, TileMeshes>({
             store: this.meshStore,
             upload: (id, tile) => buildTileMeshes(
-                tile, this.basis, this.materials, updateUniforms, this.frameFix,
+                tile, this.basis, this.materials, this.riverMaterial,
+                updateUniforms, this.frameFix,
             ),
             release: (_id, m) => disposeTileMeshes(m),
         });
@@ -296,7 +330,7 @@ export class TerrainEntity implements Entity {
 
         this.quadtree = new Quadtree({
             manifest: opts.manifest,
-            tilePosition: (id) => tileOriginEnu(id, 0, this.basis),
+            tilePosition: (id) => tileOriginWorld(id, 0, this.basis),
             tileRadius: (id) => approxTileEdgeMetres(id) * 0.75,
             // Uploaded geometry only. A sea patch must never count here: one is
             // also built as a stand-in for a land tile that has not arrived
@@ -346,10 +380,10 @@ export class TerrainEntity implements Entity {
         this.lodCamera = camera;
     }
 
-    /** Pin tiles around a point so boot and spawn areas cannot be evicted. */
-    async pinArea(e: number, n: number, radiusM: number, zoom: number): Promise<void> {
+    /** Pin tiles around a scene point so boot and spawn areas cannot be evicted. */
+    async pinArea(x: number, z: number, radiusM: number, zoom: number): Promise<void> {
         const span = 180 / (1 << zoom);
-        const ids = tilesAround(this.basis, e, n, radiusM, zoom, span);
+        const ids = tilesAround(this.basis, x, z, radiusM, zoom, span);
         for (const id of ids) {
             this.pinned.add(tileKeyString(id));
         }
@@ -358,7 +392,7 @@ export class TerrainEntity implements Entity {
         for (const id of ids) {
             this.meshStore.setPinned(id, true);
         }
-        await this.heights.ensureLoadedAroundEnu(e, n, radiusM);
+        await this.heights.ensureLoadedAroundWorld(x, z, radiusM);
     }
 
     /** Keys of pinned tiles that are still neither uploaded nor known absent. */
@@ -401,12 +435,64 @@ export class TerrainEntity implements Entity {
         // known. Nothing to do per simulation tick.
     }
 
-    heightAtEnu(e: number, n: number): number {
-        return this.heights.heightAtEnu(e, n);
+    heightAtWorld(x: number, z: number): number {
+        return this.heights.heightAtWorld(x, z);
     }
 
-    isLandEnu(e: number, n: number): boolean {
-        return this.heights.isLandEnu(e, n);
+    /**
+     * Ground height read off the geometry actually on screen, or undefined
+     * where no drawn land tile covers the point — open sea, a water cut, or
+     * terrain that has not streamed in yet.
+     *
+     * Anything that wants one stable LOD-independent surface — physics,
+     * spawns, the AI — must keep using {@link heightAtWorld}. This is for
+     * things that have to survive a depth test against the drawn mesh, which
+     * the DEM does not agree with; see {@link TileHeightIndex}.
+     */
+    drawnHeightAtWorld(x: number, z: number): number | undefined {
+        // Indices are pruned to the draw list, so at most one of them can hold
+        // the point and checking the cache first makes the common case — an
+        // aircraft sitting over the same tile for hundreds of frames — a
+        // couple of triangle tests with no lookup at all.
+        for (const index of this.drawnHeightIndices.values()) {
+            const y = index.heightAtWorld(x, z);
+            if (y !== undefined) {
+                return y;
+            }
+        }
+        const node = this.drawnNodeAt(x, z);
+        if (node === undefined || this.drawnHeightIndices.has(node.key)) {
+            return undefined;
+        }
+        const meshes = this.streamer.get(node.id);
+        if (meshes?.land === undefined) {
+            return undefined;   // ocean stand-in, or water-only tile
+        }
+        const index = new TileHeightIndex(meshes.land, meshes.group);
+        this.drawnHeightIndices.set(node.key, index);
+        return index.heightAtWorld(x, z);
+    }
+
+    /** The drawn quadtree node covering a scene point, deepest level first. */
+    private drawnNodeAt(x: number, z: number): QuadNode | undefined {
+        if (this.drawList.length === 0) {
+            return undefined;
+        }
+        const c = enuToGeodeticApprox(this.basis, x, northFromSceneZ(z), 0);
+        // The draw list is a quadtree cut, so exactly one level holds the
+        // point. Walking down from the deepest costs a handful of lookups and
+        // avoids a scan of a draw list that runs to hundreds of nodes.
+        for (let z0 = this.manifest.mesh.maxZoom; z0 >= 0; z0--) {
+            const node = this.drawnByKey.get(tileKeyString(tileAtLonLat(z0, c.lon, c.lat)));
+            if (node !== undefined) {
+                return node;
+            }
+        }
+        return undefined;
+    }
+
+    isLandAtWorld(x: number, z: number): boolean {
+        return this.heights.isLandAtWorld(x, z);
     }
 
     render3D(
@@ -416,17 +502,14 @@ export class TerrainEntity implements Entity {
         lists: Map<string, THREE.Scene>,
         _palette: Palette,
     ): void {
-        // Only the nominated camera drives LOD. Without this gate the MFD and
-        // target passes corrupt the governor and the traversal every frame.
+        // Only the nominated camera drives LOD. Without this gate the target
+        // MFD pass corrupts the governor and the traversal every frame.
         if ((this.lodCamera === undefined || camera === this.lodCamera)
             && camera instanceof THREE.PerspectiveCamera) {
             this.viewportHeightPx = targetHeight;
             this.reconcile(camera);
         }
-        // MapBasemap is the MFD moving map's own list: the same tiles, drawn
-        // by the top-down ortho pass. It never appears in the same layer as
-        // Terrain, so one lookup or the other hits, never both.
-        const list = lists.get(SceneLayers.Terrain) ?? lists.get(SceneLayers.MapBasemap);
+        const list = lists.get(SceneLayers.Terrain);
         if (list) {
             // Must go through attachToRenderList, not list.add: the renderer
             // stamps a generation on each build pass and pruneRenderList drops
@@ -558,6 +641,7 @@ export class TerrainEntity implements Entity {
     private syncGroup(): void {
         this.group.clear();
         this.drawnTriangles = 0;
+        this.pruneDrawnHeightIndices();
         for (const node of this.drawList) {
             const meshes = this.streamer.get(node.id);
             if (meshes) {
@@ -588,6 +672,20 @@ export class TerrainEntity implements Entity {
         this.pruneOceans();
     }
 
+    /**
+     * Drop height indices for tiles no longer drawn. An index that outlived
+     * its tile would keep answering for a point the deeper tile now owns, and
+     * hold its buffers besides.
+     */
+    private pruneDrawnHeightIndices(): void {
+        this.drawnByKey = new Map(this.drawList.map(n => [n.key, n]));
+        for (const key of this.drawnHeightIndices.keys()) {
+            if (!this.drawnByKey.has(key)) {
+                this.drawnHeightIndices.delete(key);
+            }
+        }
+    }
+
     private pruneOceans(): void {
         if (this.oceans.size < 512) {
             return;
@@ -608,7 +706,7 @@ export class TerrainEntity implements Entity {
             triangles: this.drawnTriangles,
             detailScale: this.detailScale,
             frameEmaMs: this.frameEmaMs,
-            heightTier: this.heights.heightResolutionAt(0, 0),
+            heightTier: this.heights.heightResolutionAtWorld(0, 0),
             queued: s.queued,
             inflight: s.inflight,
             cacheBytes: s.cacheBytes,
@@ -644,11 +742,11 @@ async function fetchIndex(url: string): Promise<TileIndex | undefined> {
     }
 }
 
-/** Tile ids covering a radius around an ENU point at one zoom. */
+/** Tile ids covering a radius around a scene point at one zoom. */
 function tilesAround(
-    basis: EnuBasis, e: number, n: number, radiusM: number, zoom: number, span: number,
+    basis: EnuBasis, x: number, z: number, radiusM: number, zoom: number, span: number,
 ): TileKey[] {
-    const c = enuToGeodeticApprox(basis, e, n, 0);
+    const c = enuToGeodeticApprox(basis, x, northFromSceneZ(z), 0);
     const dLat = radiusM / 110540;
     const dLon = radiusM / (111320 * Math.max(0.1, Math.cos(c.lat * Math.PI / 180)));
     const x0 = Math.floor((c.lon - dLon + 180) / span);

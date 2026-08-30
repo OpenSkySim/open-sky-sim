@@ -10,12 +10,17 @@
  * Here the fine tier is pinned to a single zoom and lives in its own store
  * that the renderer cannot influence, and a coarse tier is loaded in full at
  * boot so a query outside the streamed area returns a coarse answer with a
- * stated bound rather than a silent lie. `heightResolutionAt` reports which
- * tier answered, so the HUD can prove it never changes as you climb.
+ * stated bound rather than a silent lie. `heightResolutionAtWorld` reports
+ * which tier answered, so the HUD can prove it never changes as you climb.
+ *
+ * The public queries take **scene** (x, z), because that is what every caller
+ * — physics, spawns, AI, scenery — actually holds. Scene z runs south while
+ * the sampler underneath works in ENU, so this class is where the two meet;
+ * see `sceneFromEnu` for the sign.
  */
 
 import { DemTile } from './demTile';
-import { EnuBasis, enuToGeodeticApprox } from './geodesy';
+import { EnuBasis, enuToGeodeticApprox, northFromSceneZ } from './geodesy';
 import { FlattenPad } from './flattenPad';
 import { HeightSampler, HeightTier } from './heightSampler';
 import { TerrainManifest } from './manifest';
@@ -125,32 +130,32 @@ export class HeightField {
         ));
     }
 
-    /** Ensure the fine tier covers a radius (m) around an ENU point. */
-    async ensureLoadedAroundEnu(e: number, n: number, radiusM: number): Promise<void> {
-        await this.ensureLoaded(boundsAroundEnu(this.basis, e, n, radiusM));
+    /** Ensure the fine tier covers a radius (m) around a scene point. */
+    async ensureLoadedAroundWorld(x: number, z: number, radiusM: number): Promise<void> {
+        await this.ensureLoaded(boundsAroundEnu(this.basis, x, northFromSceneZ(z), radiusM));
     }
 
     /** Which tier would answer a query here. */
-    heightResolutionAt(e: number, n: number): HeightTier {
-        return this.sampler.tierAtEnu(e, n);
+    heightResolutionAtWorld(x: number, z: number): HeightTier {
+        return this.sampler.tierAtEnu(x, northFromSceneZ(z));
     }
 
     /**
-     * Scene Y of the ground at a local east/north point: the height the terrain
-     * mesh is drawn at, curvature included. Synchronous and independent of
-     * anything the renderer is doing.
+     * Scene Y of the ground under a scene (x, z): the height the terrain mesh
+     * is drawn at, curvature included. Synchronous and independent of anything
+     * the renderer is doing.
      */
-    heightAtEnu(e: number, n: number): number {
-        return this.sampler.heightAtEnu(e, n);
+    heightAtWorld(x: number, z: number): number {
+        return this.sampler.heightAtEnu(x, northFromSceneZ(z));
     }
 
-    /** Elevation above the ellipsoid at an ENU point — the DEM's own number. */
-    geodeticHeightAtEnu(e: number, n: number): number {
-        return this.sampler.geodeticHeightAtEnu(e, n);
+    /** Elevation above the ellipsoid under a scene point — the DEM's own number. */
+    geodeticHeightAtWorld(x: number, z: number): number {
+        return this.sampler.geodeticHeightAtEnu(x, northFromSceneZ(z));
     }
 
-    isLandEnu(e: number, n: number): boolean {
-        return this.sampler.isLandEnu(e, n);
+    isLandAtWorld(x: number, z: number): boolean {
+        return this.sampler.isLandEnu(x, northFromSceneZ(z));
     }
 
     /** Raw sample, no pad. Fine tier if resident, else coarse, else sea level. */
@@ -168,9 +173,9 @@ export class HeightField {
         return out;
     }
 
-    /** Fine-tier tile ids covering a radius (m) around an ENU point. */
-    fineTileIdsAroundEnu(e: number, n: number, radiusM: number): TileKey[] {
-        return this.fineTileIds(boundsAroundEnu(this.basis, e, n, radiusM));
+    /** Fine-tier tile ids covering a radius (m) around a scene point. */
+    fineTileIdsAroundWorld(x: number, z: number, radiusM: number): TileKey[] {
+        return this.fineTileIds(boundsAroundEnu(this.basis, x, northFromSceneZ(z), radiusM));
     }
 
     /** A resident fine tile, or undefined. Does not fetch and does not touch LRU order. */

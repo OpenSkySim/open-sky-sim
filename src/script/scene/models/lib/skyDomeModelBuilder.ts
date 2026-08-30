@@ -4,6 +4,9 @@ import { Palette, PaletteCategory, PaletteColor } from '../../../config/palettes
 import { SceneMaterialManager } from "../../materials/materials";
 import { DITHER_PARS_FRAGMENT } from '../../materials/shaders/dither';
 import { LOG_DEPTH_FRAGMENT, LOG_DEPTH_PARS_FRAGMENT, LOG_DEPTH_PARS_VERTEX, LOG_DEPTH_VERTEX } from '../../materials/shaders/logDepth';
+import {
+    SCENE_DEPTH_PARS_FRAGMENT, SCENE_DEPTH_SKY_CUT, SCENE_DEPTH_UNIFORMS,
+} from '../../materials/shaders/sceneDepth';
 import { Model, ModelLibBuilder } from "../models";
 
 /**
@@ -96,10 +99,17 @@ const SKY_VERTEX_PROGRAM = `
   attribute float skyFalloff;
   varying vec3 vSkyColor;
   varying float vSkyFalloff;
+#ifdef SKY_GLARE
+  attribute float skyCap;
+  varying float vSkyCap;
+#endif
 ${LOG_DEPTH_PARS_VERTEX}
   void main() {
     vSkyColor = skyColor;
     vSkyFalloff = skyFalloff;
+#ifdef SKY_GLARE
+    vSkyCap = skyCap;
+#endif
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 ${LOG_DEPTH_VERTEX}
   }
@@ -112,6 +122,11 @@ const SKY_FRAGMENT_PROGRAM = `
   uniform float uSkyOverbright;
   varying vec3 vSkyColor;
   varying float vSkyFalloff;
+#ifdef SKY_GLARE
+  uniform float uVeilDensity;
+  varying float vSkyCap;
+${SCENE_DEPTH_PARS_FRAGMENT}
+#endif
 ${LOG_DEPTH_PARS_FRAGMENT}
 ${DITHER_PARS_FRAGMENT}
   void main() {
@@ -120,11 +135,31 @@ ${DITHER_PARS_FRAGMENT}
     // cloud stipples use, so the sky grains like the rest of the frame.
     float threshold = bayerThreshold(gl_FragCoord.xy);
     // Falloff is what the glare fades along, interpolated across the annulus:
-    // 1 at the sun's limb, 0 at the far edge. It drives coverage and brightness
-    // from the one ramp, so there is nothing for the two to disagree about.
-    // Coverage is stippled rather than blended, this pipeline having no alpha,
-    // and the dome passes 1 here and keeps every pixel at its own brightness.
-    if (vSkyFalloff + threshold < 0.5) {
+    // 1 at the sun's limb, 0 at the far edge. Coverage is stippled rather than
+    // blended, this pipeline having no alpha, and the dome passes 1 here and
+    // keeps every pixel.
+    float coverage = vSkyFalloff;
+#ifdef SKY_GLARE
+    // An aureole is sunlight scattered by the air *in front of* whatever the
+    // pixel shows, so how much of it there is depends on how much air that is.
+    // Against open sky it is the whole column and the glare is at full
+    // strength; against a ridge a few km out it is almost nothing, and the
+    // ridge has to stay a ridge rather than being stippled away.
+    //
+    // Coverage is the only alpha there is here, so the veil scales that and
+    // leaves the tone below alone: glare seen through haze comes out as sparse
+    // dots at the sky's own brightness, not as a dimmed wash.
+    float sceneDist = sceneDistance(gl_FragCoord.xy);
+    float occluded = step(sceneDist, uSceneFar * float(${SCENE_DEPTH_SKY_CUT}));
+    coverage *= mix(1.0, 1.0 - exp2(-uVeilDensity * sceneDist), occluded);
+    // The cap is the part of the ring that lies over the disc. It has to stay
+    // out of the way while the disc is visible - that is the whole reason the
+    // glare was an annulus - but once terrain has taken the disc, leaving the
+    // hole open punches the ground colour through the brightest point of the
+    // sky. Occlusion is exactly the test that tells those two apart.
+    coverage *= mix(1.0, occluded, vSkyCap);
+#endif
+    if (coverage + threshold < 0.5) {
       discard;
     }
     vec3 toned = vSkyColor * mix(1.0, uSkyOverbright, vSkyFalloff);
@@ -166,14 +201,22 @@ const FULLY_WARM_CHROMA = 0.3;
  * the sky, which looks identical whichever way you turn.
  */
 export function createSkyMaterial(
-    overbright: number, side: THREE.Side,
+    overbright: number, side: THREE.Side, glare: boolean = false,
 ): THREE.ShaderMaterial {
     return new THREE.ShaderMaterial({
         vertexShader: SKY_VERTEX_PROGRAM,
         fragmentShader: SKY_FRAGMENT_PROGRAM,
+        defines: glare ? { SKY_GLARE: '' } : {},
         uniforms: {
             uBands: { value: SKY_BANDS },
             uSkyOverbright: { value: overbright },
+            // Only read under SKY_GLARE, but declared either way: an unused
+            // uniform costs a slot in a map, and branching the object here
+            // would leave the dome and the glare with different shapes for no
+            // gain. The depth ones are shared by reference with the pass that
+            // resolves them, as SUN_UNIFORMS are with the sun.
+            uVeilDensity: { value: 0 },
+            ...SCENE_DEPTH_UNIFORMS,
         },
         side,
         depthWrite: false,

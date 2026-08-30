@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import * as THREE from 'three';
-import { ecefToEnu, enuFrameRotation, geodeticToEcef, makeEnuBasis } from './geodesy';
+import {
+    ecefToEnu, enuFrameRotation, geodeticToEcef, makeEnuBasis, sceneFromEnu,
+} from './geodesy';
 
 const HOME = { lat: 28.0015, lon: -15.3937 };
 
@@ -10,7 +12,7 @@ function offsetIn(basis: ReturnType<typeof makeEnuBasis>, centre: { lat: number;
     point: { lat: number; lon: number }): THREE.Vector3 {
     const c = ecefToEnu(basis, geodeticToEcef(centre.lat, centre.lon, 0));
     const p = ecefToEnu(basis, geodeticToEcef(point.lat, point.lon, 0));
-    return new THREE.Vector3(p.e - c.e, p.u - c.u, p.n - c.n);
+    return sceneFromEnu({ e: p.e - c.e, n: p.n - c.n, u: p.u - c.u });
 }
 
 /** A point `metres` north-east of `centre`. */

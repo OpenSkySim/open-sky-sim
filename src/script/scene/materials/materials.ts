@@ -13,6 +13,7 @@ import { ParticleMeshFragProgram } from './shaders/particlesMeshFP';
 import { ParticleMeshVertProgram } from './shaders/particlesMeshVP';
 import { PointVertProgram } from './shaders/pointVP';
 import { ShadedVertProgram } from './shaders/shadedVP';
+import { RIVER_MAX_STRETCH, RIVER_MIN_HALF_PIXELS, RiverVertProgram } from './shaders/riverVP';
 import { TerrainFragProgram } from './shaders/terrainFP';
 import {
     TERRAIN_CLASS_COUNT, TERRAIN_SWATCH_COUNT, TERRAIN_TONE_COUNT, TerrainVertProgram,
@@ -94,6 +95,11 @@ export type SceneMaterialMeshProperties = {
         {
             shaded: false;
             highp?: boolean;
+            /**
+             * Widen a baked centreline into a ribbon, holding a floor in
+             * pixels. Terrain watercourses only — see RiverVertProgram.
+             */
+            river?: boolean;
             /** Screen-space ordered dither opacity (0 = opaque, 0.5 ≈ half transparent). */
             alphaDither?: number;
             /**
@@ -200,6 +206,7 @@ export class SceneMaterialManager implements KernelTask {
 
     private readonly flatProto: THREE.ShaderMaterial;
     private readonly highpFlatProto: THREE.ShaderMaterial;
+    private readonly riverProto: THREE.ShaderMaterial;
     private readonly lineProto: THREE.ShaderMaterial;
     private readonly shadedProto: THREE.ShaderMaterial;
     private readonly terrainProto: THREE.ShaderMaterial;
@@ -231,6 +238,16 @@ export class SceneMaterialManager implements KernelTask {
             vertexShader: HighpFlatVertProgram,
             fragmentShader: DepthFragProgram,
             side: THREE.FrontSide,
+            depthWrite: false,
+            userData: {},
+            uniforms: {}
+        });
+        this.riverProto = new THREE.ShaderMaterial({
+            vertexShader: RiverVertProgram,
+            fragmentShader: DepthFragProgram,
+            // A stroke has no inside: the ribbon is built from the centreline
+            // out, so which way it winds depends on which way the river runs.
+            side: THREE.DoubleSide,
             depthWrite: false,
             userData: {},
             uniforms: {}
@@ -416,6 +433,13 @@ export class SceneMaterialManager implements KernelTask {
                         ? (properties.minPixels ?? 0)
                         : 0,
                 },
+                uMinHalfPixels: {
+                    value: properties.type === SceneMaterialPrimitiveType.MESH
+                        && !properties.shaded && properties.river
+                        ? RIVER_MIN_HALF_PIXELS
+                        : 0,
+                },
+                uMaxStretch: { value: RIVER_MAX_STRETCH },
                 uRenderOrigin: { value: new THREE.Vector3() },
                 // Shared by reference: moving the sun (time of day) rewrites
                 // these once and every material sees it.
@@ -491,6 +515,8 @@ export class SceneMaterialManager implements KernelTask {
         } else if (properties.type === SceneMaterialPrimitiveType.MESH) {
             if (properties.shaded) {
                 return properties.terrain ? this.terrainProto.clone() : this.shadedProto.clone();
+            } else if (properties.river) {
+                return this.riverProto.clone();
             } else if (properties.highp) {
                 return this.highpFlatProto.clone();
             } else {

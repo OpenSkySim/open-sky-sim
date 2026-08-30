@@ -15,10 +15,10 @@
  *
  *   header, 72 bytes
  *     0  u32  magic 'PTM1'          32  u32  landVertCount   (multiple of 3)
- *     4  u8   version = 3           36  u32  waterVertCount
+ *     4  u8   version = 5           36  u32  waterVertCount
  *     5  u8   z                     40  u32  waterIndexCount
- *     6  u16  flags                 44  u32  reserved
- *     8  u32  x                     48  u32  reserved
+ *     6  u16  flags                 44  u32  riverVertCount
+ *     8  u32  x                     48  u32  riverIndexCount
  *    12  u32  y                     52  u32  reserved
  *    16  f32  centerHeightM         56  u32  waterDeepIdx     | = waterIndexCount
  *    20  f32  quantScale            60  u32  waterShallowIdx  |
@@ -26,12 +26,24 @@
  *    28  f32  boundingRadiusM       68  u32  reserved
  *
  *   payload, each section padded to a 4-byte boundary
- *     landPos    i16 x3 per vertex   tile-local (x=E, y=U, z=N)
+ *     landPos    i16 x3 per vertex   tile-local (x=E, y=U, z=S)
  *     landNrm    i8  x4 per vertex   xyz + pad, /127
  *     landAttr   u8  x4 per vertex   r, g, b, TerrainClass
  *     waterPos   i16 x3 per vertex
  *     waterTone  u8  x1 per vertex   0..1
  *     waterIdx   u16 x3 per triangle deep range, then shallow range
+ *     riverPos   i16 x3 per vertex   centreline point, two vertices per point
+ *     riverDir   i8  x4 per vertex   unit cross-flow offset + pad, /127
+ *     riverHalf  u16 x1 per vertex   half the true width, decimetres
+ *     riverIdx   u16 x3 per triangle
+ *
+ * The river section is a stroke, not a surface: its two vertices per centreline
+ * point sit at the *same* place and carry opposite unit offsets, and the width
+ * is applied in the vertex program. That is deliberate. A watercourse thinner
+ * than a grid cell — a 12 m canal is under one at Potsdam z12 — cannot be cut
+ * into the terrain at all, and widening it until it could was tried and traded
+ * one wrong picture for another. Baking the centreline instead leaves the
+ * minimum width to the only place that can know it in pixels.
  *
  * landAttr is what makes a tile's colour a runtime choice rather than a bake
  * one: the observed landcover class and the observed satellite colour both
@@ -43,19 +55,31 @@
  * stored. Positions are tile-local; the loader places the tile by translation
  * only, never rotation, because the shaded vertex program treats normals as
  * world-space in the STATIC/DUOTONE shading paths.
+ *
+ * Version 4 flipped the z axis from north to south. Nothing about the layout
+ * changed, but a v3 tile drawn as v4 is a mirror image of the place it
+ * describes, which is precisely the kind of silently-wrong that the version
+ * byte exists to stop. See `sceneFromEnu` in geodesy.ts.
  */
 
 import { CLASS_COUNT, TerrainTone } from './tones';
 
 export const PTM_MAGIC = 0x314d5450; // 'PTM1' little-endian
-export const PTM_VERSION = 3;
+export const PTM_VERSION = 5;
 export const PTM_HEADER_BYTES = 72;
 
 export const PTM_FLAG_HAS_LAND = 1 << 0;
 export const PTM_FLAG_HAS_WATER = 1 << 1;
+export const PTM_FLAG_HAS_RIVERS = 1 << 2;
 
 /** Water indices are u16, so a tile may not exceed this many water vertices. */
 export const PTM_MAX_WATER_VERTS = 65536;
+
+/** Same u16 index limit for the river stroke. */
+export const PTM_MAX_RIVER_VERTS = 65536;
+
+/** riverHalf is stored in decimetres, so this is the widest stroke it holds. */
+export const PTM_MAX_RIVER_HALF_M = 6553.5;
 
 const I16_MAX = 32767;
 
@@ -90,6 +114,24 @@ export interface PtmWaterInput {
     tones: Uint8Array;
 }
 
+/**
+ * River input: the centreline, doubled.
+ *
+ * Two vertices per centreline point at the same position, with `directions`
+ * holding opposite unit vectors across the flow. The vertex program turns them
+ * into a ribbon, which is what lets the drawn width be a screen decision.
+ */
+export interface PtmRiverInput {
+    /** 3 floats per vertex, tile-local metres — the centreline point. */
+    positions: Float32Array;
+    /** 3 floats per vertex: unit offset across the flow, tile-local. */
+    directions: Float32Array;
+    /** 1 float per vertex: half the watercourse's true width, metres. */
+    halfWidthsM: Float32Array;
+    /** 3 indices per triangle. */
+    indices: Uint32Array;
+}
+
 export interface PtmEncodeInput {
     id: PtmTileId;
     /** Geodetic height (m) of the tile-local frame origin. */
@@ -99,6 +141,8 @@ export interface PtmEncodeInput {
     skirtDepthM: number;
     land: PtmLandInput;
     water: PtmWaterInput;
+    /** Omit for a tile with no watercourse on it, which is most of them. */
+    rivers?: PtmRiverInput;
 }
 
 export interface PtmTile {
@@ -135,6 +179,13 @@ export interface PtmTile {
     waterIndices: Uint16Array;
     /** [start, count] into waterIndices for tones 0..1. */
     waterGroups: ReadonlyArray<readonly [number, number]>;
+    /** Quantised centreline points, two per point. Multiply by quantScale. */
+    riverPositions: Int16Array;
+    /** Bind with normalized: true. Stride 4; the 4th byte is padding. */
+    riverDirections: Int8Array;
+    /** Half-width in decimetres. Bind raw and multiply by 0.1 for metres. */
+    riverHalfWidths: Uint16Array;
+    riverIndices: Uint16Array;
 }
 
 function align4(n: number): number {
@@ -161,8 +212,28 @@ function quantiseNormal(v: number): number {
  */
 export function encodePtm(input: PtmEncodeInput): Uint8Array {
     const { land, water } = input;
+    const rivers = input.rivers;
     const landTriCount = land.classes.length;
     const waterTriCount = water.tones.length;
+    const riverVertCount = rivers ? rivers.halfWidthsM.length : 0;
+    const riverIndexCount = rivers ? rivers.indices.length : 0;
+    if (rivers) {
+        if (rivers.positions.length !== riverVertCount * 3) {
+            throw new Error(
+                `PTM1: river positions ${rivers.positions.length} != ${riverVertCount * 3}`);
+        }
+        if (rivers.directions.length !== riverVertCount * 3) {
+            throw new Error(
+                `PTM1: river directions ${rivers.directions.length} != ${riverVertCount * 3}`);
+        }
+        if (riverIndexCount % 3 !== 0) {
+            throw new Error(`PTM1: riverIndexCount ${riverIndexCount} is not a multiple of 3`);
+        }
+        if (riverVertCount > PTM_MAX_RIVER_VERTS) {
+            throw new Error(
+                `PTM1: ${riverVertCount} river vertices exceeds the u16 index limit`);
+        }
+    }
 
     if (land.positions.length !== landTriCount * 9) {
         throw new Error(`PTM1: land positions ${land.positions.length} != ${landTriCount * 9}`);
@@ -247,6 +318,12 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
         const a = Math.abs(outWaterPos[i]);
         if (a > maxAbs) maxAbs = a;
     }
+    if (rivers) {
+        for (let i = 0; i < rivers.positions.length; i++) {
+            const a = Math.abs(rivers.positions[i]);
+            if (a > maxAbs) maxAbs = a;
+        }
+    }
     const quantScale = Math.max(input.tileHalfWidthM, maxAbs, 1) / I16_MAX;
 
     let maxRadiusSq = 0;
@@ -261,9 +338,14 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
     const waterPosBytes = align4(waterVertCount * 6);
     const waterToneBytes = align4(waterVertCount);
     const waterIdxBytes = align4(waterIndexCount * 2);
+    const riverPosBytes = align4(riverVertCount * 6);
+    const riverDirBytes = align4(riverVertCount * 4);
+    const riverHalfBytes = align4(riverVertCount * 2);
+    const riverIdxBytes = align4(riverIndexCount * 2);
 
     const total = PTM_HEADER_BYTES + landPosBytes + landNrmBytes + landAttrBytes
-        + waterPosBytes + waterToneBytes + waterIdxBytes;
+        + waterPosBytes + waterToneBytes + waterIdxBytes
+        + riverPosBytes + riverDirBytes + riverHalfBytes + riverIdxBytes;
     const out = new Uint8Array(total);
     const view = new DataView(out.buffer);
 
@@ -279,6 +361,14 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
     const waterTone = new Uint8Array(out.buffer, off, waterVertCount);
     off += waterToneBytes;
     const waterIdx = new Uint16Array(out.buffer, off, waterIndexCount);
+    off += waterIdxBytes;
+    const riverPos = new Int16Array(out.buffer, off, riverVertCount * 3);
+    off += riverPosBytes;
+    const riverDir = new Int8Array(out.buffer, off, riverVertCount * 4);
+    off += riverDirBytes;
+    const riverHalf = new Uint16Array(out.buffer, off, riverVertCount);
+    off += riverHalfBytes;
+    const riverIdx = new Uint16Array(out.buffer, off, riverIndexCount);
 
     let v = 0;
     for (let t = 0; t < landTriCount; t++) {
@@ -323,12 +413,39 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
         waterIdx[i] = outWaterIdx[i];
     }
 
+    if (rivers) {
+        for (let i = 0; i < riverVertCount; i++) {
+            const px = rivers.positions[i * 3];
+            const py = rivers.positions[i * 3 + 1];
+            const pz = rivers.positions[i * 3 + 2];
+            trackRadius(px, py, pz);
+            riverPos[i * 3] = quantise(px, quantScale);
+            riverPos[i * 3 + 1] = quantise(py, quantScale);
+            riverPos[i * 3 + 2] = quantise(pz, quantScale);
+            riverDir[i * 4] = quantiseNormal(rivers.directions[i * 3]);
+            riverDir[i * 4 + 1] = quantiseNormal(rivers.directions[i * 3 + 1]);
+            riverDir[i * 4 + 2] = quantiseNormal(rivers.directions[i * 3 + 2]);
+            riverDir[i * 4 + 3] = 0;
+            // Decimetres: a half-width is metres to a couple of significant
+            // figures and the stroke is a couple of pixels wide most of the
+            // time, so anything finer would be storing noise.
+            const half = Math.min(PTM_MAX_RIVER_HALF_M, Math.max(0, rivers.halfWidthsM[i]));
+            riverHalf[i] = Math.round(half * 10);
+        }
+        for (let i = 0; i < riverIndexCount; i++) {
+            riverIdx[i] = rivers.indices[i];
+        }
+    }
+
     let flags = 0;
     if (landVertCount > 0) {
         flags |= PTM_FLAG_HAS_LAND;
     }
     if (waterVertCount > 0) {
         flags |= PTM_FLAG_HAS_WATER;
+    }
+    if (riverVertCount > 0) {
+        flags |= PTM_FLAG_HAS_RIVERS;
     }
 
     view.setUint32(0, PTM_MAGIC, true);
@@ -344,8 +461,8 @@ export function encodePtm(input: PtmEncodeInput): Uint8Array {
     view.setUint32(32, landVertCount, true);
     view.setUint32(36, waterVertCount, true);
     view.setUint32(40, waterIndexCount, true);
-    view.setUint32(44, 0, true);
-    view.setUint32(48, 0, true);
+    view.setUint32(44, riverVertCount, true);
+    view.setUint32(48, riverIndexCount, true);
     view.setUint32(52, 0, true);
     view.setUint32(56, waterOrder[TerrainTone.Water].length * 3, true);
     view.setUint32(60, waterOrder[TerrainTone.ShallowWater].length * 3, true);
@@ -390,6 +507,8 @@ export function decodePtm(bytes: ArrayBuffer | Uint8Array): PtmTile {
     const landVertCount = view.getUint32(32, true);
     const waterVertCount = view.getUint32(36, true);
     const waterIndexCount = view.getUint32(40, true);
+    const riverVertCount = view.getUint32(44, true);
+    const riverIndexCount = view.getUint32(48, true);
     const waterDeep = view.getUint32(56, true);
     const waterShallow = view.getUint32(60, true);
     const skirtDepthM = view.getFloat32(64, true);
@@ -407,8 +526,13 @@ export function decodePtm(bytes: ArrayBuffer | Uint8Array): PtmTile {
     const waterPosBytes = align4(waterVertCount * 6);
     const waterToneBytes = align4(waterVertCount);
     const waterIdxBytes = align4(waterIndexCount * 2);
+    const riverPosBytes = align4(riverVertCount * 6);
+    const riverDirBytes = align4(riverVertCount * 4);
+    const riverHalfBytes = align4(riverVertCount * 2);
+    const riverIdxBytes = align4(riverIndexCount * 2);
     const expected = PTM_HEADER_BYTES + landPosBytes + landNrmBytes + landAttrBytes
-        + waterPosBytes + waterToneBytes + waterIdxBytes;
+        + waterPosBytes + waterToneBytes + waterIdxBytes
+        + riverPosBytes + riverDirBytes + riverHalfBytes + riverIdxBytes;
     if (raw.byteLength < expected) {
         throw new Error(`PTM1 truncated: ${raw.byteLength} < ${expected}`);
     }
@@ -425,6 +549,14 @@ export function decodePtm(bytes: ArrayBuffer | Uint8Array): PtmTile {
     const waterTones = new Uint8Array(raw.buffer, off, waterVertCount);
     off += waterToneBytes;
     const waterIndices = new Uint16Array(raw.buffer, off, waterIndexCount);
+    off += waterIdxBytes;
+    const riverPositions = new Int16Array(raw.buffer, off, riverVertCount * 3);
+    off += riverPosBytes;
+    const riverDirections = new Int8Array(raw.buffer, off, riverVertCount * 4);
+    off += riverDirBytes;
+    const riverHalfWidths = new Uint16Array(raw.buffer, off, riverVertCount);
+    off += riverHalfBytes;
+    const riverIndices = new Uint16Array(raw.buffer, off, riverIndexCount);
 
     return {
         id: { z, x, y },
@@ -444,5 +576,9 @@ export function decodePtm(bytes: ArrayBuffer | Uint8Array): PtmTile {
             [0, waterDeep],
             [waterDeep, waterShallow],
         ],
+        riverPositions,
+        riverDirections,
+        riverHalfWidths,
+        riverIndices,
     };
 }

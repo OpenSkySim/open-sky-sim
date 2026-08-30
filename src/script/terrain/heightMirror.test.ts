@@ -106,15 +106,15 @@ describe('height field mirror', () => {
         const { field, mirror, sender, restore } = await makeMirror();
         try {
             sender.sendCoarse();
-            await field.ensureLoadedAroundEnu(0, 0, 6000);
+            await field.ensureLoadedAroundWorld(0, 0, 6000);
             sender.update([{ x: 0, z: 0 }], 6000);
 
             let checked = 0;
             for (let z = -4000; z <= 4000; z += 137) {
                 for (let x = -4000; x <= 4000; x += 149) {
-                    assert.equal(mirror.tierAtEnu(x, z), 'fine');
+                    assert.equal(mirror.tierAtWorld(x, z), 'fine');
                     assert.equal(
-                        mirror.heightAtEnu(x, z), field.heightAtEnu(x, z),
+                        mirror.heightAtWorld(x, z), field.heightAtWorld(x, z),
                         `mismatch at ${x},${z}`,
                     );
                     checked++;
@@ -130,19 +130,19 @@ describe('height field mirror', () => {
         const { field, mirror, sender, restore } = await makeMirror();
         try {
             sender.sendCoarse();
-            await field.ensureLoadedAroundEnu(0, 0, 3000);
+            await field.ensureLoadedAroundWorld(0, 0, 3000);
 
             // The render thread is on the fine tier; the mirror has not been
             // given those tiles yet, so it still answers coarse — and the coarse
             // tier is deliberately offset here, so the two disagree. This is the
             // state the sim must refuse to kill anyone in.
-            assert.equal(field.heightResolutionAt(0, 0), 'fine');
-            assert.equal(mirror.tierAtEnu(0, 0), 'coarse');
-            assert.notEqual(mirror.heightAtEnu(0, 0), field.heightAtEnu(0, 0));
+            assert.equal(field.heightResolutionAtWorld(0, 0), 'fine');
+            assert.equal(mirror.tierAtWorld(0, 0), 'coarse');
+            assert.notEqual(mirror.heightAtWorld(0, 0), field.heightAtWorld(0, 0));
 
             sender.update([{ x: 0, z: 0 }], 3000);
-            assert.equal(mirror.tierAtEnu(0, 0), 'fine');
-            assert.equal(mirror.heightAtEnu(0, 0), field.heightAtEnu(0, 0));
+            assert.equal(mirror.tierAtWorld(0, 0), 'fine');
+            assert.equal(mirror.heightAtWorld(0, 0), field.heightAtWorld(0, 0));
         } finally {
             restore();
         }
@@ -151,7 +151,7 @@ describe('height field mirror', () => {
     it('sends each tile once and drops the ones left behind', async () => {
         const { field, mirror, sender, sent, restore } = await makeMirror();
         try {
-            await field.ensureLoadedAroundEnu(0, 0, 3000);
+            await field.ensureLoadedAroundWorld(0, 0, 3000);
             sender.update([{ x: 0, z: 0 }], 3000);
             const first = [...mirror.fineKeys()].sort();
             assert.ok(first.length > 0);
@@ -163,7 +163,7 @@ describe('height field mirror', () => {
 
             // Move two fine tiles east; the old ones are dropped.
             const far = 40000;
-            await field.ensureLoadedAroundEnu(far, 0, 3000);
+            await field.ensureLoadedAroundWorld(far, 0, 3000);
             sender.update([{ x: far, z: 0 }], 3000);
             const now = new Set(mirror.fineKeys());
             assert.ok(first.some(k => !now.has(k)), 'expected stale tiles dropped');
@@ -176,8 +176,8 @@ describe('height field mirror', () => {
     it('does not resolve a tile the sender has not shipped', async () => {
         const { mirror, restore } = await makeMirror();
         try {
-            assert.equal(mirror.tierAtEnu(0, 0), 'none');
-            assert.ok(Math.abs(mirror.heightAtEnu(0, 0)) < 1e-6);
+            assert.equal(mirror.tierAtWorld(0, 0), 'none');
+            assert.ok(Math.abs(mirror.heightAtWorld(0, 0)) < 1e-6);
             assert.equal(mirror.isAuthoritativeAt(0, 0), false);
         } finally {
             restore();
@@ -194,14 +194,14 @@ describe('height field mirror', () => {
                 queryZoom: field.queryZoom,
                 coarseZoom: field.coarseZoom,
                 coarseTiles: () => field.coarseTiles(),
-                fineTileIdsAroundEnu: (e, n, r) => field.fineTileIdsAroundEnu(e, n, r),
+                fineTileIdsAroundWorld: (x, z, r) => field.fineTileIdsAroundWorld(x, z, r),
                 peekFine: () => undefined,
                 isFineAbsent: () => true,
-                ensureLoadedAroundEnu: async () => { },
+                ensureLoadedAroundWorld: async () => { },
             }, u => mirror.applyTiles(u));
             gapSender.update([{ x: 0, z: 0 }], 3000);
 
-            assert.equal(mirror.tierAtEnu(0, 0), 'coarse');
+            assert.equal(mirror.tierAtWorld(0, 0), 'coarse');
             assert.equal(
                 mirror.isAuthoritativeAt(0, 0), true,
                 'coarse is all anyone has here, so it stands',
@@ -217,17 +217,17 @@ describe('scene Y versus elevation', () => {
     it('places ground on the curved surface, not the tangent plane', async () => {
         const { field, restore } = await makeMirror();
         try {
-            await field.ensureLoadedAroundEnu(0, 0, 6000);
-            await field.ensureLoadedAroundEnu(25000, 0, 3000);
+            await field.ensureLoadedAroundWorld(0, 0, 6000);
+            await field.ensureLoadedAroundWorld(25000, 0, 3000);
 
             // Directly under the origin the two agree.
             assert.ok(Math.abs(
-                field.heightAtEnu(0, 0) - field.geodeticHeightAtEnu(0, 0),
+                field.heightAtWorld(0, 0) - field.geodeticHeightAtWorld(0, 0),
             ) < 1e-6);
 
             // 25 km out the surface has fallen away by d^2/2R — which is what
             // the terrain mesh is drawn at, and what the sim must collide with.
-            const drop = field.geodeticHeightAtEnu(25000, 0) - field.heightAtEnu(25000, 0);
+            const drop = field.geodeticHeightAtWorld(25000, 0) - field.heightAtWorld(25000, 0);
             const expected = 25000 ** 2 / (2 * 6378137);
             assert.ok(
                 Math.abs(drop - expected) < 2,
@@ -243,10 +243,10 @@ describe('scene Y versus elevation', () => {
         try {
             // Far enough out that the curvature drop exceeds any sea-level
             // epsilon: land here must not read as water.
-            await field.ensureLoadedAroundEnu(25000, 0, 3000);
-            assert.ok(field.geodeticHeightAtEnu(25000, 0) > 1, 'fixture should be land');
-            assert.ok(field.heightAtEnu(25000, 0) < field.geodeticHeightAtEnu(25000, 0));
-            assert.equal(field.isLandEnu(25000, 0), true);
+            await field.ensureLoadedAroundWorld(25000, 0, 3000);
+            assert.ok(field.geodeticHeightAtWorld(25000, 0) > 1, 'fixture should be land');
+            assert.ok(field.heightAtWorld(25000, 0) < field.geodeticHeightAtWorld(25000, 0));
+            assert.equal(field.isLandAtWorld(25000, 0), true);
         } finally {
             restore();
         }
@@ -263,14 +263,14 @@ describe('a lattice coarser than the DEM', () => {
     it('invents ground metres above the real surface', async () => {
         const { field, restore } = await makeMirror();
         try {
-            await field.ensureLoadedAroundEnu(0, 0, 6000);
+            await field.ensureLoadedAroundWorld(0, 0, 6000);
 
             const CELL = 500;
             const N = 21;
             const lattice = new Float32Array(N * N);
             for (let r = 0; r < N; r++) {
                 for (let c = 0; c < N; c++) {
-                    lattice[r * N + c] = field.heightAtEnu(
+                    lattice[r * N + c] = field.heightAtWorld(
                         (c - (N - 1) / 2) * CELL, (r - (N - 1) / 2) * CELL,
                     );
                 }
@@ -291,7 +291,7 @@ describe('a lattice coarser than the DEM', () => {
             let worst = 0;
             for (let z = -4000; z <= 4000; z += 50) {
                 for (let x = -4000; x <= 4000; x += 50) {
-                    worst = Math.max(worst, latticeAt(x, z) - field.heightAtEnu(x, z));
+                    worst = Math.max(worst, latticeAt(x, z) - field.heightAtWorld(x, z));
                 }
             }
             // Well past the sim's instant-wreck penetration (3.5 m).

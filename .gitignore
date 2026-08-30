@@ -14,6 +14,7 @@ dist
 
 # Fetched DEM sources for imported areas — regenerate with `tools/fetch_planet_dem.py`
 /data/imports/
+/data/osm-cache/
 
 # OSM raster tiles cached for the in-app area picker
 /tools/osm-cache/

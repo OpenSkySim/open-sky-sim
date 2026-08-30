@@ -11,12 +11,15 @@
  * same bilinear read, no resampling in between.
  *
  * Fine tiles follow the aircraft (see the sender in `state/game.ts`); the coarse
- * tier is small enough to ship once at boot. `tierAtEnu` reports which one
+ * tier is small enough to ship once at boot. `tierAtWorld` reports which one
  * answered so the sim can refuse to kill anyone on a coarse guess.
+ *
+ * Queries here take scene (x, z) like the render thread's HeightField, so the
+ * two halves of the mirror cannot disagree about which way north is.
  */
 
 import { DemTile } from './demTile';
-import { EnuBasis } from './geodesy';
+import { EnuBasis, northFromSceneZ } from './geodesy';
 import { FlattenPad } from './flattenPad';
 import { HeightSampler, HeightTier } from './heightSampler';
 import { TileKey, tileKeyString } from './tiling';
@@ -124,36 +127,37 @@ export class MirroredHeightField {
     }
 
     /** Sea level until configured, so a pre-boot query is flat rather than wrong. */
-    heightAtEnu(e: number, n: number): number {
-        return this.sampler ? this.sampler.heightAtEnu(e, n) : 0;
+    heightAtWorld(x: number, z: number): number {
+        return this.sampler ? this.sampler.heightAtEnu(x, northFromSceneZ(z)) : 0;
     }
 
     /** Elevation above the ellipsoid — for sea-level tests, not for scene Y. */
-    geodeticHeightAtEnu(e: number, n: number): number {
-        return this.sampler ? this.sampler.geodeticHeightAtEnu(e, n) : 0;
+    geodeticHeightAtWorld(x: number, z: number): number {
+        return this.sampler ? this.sampler.geodeticHeightAtEnu(x, northFromSceneZ(z)) : 0;
     }
 
     /** Which tier answered. `none` means we have no terrain here at all. */
-    tierAtEnu(e: number, n: number): HeightTier {
-        return this.sampler ? this.sampler.tierAtEnu(e, n) : 'none';
+    tierAtWorld(x: number, z: number): HeightTier {
+        return this.sampler ? this.sampler.tierAtEnu(x, northFromSceneZ(z)) : 'none';
     }
 
-    isLandEnu(e: number, n: number): boolean {
-        return this.sampler ? this.sampler.isLandEnu(e, n) : false;
+    isLandAtWorld(x: number, z: number): boolean {
+        return this.sampler ? this.sampler.isLandEnu(x, northFromSceneZ(z)) : false;
     }
 
     /**
      * True when the answer here is as good as the render thread's: either the
      * fine tile is mirrored, or there is no fine tile to have.
      */
-    isAuthoritativeAt(e: number, n: number): boolean {
+    isAuthoritativeAt(x: number, z: number): boolean {
         if (!this.sampler) {
             return false;
         }
-        if (this.sampler.tierAtEnu(e, n) === 'fine') {
+        const n = northFromSceneZ(z);
+        if (this.sampler.tierAtEnu(x, n) === 'fine') {
             return true;
         }
-        return this.absent.has(this.sampler.fineTileKeyAtEnu(e, n));
+        return this.absent.has(this.sampler.fineTileKeyAtEnu(x, n));
     }
 
     /** Resident fine-tile keys, for the sender's book-keeping in tests. */
@@ -168,10 +172,10 @@ export interface MirrorSource {
     readonly queryZoom: number;
     readonly coarseZoom: number;
     coarseTiles(): { id: TileKey; tile: DemTile }[];
-    fineTileIdsAroundEnu(e: number, n: number, radiusM: number): TileKey[];
+    fineTileIdsAroundWorld(x: number, z: number, radiusM: number): TileKey[];
     peekFine(id: TileKey): DemTile | undefined;
     isFineAbsent(id: TileKey): boolean;
-    ensureLoadedAroundEnu(e: number, n: number, radiusM: number): Promise<void>;
+    ensureLoadedAroundWorld(x: number, z: number, radiusM: number): Promise<void>;
 }
 
 /** A point the fine tier must cover — an aircraft, lead included. */
@@ -224,7 +228,7 @@ export class HeightFieldSender {
         }
         const needed = new Map<string, TileKey>();
         for (const f of focus) {
-            for (const id of this.source.fineTileIdsAroundEnu(f.x, f.z, radiusM)) {
+            for (const id of this.source.fineTileIdsAroundWorld(f.x, f.z, radiusM)) {
                 needed.set(tileKeyString(id), id);
             }
         }
@@ -266,7 +270,7 @@ export class HeightFieldSender {
         if (missing && !this.loading) {
             this.loading = true;
             Promise.all(focus.map(
-                f => this.source.ensureLoadedAroundEnu(f.x, f.z, radiusM),
+                f => this.source.ensureLoadedAroundWorld(f.x, f.z, radiusM),
             )).catch(() => { /* a dead tile is handled by the coarse fallback */ })
                 .then(() => { this.loading = false; });
         }

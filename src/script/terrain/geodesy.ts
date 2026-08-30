@@ -149,14 +149,51 @@ export function enuToGeodeticApprox(basis: EnuBasis, e: number, n: number, u: nu
     return ecefToGeodetic(ecef.x, ecef.y, ecef.z);
 }
 
-/** Scene-space (x=east, y=up, z=north) rotation of one ENU basis. */
+/**
+ * Scene space: **x = east, y = up, z = south**. North is −z.
+ *
+ * The sign is not a matter of taste. Three.js is right-handed with +Y up, so
+ * east × up is *south*; calling +z north makes the frame left-handed and every
+ * position expressed in it comes out as the mirror image of the place it
+ * describes — an island's east coast drawn on the pilot's west side. It also
+ * has to agree with the rest of the sim, which settled this long before the
+ * terrain existed: `vectorHeading` reads a bearing as atan2(x, −z), and the
+ * JSBSim bridge maps NED north onto −z (see jsbsimCoordinateFrame).
+ *
+ * Everything crossing the ENU ↔ scene boundary goes through these two, so the
+ * flip lives in one place instead of being re-derived at each call site.
+ */
+export function sceneFromEnu(enu: Enu, out: THREE.Vector3 = new THREE.Vector3()): THREE.Vector3 {
+    return out.set(enu.e, enu.u, -enu.n);
+}
+
+export function enuFromScene(world: THREE.Vector3, out: Enu = { e: 0, n: 0, u: 0 }): Enu {
+    out.e = world.x;
+    out.n = -world.z;
+    out.u = world.y;
+    return out;
+}
+
+/** ENU north of a scene z. North runs against z, so the map is its own inverse. */
+export function northFromSceneZ(z: number): number {
+    return -z;
+}
+
+/** Scene z of an ENU north. Named for the direction it reads, not the sign. */
+export function sceneZFromNorth(n: number): number {
+    return -n;
+}
+
+/** Scene-space (x=east, y=up, z=south) rotation of one ENU basis. */
 function sceneRotation(basis: EnuBasis, out: THREE.Matrix4): THREE.Matrix4 {
     const m = basis.ecefToEnu;
-    // Rows of `m` are the east, north and up axes; scene order is east, up, north.
+    // Rows of `m` are the east, north and up axes; scene order is east, up,
+    // south — hence the negated north row, which is what keeps this a proper
+    // rotation rather than a reflection.
     return out.set(
         m[0], m[1], m[2], 0,
         m[6], m[7], m[8], 0,
-        m[3], m[4], m[5], 0,
+        -m[3], -m[4], -m[5], 0,
         0, 0, 0, 1,
     );
 }
@@ -186,21 +223,20 @@ export function enuFrameRotation(from: EnuBasis, to: EnuBasis): THREE.Quaternion
 
 /**
  * Maps ECEF metres into Three.js render space.
- * Fixed ENU: +X east, +Y up, +Z north (sim forward).
+ * Fixed ENU: +X east, +Y up, +Z south — see {@link sceneFromEnu}.
  */
 export class EnuFrame {
     constructor(readonly basis: EnuBasis) { }
 
     ecefToWorld(ecef: Ecef, out: THREE.Vector3 = new THREE.Vector3()): THREE.Vector3 {
-        const enu = ecefToEnu(this.basis, ecef);
-        return out.set(enu.e, enu.u, enu.n);
+        return sceneFromEnu(ecefToEnu(this.basis, ecef), out);
     }
 
     worldToEcef(world: THREE.Vector3, out: Ecef = { x: 0, y: 0, z: 0 }): Ecef {
-        return enuToEcef(this.basis, { e: world.x, n: world.z, u: world.y }, out);
+        return enuToEcef(this.basis, enuFromScene(world), out);
     }
 
     worldToEnu(world: THREE.Vector3): Enu {
-        return { e: world.x, n: world.z, u: world.y };
+        return enuFromScene(world);
     }
 }

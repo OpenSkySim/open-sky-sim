@@ -586,7 +586,7 @@ export class CombatSim implements ProjectileSink {
 
     setWorld(world: SerializedWorld): void {
         this.world = deserializeWorldQuery(
-            world, (x, z) => this.heightField.heightAtEnu(x, z),
+            world, (x, z) => this.heightField.heightAtWorld(x, z),
         );
         this.arrestorFields = deserializeArrestorCables(world);
         // Any aircraft added before the world arrived can now get its pilot + terrain.
@@ -1262,10 +1262,10 @@ export class CombatSim implements ProjectileSink {
         if (!this.world || this.heightField.isAuthoritativeAt(x, z)) {
             return false;
         }
-        if (!this.heightField.isLandEnu(x, z)) {
+        if (!this.heightField.isLandAtWorld(x, z)) {
             return false;
         }
-        const demY = this.heightField.heightAtEnu(x, z);
+        const demY = this.heightField.heightAtWorld(x, z);
         return Math.abs(this.world.groundHeightAt(x, z) - demY) < 0.01;
     }
 

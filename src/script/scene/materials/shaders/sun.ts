@@ -44,7 +44,7 @@ const SHADOW_MAX_ELEVATION_DEG = 5;
 export const SHADOW_MIN_SUN_Y = Math.sin(SHADOW_MIN_ELEVATION_DEG * THREE.MathUtils.DEG2RAD);
 
 /**
- * Direction *towards* the sun in world/ENU space (+X east, +Y up, +Z north).
+ * Direction *towards* the sun in world space (+X east, +Y up, +Z south).
  *
  * Mutated in place by {@link setSunTime}: it is handed to the shaders by
  * reference through {@link SUN_UNIFORMS} and read per frame by the shadow map
@@ -144,7 +144,10 @@ export function sunDirectionAt(hours: number, out: THREE.Vector3): THREE.Vector3
     const cosElevation = Math.sqrt(Math.max(0, 1 - sinElevation * sinElevation));
 
     // Azimuth measured clockwise from north; the afternoon half mirrors onto
-    // the western side, which acos() cannot tell apart on its own.
+    // the western side, which acos() cannot tell apart on its own. World z
+    // runs south, so the northward component is negated on the way out —
+    // without that the afternoon sun sits in the north-west instead of the
+    // south-west. See `sceneFromEnu` in terrain/geodesy.ts.
     const cosAzimuth = cosElevation > 1e-6
         ? THREE.MathUtils.clamp(-sinElevation * Math.sin(SUN_LATITUDE_RAD) / (cosElevation * Math.cos(SUN_LATITUDE_RAD)), -1, 1)
         : -1;
@@ -156,7 +159,7 @@ export function sunDirectionAt(hours: number, out: THREE.Vector3): THREE.Vector3
     return out.set(
         cosElevation * Math.sin(azimuth),
         sinElevation,
-        cosElevation * Math.cos(azimuth));
+        -cosElevation * Math.cos(azimuth));
 }
 
 /** Sun elevation in degrees at `hours` local solar time. */

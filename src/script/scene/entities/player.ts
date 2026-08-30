@@ -738,6 +738,7 @@ export class PlayerEntity implements Entity {
         if (!SHADOW_SETTINGS.enabled && !this.isCrashed && !this._showcaseMode && SUN_STATE.shadowStrength > 0) {
             setAircraftShadowPose(
                 this.displayPosition, this.displayQuaternion, this.groundHeightAt,
+                0.5 * this.modelShadow.model.maxSize,
                 this.shadowPosition, this.shadowQuaternion, this.shadowScale, this._v);
             this.modelShadow.addToRenderList(
                 this.shadowPosition, this.shadowQuaternion, this.shadowScale,
@@ -1079,7 +1080,11 @@ export class PlayerEntity implements Entity {
         this.combatSim = client;
     }
 
-    /** Solid-ground sampler used to place the planform shadow (carrier/hills/flat). */
+    /**
+     * Solid-ground sampler used to place the planform shadow (carrier/hills/flat).
+     * Reads the terrain mesh on screen, not the DEM: the shadow has to land on
+     * the triangles the depth test compares it against. See drawnGroundHeightAt.
+     */
     setGroundHeightAt(fn: (x: number, z: number) => number): void {
         this.groundHeightAt = fn;
     }
@@ -1283,6 +1288,9 @@ export class PlayerEntity implements Entity {
         return this.velocity;
     }
 
+    /** Scratch list reused by target cycling; never handed out. */
+    private readonly targetCandidates: WeaponsTarget[] = [];
+
     get weaponsTarget(): WeaponsTarget | undefined {
         return this.target;
     }
@@ -1404,7 +1412,7 @@ export class PlayerEntity implements Entity {
     }
 
     private pickTarget() {
-        const candidates = this.collectTargets();
+        const candidates = this.collectWeaponsTargets(this.targetCandidates);
         if (candidates.length === 0) {
             this.target = undefined;
             return;
@@ -1416,15 +1424,17 @@ export class PlayerEntity implements Entity {
 
     /**
      * The designatable weapons targets, in cycling order: the fixed ground
-     * installations followed by any live airborne enemy aircraft.
+     * installations followed by any live airborne enemy aircraft. Fills and
+     * returns `out`, so callers that poll it (the tactical MFD) reuse one array
+     * instead of allocating per scan.
      */
-    private collectTargets(): WeaponsTarget[] {
-        const result: WeaponsTarget[] = [];
+    collectWeaponsTargets(out: WeaponsTarget[] = []): WeaponsTarget[] {
+        out.length = 0;
         if (!this.scene) {
-            return result;
+            return out;
         }
         for (const entity of this.scene.listByTag(ENTITY_TAGS.TARGET)) {
-            result.push(entity as unknown as WeaponsTarget);
+            out.push(entity as unknown as WeaponsTarget);
         }
         for (const entity of this.scene.listByTag(ENTITY_TAGS.AIRCRAFT)) {
             if (entity === this) {
@@ -1432,10 +1442,10 @@ export class PlayerEntity implements Entity {
             }
             const combatant = entity as unknown as Combatant;
             if (combatant.faction === Faction.ENEMY && combatant.isAlive()) {
-                result.push(entity as unknown as WeaponsTarget);
+                out.push(entity as unknown as WeaponsTarget);
             }
         }
-        return result;
+        return out;
     }
 
     private toggleFlaps() {

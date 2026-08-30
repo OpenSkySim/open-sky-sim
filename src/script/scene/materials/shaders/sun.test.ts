@@ -12,8 +12,13 @@ function luminance(v: THREE.Vector3): number {
     return 0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z;
 }
 
-/** The fixed sun this module replaced; the 14:00 solar position must still match it. */
-const LEGACY_SUN = new THREE.Vector3(-0.47, 0.76, -0.45).normalize();
+/**
+ * The fixed sun this module replaced; the 14:00 solar position must still match
+ * it. Its z is negated against the constant as it was written, because that was
+ * authored back when world +z was taken for north: the afternoon sun it stands
+ * for is in the south-west either way. See `sceneFromEnu` in terrain/geodesy.ts.
+ */
+const LEGACY_SUN = new THREE.Vector3(-0.47, 0.76, 0.45).normalize();
 
 // The sun is module-global state; leave it where the rest of the app expects it.
 afterEach(() => setSunTime(DEFAULT_SUN_HOURS));
@@ -39,7 +44,8 @@ describe('sun position', () => {
         for (let hours = 6.5; hours <= 17.5; hours += 0.5) {
             const dir = sunDirectionAt(hours, new THREE.Vector3());
             assert.ok(dir.y > 0, `${hours}h elevation ${dir.y}`);
-            assert.ok(dir.z < 0, `${hours}h should look south, z ${dir.z}`);
+            // World z runs south, so a sun south of the zenith has z > 0.
+            assert.ok(dir.z > 0, `${hours}h should look south, z ${dir.z}`);
         }
         for (const hours of [0, 2, 4, 20, 22]) {
             assert.ok(sunElevationAt(hours) < 0, `${hours}h elevation ${sunElevationAt(hours)}`);
