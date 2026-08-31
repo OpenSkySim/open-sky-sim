@@ -7,7 +7,7 @@ import {
     arrestorCableLocals,
     buildArrestorCableField,
 } from '../../scene/entities/arrestorCables';
-import { BarricadeField } from '../../scene/entities/barricade';
+import { BarricadeField, barricadeRig } from '../../scene/entities/barricade';
 import { HillCollider } from '../../scene/entities/hillCollider';
 import { SurfacePadCollider } from '../../scene/entities/surfacePad';
 import { SkiJumpCollider } from '../../scene/entities/skiJump';
@@ -93,6 +93,21 @@ export interface SerializedBarricade {
     height: number;
     /** 0 = folded flush, 1 = fully upright. */
     deploy: number;
+    /** Carrier attitude as [x, y, z, w]. */
+    quaternion: [number, number, number, number];
+    /**
+     * The rig as actually fitted to the deck, in carrier-local coordinates.
+     *
+     * Only what the sim needs to lace the same net the main thread drew: the
+     * stanchion stations and the deck they are bolted to. How much of that span
+     * is webbing rather than bare wire is the rig's own business, and both ends
+     * work it out the same way from these.
+     */
+    rigLeftX: number;
+    rigRightX: number;
+    rigDeckY: number;
+    /** Bumped when a fresh webbing assembly goes up; the sim re-laces on it. */
+    rigGeneration: number;
 }
 
 export interface SerializedWorld {
@@ -276,6 +291,11 @@ export function serializeBarricade(f: BarricadeField): SerializedBarricade {
         halfSpan: f.halfSpan,
         height: f.height,
         deploy: f.deploy,
+        quaternion: [f.quaternion.x, f.quaternion.y, f.quaternion.z, f.quaternion.w],
+        rigLeftX: f.rig.leftX,
+        rigRightX: f.rig.rightX,
+        rigDeckY: f.rig.deckY,
+        rigGeneration: f.rigGeneration,
     };
 }
 
@@ -291,6 +311,11 @@ export function deserializeBarricades(world: SerializedWorld): BarricadeField[] 
         halfSpan: s.halfSpan,
         height: s.height,
         deploy: s.deploy,
+        quaternion: new THREE.Quaternion(
+            s.quaternion[0], s.quaternion[1], s.quaternion[2], s.quaternion[3],
+        ),
+        rig: barricadeRig(s.rigLeftX, s.rigRightX, s.rigDeckY),
+        rigGeneration: s.rigGeneration ?? 0,
     }));
 }
 

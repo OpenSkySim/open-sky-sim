@@ -288,6 +288,37 @@ export class Fm2FlightModel extends FlightModel {
         this.obj.quaternion.copy(this.rb.orientation);
     }
 
+    /**
+     * Take a wrench from something that has hold of the airframe.
+     *
+     * Same book-keeping as the scrape friction above, in both halves: the linear
+     * impulse goes straight into world velocity, and the angular impulse into
+     * the body rates through the inertia. Applying impulses rather than forces
+     * keeps both independent of how long the caller's step happened to be.
+     */
+    applyExternalWrench(impulseWorld: THREE.Vector3, angularImpulseWorld: THREE.Vector3): void {
+        if (this.kinematic) return;
+        const linear = impulseWorld.lengthSq() > 1e-12;
+        const angular = angularImpulseWorld.lengthSq() > 1e-12;
+        if (!linear && !angular) return;
+
+        this.rb.orientation.copy(this.obj.quaternion);
+        this.rb.velocityWorld.copy(this.velocity);
+        this.invOrient.copy(this.rb.orientation).invert();
+
+        if (linear) {
+            this.rb.velocityWorld.addScaledVector(impulseWorld, 1 / this.rb.mass);
+            this.velocity.copy(this.rb.velocityWorld);
+        }
+        if (angular) {
+            this._v.copy(angularImpulseWorld).applyQuaternion(this.invOrient);
+            const I = this.rb.inertia;
+            this.rb.angularVelocityBody.x += this._v.x / I.x;
+            this.rb.angularVelocityBody.y += this._v.y / I.y;
+            this.rb.angularVelocityBody.z += this._v.z / I.z;
+        }
+    }
+
     step(delta: number): void {
         if (this.crashed) return;
 

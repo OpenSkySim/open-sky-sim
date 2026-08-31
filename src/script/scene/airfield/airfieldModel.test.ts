@@ -3,10 +3,12 @@ import { describe, it } from 'node:test';
 import * as THREE from 'three';
 import { Airfield } from '../../terrain/airfields';
 import {
-    ecefToGeodetic, enuFromScene, enuToEcef, makeEnuBasis,
+    ecefToEnu, ecefToGeodetic, enuFromScene, enuToEcef, geodeticToEcef, makeEnuBasis,
 } from '../../terrain/geodesy';
 import { SceneMaterialManager } from '../materials/materials';
-import { AIRFIELD_SURFACE_EPS_M, buildAirfieldModel } from './airfieldModel';
+import {
+    AIRFIELD_SURFACE_EPS_M, buildAirfieldModel, buildingHeightM, smoothCentreline,
+} from './airfieldModel';
 
 /**
  * The material manager only ever hands back something to bind a geometry to,
@@ -79,6 +81,93 @@ function gclp(overrides: Partial<Airfield> = {}): Airfield {
         pads: [],
         ...overrides,
     };
+}
+
+/** ENU east/north of a geodetic point in the airfield's frame. */
+function enuAt(lat: number, lon: number): { e: number; n: number } {
+    const enu = ecefToEnu(BASIS, geodeticToEcef(lat, lon, 0));
+    return { e: enu.e, n: enu.n };
+}
+
+/** Unit east/north pointing from `from` to `to`. */
+function unit(
+    from: { e: number; n: number }, to: { e: number; n: number },
+): { e: number; n: number } {
+    const de = to.e - from.e;
+    const dn = to.n - from.n;
+    const len = Math.hypot(de, dn) || 1;
+    return { e: de / len, n: dn / len };
+}
+
+type EnuTriangle = [{ e: number; n: number }, { e: number; n: number }, { e: number; n: number }];
+
+/**
+ * The facets drawn in one palette category, back in east/north.
+ *
+ * Coverage is what a gap in the pavement is about, and coverage is a question
+ * about the ground plane, not about scene Y — which carries the curvature drop
+ * as well. See `elevationOf`.
+ */
+function trianglesOf(
+    objects: THREE.Object3D[], category: string, origin: THREE.Vector3,
+): EnuTriangle[] {
+    const vs = verticesOf(objects, category).map(v => {
+        const enu = enuFromScene(v.clone().add(origin));
+        return { e: enu.e, n: enu.n };
+    });
+    const out: EnuTriangle[] = [];
+    for (let i = 0; i + 2 < vs.length; i += 3) {
+        out.push([vs[i], vs[i + 1], vs[i + 2]]);
+    }
+    return out;
+}
+
+/** True when any facet covers the east/north point. */
+function covers(tris: EnuTriangle[], e: number, n: number): boolean {
+    for (const [a, b, c] of tris) {
+        const d = (b.n - c.n) * (a.e - c.e) + (c.e - b.e) * (a.n - c.n);
+        if (Math.abs(d) < 1e-9) {
+            continue;
+        }
+        const l0 = ((b.n - c.n) * (e - c.e) + (c.e - b.e) * (n - c.n)) / d;
+        const l1 = ((c.n - a.n) * (e - c.e) + (a.e - c.e) * (n - c.n)) / d;
+        if (l0 >= -1e-6 && l1 >= -1e-6 && 1 - l0 - l1 >= -1e-6) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Shortest distance from a point to a polyline, in east/north. */
+function distanceToPath(
+    q: { e: number; n: number }, path: readonly { e: number; n: number }[],
+): number {
+    let best = Infinity;
+    for (let i = 0; i + 1 < path.length; i++) {
+        const a = path[i];
+        const b = path[i + 1];
+        const de = b.e - a.e;
+        const dn = b.n - a.n;
+        const len2 = de * de + dn * dn;
+        const t = len2 > 0
+            ? Math.max(0, Math.min(1, ((q.e - a.e) * de + (q.n - a.n) * dn) / len2))
+            : 0;
+        best = Math.min(best, Math.hypot(q.e - (a.e + de * t), q.n - (a.n + dn * t)));
+    }
+    return best;
+}
+
+/** The sharpest turn any node of a polyline makes, in radians. */
+function sharpestTurn(path: readonly { e: number; n: number }[]): number {
+    let worst = 0;
+    for (let i = 1; i + 1 < path.length; i++) {
+        const ae = path[i].e - path[i - 1].e;
+        const an = path[i].n - path[i - 1].n;
+        const be = path[i + 1].e - path[i].e;
+        const bn = path[i + 1].n - path[i].n;
+        worst = Math.max(worst, Math.abs(Math.atan2(ae * bn - an * be, ae * be + an * bn)));
+    }
+    return worst;
 }
 
 function triangles(objects: THREE.Object3D[]): number {
@@ -274,6 +363,141 @@ describe('airfield model', () => {
                 + `against ${coarsePaved.toFixed(0)} for the same run`);
         });
 
+        it('leaves no notch on the outside of a curve', () => {
+            // Each leg is laid as its own rectangle around its own
+            // perpendicular. The two overlap on the inside of a bend and pull
+            // apart on the outside, so without a fillet every node bites a
+            // triangle of bare ground out of the outer edge — and OSM nodes a
+            // curve every few metres, so a curved taxiway comes out scalloped.
+            const W = 40;
+            // Well west of the runway, which is drawn in the same category.
+            const before: [number, number] = [27.9300, -15.3960];
+            const corner: [number, number] = [27.9330, -15.3960];
+            const after: [number, number] = [27.9330, -15.3900];
+            const built = buildAirfieldModel(
+                gclp({ taxiways: [{ widthM: W, points: [before, corner, after] }] }),
+                BASIS, MATERIALS, () => 0)!;
+            const paved = trianglesOf(
+                built.model.lod[0].flats, 'SCENERY_ROAD_SECONDARY', built.origin);
+
+            // Outward bisector of the turn: the direction the notch opens in.
+            const c = enuAt(...corner);
+            const d0 = unit(enuAt(...before), c);
+            const d1 = unit(c, enuAt(...after));
+            // A left turn opens the gap on the right of the run, and the
+            // right-hand normal is the left one negated.
+            const side = d0.e * d1.n - d0.n * d1.e > 0 ? -1 : 1;
+            const bx = side * (-d0.n - d1.n);
+            const by = side * (d0.e + d1.e);
+            const blen = Math.hypot(bx, by);
+            const half = W / 2;
+
+            for (const r of [0.3, 0.6, 0.9]) {
+                const e = c.e + (bx / blen) * half * r;
+                const n = c.n + (by / blen) * half * r;
+                assert.ok(covers(paved, e, n),
+                    `bare ground ${(half * r).toFixed(1)} m out on the outside of the turn`);
+            }
+            // And the fillet is a fillet, not a blanket: past the taxiway's own
+            // half width there is still nothing paved.
+            const e = c.e + (bx / blen) * half * 1.6;
+            const n = c.n + (by / blen) * half * 1.6;
+            assert.ok(!covers(paved, e, n), 'the joint paved well past the taxiway edge');
+        });
+
+        it('follows a coarsely noded bend as a curve, not as a corner', () => {
+            // Two 60 m legs meeting at 30 degrees: a bend OSM recorded with
+            // one node, which without smoothing is one kink in the middle of
+            // the pavement and one kink in the stripe painted down it.
+            const bend = [{ e: -60, n: 0 }, { e: 0, n: 0 }, { e: 52, n: 30 }];
+            const smoothed = smoothCentreline(bend, 23);
+
+            assert.ok(smoothed.length > bend.length,
+                'the bend came back with the nodes it went in with');
+            // It is a curve through the same corridor, not a new route: every
+            // point stays inside the pavement the chords would have laid.
+            for (const q of smoothed) {
+                assert.ok(distanceToPath(q, bend) <= 11.5,
+                    `smoothed ${q.e.toFixed(1)},${q.n.toFixed(1)} left the pavement`);
+            }
+            // And it is smoother where it counts: no node turns as sharply as
+            // the one it replaced.
+            assert.ok(sharpestTurn(smoothed) < sharpestTurn(bend) - 0.1,
+                'the smoothed bend still turns as hard as the corner did');
+        });
+
+        it('never kinks harder than the polyline it replaced', () => {
+            // A short link off a long straight, which is most of how a taxiway
+            // network joins up. The tangent at the shared node is taken across
+            // both legs, so unclamped it comes out many times the length of
+            // the short one and the cubic loops: Las Palmas went from a worst
+            // turn of 36 degrees to one of 148.
+            const lopsided = [{ e: -400, n: 0 }, { e: 0, n: 0 }, { e: 9, n: 5 }];
+            assert.ok(sharpestTurn(smoothCentreline(lopsided, 23))
+                <= sharpestTurn(lopsided) + 1e-6,
+                'smoothing put a sharper bend in than the one it was given');
+        });
+
+        it('leaves a straight run alone, wobbles and all', () => {
+            // A straight taxiway is noded every hundred metres and every node
+            // is out by a fraction of a degree. Splining through those bows
+            // the run, which alongside a runway is worse than a facet.
+            const run = [
+                { e: 0, n: 0 }, { e: 100, n: 0.5 }, { e: 200, n: -0.4 },
+                { e: 300, n: 0.3 }, { e: 400, n: 0 },
+            ];
+            assert.deepEqual(smoothCentreline(run, 23), run);
+        });
+
+        it('rounds a hard corner without moving the legs it joins', () => {
+            // A 90 degree turn between two 300 m legs. The corner itself eases
+            // — that is the point — but the legs are surveyed pavement and a
+            // curve that bent them would put the taxiway on ground nobody
+            // paved, so everything a fillet's reach away from the bend has to
+            // come back exactly as it went in.
+            const corner = [{ e: -300, n: 0 }, { e: 0, n: 0 }, { e: 0, n: 300 }];
+            const smoothed = smoothCentreline(corner, 23);
+
+            assert.ok(sharpestTurn(smoothed) < sharpestTurn(corner),
+                'the corner came back as sharp as it went in');
+            for (const q of smoothed) {
+                assert.ok(distanceToPath(q, corner) <= 11.5,
+                    `smoothed ${q.e.toFixed(1)},${q.n.toFixed(1)} left the pavement`);
+                // A fillet a width across reaches 23 m either side; past 30 m
+                // the leg is untouched.
+                if (Math.hypot(q.e, q.n) > 30) {
+                    assert.ok(distanceToPath(q, corner) < 1e-9,
+                        `the leg moved ${distanceToPath(q, corner).toFixed(2)} m `
+                        + `at ${q.e.toFixed(0)},${q.n.toFixed(0)}`);
+                }
+            }
+        });
+
+        it('spends nothing on a curve OSM already noded finely', () => {
+            // 5 m chords through a 60 m radius turn are within 3 cm of the arc
+            // already. There is no curve left to add and no reason to pay for
+            // the vertices.
+            const arc = [];
+            for (let i = 0; i <= 18; i++) {
+                const a = (i * 5 * Math.PI) / 180;
+                arc.push({ e: 60 * Math.sin(a), n: 60 - 60 * Math.cos(a) });
+            }
+            assert.equal(smoothCentreline(arc, 23).length, arc.length);
+        });
+
+        it('drops a node OSM recorded twice', () => {
+            // A doubled node has no direction, and its zero-length chord
+            // divides through the whole parameterisation.
+            const doubled = [
+                { e: 0, n: 0 }, { e: 100, n: 0 }, { e: 100, n: 0 }, { e: 200, n: 0 },
+            ];
+            const smoothed = smoothCentreline(doubled, 23);
+            assert.equal(smoothed.length, 3);
+            for (const q of smoothed) {
+                assert.ok(Number.isFinite(q.e) && Number.isFinite(q.n), 'not a number');
+            }
+        });
+
         it('cuts a long taxiway into steps so it can follow a rise', () => {
             // One quad per OSM segment is flat across its whole length, so a
             // leg crossing a hill cuts through it.
@@ -369,6 +593,109 @@ describe('airfield model', () => {
                 gclp({ aprons: [apronRing(true)] }), BASIS, MATERIALS)!;
             assert.equal(triangles(cw.model.lod[0].flats),
                 triangles(ccw.model.lod[0].flats));
+        });
+    });
+
+    describe('buildings', () => {
+
+        function building(over: Partial<Airfield['buildings'][0]> = {}) {
+            return {
+                kind: 'hangar' as const, lat: 27.9320, lon: -15.3870,
+                headingDeg: 21.4354, widthM: 40, depthM: 60, ...over,
+            };
+        }
+
+        /** Triangles of the volumes, as [centroid, normal] pairs. */
+        function faces(objects: THREE.Object3D[]) {
+            const out: Array<{ c: THREE.Vector3; n: THREE.Vector3 }> = [];
+            for (const o of objects) {
+                const p = (o as THREE.Mesh).geometry.getAttribute('position');
+                for (let t = 0; t < p.count; t += 3) {
+                    const a = new THREE.Vector3(p.getX(t), p.getY(t), p.getZ(t));
+                    const b = new THREE.Vector3(p.getX(t + 1), p.getY(t + 1), p.getZ(t + 1));
+                    const c = new THREE.Vector3(p.getX(t + 2), p.getY(t + 2), p.getZ(t + 2));
+                    out.push({
+                        c: a.clone().add(b).add(c).divideScalar(3),
+                        n: b.clone().sub(a).cross(c.clone().sub(a)).normalize(),
+                    });
+                }
+            }
+            return out;
+        }
+
+        it('are volumes, not flats — they are lit and they occlude', () => {
+            const built = buildAirfieldModel(
+                gclp({ buildings: [building()] }), BASIS, MATERIALS, () => 0)!;
+            assert.equal(built.model.lod[0].volumes.length > 0, true, 'no volumes built');
+            // Ten triangles: four walls and a roof. No floor — nothing sees it.
+            assert.equal(triangles(built.model.lod[0].volumes), 10);
+        });
+
+        it('faces its walls outward and its roof up', () => {
+            // Wound the wrong way, a building is culled from outside and drawn
+            // inside out from within — the shape is there and invisible.
+            const built = buildAirfieldModel(
+                gclp({ buildings: [building()] }), BASIS, MATERIALS, () => 0)!;
+            const box = faces(built.model.lod[0].volumes);
+            const centre = box.reduce(
+                (a, f) => a.add(f.c), new THREE.Vector3()).divideScalar(box.length);
+            let roofs = 0;
+            for (const f of box) {
+                if (f.n.y > 0.9) { roofs++; continue; }
+                // Against the direction from the box's axis to the triangle.
+                // Not near 1: a wall is two triangles whose centroids sit a
+                // third of the way along it, so on a 60 m wall 20 m from the
+                // centre the radial direction is 26 degrees off the normal.
+                // The sign is the thing — inward came out at -0.98.
+                const outward = f.c.clone().sub(centre).setY(0).normalize();
+                assert.ok(f.n.dot(outward) > 0.5,
+                    `a wall faces inward (dot ${f.n.dot(outward).toFixed(2)})`);
+            }
+            assert.equal(roofs, 2, 'the roof is not two up-facing triangles');
+        });
+
+        it('stands on the lowest corner, not on its centre', () => {
+            // On a slope, basing it on the centre leaves one corner in the air.
+            const slope = (e: number) => e * 0.1;
+            const built = buildAirfieldModel(
+                gclp({ buildings: [building()] }), BASIS, MATERIALS, (e) => slope(e))!;
+            const ys = faces(built.model.lod[0].volumes).map(f => f.c.y);
+            const base = Math.min(...ys);
+            // Every wall foot is at one height, and it is the lowest ground.
+            const foot = faces(built.model.lod[0].volumes)
+                .filter(f => Math.abs(f.n.y) < 0.1);
+            assert.ok(foot.length === 8, 'expected eight wall triangles');
+            assert.ok(Number.isFinite(base));
+        });
+
+        it('infers a height from the kind and the footprint', () => {
+            // Not one of Gran Canaria's sixty airport buildings carries a
+            // height tag, so the inference is what gets drawn.
+            const small = buildingHeightM(building({ widthM: 20, depthM: 30 }));
+            const big = buildingHeightM(building({ widthM: 90, depthM: 130 }));
+            assert.ok(big > small, 'a bigger hangar is not taller');
+            assert.ok(small >= 6 && big <= 30, `hangar heights ${small}..${big}`);
+
+            // A tower is the one building taller than it is wide.
+            const tower = buildingHeightM(building({ kind: 'tower', widthM: 14, depthM: 16 }));
+            assert.ok(tower > 16, `a tower ${tower} m tall is shorter than its footprint`);
+
+            const terminal = buildingHeightM(
+                building({ kind: 'terminal', widthM: 76, depthM: 96 }));
+            assert.ok(terminal >= 8 && terminal <= 25, `terminal ${terminal} m`);
+        });
+
+        it('takes OSM at its word when it states a height', () => {
+            assert.equal(buildingHeightM(building({ heightM: 42 })), 42);
+            // ...but not a nonsense one.
+            assert.ok(buildingHeightM(building({ heightM: 0 })) > 0);
+        });
+
+        it('are left off the coarsest level, like the taxiways', () => {
+            const built = buildAirfieldModel(
+                gclp({ buildings: [building()] }), BASIS, MATERIALS, () => 0)!;
+            assert.ok(triangles(built.model.lod[1].volumes) > 0);
+            assert.equal(triangles(built.model.lod[2].volumes), 0);
         });
     });
 

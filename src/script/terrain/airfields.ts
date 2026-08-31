@@ -49,9 +49,18 @@ export interface AirfieldBuilding {
     kind: 'terminal' | 'hangar' | 'tower';
     lat: number;
     lon: number;
+    /** Bearing of the footprint's long axis. */
     headingDeg: number;
+    /** Across the long axis. */
     widthM: number;
+    /** Along it. */
     depthM: number;
+    /**
+     * Height from OSM's `height` or `building:levels`, absent where it has
+     * neither — which is almost always. The renderer infers one from the kind
+     * and the footprint instead.
+     */
+    heightM?: number;
 }
 
 /** The single plane every part of one airfield is cut to. */

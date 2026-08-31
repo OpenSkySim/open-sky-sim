@@ -85,3 +85,50 @@ describe('sloping pads', () => {
         assert.equal(sampleSurfacePadY(0, 1000, level), 100);
     });
 });
+
+describe('a building as a pad', () => {
+    // An airport building is a box, and a box is an oriented rectangle at a
+    // height — so it needs no triangle soup to be solid. A 40 x 60 m hangar
+    // 12 m tall, standing on ground at 20 m.
+    const HANGAR: SurfacePadCollider = {
+        centerX: 0, centerZ: 0, heading: 0,
+        halfLength: 30, halfWidth: 20,
+        surfaceY: 32, baseY: 20, feather: 0.5,
+    };
+
+    it('puts solid ground on the roof', () => {
+        assert.equal(sampleSurfacePadY(0, 0, HANGAR), 32);
+        assert.equal(sampleSurfacePadY(19, 29, HANGAR), 32);
+    });
+
+    it('is not there at all beside it', () => {
+        // -Infinity, so the terrain beside a hangar is the terrain.
+        assert.equal(sampleSurfacePadY(25, 0, HANGAR), -Infinity);
+        assert.equal(sampleSurfacePadY(0, 40, HANGAR), -Infinity);
+    });
+
+    it('is what makes it solid from the side', () => {
+        // Flying into the wall at 25 m — below the 32 m roof — the ground under
+        // the aircraft is suddenly the roof, so it is underground. That is the
+        // same test that decides every other crash into terrain.
+        const groundUnder = sampleSurfacePadY(0, 0, HANGAR);
+        assert.ok(25 < groundUnder, 'an aircraft at 25 m is not inside the hangar');
+    });
+
+    it('has a wall, not a ramp', () => {
+        // Half a metre of feather: the edge is soft enough not to be a
+        // discontinuity and hard enough that nothing taxis up the side.
+        const justInside = sampleSurfacePadY(20.2, 0, HANGAR);
+        assert.ok(justInside > 20 && justInside < 32,
+            `the edge blends to ${justInside}`);
+        assert.equal(sampleSurfacePadY(20.6, 0, HANGAR), -Infinity);
+    });
+
+    it('loses to nothing it does not cover', () => {
+        const runway = { ...HANGAR, centerX: 500, surfaceY: 21, baseY: 20 };
+        // Over the runway, the hangar contributes nothing.
+        assert.equal(sampleSurfacePadYMax(500, 0, [HANGAR, runway]), 21);
+        // Over the hangar, the hangar wins.
+        assert.equal(sampleSurfacePadYMax(0, 0, [HANGAR, runway]), 32);
+    });
+});

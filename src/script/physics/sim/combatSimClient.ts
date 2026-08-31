@@ -5,7 +5,7 @@ import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { SerializedArrestorCables, SerializedBarricade, SerializedWorld } from './serializedWorld';
 import { HeightTileUpdate, SerializedHeightField } from '../../terrain/heightMirror';
-import { AC_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
+import { AC_STRIDE, BARRICADE_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
     createSimSharedState,
     isSharedBusy,
@@ -57,6 +57,9 @@ export class CombatSimClient {
     private sharedForceVectors: Record<string, ForceVectorSample[]> = {};
 
     private projectiles: Float32Array<ArrayBufferLike> = new Float32Array(0);
+    private barricades: Float32Array<ArrayBufferLike> = new Float32Array(0);
+    private barricadeCount = 0;
+    private barricadeNodes = 0;
     private projectileCount = 0;
     private pendingHits: SimHitEvent[] = [];
     private maneuverLabels: Record<string, string> = EMPTY_MANEUVER_LABELS;
@@ -132,6 +135,18 @@ export class CombatSimClient {
 
     setArrestorCables(cables: SerializedArrestorCables[]): void {
         this.post({ type: 'setArrestorCables', cables });
+    }
+
+    /**
+     * The mesh the barricade webbing drapes over.
+     *
+     * Separate from {@link setCollision}, which is the coarse hitbox bullets and
+     * crashes use and wants to stay coarse. The webbing is *drawn* lying on the
+     * airframe, so it has to be solved against the airframe that is drawn —
+     * against the hitbox it reads as threaded through the wings.
+     */
+    setBarricadeDrape(id: string, drape: AircraftCollisionMesh | undefined): void {
+        this.post({ type: 'setBarricadeDrape', id, drape });
     }
 
     setBarricades(barricades: SerializedBarricade[]): void {
@@ -320,6 +335,9 @@ export class CombatSimClient {
         }
         this.projectiles = pull.projectiles;
         this.projectileCount = pull.projectileCount;
+        this.barricades = pull.barricades;
+        this.barricadeCount = pull.barricadeCount;
+        this.barricadeNodes = pull.barricadeNodes;
     }
 
     private flush(): void {
@@ -373,7 +391,33 @@ export class CombatSimClient {
         this.maneuverLabels = snapshot.maneuverLabels ?? EMPTY_MANEUVER_LABELS;
         this.projectiles = snapshot.projectiles;
         this.projectileCount = snapshot.projectileCount;
+        this.barricades = snapshot.barricades;
+        this.barricadeCount = snapshot.barricadeCount;
+        this.barricadeNodes = snapshot.barricadeNodes;
         this.applyHits(snapshot.hits);
+    }
+
+    /**
+     * Carrier-local particle positions of barricade `index`, or null.
+     *
+     * The webbing is solved in the sim, so this is the authoritative shape and
+     * the only one: the renderer places its ribbons straight onto these and
+     * does no physics of its own. Null until the first snapshot carrying a
+     * rigged net arrives, which is also what the entity draws nothing on.
+     */
+    getBarricadeNodes(index: number): Float32Array | null {
+        if (index < 0 || index >= this.barricadeCount || this.barricadeNodes <= 0) {
+            return null;
+        }
+        const from = index * BARRICADE_STRIDE;
+        const floats = this.barricadeNodes * 3;
+        if (this.barricades.length < from + floats) return null;
+        return this.barricades.subarray(from, from + floats);
+    }
+
+    /** Particles in each block returned by {@link getBarricadeNodes}. */
+    getBarricadeNodeCount(): number {
+        return this.barricadeNodes;
     }
 
     /** Flat projectile buffer from the latest snapshot (PROJ_STRIDE floats each). */

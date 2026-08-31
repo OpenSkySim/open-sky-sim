@@ -28,12 +28,12 @@ import { DebrisField } from '../scene/entities/debrisField';
 import { DamageSmokeField } from '../scene/entities/damageSmokeField';
 import { GroundTargetEntity } from '../scene/entities/groundTarget';
 import { ActivePlayArea, resolvePlayArea } from '../terrain/playArea';
-import { Airfield, airfieldsInArea } from '../terrain/airfields';
+import { Airfield, AirfieldBuilding, airfieldsInArea } from '../terrain/airfields';
 import {
     SceneRunway, airfieldChoices, headingForward, pickStartRunway, sceneRunwaysOf,
 } from './activeAirfield';
 import {
-    AIRFIELD_SURFACE_EPS_M, buildAirfieldModel,
+    AIRFIELD_SURFACE_EPS_M, buildAirfieldModel, buildingHeightM,
 } from '../scene/airfield/airfieldModel';
 import { ecefToEnu, geodeticToEcef, sceneFromEnu } from '../terrain/geodesy';
 import { AreaPicker } from '../osd/areaPicker';
@@ -61,6 +61,7 @@ import { PerfHudEntity } from '../scene/entities/overlay/perfHud';
 import { TelemetryGraph } from '../scene/entities/overlay/telemetryGraph';
 import { TelemetryGraphWindow } from '../scene/entities/overlay/telemetryGraphWindow';
 import { PlayerEntity, PlayerSpawnState } from '../scene/entities/player';
+import { AircraftCollisionMesh } from '../scene/entities/aircraftDef';
 import {
     bakeCollisionMeshFromModel,
     createCarrierMeshCollider,
@@ -191,6 +192,8 @@ const SURFACE_PAD_FEATHER_M = 15;
  * reaches well past the runway strips the bake flattened.
  */
 const AIRFIELD_GROUND_RADIUS_M = 4000;
+/** Edge softening on a building's roof pad. A wall is a step, not a ramp. */
+const BUILDING_PAD_FEATHER_M = 0.5;
 /** Hangar-ground pavement half extent: lib:pavement unit square × scale 200. */
 const HANGAR_GROUND_HALF_M = 100;
 /** Kuznetsov carrier origin — open water (matches {@link ARRESTOR_CARRIER_ORIGIN}). */
@@ -270,16 +273,28 @@ const PLAYER_CARRIER_HEADING = Math.PI;
 
 /**
  * Barricade spawn: in the groove, {@link CARRIER_GROOVE_DISTANCE_M} astern of
- * the ramp, hook stowed and the net already across the deck. Under a second of
- * flying, which is the whole point — a hook-failure arrival, with none of the
- * 2.5 km pattern in front of it.
+ * the ramp, hook stowed and the net already across the deck. Under two seconds
+ * of flying, which is the whole point — a hook-failure arrival, with none of
+ * the 2.5 km pattern in front of it.
  */
 const CARRIER_GROOVE_DISTANCE_M = 50;
-/** Aiming point on the deck: the wires, 30 m forward of the stern (see approachAids). */
-const CARRIER_TOUCHDOWN_FROM_STERN_M = 30;
+/**
+ * On-speed, not the 400 km/h the other airborne spawns transit at: from here
+ * there is no room to slow down, and the flight model wrecks any touchdown
+ * above its landing envelope (90 m/s / 324 km/h — see
+ * `F16_PROFILE.landingMaxSpeedMps`).
+ */
+const CARRIER_GROOVE_SPEED_KMH = 250;
+const CARRIER_GROOVE_SPEED_MPS = CARRIER_GROOVE_SPEED_KMH / 3.6;
+/**
+ * Aimed at the webbing rather than at the wires the ball is rigged for: with
+ * the hook up the wires are scenery, and the flatter path clears the ramp by
+ * ~5 m instead of the ~1 m that put the gear through the rounddown.
+ */
+const CARRIER_GROOVE_AIM_FROM_STERN_M = KUZ_HULL.maxZ - BARRICADE_LOCAL_Z;
 /** ~3° glideslope, the same one the ILS needles and the ball are drawn from. */
 const CARRIER_GROOVE_ALTITUDE_M = CARRIER_DECK_Y
-    + (CARRIER_GROOVE_DISTANCE_M + CARRIER_TOUCHDOWN_FROM_STERN_M) * ILS_GLIDESLOPE_TAN;
+    + (CARRIER_GROOVE_DISTANCE_M + CARRIER_GROOVE_AIM_FROM_STERN_M) * ILS_GLIDESLOPE_TAN;
 
 /** On-deck takeoff: 120 m aft of the bow tip, facing the ski jump (-Z). */
 const CARRIER_TAKEOFF_FROM_BOW_M = 120;
@@ -992,6 +1007,49 @@ export class Game {
         });
     }
 
+    /**
+     * Triangle soup of the aircraft as it is *drawn*, for the barricade webbing
+     * to lie on.
+     *
+     * The hitbox the sim already has is a separate, much coarser model — right
+     * for bullets and crashes, and wrong for this: webbing solved against it and
+     * drawn against the real airframe reads as threaded through the wings. Baked
+     * once per airframe and cached, since it is only the gross shape and does not
+     * move with the control surfaces.
+     */
+    private barricadeDrapeFor(def: FlyableAircraftDef): AircraftCollisionMesh | undefined {
+        const cached = this.barricadeDrapes.get(def.id);
+        if (cached) return cached;
+        // Only ever asked for once per airframe: a model still in flight comes
+        // back as an empty placeholder, so the bake has to happen in the load
+        // callback, on the model the callback hands back rather than the one
+        // returned here. Nothing is cached until then, or a spawn that beats
+        // the download would leave the airframe without a drape for good.
+        this.models.getModel(def.body, (_url, model) => {
+            const soup = bakeCollisionMeshFromModel(model);
+            if (!soup) return;
+            this.barricadeDrapes.set(def.id, soup);
+            for (const simId of this.barricadeDrapeUsers.get(def.id) ?? []) {
+                this.combatSim.setBarricadeDrape(simId, soup);
+            }
+        });
+        return this.barricadeDrapes.get(def.id);
+    }
+
+    private readonly barricadeDrapes = new Map<string, AircraftCollisionMesh>();
+    /** Which sims are flying each airframe, so a late bake can reach them. */
+    private readonly barricadeDrapeUsers = new Map<string, Set<string>>();
+
+    /** Hand the sim both the hitbox and the drawn shape for a given airframe. */
+    private pushAircraftMeshes(simId: string, def: FlyableAircraftDef): void {
+        this.combatSim.setCollision(simId, def.collisionMesh);
+        for (const users of this.barricadeDrapeUsers.values()) users.delete(simId);
+        let users = this.barricadeDrapeUsers.get(def.id);
+        if (!users) this.barricadeDrapeUsers.set(def.id, users = new Set());
+        users.add(simId);
+        this.combatSim.setBarricadeDrape(simId, this.barricadeDrapeFor(def));
+    }
+
     /** Swap the player (and AI opponents) to the aircraft chosen in the spawn menu. */
     private applySelectedAircraft() {
         const def = this.selectedAircraftDef();
@@ -1001,15 +1059,15 @@ export class Game {
         this.currentDef = def;
         this.player.loadAircraft(def);
         this.configService.flightModels.getActive().setAircraft(flightConfigWithArrestorHook(def));
-        this.combatSim.setCollision(PLAYER_SIM_ID, def.collisionMesh);
+        this.pushAircraftMeshes(PLAYER_SIM_ID, def);
         // Same airframe for AI — only the control channel differs.
         for (let i = 0; i < this.aiOpponents.length; i++) {
             this.aiOpponents[i].loadAircraft(def);
-            this.combatSim.setCollision(this.aiOpponents[i].simId, def.collisionMesh);
+            this.pushAircraftMeshes(this.aiOpponents[i].simId, def);
         }
         if (this.wingman) {
             this.wingman.loadAircraft(def);
-            this.combatSim.setCollision(this.wingman.simId, def.collisionMesh);
+            this.pushAircraftMeshes(this.wingman.simId, def);
         }
     }
 
@@ -1394,6 +1452,15 @@ export class Game {
 
     /** True when the airfield the furniture stands on has aprons of its own. */
     private homeHasRealAprons = false;
+    /**
+     * The airport buildings, as cylinders for the AI to steer around.
+     *
+     * Obstacles only: they are not collision meshes. A ground-height query
+     * walks every scenery soup, and two hundred and sixty boxes in that loop
+     * would be paid for on every contact test of every frame — for buildings
+     * nothing on the ground ever taxis into.
+     */
+    private osmBuildings: Array<{ x: number; z: number; radius: number; height: number }> = [];
 
     /** Where the player starts and which way they face. */
     private get spawnFrame() {
@@ -1663,18 +1730,22 @@ export class Game {
     }
 
     /**
-     * Short final, already on the glidepath.
+     * Short final: on speed and already on the glidepath.
      *
-     * The 2.5 km spawn starts level and lets the pilot fly the ball down. From
-     * half a second out there is no time for that, so the velocity carries the
-     * sink rate that holds 3° relative to the deck. Sink is scaled by the
-     * closure on the ship, not by groundspeed: the glidepath is drawn on a deck
-     * that is itself moving away.
+     * The 2.5 km spawn starts level and fast and lets the pilot fly the ball
+     * down. From a second out there is no time for that, so this one arrives
+     * trimmed the way the arrival ends — approach speed, and a velocity
+     * carrying the sink that holds 3° relative to the deck. Sink is scaled by
+     * the closure on the ship, not by groundspeed: the glidepath is drawn on a
+     * deck that is itself moving away.
      */
     private carrierBarricadeSpawn(): PlayerSpawnState {
-        const spawn = this.carrierApproachSpawn();
-        spawn.velocity!.y = -APPROACH_SPEED_MPS * ILS_GLIDESLOPE_TAN;
-        return spawn;
+        const speed = CARRIER_SPEED_MPS + CARRIER_GROOVE_SPEED_MPS;
+        const velocity = FORWARD.clone()
+            .applyAxisAngle(UP, PLAYER_CARRIER_HEADING)
+            .multiplyScalar(speed);
+        velocity.y = -CARRIER_GROOVE_SPEED_MPS * ILS_GLIDESLOPE_TAN;
+        return { velocity, throttle: 0.3, airborne: true };
     }
 
     /** Approach airspeed in world frame (ship speed + relative groove speed). */
@@ -1909,6 +1980,7 @@ export class Game {
         this.combatSim.setBarricades([serializeBarricade(
             buildBarricadeField(
                 this.carrierPose(), BARRICADE_DECK_LOCAL_Y, deploy, this.barricadeRig(),
+                this.barricade.getRigGeneration(),
             ),
         )]);
         this.combatSim.setCarrierMeshOrigins(
@@ -2834,6 +2906,13 @@ export class Game {
             addObstacle(h4.x, h4.z, 45, 22);
             addObstacle(tw.x, tw.z, 25, 45);
         }
+        // Every airport building OSM knows about, so an AI turning final over
+        // a terminal knows it is there. A cylinder each: the pilot's avoidance
+        // asks for the nearest one within a horizon, and a box would buy
+        // nothing at the range that matters.
+        for (const b of this.osmBuildings) {
+            addObstacle(b.x, b.z, b.radius, b.height);
+        }
         // Scenario scenery: only where it was actually placed.
         if (this.playArea.isHome) {
             const ref = this.airbaseAt(TARGET_LOCAL.refinery.x, TARGET_LOCAL.refinery.z);
@@ -2879,7 +2958,7 @@ export class Game {
             this.sceneryMeshes,
             [buildBarricadeField(
                 this.carrierPose(), BARRICADE_DECK_LOCAL_Y, this.barricade.getDeploy(),
-                this.barricadeRig(),
+                this.barricadeRig(), this.barricade.getRigGeneration(),
             )],
         ));
         this.startHeightFieldMirror();
@@ -2897,6 +2976,9 @@ export class Game {
             spawn: this.playerSimSpawn(),
             enabled: true,
         });
+        // The drawn airframe, for the barricade webbing to lie on. Separate from
+        // the hitbox above, which stays coarse for bullets and crashes.
+        this.pushAircraftMeshes(PLAYER_SIM_ID, this.currentDef);
         this.player.setCombatSimClient(this.combatSim);
         this.player.setHasGun(true);
         this.player.setGroundHeightAt((x, z) => this.drawnGroundHeightAt(x, z));
@@ -3401,6 +3483,12 @@ export class Game {
         for (const runway of this.sceneRunways) {
             this.addRunwayPad(runway);
         }
+        this.osmBuildings = [];
+        for (const airfield of here) {
+            for (const b of airfield.buildings) {
+                this.addBuildingCollider(b);
+            }
+        }
         const active = this.activeRunway;
         console.log(`airfields: ${here.length} in "${this.playArea.area.name}", `
             + `${this.sceneRunways.length} runways`
@@ -3433,6 +3521,70 @@ export class Game {
             this.activeRunway = picked;
         }
     }
+
+    /**
+     * One airport building: solid ground on its roof, and an obstacle round it.
+     *
+     * A box is an oriented rectangle at a height, which is exactly what a
+     * surface pad already is - so a building needs no triangle soup at all.
+     * That matters: a ground query walks every collider on every contact test
+     * of every frame, and two hundred boxes of soup in that loop would be paid
+     * for continuously, where two hundred analytic rectangles are a few
+     * multiply-adds each.
+     *
+     * Being a *top* surface is what makes it solid from the side too. Fly into
+     * a hangar below roof height and the ground under you is suddenly the
+     * roof, so you are underground - which is the same test that decides every
+     * other crash into terrain.
+     */
+    private addBuildingCollider(b: AirfieldBuilding): void {
+        const toWorld = (lat: number, lon: number) => sceneFromEnu(
+            ecefToEnu(this.planetTerrain.basis, geodeticToEcef(lat, lon, 0)));
+        const perDegLat = 110540;
+        const perDegLon = Math.max(1, 111320 * Math.cos(b.lat * Math.PI / 180));
+        const r = b.headingDeg * Math.PI / 180;
+        // Along the footprint's long axis, and across it.
+        const at = (along: number, across: number) => toWorld(
+            b.lat + (along * Math.cos(r) - across * Math.sin(r)) / perDegLat,
+            b.lon + (along * Math.sin(r) + across * Math.cos(r)) / perDegLon,
+        );
+        const centre = at(0, 0);
+        const halfDepth = b.depthM / 2;
+        const halfWidth = b.widthM / 2;
+        const corners = [
+            at(-halfDepth, -halfWidth), at(-halfDepth, halfWidth),
+            at(halfDepth, halfWidth), at(halfDepth, -halfWidth),
+        ];
+        // The lowest corner, so a building on a slope is not floating - the
+        // same rule the drawn box uses for its base.
+        let baseY = Infinity;
+        for (const c of corners) {
+            baseY = Math.min(baseY, this.planetTerrain.heightAtWorld(c.x, c.z));
+        }
+        if (!Number.isFinite(baseY)) {
+            return;
+        }
+        const height = buildingHeightM(b);
+        const ahead = at(halfDepth, 0);
+        this.surfacePads.push({
+            centerX: centre.x,
+            centerZ: centre.z,
+            heading: Math.atan2(ahead.x - centre.x, ahead.z - centre.z),
+            halfLength: halfDepth,
+            halfWidth,
+            surfaceY: baseY + height,
+            baseY,
+            // A wall is a step, not a ramp. Just enough that the edge is not a
+            // mathematical discontinuity for the gear springs to land on.
+            feather: BUILDING_PAD_FEATHER_M,
+        });
+        this.osmBuildings.push({
+            x: centre.x, z: centre.z,
+            radius: Math.hypot(b.widthM, b.depthM) / 2,
+            height,
+        });
+    }
+
 
     /**
      * Solid, sloping ground over one runway's pavement.
@@ -3633,10 +3785,11 @@ export class Game {
         const barricade = new BarricadeEntity(
             this.materials,
             () => this.carrierPose(),
-            () => this.player,
             () => this.barricade.getDeploy(),
+            // The webbing is solved in the sim worker; this is the shape it
+            // published, and the only one anything draws.
+            () => this.combatSim.getBarricadeNodes(0),
             (x, z) => this.groundHeightAt(x, z),
-            () => this.currentDef?.collisionMesh,
             () => this.barricadeRig(),
         );
         scene.add(barricade);

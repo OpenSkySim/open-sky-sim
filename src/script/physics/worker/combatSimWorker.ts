@@ -4,6 +4,7 @@ import { Faction } from '../../weapons/combatant';
 import { SimToWorkerMessage } from '../sim/simTypes';
 import {
     aircraftBank,
+    barricadeBank,
     projectileBank,
     publishSharedBanks,
     sharedBackBank,
@@ -105,6 +106,9 @@ function handleMessage(data: SimToWorkerMessage): void {
         case 'setCollision':
             sim.setCollision(data.id, data.collision);
             break;
+        case 'setBarricadeDrape':
+            sim.setBarricadeDrape(data.id, data.drape);
+            break;
         case 'setPosition':
             sim.setPosition(data.id, v.fromArray(data.position));
             break;
@@ -158,8 +162,12 @@ function handleMessage(data: SimToWorkerMessage): void {
                 const snapshot = sim.encodeSnapshotInto(
                     aircraftBank(shared, back),
                     projectileBank(shared, back),
+                    barricadeBank(shared, back),
                 );
-                const seq = publishSharedBanks(shared, snapshot.ids.length, snapshot.projectileCount);
+                const seq = publishSharedBanks(
+                    shared, snapshot.ids.length, snapshot.projectileCount,
+                    snapshot.barricadeCount, snapshot.barricadeNodes,
+                );
                 self.postMessage({
                     type: 'state',
                     shared: true,
@@ -174,7 +182,13 @@ function handleMessage(data: SimToWorkerMessage): void {
                 const snapshot = sim.encodeSnapshot();
                 self.postMessage(
                     { type: 'state', shared: false, ...snapshot, workerStepMs },
-                    { transfer: [snapshot.aircraft.buffer, snapshot.projectiles.buffer] as Transferable[] });
+                    {
+                        transfer: [
+                            snapshot.aircraft.buffer,
+                            snapshot.projectiles.buffer,
+                            snapshot.barricades.buffer,
+                        ] as Transferable[],
+                    });
             }
             break;
         }

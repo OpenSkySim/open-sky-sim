@@ -1,71 +1,55 @@
 /**
- * Carrier emergency barricade, rendered the way a rigged one actually looks.
+ * Carrier emergency barricade, drawn from the webbing the sim actually solved.
  *
- * Front elevation — two dark load-strap cables between the stanchion heads,
- * with the webbing panel of pale nylon engaging loops hung across the middle
- * and a bare run of cable out to each stanchion:
+ * Front elevation — two dark load belts between the stanchion heads, with the
+ * panel of pale nylon stripes hung across the middle and a bare run of cable out
+ * to each stanchion:
  *
- *   stanchion ┬━━━━━━━━━ upper load strap ━━━━━━━━━┬ stanchion
+ *   stanchion ┬━━━━━━━━━━ upper load belt ━━━━━━━━━━┬ stanchion
  *             ┃  ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) )   ┃
- *             ┃   24 engaging loops over 100 ft    ┃   ~20 ft
+ *             ┃    24 stripes over 100 ft          ┃   ~20 ft
  *             ┃  ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) )   ┃
- *             ┴━━━━━━━━━ lower load strap ━━━━━━━━━┴
+ *             ┴━━━━━━━━━━ lower load belt ━━━━━━━━━┴
  *             │←5-10ft→│←──── 100 ft ────→│←5-10ft→│
  *
- * Seen from the side each loop is an arc, not a bar: the webbing hangs slack
- * and bellies aft toward the groove, which is why a rigged barricade reads as
- * a curtain of ribs. {@link barricadeLoopCurve} owns that drape.
+ * This entity owns no geometry of its own beyond the stanchions. Every belt,
+ * stripe and wire is a polyline through particles solved in the sim worker by
+ * {@link ./barricadeSolver} and carried across in the snapshot, so the net that
+ * is drawn is the net that is simulated — not a second model of it fitted to an
+ * aircraft pose that would already be a frame stale. What is left here is the
+ * ribbon work: turning those polylines into bands wide enough to read from the
+ * cockpit, and the near-ribbon / far-line LOD split the arrestor pendants use.
  *
- * The stanchions are hinged into the deck and lie folded aft when stowed;
- * raising swings them through 90° and the webbing comes up with them, so the
- * deploy fraction drives one rotation and everything else follows from it.
- *
- * When an airframe is in the net the webbing is dragged downfield, coning back
- * to the stanchions and pulling the loops' drape flat.
- *
- * Draws in EntityFX with the same near-ribbon / far-line LOD split the arrestor
- * pendants use, so the webbing stays readable when it falls below a pixel.
+ * The stanchions are hinged into the deck and lie folded aft when stowed, so the
+ * deploy fraction drives one rotation and the webbing follows because it is
+ * laced to fittings that moved.
  */
 import * as THREE from 'three';
 import { Palette, PaletteCategory } from '../../config/palettes/palette';
-import { SimProxyFlightModel } from '../../physics/model/simProxyFlightModel';
 import { CanvasPainter } from '../../render/screen/canvasPainter';
 import { attachToRenderList } from '../../render/renderList';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/materials';
 import { updateUniforms } from '../utils';
 import { Entity } from '../entity';
 import { Scene, SceneLayers } from '../scene';
-import { PlayerEntity } from './player';
-import { AircraftCollisionMesh } from './aircraftDef';
-import { ARRESTOR_DECK_MID_X, ArrestorCarrierPose } from './arrestorCables';
+import { ArrestorCarrierPose } from './arrestorCables';
 import {
-    BarricadeEngagement,
     BarricadeRig,
-    BarricadeWebNode,
     BARRICADE_DECK_LOCAL_Y,
     BARRICADE_HEIGHT_M,
     BARRICADE_LOCAL_Z,
-    BarricadeWrapProfile,
-    BARRICADE_DECK_LOCAL_Y as DECK_Y,
-    barricadeEngagementPullAt,
-    barricadeLoopCurve,
-    barricadeLoopStations,
     barricadeRig,
-    barricadeSeatOnDeck,
-    barricadeWireCurve,
-    BARRICADE_WIRE_SAMPLES,
-    computeBarricadeWeb,
-    createBarricadeWrapProfile,
-    foldCollisionHullIntoWrap,
-    resetBarricadeWrapProfile,
 } from './barricade';
+import {
+    BarricadeLayout,
+    BarricadeWire,
+    barricadeSolverSpecForRig,
+} from './barricadeSolver';
 
-/** Half-width of a load strap ribbon (m) — it is an arresting-gear cable, so thin. */
-const LOAD_STRAP_HALF_W_M = 0.07;
-/** Half-width of an engaging loop's webbing band (m) — a wide flat nylon strap. */
-const LOOP_HALF_W_M = 0.16;
-/** Points sampled along each loop's drape (ends included). */
-const LOOP_SAMPLES = 9;
+/** Half-width of a load belt ribbon (m) — it is arresting-gear cable, so thin. */
+const LOAD_BELT_HALF_W_M = 0.07;
+/** Half-width of a stripe's webbing band (m) — a wide flat nylon strap. */
+const STRIPE_HALF_W_M = 0.16;
 /** Stanchion cross-section (m). */
 const STANCHION_THICKNESS_M = 0.34;
 /** Camera distance (m) at which ribbons switch to 1px lines. */
@@ -74,12 +58,6 @@ const LOD_LINE_M = 350;
 const LOD_HYSTERESIS_M = 25;
 /** Below this deploy fraction nothing is drawn — the gear is flush in the deck. */
 const VISIBLE_DEPLOY_EPS = 1e-3;
-/**
- * Cap on collision-hull vertices folded into the wrap profile each frame.
- * A fighter's hull is well under this; the stride only bites on heavy meshes,
- * and the profile is a 0.75 m grid, so dropping a few vertices costs nothing.
- */
-const WRAP_POINT_BUDGET = 3000;
 
 export class BarricadeEntity implements Entity {
 
@@ -89,57 +67,64 @@ export class BarricadeEntity implements Entity {
     private readonly root = new THREE.Object3D();
     /** Stanchion hinge pivots (index 0 = −X side, 1 = +X side). */
     private readonly stanchions: THREE.Object3D[] = [];
-    /** Load-strap ribbon segments, upper then lower, node i → i+1. */
+    /** Belt ribbon segments, upper then lower. */
     private readonly upperSegs: THREE.Mesh[] = [];
     private readonly lowerSegs: THREE.Mesh[] = [];
-    /** One draped webbing band per engaging loop. */
-    private readonly loopMeshes: THREE.Mesh[] = [];
-    /** Far LOD: every strap as one 1px segment pair. */
+    /** Bare wire ribbon segments, four runs' worth end to end. */
+    private readonly wireSegs: THREE.Mesh[] = [];
+    /** One draped webbing band per stripe. */
+    private readonly stripeMeshes: THREE.Mesh[] = [];
+    /** Far LOD: every run as 1px segments. */
     private readonly webLines: THREE.LineSegments;
     private readonly webLinePos: THREE.BufferAttribute;
 
-    private nodes: BarricadeWebNode[] = [];
+    /**
+     * Where each particle sits in the snapshot block.
+     *
+     * Rebuilt whenever the deck probe refits the span, from the same spec the
+     * sim laces its rig with — neither side is told the layout, both work it
+     * out, so they cannot disagree about which float is which.
+     */
+    private layout: BarricadeLayout;
+    private layoutRig: BarricadeRig;
 
     private readonly sampleWorld = new THREE.Vector3();
     private readonly lodAnchorLocal = new THREE.Vector3();
     private readonly lodAnchorWorld = new THREE.Vector3();
-    private readonly acLocal = new THREE.Vector3();
-    private readonly loopScratch: { x: number; y: number; z: number }[] = [];
-    private readonly beltTangent = { x: 1, z: 0 };
-    private readonly strapPath: { x: number; y: number; z: number }[] = [];
-    /** Airframe front hull in carrier-local space, rebuilt while engaged. */
-    private readonly wrap: BarricadeWrapProfile = createBarricadeWrapProfile(DECK_Y);
-    /** body → carrier-local, for folding collision vertices into {@link wrap}. */
-    private readonly bodyToCarrier = new THREE.Matrix4();
-    private readonly carrierToWorld = new THREE.Matrix4();
-    private readonly wrapVert = new THREE.Vector3();
-    private readonly unitScale = new THREE.Vector3(1, 1, 1);
-    private readonly invQuat = new THREE.Quaternion();
+    private readonly tangent = { x: 1, z: 0 };
 
-    /** true = far LOD (lines), false = near LOD (mesh ribbons). */
+    /**
+     * Far-LOD state, per camera.
+     *
+     * Not one flag for the entity: the scene is walked once per render layer,
+     * each with its own camera, so a single flag is decided by whichever layer
+     * happens to be built last. One distant secondary camera then pins the
+     * webbing to 1-pixel lines no matter how close the view you are actually
+     * looking through — which is what it did, and why the net drew as a few
+     * threads instead of a curtain of straps.
+     */
+    private readonly lineLodByCamera = new WeakMap<THREE.Camera, boolean>();
     private useLineLod = false;
-    /** Deploy fraction the geometry was last built for. */
-    private builtDeploy = Number.NaN;
-    /** Engagement stretch the geometry was last built for. */
-    private builtStretch = Number.NaN;
-    private builtAcLateral = Number.NaN;
 
     constructor(
         materials: SceneMaterialManager,
         private readonly getCarrierPose: () => ArrestorCarrierPose,
-        private readonly getPlayer: () => PlayerEntity,
         private readonly getDeploy: () => number,
+        /**
+         * Carrier-local particle positions of the rigged net, three floats
+         * each, or null before the sim has published one.
+         */
+        private readonly getNodes: () => Float32Array | null,
         private readonly groundHeightAt: (x: number, z: number) => number = () => BARRICADE_DECK_LOCAL_Y,
-        private readonly getCollisionMesh: () => AircraftCollisionMesh | undefined = () => undefined,
         /**
          * Rig fitted to the deck under the barricade. Everything — stanchions,
-         * load straps, loops — is laid out from this, so a span pulled in to
-         * clear the deck edge stays self-consistent.
+         * belts, stripes — is laid out from this, so a span pulled in to clear
+         * the deck edge stays self-consistent.
          */
         private readonly getRig: () => BarricadeRig = () => barricadeRig(),
     ) {
-        // Pale nylon webbing — the loops photograph off-white against the deck.
-        const loopMat = materials.build({
+        // Pale nylon webbing — the stripes photograph off-white against the deck.
+        const stripeMat = materials.build({
             type: SceneMaterialPrimitiveType.MESH,
             category: PaletteCategory.SCENERY_TREE_SHADOW,
             shaded: false,
@@ -147,8 +132,8 @@ export class BarricadeEntity implements Entity {
             colorDither: false,
             rawColor: '#e0dccb',
         }) as THREE.ShaderMaterial;
-        // Load straps are arresting-gear cable: dark, and much thinner than the webbing.
-        const strapMat = materials.build({
+        // Belts and wires are arresting-gear cable: dark, and much thinner.
+        const cableMat = materials.build({
             type: SceneMaterialPrimitiveType.MESH,
             category: PaletteCategory.SCENERY_TREE_SHADOW,
             shaded: false,
@@ -160,8 +145,8 @@ export class BarricadeEntity implements Entity {
         // so which way they wind depends on which way the webbing runs — and
         // half of them wound away from the groove, leaving the net invisible to
         // a pilot flying into it.
-        loopMat.side = THREE.DoubleSide;
-        strapMat.side = THREE.DoubleSide;
+        stripeMat.side = THREE.DoubleSide;
+        cableMat.side = THREE.DoubleSide;
         const stanchionMat = materials.build({
             type: SceneMaterialPrimitiveType.MESH,
             category: PaletteCategory.SCENERY_TREE_SHADOW,
@@ -178,29 +163,36 @@ export class BarricadeEntity implements Entity {
         });
 
         const rig = barricadeRig();
-        this.nodes = rig.nodeX.map(x => ({ x, topY: 0, topZ: 0, botY: 0, botZ: 0 }));
+        this.layoutRig = rig;
+        this.layout = this.layoutFor(rig);
+        const { stripes, stripeNodes, wireNodes } = this.layout.spec;
 
-        // Strap chain: a subdivided wire run out to each stanchion, plus one
-        // segment between neighbouring loops. The wire runs need the extra
-        // points so they can hang rather than being drawn dead straight.
-        const strapSegs = 2 * (BARRICADE_WIRE_SAMPLES - 1) + (rig.loopX.length - 1);
-        for (let i = 0; i < strapSegs; i++) {
-            const upper = this.makeQuad(strapMat);
-            const lower = this.makeQuad(strapMat);
+        // The mesh budget is fixed: refitting the span moves the stations, it
+        // never changes how many of anything there are.
+        for (let i = 0; i + 1 < this.layout.beltNodes; i++) {
+            const upper = this.makeQuad(cableMat);
+            const lower = this.makeQuad(cableMat);
             this.upperSegs.push(upper);
             this.lowerSegs.push(lower);
             this.root.add(upper);
             this.root.add(lower);
         }
-        // Loops hang from the interior nodes only — the end spans are bare cable.
-        for (let i = 1; i + 1 < this.nodes.length; i++) {
-            const loop = this.makeStrip(loopMat, LOOP_SAMPLES);
-            this.loopMeshes.push(loop);
-            this.root.add(loop);
+        for (let i = 0; i < 4 * (wireNodes + 1); i++) {
+            const seg = this.makeQuad(cableMat);
+            this.wireSegs.push(seg);
+            this.root.add(seg);
+        }
+        for (let i = 0; i < stripes; i++) {
+            const strip = this.makeStrip(stripeMat, stripeNodes);
+            this.stripeMeshes.push(strip);
+            this.root.add(strip);
         }
 
-        // Far LOD draws each loop as a single chord, so one segment apiece.
-        const segCount = this.upperSegs.length + this.lowerSegs.length + this.loopMeshes.length;
+        // Far LOD: the belts and wires keep their shape, and each stripe
+        // collapses to the chord between its fittings — the drape is well under
+        // a pixel by the time this cuts in.
+        const segCount = this.upperSegs.length + this.lowerSegs.length
+            + this.wireSegs.length + this.stripeMeshes.length;
         const lineGeom = new THREE.BufferGeometry();
         this.webLinePos = new THREE.BufferAttribute(new Float32Array(segCount * 2 * 3), 3);
         lineGeom.setAttribute('position', this.webLinePos);
@@ -232,7 +224,13 @@ export class BarricadeEntity implements Entity {
         this.setVisible(false);
     }
 
-    /** Ribbon strip of `samples` cross-sections (2 verts each), for a draped loop. */
+    private layoutFor(rig: BarricadeRig): BarricadeLayout {
+        return new BarricadeLayout(
+            barricadeSolverSpecForRig(rig.leftX, rig.rightX, rig.deckY),
+        );
+    }
+
+    /** Ribbon strip of `samples` cross-sections (2 verts each), for a draped stripe. */
     private makeStrip(mat: THREE.Material, samples: number): THREE.Mesh {
         const geom = new THREE.BufferGeometry();
         geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(samples * 2 * 3), 3));
@@ -269,7 +267,7 @@ export class BarricadeEntity implements Entity {
     }
 
     /** Sync root TRS from the live carrier pose. */
-    private syncRootPose(): ArrestorCarrierPose {
+    private syncRootPose(): void {
         const pose = this.getCarrierPose();
         this.root.position.copy(pose.position as THREE.Vector3);
         if (pose.quaternion) {
@@ -277,7 +275,6 @@ export class BarricadeEntity implements Entity {
         } else {
             this.root.quaternion.identity();
         }
-        return pose;
     }
 
     /**
@@ -298,144 +295,175 @@ export class BarricadeEntity implements Entity {
         return sampled - this.root.position.y;
     }
 
-    /**
-     * Deck height to lay webbing on: the raw probe, seated onto the flight deck
-     * the rig was fitted to. Stops a node whose probe lands on the island — or
-     * off the edge in open water — from dragging the net with it.
-     */
-    private webDeckLocalY(localX: number, rig: BarricadeRig): number {
-        return barricadeSeatOnDeck(rig, this.deckLocalY(localX, BARRICADE_LOCAL_Z));
+    private setVisible(visible: boolean): void {
+        this.root.visible = visible;
     }
 
-    private setVisible(v: boolean): void {
-        this.root.visible = v;
-    }
-
-    /**
-     * Downfield pull of an engaged airframe, in carrier-local metres past the
-     * webbing plane, plus its lateral offset. Returns null when nothing is in the net.
-     */
-    private engagement(pose: ArrestorCarrierPose): BarricadeEngagement | null {
-        const player = this.getPlayer();
-        const fm = player.getFlightModel();
-        if (!(fm instanceof SimProxyFlightModel) || !fm.getBarricadeEngaged()) {
-            return null;
-        }
-        player.updateDisplayTransform();
-        this.acLocal.copy(player.getDisplayPosition()).sub(pose.position as THREE.Vector3);
-        if (pose.quaternion) {
-            this.invQuat.copy(pose.quaternion).invert();
-            this.acLocal.applyQuaternion(this.invQuat);
-        }
-        // Landing runs toward −Z, so past the plane means a smaller local Z.
-        return {
-            stretch: Math.max(0, BARRICADE_LOCAL_Z - this.acLocal.z),
-            lateral: this.acLocal.x,
-            profile: this.buildWrapProfile(pose, player),
-        };
-    }
-
-    /**
-     * Fold the airframe's collision hull into the wrap profile, in carrier-local
-     * space. Returns null when the aircraft has no collision mesh, in which case
-     * the webbing falls back to coning toward its centreline.
-     */
-    private buildWrapProfile(
-        pose: ArrestorCarrierPose,
-        player: PlayerEntity,
-    ): BarricadeWrapProfile | null {
-        const mesh = this.getCollisionMesh();
-        if (!mesh || mesh.triangles.length < 9) return null;
-
-        resetBarricadeWrapProfile(this.wrap, this.webDeckLocalY(ARRESTOR_DECK_MID_X, this.getRig()));
-
-        // body → world → carrier-local, collapsed into one matrix.
-        this.bodyToCarrier.compose(
-            player.getDisplayPosition(),
-            player.getDisplayQuaternion(),
-            this.unitScale,
-        );
-        this.carrierToWorld.compose(
-            pose.position as THREE.Vector3,
-            pose.quaternion ?? this.invQuat.identity(),
-            this.unitScale,
-        );
-        this.bodyToCarrier.premultiply(this.carrierToWorld.invert());
-
-        foldCollisionHullIntoWrap(
-            this.wrap, mesh.triangles, this.bodyToCarrier, WRAP_POINT_BUDGET, this.wrapVert,
-        );
-        return this.wrap.touched ? this.wrap : null;
-    }
-
-    /** Recompute every node and strap; cheap, and skipped when nothing moved. */
+    /** Re-place every ribbon from the particles the sim last published. */
     private rebuild(): void {
-        const pose = this.syncRootPose();
+        this.syncRootPose();
         const deploy = Math.max(0, Math.min(1, this.getDeploy()));
-        if (deploy < VISIBLE_DEPLOY_EPS) {
+        const nodes = this.getNodes();
+        if (deploy < VISIBLE_DEPLOY_EPS || !nodes) {
             this.setVisible(false);
-            this.builtDeploy = deploy;
             return;
         }
         this.setVisible(true);
 
-        const eng = this.engagement(pose);
-        const stretch = eng?.stretch ?? 0;
-        const acLateral = eng?.lateral ?? 0;
-        if (
-            !eng &&
-            deploy === this.builtDeploy &&
-            stretch === this.builtStretch &&
-            acLateral === this.builtAcLateral
-        ) {
+        const rig = this.getRig();
+        if (rig !== this.layoutRig) {
+            this.layoutRig = rig;
+            this.layout = this.layoutFor(rig);
+        }
+        if (nodes.length < this.layout.count * 3) {
+            // The sim is rigging a net this entity is not laid out for; drawing
+            // it would read the wrong floats as positions.
+            this.setVisible(false);
             return;
         }
-        this.builtDeploy = deploy;
-        this.builtStretch = stretch;
-        this.builtAcLateral = acLateral;
 
-        // Same hinge rotation the shared web math uses, applied to the visible
-        // arms, with each foot re-seated on the deck the rig was fitted to.
-        const rig = this.getRig();
+        // The stanchions are the one thing not solved: they are structure, and
+        // the hydraulics put them exactly where the deploy fraction says.
         const feet = [rig.leftX, rig.rightX];
         for (let i = 0; i < this.stanchions.length; i++) {
             const pivot = this.stanchions[i];
             pivot.position.x = feet[i];
-            pivot.position.y = this.webDeckLocalY(feet[i], rig);
+            pivot.position.y = this.deckLocalY(feet[i], BARRICADE_LOCAL_Z);
             pivot.rotation.x = -deploy * Math.PI * 0.5;
         }
         this.lodAnchorLocal.x = rig.midX;
-        this.nodes = computeBarricadeWeb(deploy, x => this.webDeckLocalY(x, rig), eng, rig);
 
         let line = 0;
-        this.buildStrapPath(true);
-        this.placeStrapChain(this.upperSegs, this.strapPath);
-        line = this.pushPolyline(line, this.strapPath);
-        this.buildStrapPath(false);
-        this.placeStrapChain(this.lowerSegs, this.strapPath);
-        line = this.pushPolyline(line, this.strapPath);
-        // Loops ride the load straps, so a fuselage parting the net moves them
-        // off their laced stations before anything is drawn.
-        const stations = barricadeLoopStations(this.nodes, eng?.profile ?? null);
-        for (let i = 0; i < this.loopMeshes.length; i++) {
-            const n = stations[i].node;
-            const pull = barricadeEngagementPullAt(n.x, eng, rig);
-            this.beltTangentAt(n.x, this.beltTangent);
-            this.placeLoop(
-                this.loopMeshes[i], n, deploy, pull, eng?.profile ?? null,
-                this.beltTangent.x, this.beltTangent.z,
-            );
-            // Far LOD: the drape is sub-pixel by then, so a straight chord will do.
-            line = this.pushLine(line, n.x, n.botY, n.botZ, n.x, n.topY, n.topZ);
-        }
+        line = this.placeBelt(nodes, true, this.upperSegs, line);
+        line = this.placeBelt(nodes, false, this.lowerSegs, line);
+        line = this.placeWires(nodes, line);
+        line = this.placeStripes(nodes, line);
         this.webLinePos.needsUpdate = true;
         this.webLines.geometry.computeBoundingSphere();
         this.applyLodVisibility();
     }
 
+    private nodeX(nodes: Float32Array, i: number): number {
+        return nodes[i * 3];
+    }
+
+    private nodeY(nodes: Float32Array, i: number): number {
+        return nodes[i * 3 + 1];
+    }
+
+    private nodeZ(nodes: Float32Array, i: number): number {
+        return nodes[i * 3 + 2];
+    }
+
+    private placeBelt(
+        nodes: Float32Array,
+        upper: boolean,
+        segs: readonly THREE.Mesh[],
+        lineAt: number,
+    ): number {
+        let line = lineAt;
+        for (let i = 0; i + 1 < this.layout.beltNodes; i++) {
+            const a = this.layout.beltNodeIndex(upper, i);
+            const b = this.layout.beltNodeIndex(upper, i + 1);
+            this.placeRibbon(
+                segs[i],
+                this.nodeX(nodes, a), this.nodeY(nodes, a), this.nodeZ(nodes, a),
+                this.nodeX(nodes, b), this.nodeY(nodes, b), this.nodeZ(nodes, b),
+                LOAD_BELT_HALF_W_M,
+            );
+            line = this.pushLine(
+                line,
+                this.nodeX(nodes, a), this.nodeY(nodes, a), this.nodeZ(nodes, a),
+                this.nodeX(nodes, b), this.nodeY(nodes, b), this.nodeZ(nodes, b),
+            );
+        }
+        return line;
+    }
+
+    private placeWires(nodes: Float32Array, lineAt: number): number {
+        let line = lineAt;
+        let seg = 0;
+        const per = this.layout.spec.wireNodes + 1;
+        for (let w = 0; w < 4; w++) {
+            for (let j = 0; j < per; j++) {
+                const a = this.layout.wireNodeIndex(w as BarricadeWire, j);
+                const b = this.layout.wireNodeIndex(w as BarricadeWire, j + 1);
+                this.placeRibbon(
+                    this.wireSegs[seg++],
+                    this.nodeX(nodes, a), this.nodeY(nodes, a), this.nodeZ(nodes, a),
+                    this.nodeX(nodes, b), this.nodeY(nodes, b), this.nodeZ(nodes, b),
+                    LOAD_BELT_HALF_W_M,
+                );
+                line = this.pushLine(
+                    line,
+                    this.nodeX(nodes, a), this.nodeY(nodes, a), this.nodeZ(nodes, a),
+                    this.nodeX(nodes, b), this.nodeY(nodes, b), this.nodeZ(nodes, b),
+                );
+            }
+        }
+        return line;
+    }
+
     /**
-     * Flat ribbon a → b, widened perpendicular to the strap *and* to the deck
-     * normal, so a vertical strap widens laterally and a horizontal one widens
+     * Lay each stripe's webbing band along the drape the solver gave it.
+     *
+     * The band is sewn onto the belt, so its width lies *along* the belt rather
+     * than across the deck: once an airframe has driven the middle of the net
+     * downfield the belts no longer run straight, and a band still widened along
+     * X sits skewed across the webbing it belongs to.
+     */
+    private placeStripes(nodes: Float32Array, lineAt: number): number {
+        let line = lineAt;
+        const samples = this.layout.spec.stripeNodes;
+        for (let s = 0; s < this.stripeMeshes.length; s++) {
+            this.beltTangentAt(nodes, s, this.tangent);
+            const hx = this.tangent.x * STRIPE_HALF_W_M;
+            const hz = this.tangent.z * STRIPE_HALF_W_M;
+            const mesh = this.stripeMeshes[s];
+            const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+            for (let j = 0; j < samples; j++) {
+                const p = this.layout.stripeNodeIndex(s, j);
+                const x = this.nodeX(nodes, p);
+                const y = this.nodeY(nodes, p);
+                const z = this.nodeZ(nodes, p);
+                pos.setXYZ(j * 2, x - hx, y, z - hz);
+                pos.setXYZ(j * 2 + 1, x + hx, y, z + hz);
+            }
+            pos.needsUpdate = true;
+            mesh.geometry.computeBoundingSphere();
+
+            const lo = this.layout.stripeNodeIndex(s, 0);
+            const hi = this.layout.stripeNodeIndex(s, samples - 1);
+            line = this.pushLine(
+                line,
+                this.nodeX(nodes, lo), this.nodeY(nodes, lo), this.nodeZ(nodes, lo),
+                this.nodeX(nodes, hi), this.nodeY(nodes, hi), this.nodeZ(nodes, hi),
+            );
+        }
+        return line;
+    }
+
+    /** Unit direction of the upper belt at a stripe's fitting, in the deck plane. */
+    private beltTangentAt(nodes: Float32Array, stripe: number, out: { x: number; z: number }): void {
+        const station = this.layout.stripeBeltNode(stripe);
+        const i = Math.max(1, Math.min(this.layout.beltNodes - 2, station));
+        const a = this.layout.beltNodeIndex(true, i - 1);
+        const b = this.layout.beltNodeIndex(true, i + 1);
+        const dx = this.nodeX(nodes, b) - this.nodeX(nodes, a);
+        const dz = this.nodeZ(nodes, b) - this.nodeZ(nodes, a);
+        const len = Math.hypot(dx, dz);
+        if (len < 1e-6) {
+            out.x = 1;
+            out.z = 0;
+            return;
+        }
+        out.x = dx / len;
+        out.z = dz / len;
+    }
+
+    /**
+     * Flat ribbon a → b, widened perpendicular to the run *and* to the deck
+     * normal, so a vertical run widens laterally and a horizontal one widens
      * across the deck. Both stay a readable band from the cockpit.
      */
     private placeRibbon(
@@ -453,7 +481,7 @@ export class BarricadeEntity implements Entity {
             return;
         }
         // Widen about whichever axis keeps the ribbon facing the landing lane:
-        // lateral straps get thickness in Z, vertical straps get it in X.
+        // lateral runs get thickness in Z, vertical runs get it in X.
         const horizontal = Math.hypot(dx, dz) >= Math.abs(dy);
         const hx = horizontal ? (-dz / len) * halfW : halfW;
         const hz = horizontal ? (dx / len) * halfW : 0;
@@ -465,109 +493,6 @@ export class BarricadeEntity implements Entity {
         pos.setXYZ(3, bx + hx, by, bz + hz);
         pos.needsUpdate = true;
         mesh.geometry.computeBoundingSphere();
-    }
-
-    /**
-     * Lay one engaging loop's webbing band along its drape. The band widens
-     * laterally, so head-on it is a strap of constant width and from the side
-     * the arc shows — which is how the loops read in the groove.
-     */
-    private placeLoop(
-        mesh: THREE.Mesh,
-        node: BarricadeWebNode,
-        deploy: number,
-        pull: number,
-        profile: BarricadeWrapProfile | null,
-        tangentX: number,
-        tangentZ: number,
-    ): void {
-        const pts = barricadeLoopCurve(node, deploy, LOOP_SAMPLES, pull, this.loopScratch, profile);
-        const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
-        // The band is sewn onto the load strap, so its width lies along the
-        // strap. Once an airframe drags the middle of the net downfield the
-        // straps no longer run straight across the deck, and a strip still
-        // widened along X sits skewed across the webbing it belongs to.
-        const hx = tangentX * LOOP_HALF_W_M;
-        const hz = tangentZ * LOOP_HALF_W_M;
-        for (let i = 0; i < pts.length; i++) {
-            const p = pts[i];
-            pos.setXYZ(i * 2, p.x - hx, p.y, p.z - hz);
-            pos.setXYZ(i * 2 + 1, p.x + hx, p.y, p.z + hz);
-        }
-        pos.needsUpdate = true;
-        mesh.geometry.computeBoundingSphere();
-    }
-
-    /**
-     * Unit direction of the load straps at a lateral station, in the deck plane.
-     *
-     * Both straps share one downfield offset, so they run parallel and a single
-     * tangent orients every strip hung between them.
-     */
-    private beltTangentAt(x: number, out: { x: number; z: number }): void {
-        const n = this.nodes;
-        let i = 1;
-        while (i < n.length - 1 && n[i].x < x) i++;
-        const a = n[i - 1];
-        const b = n[i];
-        const dx = b.x - a.x;
-        const dz = b.botZ - a.botZ;
-        const len = Math.hypot(dx, dz);
-        if (len < 1e-6) {
-            out.x = 1;
-            out.z = 0;
-            return;
-        }
-        out.x = dx / len;
-        out.z = dz / len;
-    }
-
-    /**
-     * Whole run of one load strap: sagging wire out from the stanchion, the
-     * webbing panel through every loop, then the wire back out to the far
-     * stanchion.
-     */
-    private buildStrapPath(upper: boolean): void {
-        const n = this.nodes;
-        const at = (i: number) => ({
-            x: n[i].x,
-            y: upper ? n[i].topY : n[i].botY,
-            z: upper ? n[i].topZ : n[i].botZ,
-        });
-        const path = this.strapPath;
-        path.length = 0;
-        const left = barricadeWireCurve(at(0), at(1), BARRICADE_LOCAL_Z - n[1].botZ);
-        for (const p of left) path.push(p);
-        for (let i = 2; i < n.length - 1; i++) path.push(at(i));
-        const right = barricadeWireCurve(
-            at(n.length - 1), at(n.length - 2), BARRICADE_LOCAL_Z - n[n.length - 2].botZ,
-        );
-        // Authored stanchion-outwards, so it reverses onto the end of the run.
-        for (let i = right.length - 2; i >= 0; i--) path.push(right[i]);
-    }
-
-    private placeStrapChain(
-        segs: readonly THREE.Mesh[],
-        path: readonly { x: number; y: number; z: number }[],
-    ): void {
-        for (let i = 0; i < segs.length; i++) {
-            if (i + 1 >= path.length) {
-                segs[i].visible = false;
-                continue;
-            }
-            const a = path[i];
-            const b = path[i + 1];
-            this.placeRibbon(segs[i], a.x, a.y, a.z, b.x, b.y, b.z, LOAD_STRAP_HALF_W_M);
-        }
-    }
-
-    private pushPolyline(i: number, path: readonly { x: number; y: number; z: number }[]): number {
-        let at = i;
-        for (let k = 1; k < path.length; k++) {
-            at = this.pushLine(at, path[k - 1].x, path[k - 1].y, path[k - 1].z,
-                path[k].x, path[k].y, path[k].z);
-        }
-        return at;
     }
 
     private pushLine(
@@ -585,11 +510,14 @@ export class BarricadeEntity implements Entity {
             .applyQuaternion(this.root.quaternion)
             .add(this.root.position);
         const dist = camera.position.distanceTo(this.lodAnchorWorld);
-        if (this.useLineLod) {
-            if (dist < LOD_LINE_M - LOD_HYSTERESIS_M) this.useLineLod = false;
+        let far = this.lineLodByCamera.get(camera) ?? false;
+        if (far) {
+            if (dist < LOD_LINE_M - LOD_HYSTERESIS_M) far = false;
         } else if (dist > LOD_LINE_M + LOD_HYSTERESIS_M) {
-            this.useLineLod = true;
+            far = true;
         }
+        this.lineLodByCamera.set(camera, far);
+        this.useLineLod = far;
         this.applyLodVisibility();
     }
 
@@ -597,7 +525,8 @@ export class BarricadeEntity implements Entity {
         const near = !this.useLineLod;
         for (const m of this.upperSegs) m.visible = near;
         for (const m of this.lowerSegs) m.visible = near;
-        for (const m of this.loopMeshes) m.visible = near;
+        for (const m of this.wireSegs) m.visible = near;
+        for (const m of this.stripeMeshes) m.visible = near;
         this.webLines.visible = !near;
     }
 
@@ -608,7 +537,7 @@ export class BarricadeEntity implements Entity {
         lists: Map<string, THREE.Scene>,
         _palette: Palette,
     ): void {
-        // Rebuild after the combat-sim pump so the stretched net tracks the airframe.
+        // Rebuild after the combat-sim pump so the net tracks the airframe.
         this.rebuild();
         if (!this.root.visible) {
             return;

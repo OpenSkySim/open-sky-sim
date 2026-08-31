@@ -15,7 +15,9 @@
 
 import * as THREE from 'three';
 import { PaletteCategory } from '../../config/palettes/palette';
-import { Airfield, AirfieldRunway, RunwaySurface, primaryRunway } from '../../terrain/airfields';
+import {
+    Airfield, AirfieldBuilding, AirfieldRunway, RunwaySurface, primaryRunway,
+} from '../../terrain/airfields';
 import { bearingAxisAt } from '../../terrain/flattenPad';
 import {
     Ecef, Enu, EnuBasis, ecefToEnu, enuToGeodeticApprox, geodeticToEcef, sceneFromEnu,
@@ -107,6 +109,46 @@ const MARKING_CATEGORY: Record<MarkingKind, PaletteCategory> = {
     edge: PaletteCategory.SCENERY_BASE_RUNWAY_LINES,
 };
 
+const BUILDING_CATEGORY: Record<AirfieldBuilding['kind'], PaletteCategory> = {
+    hangar: PaletteCategory.SCENERY_BUILDING_METAL,
+    terminal: PaletteCategory.SCENERY_BUILDING_PLASTER_WHITE,
+    tower: PaletteCategory.SCENERY_BUILDING_CONCRETE,
+};
+
+/**
+ * How tall a building is when OSM does not say - which is almost always: not
+ * one of Gran Canaria's sixty airport buildings carries a height or a storey
+ * count.
+ *
+ * Inferred from the footprint, because the two really are related. A hangar is
+ * built around a tail, so it is tall in proportion to how wide it is: a fighter
+ * shelter is ten metres and a widebody hangar thirty. A terminal is a long low
+ * shed of two to four storeys whatever its length. A control tower is the one
+ * building at an airfield taller than it is wide, and it has to see over
+ * everything else.
+ */
+const BUILDING_SHAPE: Record<AirfieldBuilding['kind'],
+    { of: 'min' | 'max'; ratio: number; min: number; max: number }> = {
+    // The floors are low on purpose. A 10 m floor put the median hangar
+    // exactly on it — most of the 234 baked are small, and a row of T-hangars
+    // is nearer five metres to the eaves than ten.
+    hangar: { of: 'min', ratio: 0.45, min: 6, max: 30 },
+    terminal: { of: 'min', ratio: 0.25, min: 6, max: 25 },
+    tower: { of: 'max', ratio: 1.6, min: 20, max: 45 },
+};
+
+/** Height of one building, from OSM where it says so and from its shape where not. */
+export function buildingHeightM(building: AirfieldBuilding): number {
+    if (building.heightM !== undefined && building.heightM > 0) {
+        return building.heightM;
+    }
+    const shape = BUILDING_SHAPE[building.kind] ?? BUILDING_SHAPE.hangar;
+    const base = shape.of === 'min'
+        ? Math.min(building.widthM, building.depthM)
+        : Math.max(building.widthM, building.depthM);
+    return Math.min(shape.max, Math.max(shape.min, base * shape.ratio));
+}
+
 /**
  * What each level of detail draws.
  *
@@ -126,9 +168,16 @@ const LOD_WITH_SURROUNDS = 1;
 const _ecef: Ecef = { x: 0, y: 0, z: 0 };
 const _enu: Enu = { e: 0, n: 0, u: 0 };
 
-/** Accumulates triangles per palette category, so one category is one draw. */
+/**
+ * Accumulates triangles per palette category, so one category is one draw.
+ *
+ * `shaded` splits flat pavement from solid buildings: pavement is unlit paint
+ * on the ground and must not write depth, a building is a lit box that must.
+ */
 class MeshParts {
     private readonly parts = new Map<PaletteCategory, number[]>();
+
+    constructor(private readonly shaded = false) { }
 
     add(category: PaletteCategory, a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3): void {
         let out = this.parts.get(category);
@@ -155,11 +204,15 @@ class MeshParts {
             geometry.setAttribute(
                 'position', new THREE.BufferAttribute(new Float32Array(positions), 3));
             geometry.computeBoundingSphere();
+            if (this.shaded) {
+                // Volumes are lit, so they need normals; flats never are.
+                geometry.computeVertexNormals();
+            }
             const material = materials.build({
                 type: SceneMaterialPrimitiveType.MESH,
                 category,
-                depthWrite: false,
-                shaded: false,
+                depthWrite: this.shaded,
+                shaded: this.shaded,
             });
             const mesh = new THREE.Mesh(geometry, material);
             mesh.onBeforeRender = updateUniforms;
@@ -234,18 +287,20 @@ export function buildAirfieldModel(
     for (let level = 0; level < LOD_KINDS.length; level++) {
         const kinds = new Set(LOD_KINDS[level]);
         const parts = new MeshParts();
+        const solids = new MeshParts(true);
 
         if (level <= LOD_WITH_SURROUNDS) {
             // Drawn under the runways, so a taxiway crossing one loses.
             const pavement = groundSurfaceOf(airfield);
             addAprons(parts, airfield, toEnu, drape, pavement);
             addTaxiways(parts, airfield, toEnu, drape, kinds.has('centreline'), pavement);
+            addBuildings(solids, airfield, toEnu, drape);
         }
         for (const runway of airfield.runways) {
             maxSize = Math.max(maxSize, runway.lengthM);
             addRunway(parts, runway, kinds, toEnu, place);
         }
-        levels.push({ flats: parts.build(materials), volumes: [] });
+        levels.push({ flats: parts.build(materials), volumes: solids.build(materials) });
     }
     return {
         model: {
@@ -317,12 +372,288 @@ function quadCorners(
     return [at(u0, v0, lift), at(u0, v1, lift), at(u1, v1, lift), at(u1, v0, lift)];
 }
 
+/** One usable leg of a taxiway centreline, with its left-hand normal. */
+interface TaxiwaySegment {
+    a: { e: number; n: number };
+    de: number;
+    dn: number;
+    len: number;
+    /** Unit normal, 90 degrees left of the direction of travel. */
+    px: number;
+    py: number;
+}
+
+/**
+ * Below this a joint is straight and the two quads already meet along their
+ * shared end edge. Filling it anyway would emit degenerate triangles for every
+ * one of the many collinear nodes OSM puts down along a straight taxiway.
+ */
+const JOINT_MIN_TURN_RAD = 1 * Math.PI / 180;
+
+/**
+ * How far a joint fan may cut the corner off the turn it fills.
+ *
+ * The gap is a circular sector and this approximates it with a fan, so the
+ * step count follows from the taxiway's own half width: a 23 m taxiway gets
+ * five triangles round a 90 degree turn, and the 0.5 m centreline
+ * stripe gets one, because at that radius a single chord is already inside a
+ * decimetre of the arc.
+ */
+const JOINT_SAG_M = 0.2;
+
+/** Most triangles one joint may spend, for a taxiway that doubles back. */
+const JOINT_MAX_STEPS = 16;
+
+/**
+ * Below this a node is a wobble in the digitising, not a bend.
+ *
+ * A straight taxiway is not noded straight: OSM puts a node every hundred
+ * metres along it and each one is out by a fraction of a degree. Splining
+ * through those bows the run between them, and a taxiway laid alongside a
+ * runway that undulates against it is worse than one that is faceted. So a
+ * node under this threshold has its tangent pinned to the chord, which makes
+ * the cubic through it collapse to exactly the straight line it replaces.
+ */
+const SMOOTH_MIN_TURN_RAD = 2 * Math.PI / 180;
+
+/** How far a smoothed span may sit off its chord before it is subdivided again. */
+const SMOOTH_SAG_M = 0.5;
+
+/** Most extra points one span may spend, for a corner splined at full width. */
+const SMOOTH_MAX_STEPS = 8;
+
+/**
+ * How far either side of a bend the curve through it reaches, in taxiway
+ * widths.
+ *
+ * This is the fillet's own size, and it is what keeps the smoothing local. A
+ * long leg is cut at this distance from the bend at its end and the cut point
+ * pinned straight, so a bend two hundred metres down an otherwise straight
+ * taxiway is rounded over the twenty metres around it and the other hundred
+ * and eighty are left exactly where OSM put them.
+ *
+ * One width is about what a real fillet is: wide enough to read as a curve
+ * from the air, short enough that the pavement never leaves its own corridor.
+ */
+const SMOOTH_REACH_WIDTHS = 1;
+
+/**
+ * A Catmull-Rom tangent, held to a length.
+ *
+ * Two things need holding. The tangent at a node is taken across it from both
+ * neighbours, so where the legs either side are wildly different lengths — a
+ * 10 m link off a 400 m straight, which is most of how a taxiway network joins
+ * up — it comes out many times the length of the short leg and the cubic loops
+ * right round. Sampling that loop puts a kink in the pavement far sharper than
+ * the corner it was smoothing: unheld, Las Palmas went from a worst turn of 36
+ * degrees to one of 148.
+ *
+ * The other is reach. A cubic leaves its chord by an eighth of the difference
+ * between its two end tangents, so a tangent as long as the chord bows a long
+ * leg in proportion to how long it is: a shallow bend at the end of a 100 m
+ * straight dragged the whole straight 5 m sideways. Holding every tangent to
+ * {@link SMOOTH_REACH_WIDTHS} of the taxiway's width instead makes the bend
+ * cost the same wherever it is, and bounds the wander at a quarter of that
+ * however sharp the turn.
+ *
+ * Scaling a tangent does not bend anything on its own: a span with both ends
+ * held to the same length is still the straight line between them, whatever
+ * that length is. Only the direction can bend it.
+ */
+function heldTangent(te: number, tn: number, limit: number): [number, number] {
+    const len = Math.hypot(te, tn);
+    return len > limit && len > 0 ? [(te / len) * limit, (tn / len) * limit] : [te, tn];
+}
+
+/**
+ * Resample a taxiway centreline through a guarded Catmull-Rom.
+ *
+ * OSM digitises a curve as chords, so the pavement kinks at every node. The
+ * fillet in {@link addTaxiwayJoint} rounds the *edges* of that kink but not
+ * the path down the middle of it, which is what the centreline stripe follows
+ * and what reads as a bend rather than a curve.
+ *
+ * Centripetal rather than uniform, because the node spacing here is not
+ * remotely even — a few metres round a curve against a hundred down a
+ * straight — and uniform Catmull-Rom cusps and self-intersects on exactly
+ * that input.
+ *
+ * Guarded three ways, because a spline through every node is wrong for
+ * pavement — this is a surveyed surface, not a curve through some points, and
+ * every metre it wanders is a metre of taxiway on ground nobody paved:
+ *
+ *  - A node that is not a real bend keeps a chord tangent, which collapses the
+ *    cubic through it to the straight line it replaced. So a straight run
+ *    noded every hundred metres, each node out by a fraction of a degree,
+ *    comes back exactly as it went in ({@link SMOOTH_MIN_TURN_RAD}).
+ *  - A bend is rounded over a fixed reach either side and no further, so the
+ *    cost of a bend does not grow with the legs that meet at it
+ *    ({@link SMOOTH_REACH_WIDTHS}).
+ *  - A span that still leaves its chord by more than half the taxiway's width
+ *    is dropped back to that chord. Nothing measured across the baked fields
+ *    trips this — the worst departure anywhere is 2.4 m on a 23 m taxiway —
+ *    which is the point: it is the backstop that makes the bound a bound.
+ *
+ * Subdivision follows the departure it measures, so a span already within
+ * {@link SMOOTH_SAG_M} of its chord — which is 96% of them, given how finely
+ * a curve is noded — emits its endpoint and no more.
+ *
+ * Note what this does not do. A Catmull-Rom passes *through* every node, so it
+ * eases a bend by spreading the turn either side of it; it cannot cut the
+ * corner off, which is what a real fillet does. That leaves a slight
+ * counter-bow on the approach, under a metre. Cutting corners properly wants
+ * an approximating curve — a quadratic Bezier across the two cut points, with
+ * the bend itself as the control point — which the cuts below already set up.
+ */
+export function smoothCentreline(
+    points: readonly { e: number; n: number }[], widthM: number,
+): { e: number; n: number }[] {
+    const maxOffsetM = widthM / 2;
+    const reach = widthM * SMOOTH_REACH_WIDTHS;
+    // Duplicated nodes have no direction, and their zero chord divides through
+    // the whole parameterisation. Out before anything measures an angle.
+    let p: { e: number; n: number }[] = [];
+    for (const q of points) {
+        const last = p[p.length - 1];
+        if (last === undefined || Math.hypot(q.e - last.e, q.n - last.n) >= DEGENERATE_SEGMENT_M) {
+            p.push(q);
+        }
+    }
+    if (p.length < 3) {
+        return p;
+    }
+
+    /** True where the run really turns, and so where a smooth tangent belongs. */
+    const turns = p.map((_, i) => {
+        if (i === 0 || i === p.length - 1) {
+            return false;
+        }
+        const ae = p[i].e - p[i - 1].e;
+        const an = p[i].n - p[i - 1].n;
+        const be = p[i + 1].e - p[i].e;
+        const bn = p[i + 1].n - p[i].n;
+        return Math.abs(Math.atan2(ae * bn - an * be, ae * be + an * bn)) >= SMOOTH_MIN_TURN_RAD;
+    });
+
+    // Cut every leg longer than the fillet a fillet's reach short of the bend
+    // at either end of it, and pin the cut straight. Without this the cubic
+    // runs the length of the leg and a bend at the end of a long straight
+    // drags the whole straight sideways; with it, the leg arrives straight and
+    // turns only where it has to. The cuts are also what put a bend's two
+    // neighbours the same distance away, which is what a Catmull-Rom tangent
+    // wants and what OSM, joining a 10 m link to a 400 m straight, never gives.
+    const nodes: { e: number; n: number }[] = [];
+    const corner: boolean[] = [];
+    for (let i = 0; i + 1 < p.length; i++) {
+        nodes.push(p[i]);
+        corner.push(turns[i]);
+        const de = p[i + 1].e - p[i].e;
+        const dn = p[i + 1].n - p[i].n;
+        const len = Math.hypot(de, dn);
+        const cuts = (turns[i] ? 1 : 0) + (turns[i + 1] ? 1 : 0);
+        // Two cuts need room for both, or they would cross and unstraighten
+        // the very leg they were meant to hold.
+        if (cuts === 0 || len <= cuts * reach) {
+            continue;
+        }
+        for (const at of [turns[i] ? reach : 0, turns[i + 1] ? len - reach : 0]) {
+            if (at > 0) {
+                nodes.push({ e: p[i].e + (de / len) * at, n: p[i].n + (dn / len) * at });
+                corner.push(false);
+            }
+        }
+    }
+    nodes.push(p[p.length - 1]);
+    corner.push(false);
+    p = nodes;
+
+    /** Centripetal knot spacing: the square root of the chord. */
+    const knot = (a: { e: number; n: number }, b: { e: number; n: number }) =>
+        Math.sqrt(Math.hypot(b.e - a.e, b.n - a.n));
+
+    const out = [p[0]];
+    for (let i = 0; i + 1 < p.length; i++) {
+        const p1 = p[i];
+        const p2 = p[i + 1];
+        const chordE = p2.e - p1.e;
+        const chordN = p2.n - p1.n;
+        const chordLen = Math.hypot(chordE, chordN);
+        const dB = knot(p1, p2);
+
+        // A tangent at a corner is the non-uniform Catmull-Rom one, taken
+        // across the node from its two neighbours; anywhere else it is the
+        // chord, which is what makes the cubic reduce to the chord itself.
+        // Both ends are held to the same length, so a span between two
+        // straight nodes stays exactly the straight line it was.
+        const limit = Math.min(chordLen, reach);
+        let [t1e, t1n] = heldTangent(chordE, chordN, limit);
+        if (corner[i]) {
+            const p0 = p[i - 1];
+            const w = dB / (knot(p0, p1) + dB);
+            [t1e, t1n] = heldTangent(w * (p2.e - p0.e), w * (p2.n - p0.n), limit);
+        }
+        let [t2e, t2n] = heldTangent(chordE, chordN, limit);
+        if (corner[i + 1]) {
+            const p3 = p[i + 2];
+            const w = dB / (dB + knot(p2, p3));
+            [t2e, t2n] = heldTangent(w * (p3.e - p1.e), w * (p3.n - p1.n), limit);
+        }
+
+        // Hermite over the unit interval, which is the same cubic.
+        const at = (u: number) => {
+            const uu = u * u;
+            const uuu = uu * u;
+            const h00 = 2 * uuu - 3 * uu + 1;
+            const h10 = uuu - 2 * uu + u;
+            const h01 = -2 * uuu + 3 * uu;
+            const h11 = uuu - uu;
+            return {
+                e: h00 * p1.e + h10 * t1e + h01 * p2.e + h11 * t2e,
+                n: h00 * p1.n + h10 * t1n + h01 * p2.n + h11 * t2n,
+            };
+        };
+
+        // How far the span leaves its chord. Sampled at three points rather
+        // than at the middle alone: a span with a tangent at each end pulling
+        // opposite ways is an S, and an S crosses its chord exactly at the
+        // middle while running far off it either side.
+        let offset = 0;
+        for (const u of [0.25, 0.5, 0.75]) {
+            const q = at(u);
+            // Sideways off the chord, not distance to the chord point at the
+            // same u: holding the tangents short slides the samples along the
+            // line without moving them off it, and that is not a departure.
+            offset = Math.max(offset,
+                Math.abs((q.e - p1.e) * chordN - (q.n - p1.n) * chordE) / chordLen);
+        }
+        // Chord error falls as the square of the step count, so this is the
+        // count that brings it under the sag.
+        const steps = offset > maxOffsetM
+            ? 1
+            : Math.min(SMOOTH_MAX_STEPS, Math.max(1, Math.ceil(Math.sqrt(offset / SMOOTH_SAG_M))));
+        for (let s = 1; s < steps; s++) {
+            out.push(at(s / steps));
+        }
+        out.push(p2);
+    }
+    return out;
+}
+
 function addTaxiways(
     parts: MeshParts, airfield: Airfield, toEnu: ToEnu, place: Place, withStripe: boolean,
     pavement: PaletteCategory,
 ): void {
     for (const taxiway of airfield.taxiways) {
-        const points = taxiway.points.map(p => toEnu(p[0], p[1]));
+        // Smoothed before it is cut into segments, so the pavement and the
+        // stripe painted down the middle of it follow the same path.
+        const points = smoothCentreline(
+            taxiway.points.map(p => toEnu(p[0], p[1])), taxiway.widthM);
+        // Segments are collected first so a turn can be measured *across* a
+        // joint. Dropping the degenerate ones here rather than skipping them
+        // in the middle of the walk matters: a duplicated node would otherwise
+        // leave the two real segments either side of it unjoined, which is
+        // exactly where a joint is most needed.
+        const segments: TaxiwaySegment[] = [];
         for (let i = 0; i + 1 < points.length; i++) {
             const a = points[i];
             const b = points[i + 1];
@@ -332,17 +663,16 @@ function addTaxiways(
             if (len < DEGENERATE_SEGMENT_M) {
                 continue;
             }
-            // Perpendicular, per segment. Mitring the joints would buy a
-            // sliver of pavement on a turn; the segments already overlap
-            // there, and overlapping coplanar flats of one colour are
-            // invisible.
-            const px = -dn / len;
-            const py = de / len;
-            // Cut into steps so the strip follows the ground under it instead
-            // of spanning a rise as one flat quad.
-            const steps = Math.max(1, Math.ceil(len / TAXIWAY_STEP_M));
-            const strip = (width: number, lift: number, category: PaletteCategory) => {
-                const h = width / 2;
+            segments.push({ a, de, dn, len, px: -dn / len, py: de / len });
+        }
+
+        const lay = (width: number, lift: number, category: PaletteCategory) => {
+            const h = width / 2;
+            for (const seg of segments) {
+                const { a, de, dn, px, py } = seg;
+                // Cut into steps so the strip follows the ground under it
+                // instead of spanning a rise as one flat quad.
+                const steps = Math.max(1, Math.ceil(seg.len / TAXIWAY_STEP_M));
                 for (let s = 0; s < steps; s++) {
                     const t0 = s / steps;
                     const t1 = (s + 1) / steps;
@@ -356,13 +686,146 @@ function addTaxiways(
                         place(e1 - px * h, n1 - py * h, lift),
                         place(e1 + px * h, n1 + py * h, lift));
                 }
-            };
-            strip(taxiway.widthM, AIRFIELD_SURFACE_EPS_M, pavement);
-            if (withStripe) {
-                strip(TAXIWAY_STRIPE_M, AIRFIELD_SURFACE_EPS_M + PAINT_LIFT_M,
-                    PaletteCategory.SCENERY_FIELD_YELLOW);
             }
+            for (let i = 0; i + 1 < segments.length; i++) {
+                addTaxiwayJoint(parts, segments[i], segments[i + 1], h, lift, category, place);
+            }
+        };
+
+        lay(taxiway.widthM, AIRFIELD_SURFACE_EPS_M, pavement);
+        if (withStripe) {
+            lay(TAXIWAY_STRIPE_M, AIRFIELD_SURFACE_EPS_M + PAINT_LIFT_M,
+                PaletteCategory.SCENERY_FIELD_YELLOW);
         }
+    }
+}
+
+/**
+ * Fills the wedge two segments leave open on the outside of a turn.
+ *
+ * Each leg is laid as its own rectangle around its own perpendicular, so at a
+ * bend the two rectangles overlap on the inside of the turn and pull apart on
+ * the outside, leaving a triangular notch of bare ground biting into the
+ * pavement — one per node, and OSM nodes a curve every few metres, so a curved
+ * taxiway comes out scalloped along its outer edge.
+ *
+ * The missing piece is a circular sector at the shared node, between the two
+ * legs' outer edges, so that is what goes in: a fan of the same pavement, at
+ * the same lift. Rounded rather than mitred because a mitre runs away to
+ * infinity as the turn approaches a reversal, and because a real taxiway
+ * fillet is a curve anyway.
+ */
+function addTaxiwayJoint(
+    parts: MeshParts, prev: TaxiwaySegment, next: TaxiwaySegment,
+    half: number, lift: number, category: PaletteCategory, place: Place,
+): void {
+    const cross = prev.de * next.dn - prev.dn * next.de;
+    const dot = prev.de * next.de + prev.dn * next.dn;
+    const turn = Math.atan2(Math.abs(cross), dot);
+    if (turn < JOINT_MIN_TURN_RAD) {
+        return;
+    }
+    // The node itself: the end of `prev`, which is the start of `next`.
+    const ce = prev.a.e + prev.de;
+    const cn = prev.a.n + prev.dn;
+
+    // A left turn (cross > 0) opens the gap on the right of the run, and the
+    // right-hand normal is -p. The fan sweeps from prev's outer normal to
+    // next's, which turns the same way the run does.
+    const side = cross > 0 ? -1 : 1;
+    const signed = cross > 0 ? turn : -turn;
+    const chord = Math.max(-1, Math.min(1, 1 - JOINT_SAG_M / half));
+    const perStep = 2 * Math.acos(chord);
+    const steps = Math.max(1, Math.min(JOINT_MAX_STEPS, Math.ceil(turn / perStep)));
+
+    const startE = prev.px * side;
+    const startN = prev.py * side;
+    const centre = place(ce, cn, lift);
+    const rim = (t: number) => {
+        const angle = signed * t;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        // Rotating the normal by the same signed angle the direction turns
+        // through walks the rim from prev's outer edge to next's.
+        return place(
+            ce + half * (startE * cos - startN * sin),
+            cn + half * (startE * sin + startN * cos),
+            lift);
+    };
+
+    let from = rim(0);
+    for (let s = 1; s <= steps; s++) {
+        const to = rim(s / steps);
+        // Wound counter-clockwise in east/north, which is what faces up once
+        // east/north become the scene's x and -z; see addAprons.
+        if (signed > 0) {
+            parts.add(category, centre, from, to);
+        } else {
+            parts.add(category, centre, to, from);
+        }
+        from = to;
+    }
+}
+
+/**
+ * The terminals, hangars and control towers, as boxes.
+ *
+ * Boxes because that is what they are from the air, and because the sim draws
+ * everything else this way: one flat colour per surface, no texture, no roof
+ * pitch. A hangar seen from a mile up is a rectangle with a bright top and a
+ * shaded side, and putting more into it would look less like the rest of the
+ * world rather than more like an airport.
+ *
+ * The base sits at the *lowest* of the four corners' ground heights. Taking
+ * the centre instead leaves a building on a slope with one corner in the air,
+ * which is the one failure that reads instantly as wrong.
+ */
+function addBuildings(
+    parts: MeshParts, airfield: Airfield, toEnu: ToEnu, place: Place,
+): void {
+    for (const building of airfield.buildings) {
+        const centre = toEnu(building.lat, building.lon);
+        const r = building.headingDeg * Math.PI / 180;
+        // The footprint's long axis, and the direction across it.
+        const ax = Math.sin(r);
+        const ay = Math.cos(r);
+        const halfDepth = building.depthM / 2;
+        const halfWidth = building.widthM / 2;
+        if (halfDepth < 1 || halfWidth < 1) {
+            continue;
+        }
+
+        const corner = (along: number, across: number) => ({
+            e: centre.e + ax * along + ay * across,
+            n: centre.n + ay * along - ax * across,
+        });
+        const feet = [
+            corner(-halfDepth, -halfWidth),
+            corner(-halfDepth, halfWidth),
+            corner(halfDepth, halfWidth),
+            corner(halfDepth, -halfWidth),
+        ];
+        // `place` lifts by whatever it is given; ask for the ground itself and
+        // take the lowest corner so nothing is left standing on one leg.
+        const ground = feet.map(f => place(f.e, f.n, 0));
+        let baseY = Infinity;
+        for (const g of ground) {
+            baseY = Math.min(baseY, g.y);
+        }
+        const height = buildingHeightM(building);
+        const category = BUILDING_CATEGORY[building.kind]
+            ?? PaletteCategory.SCENERY_BUILDING_CONCRETE;
+
+        const low = ground.map(g => g.clone().setY(baseY));
+        const high = low.map(g => g.clone().setY(baseY + height));
+        // Walls, wound so the outward face is the front one. The feet run
+        // counter-clockwise seen from above, which puts the outside on the
+        // right of each edge — so the quad goes up the *far* corner first.
+        for (let i = 0; i < 4; i++) {
+            const j = (i + 1) % 4;
+            parts.addQuad(category, low[j], high[j], high[i], low[i]);
+        }
+        parts.addQuad(category, high[0], high[1], high[2], high[3]);
     }
 }
 

@@ -402,6 +402,22 @@ export abstract class FlightModel {
         return target.copy(this.accelWorld);
     }
 
+    /**
+     * Apply an external wrench to the airframe: a linear impulse (N·s, world)
+     * through the centre of gravity and an angular impulse (N·m·s, world).
+     *
+     * For loads the flight model has no way of knowing about — something has
+     * hold of the aircraft rather than air flowing over it. The two halves are
+     * given separately rather than as a force at a point, because a grab is not
+     * generally reducible to one: webbing pulling on both wings at once is a
+     * couple, and the single point that would reproduce it does not exist.
+     *
+     * Models that carry no rigid body ignore it.
+     */
+    applyExternalWrench(_impulseWorld: THREE.Vector3, _angularImpulseWorld: THREE.Vector3): void {
+        //
+    }
+
     getEngineThrustKn(): number {
         return this.engineThrustN / 1000;
     }
