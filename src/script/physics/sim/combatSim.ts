@@ -13,7 +13,14 @@ import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { FcsPitchLimiter } from '../fm2/fcs';
 import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { ForceVectorSample } from '../model/flightModel';
-import { deserializeWorldQuery, deserializeArrestorCables, SerializedArrestorCables, SerializedWorld } from './serializedWorld';
+import {
+    deserializeWorldQuery,
+    deserializeArrestorCables,
+    deserializeBarricades,
+    SerializedArrestorCables,
+    SerializedBarricade,
+    SerializedWorld,
+} from './serializedWorld';
 import {
     HeightTileUpdate, MirroredHeightField, SerializedHeightField,
 } from '../../terrain/heightMirror';
@@ -26,6 +33,13 @@ import {
     hookWorldPos,
     trySnag,
 } from '../../scene/entities/arrestorCables';
+import {
+    BarricadeField,
+    BARRICADE_DEFAULT_WING_HALF_SPAN_M,
+    BARRICADE_PULL_OUT_M,
+    BARRICADE_RELEASE_SPEED_MPS,
+    tryBarricadeEngage,
+} from '../../scene/entities/barricade';
 import { AC, AC_STRIDE, PROJ_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
     AircraftCollisionMesh,
@@ -153,6 +167,16 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     arrestorSnagAlong = 0;
     /** True after pull-out finished; cable stays bent until the plane taxis away. */
     arrestorHeld = false;
+    /** True while the wings are wrapped in a carrier barricade's webbing. */
+    barricadeEngaged = false;
+    /** Which barricade is engaged (carrier index), or -1. */
+    barricadeFieldIndex = -1;
+    /** Deck-axis projection of the CG at webbing contact (for pull-out distance). */
+    barricadeSnagAlong = 0;
+    /** True after the barricade pull-out finished. */
+    barricadeHeld = false;
+    /** Wing half-span used for the barricade's lateral catch window (m). */
+    wingHalfSpanM = BARRICADE_DEFAULT_WING_HALF_SPAN_M;
     /** Sticky: stay on-deck until gear up / leave carrier height / not landed. */
     carrierDeckSticky = false;
     /** Ship-local XZ park offset valid while kinematically locked to the deck. */
@@ -163,6 +187,9 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     readonly prevHook = new THREE.Vector3();
     hasPrevHook = false;
     readonly hookNow = new THREE.Vector3();
+    /** Previous-step CG, for the barricade's plane-crossing test. */
+    readonly prevPos = new THREE.Vector3();
+    hasPrevPos = false;
 
     // Normalized command buffer, written by the pilot (ai) or the client (external).
     private inPitch = 0;
@@ -190,6 +217,11 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.kinematic = desc.kinematic;
         this.hitRadius = desc.hitRadius;
         this.collision = desc.collision;
+        // Barricade catches wings, so its lateral window follows the airframe.
+        if (desc.collision) {
+            const { min, max } = desc.collision.aabb;
+            this.wingHalfSpanM = Math.max(Math.abs(min[0]), Math.abs(max[0]));
+        }
         this.maxHealth = desc.maxHealth;
         this.health = desc.maxHealth;
         this.afterburner = fm2UsesAfterburner(desc.aircraftConfig);
@@ -244,9 +276,14 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.arrestorFieldIndex = -1;
         this.arrestorSnagAlong = 0;
         this.arrestorHeld = false;
+        this.barricadeEngaged = false;
+        this.barricadeFieldIndex = -1;
+        this.barricadeSnagAlong = 0;
+        this.barricadeHeld = false;
         this.carrierDeckSticky = false;
         this.carrierParkLocalValid = false;
         this.hasPrevHook = false;
+        this.hasPrevPos = false;
         this.model.position = this.tmp.fromArray(spawn.position);
         this.model.quaternion = new THREE.Quaternion().fromArray(spawn.quaternion);
         if (spawn.velocity) {
@@ -485,6 +522,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         out[base + AC.pitchLimiterMode] = mirror.pitchLimiterMode;
         out[base + AC.autopilot] = mirror.autopilot ? 1 : 0;
         out[base + AC.arrestorLatch] = this.arrestorLatch;
+        out[base + AC.barricadeEngaged] = this.barricadeEngaged ? 1 : 0;
         out[base + AC.hookX] = this.hookNow.x;
         out[base + AC.hookY] = this.hookNow.y;
         out[base + AC.hookZ] = this.hookNow.z;
@@ -527,6 +565,7 @@ export class CombatSim implements ProjectileSink {
 
     private world: SceneWorldQuery | undefined;
     private arrestorFields: ArrestorCableField[] = [];
+    private barricades: BarricadeField[] = [];
     /** World velocity of the moving carrier (m/s); trap scrub is relative to this. */
     private readonly carrierVel = new THREE.Vector3();
     private readonly aircraft = new Map<string, SimAircraft>();
@@ -564,6 +603,16 @@ export class CombatSim implements ProjectileSink {
     /** The DEM, mirrored tile by tile from the render thread. */
     private readonly heightField = new MirroredHeightField();
 
+    /**
+     * Scene Y -> true altitude, handed to every flight model this sim owns.
+     *
+     * Bound once and shared: it reads the mirrored DEM's frame live, so a model
+     * created before the height field arrives simply gets scene Y back until it
+     * does. See `MirroredHeightField.geodeticAltitudeAtWorld`.
+     */
+    private readonly altitudeAt = (x: number, y: number, z: number): number =>
+        this.heightField.geodeticAltitudeAtWorld(x, y, z);
+
     constructor() {
         for (let i = 0; i < PROJECTILE_POOL_SIZE; i++) {
             this.projectiles.push({
@@ -589,6 +638,7 @@ export class CombatSim implements ProjectileSink {
             world, (x, z) => this.heightField.heightAtWorld(x, z),
         );
         this.arrestorFields = deserializeArrestorCables(world);
+        this.barricades = deserializeBarricades(world);
         // Any aircraft added before the world arrived can now get its pilot + terrain.
         for (const a of this.aircraft.values()) {
             a.bindWorld(this.world);
@@ -597,6 +647,10 @@ export class CombatSim implements ProjectileSink {
     }
 
     /** Update trap-cable world segments when the carrier moves. */
+    setBarricades(barricades: SerializedBarricade[]): void {
+        this.barricades = deserializeBarricades({ barricades } as SerializedWorld);
+    }
+
     setArrestorCables(cables: SerializedArrestorCables[]): void {
         this.arrestorFields = deserializeArrestorCables({ arrestorCables: cables } as SerializedWorld);
     }
@@ -617,7 +671,9 @@ export class CombatSim implements ProjectileSink {
         } else {
             this.order.push(desc.id);
         }
-        this.aircraft.set(desc.id, new SimAircraft(desc, this.world, this));
+        const added = new SimAircraft(desc, this.world, this);
+        added.model.setAltitudeAt(this.altitudeAt);
+        this.aircraft.set(desc.id, added);
         if (desc.control === 'external') {
             this.playerInputs.set(desc.id, new SimPlayerInput());
             this.playerInputs.get(desc.id)!.syncThrottle(desc.spawn.throttle);
@@ -740,6 +796,10 @@ export class CombatSim implements ProjectileSink {
         a.arrestorFieldIndex = -1;
         a.arrestorSnagAlong = 0;
         a.arrestorHeld = false;
+        a.barricadeEngaged = false;
+        a.barricadeFieldIndex = -1;
+        a.barricadeSnagAlong = 0;
+        a.barricadeHeld = false;
         a.carrierDeckSticky = false;
         a.carrierParkLocalValid = false;
         a.hasPrevHook = false;
@@ -769,6 +829,7 @@ export class CombatSim implements ProjectileSink {
         if (!a) return;
         // Carry over the live rigid-body state across the model swap.
         const next = new Fm2FlightModel(config, { kinematic });
+        next.setAltitudeAt(this.altitudeAt);
         next.reset();
         next.setCrashed(a.model.isCrashed());
         next.setLanded(a.model.isLanded());
@@ -792,6 +853,7 @@ export class CombatSim implements ProjectileSink {
     private rebuildIfKinematicChanged(a: SimAircraft, kinematic: boolean): void {
         if (a.kinematic === kinematic) return;
         const next = new Fm2FlightModel(undefined, { kinematic });
+        next.setAltitudeAt(this.altitudeAt);
         next.setCrashed(a.model.isCrashed());
         next.setLanded(a.model.isLanded());
         next.position = a.model.position;
@@ -984,6 +1046,7 @@ export class CombatSim implements ProjectileSink {
                 this.resolveSolidWorldContact(a, delta);
             }
             this.resolveArrestor(a, delta);
+            this.resolveBarricade(a, delta);
             a.resolveFiring();
         }
         // 5. Guns + projectiles (hits already cleared; scrapes may have appended).
@@ -1110,6 +1173,70 @@ export class CombatSim implements ProjectileSink {
     }
 
     /**
+     * Emergency barricade: the webbing catches the *wings*, so there is no hook
+     * test — any airframe that crosses a raised net inside the stanchion span
+     * and below its top edge is engaged, and is then scrubbed to a stop over
+     * {@link BARRICADE_PULL_OUT_M} exactly like a pendant arrestment.
+     *
+     * An aircraft already latched to a wire never loads the webbing; the wire
+     * stops it first.
+     */
+    private resolveBarricade(a: SimAircraft, delta: number): void {
+        const pos = a.model.position;
+        const prev = a.hasPrevPos ? a.prevPos : null;
+
+        if (!a.model.isCrashed() && this.barricades.length > 0) {
+            if (!a.barricadeEngaged && a.arrestorLatch < 0) {
+                for (let fi = 0; fi < this.barricades.length; fi++) {
+                    const field = this.barricades[fi];
+                    if (!tryBarricadeEngage(pos, prev, a.model.velocityVector, a.wingHalfSpanM, field)) {
+                        continue;
+                    }
+                    a.barricadeEngaged = true;
+                    a.barricadeFieldIndex = fi;
+                    a.barricadeSnagAlong = pos.dot(field.deckAxis);
+                    a.barricadeHeld = false;
+                    break;
+                }
+            }
+
+            if (a.barricadeEngaged && a.barricadeFieldIndex >= 0) {
+                const field = this.barricades[a.barricadeFieldIndex];
+                const vel = a.model.velocityVector;
+                const shipAlong = this.carrierVel.dot(field.deckAxis);
+                if (!a.barricadeHeld) {
+                    const traveled = pos.dot(field.deckAxis) - a.barricadeSnagAlong;
+                    const stillPulling = applyArrestorVelocity(
+                        vel, field.deckAxis, delta, BARRICADE_PULL_OUT_M - traveled, shipAlong,
+                    );
+                    a.model.snapPhysicsState();
+                    if (!stillPulling) {
+                        a.model.setLanded(true);
+                        a.barricadeHeld = true;
+                    }
+                } else {
+                    // Ride with the ship until the deck crew cuts the webbing free.
+                    const along = vel.dot(field.deckAxis);
+                    vel.addScaledVector(field.deckAxis, shipAlong - along);
+                    a.model.snapPhysicsState();
+                    const relSpeed = Math.hypot(
+                        vel.x - this.carrierVel.x,
+                        vel.z - this.carrierVel.z,
+                    );
+                    if (relSpeed > BARRICADE_RELEASE_SPEED_MPS) {
+                        a.barricadeEngaged = false;
+                        a.barricadeFieldIndex = -1;
+                        a.barricadeHeld = false;
+                    }
+                }
+            }
+        }
+
+        a.prevPos.copy(pos);
+        a.hasPrevPos = true;
+    }
+
+    /**
      * Idle on-deck: lock XZ to ship-local offset, match carrier velocity, skip FM2
      * so gear springs cannot bob the airframe. Mid-arrestor pull keeps dynamic FM2.
      */
@@ -1124,6 +1251,10 @@ export class CombatSim implements ProjectileSink {
             return false;
         }
         // Still pulling out — do not freeze pose.
+        if (a.barricadeEngaged && !a.barricadeHeld) {
+            a.carrierParkLocalValid = false;
+            return false;
+        }
         if (a.arrestorLatch >= 0 && !a.arrestorHeld) {
             a.carrierParkLocalValid = false;
             return false;
@@ -1162,8 +1293,11 @@ export class CombatSim implements ProjectileSink {
             return;
         }
         const pos = a.model.position;
+        // Finite means a deck triangle covers this point. Testing `> 0` instead
+        // assumed a deck sits above the tangent plane, which is only true near
+        // the play area's origin.
         const carrierY = this.world.carrierHeightAt(pos.x, pos.z);
-        if (carrierY <= 0.05) {
+        if (!Number.isFinite(carrierY)) {
             a.carrierDeckSticky = false;
             return;
         }
@@ -1200,7 +1334,7 @@ export class CombatSim implements ProjectileSink {
         if (!this.world || a.model.isCrashed() || !a.isGearDeployed()) return false;
         this.updateCarrierDeckSticky(a);
         if (!a.carrierDeckSticky && !this.isOnCarrierDeck(a)) return false;
-        if (a.isLanded() || a.arrestorLatch >= 0) return true;
+        if (a.isLanded() || a.arrestorLatch >= 0 || a.barricadeEngaged) return true;
         return a.model.getGearCompressionMean() > 0.005;
     }
 
@@ -1208,7 +1342,7 @@ export class CombatSim implements ProjectileSink {
     private isOnCarrierDeck(a: SimAircraft): boolean {
         const pos = a.model.position;
         const carrierY = this.world!.carrierHeightAt(pos.x, pos.z);
-        if (carrierY <= 0.05) return false;
+        if (!Number.isFinite(carrierY)) return false;
         const groundY = this.world!.groundHeightAt(pos.x, pos.z);
         return Math.abs(carrierY - groundY) < 0.15;
     }

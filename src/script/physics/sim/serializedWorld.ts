@@ -7,18 +7,19 @@ import {
     arrestorCableLocals,
     buildArrestorCableField,
 } from '../../scene/entities/arrestorCables';
+import { BarricadeField } from '../../scene/entities/barricade';
 import { HillCollider } from '../../scene/entities/hillCollider';
 import { SurfacePadCollider } from '../../scene/entities/surfacePad';
 import { SkiJumpCollider } from '../../scene/entities/skiJump';
 
 /**
  * Plain, structured-clone-safe views of the static world the AI pilots need
- * (terrain hills, ski jumps, carrier meshes, static obstacles, the runway).
+ * (terrain hills, ski jumps, carrier meshes, static obstacles, the runways).
  * These are posted once to the combat sim worker so it can rebuild a
  * {@link SceneWorldQuery} on its side.
  *
  * `isLand` is deliberately not serialized: the {@link import('../../ai/aiPilot').AiPilot}
- * never calls it (only groundHeightAt / obstacles / runway), so the worker-side
+ * never calls it (only groundHeightAt / obstacles / runways), so the worker-side
  * query stubs it to `true`.
  *
  * The DEM is *not* serialized here either. It is mirrored tile by tile as the
@@ -77,13 +78,35 @@ export interface SerializedArrestorCables {
     segmentsLocal: [number, number, number, number, number, number][];
 }
 
+/** Structured-clone-safe barricade state (one carrier). */
+export interface SerializedBarricade {
+    originX: number;
+    originY: number;
+    originZ: number;
+    /** Unit landing/roll-out direction. */
+    deckAxis: [number, number, number];
+    /** Unit deck +X (stanchion to stanchion). */
+    lateralAxis: [number, number, number];
+    /** World centre of the webbing at the stanchion feet. */
+    center: [number, number, number];
+    halfSpan: number;
+    height: number;
+    /** 0 = folded flush, 1 = fully upright. */
+    deploy: number;
+}
+
 export interface SerializedWorld {
     hills: SerializedHill[];
     obstacles: SerializedObstacle[];
-    runway: SerializedRunway;
+    /**
+     * Every runway in the play area, longest first. Named plural since the
+     * world stopped having exactly one airfield in it.
+     */
+    runways: SerializedRunway[];
     skiJumps?: SerializedSkiJump[];
     carrierMeshes?: SerializedCarrierMesh[];
     arrestorCables?: SerializedArrestorCables[];
+    barricades?: SerializedBarricade[];
     /** Flat solid surfaces — runway strip, pavement pads (already structured-clone-safe). */
     surfacePads?: SurfacePadCollider[];
     /** Static scenery collision soups — hangars, towers, depots (same layout as carrier meshes). */
@@ -93,12 +116,13 @@ export interface SerializedWorld {
 export function serializeWorld(
     hills: HillCollider[],
     obstacles: Obstacle[],
-    runway: Runway,
+    runways: readonly Runway[],
     skiJumps: readonly SkiJumpCollider[] = [],
     carrierMeshes: readonly CarrierMeshCollider[] = [],
     arrestorCables: readonly ArrestorCableField[] = [],
     surfacePads: readonly SurfacePadCollider[] = [],
     sceneryMeshes: readonly CarrierMeshCollider[] = [],
+    barricades: readonly BarricadeField[] = [],
 ): SerializedWorld {
     return {
         hills: hills.map(h => ({
@@ -115,12 +139,12 @@ export function serializeWorld(
             radius: o.radius,
             height: o.height,
         })),
-        runway: {
-            center: [runway.center.x, runway.center.y, runway.center.z],
-            heading: runway.heading,
-            halfLength: runway.halfLength,
-            halfWidth: runway.halfWidth,
-        },
+        runways: runways.map(r => ({
+            center: [r.center.x, r.center.y, r.center.z] as [number, number, number],
+            heading: r.heading,
+            halfLength: r.halfLength,
+            halfWidth: r.halfWidth,
+        })),
         skiJumps: skiJumps.map(r => ({
             originX: r.originX,
             originY: r.originY,
@@ -147,6 +171,7 @@ export function serializeWorld(
                 s.b.x - f.originX, s.b.y - f.originY, s.b.z - f.originZ,
             ] as [number, number, number, number, number, number]),
         })),
+        barricades: barricades.map(serializeBarricade),
         surfacePads: surfacePads.map(p => ({ ...p })),
         sceneryMeshes: sceneryMeshes.map(c => ({
             originX: c.originX,
@@ -181,12 +206,12 @@ export function deserializeWorldQuery(
         radius: o.radius,
         height: o.height,
     }));
-    const runway: Runway = {
-        center: new THREE.Vector3(world.runway.center[0], world.runway.center[1], world.runway.center[2]),
-        heading: world.runway.heading,
-        halfLength: world.runway.halfLength,
-        halfWidth: world.runway.halfWidth,
-    };
+    const runways: Runway[] = (world.runways ?? []).map(r => ({
+        center: new THREE.Vector3(r.center[0], r.center[1], r.center[2]),
+        heading: r.heading,
+        halfLength: r.halfLength,
+        halfWidth: r.halfWidth,
+    }));
     const skiJumps: SkiJumpCollider[] = (world.skiJumps ?? []).map(r => ({
         originX: r.originX,
         originY: r.originY ?? 0,
@@ -212,7 +237,7 @@ export function deserializeWorldQuery(
         aabb: c.aabb,
     }));
     return new SceneWorldQuery(
-        hills, () => true, obstacles, runway, skiJumps, carrierMeshes, baseHeightAt,
+        hills, () => true, obstacles, runways, skiJumps, carrierMeshes, baseHeightAt,
         world.surfacePads ?? [], sceneryMeshes,
     );
 }
@@ -237,6 +262,36 @@ export function deserializeArrestorCables(world: SerializedWorld): ArrestorCable
         }
         return field;
     });
+}
+
+/** Flatten one barricade for the structured-clone hop to the sim worker. */
+export function serializeBarricade(f: BarricadeField): SerializedBarricade {
+    return {
+        originX: f.originX,
+        originY: f.originY,
+        originZ: f.originZ,
+        deckAxis: [f.deckAxis.x, f.deckAxis.y, f.deckAxis.z],
+        lateralAxis: [f.lateralAxis.x, f.lateralAxis.y, f.lateralAxis.z],
+        center: [f.center.x, f.center.y, f.center.z],
+        halfSpan: f.halfSpan,
+        height: f.height,
+        deploy: f.deploy,
+    };
+}
+
+/** Rebuild barricade fields for combat-sim barrier physics. */
+export function deserializeBarricades(world: SerializedWorld): BarricadeField[] {
+    return (world.barricades ?? []).map(s => ({
+        originX: s.originX,
+        originY: s.originY,
+        originZ: s.originZ,
+        deckAxis: new THREE.Vector3(s.deckAxis[0], s.deckAxis[1], s.deckAxis[2]),
+        lateralAxis: new THREE.Vector3(s.lateralAxis[0], s.lateralAxis[1], s.lateralAxis[2]),
+        center: new THREE.Vector3(s.center[0], s.center[1], s.center[2]),
+        halfSpan: s.halfSpan,
+        height: s.height,
+        deploy: s.deploy,
+    }));
 }
 
 /** Helper: default Kuznetsov cable field at an origin (for game-side serialize). */

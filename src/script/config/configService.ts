@@ -2,6 +2,9 @@ import { FlightModel } from "../physics/model/flightModel";
 import { DEFAULT_SUN_HOURS } from "../scene/materials/shaders/sun";
 import { AiPilotModels, ShadowQualities, TerrainColours, UnitSystems } from "../state/gameDefs";
 import { assertExpr, assertIsDefined } from "../utils/asserts";
+import {
+    TERRAIN_DETAIL_DISTANCE_DEFAULT_M, clampDetailDistanceM,
+} from "../terrain/lod";
 import { TechProfile } from "./profiles/profile";
 
 export type ProfileChangeListener = (profile: TechProfile, newId: string, oldId: string) => void;
@@ -11,6 +14,7 @@ export type AiPilotModelChangeListener = (model: AiPilotModels) => void;
 export type ShadowQualityChangeListener = (quality: ShadowQualities) => void;
 export type TerrainColourChangeListener = (mode: TerrainColours) => void;
 export type DaytimeChangeListener = (hours: number) => void;
+export type TerrainDetailChangeListener = (distanceM: number) => void;
 
 export class ConfigService {
 
@@ -20,6 +24,7 @@ export class ConfigService {
     readonly aiPilotModels: AiPilotModelSetting;
     readonly shadowQuality: ShadowQualitySetting;
     readonly terrainColour: TerrainColourSetting;
+    readonly terrainDetail: TerrainDetailSetting;
     readonly daytime: DaytimeSetting;
 
     constructor(
@@ -31,6 +36,7 @@ export class ConfigService {
         initialShadowQuality?: ShadowQualities,
         initialDaytime?: number,
         initialTerrainColour?: TerrainColours,
+        initialTerrainDetailM?: number,
     ) {
         this.techProfiles = new ConfigSet(profiles, initialTechProfile);
         this.flightModels = new ConfigSet(flightModels, initialFlightModel);
@@ -38,6 +44,7 @@ export class ConfigService {
         this.aiPilotModels = new AiPilotModelSetting(initialAiPilotModel);
         this.shadowQuality = new ShadowQualitySetting(initialShadowQuality);
         this.terrainColour = new TerrainColourSetting(initialTerrainColour);
+        this.terrainDetail = new TerrainDetailSetting(initialTerrainDetailM);
         this.daytime = new DaytimeSetting(initialDaytime);
     }
 }
@@ -80,6 +87,49 @@ export class DaytimeSetting {
     }
 
     removeChangeListener(listener: DaytimeChangeListener) {
+        this.listeners.delete(listener);
+    }
+}
+
+/**
+ * How far out terrain keeps full detail, in metres.
+ *
+ * Past it the far field is allowed to coarsen faster than screen space alone
+ * would coarsen it — see {@link detailFalloff} — which is where most of the
+ * triangle count above the horizon goes. The top of the slider is
+ * {@link DETAIL_DISTANCE_OFF}: no falloff, the behaviour before this existed.
+ */
+export class TerrainDetailSetting {
+    private active: number;
+    private listeners: Set<TerrainDetailChangeListener> = new Set();
+
+    constructor(initialActive: number = TERRAIN_DETAIL_DISTANCE_DEFAULT_M) {
+        this.active = clampDetailDistanceM(initialActive);
+    }
+
+    getActive(): number {
+        return this.active;
+    }
+
+    setActive(distanceM: number) {
+        const clamped = clampDetailDistanceM(distanceM);
+        if (clamped === this.active) return;
+        this.active = clamped;
+        this.notifyActive();
+    }
+
+    /** Push the current value to listeners (used once after they register). */
+    notifyActive() {
+        for (const listener of this.listeners.values()) {
+            listener(this.active);
+        }
+    }
+
+    addChangeListener(listener: TerrainDetailChangeListener) {
+        this.listeners.add(listener);
+    }
+
+    removeChangeListener(listener: TerrainDetailChangeListener) {
         this.listeners.delete(listener);
     }
 }

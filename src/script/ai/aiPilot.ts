@@ -3,7 +3,7 @@ import { clamp, FORWARD, RIGHT, UP } from '../utils/math';
 import { AiPilotModels } from '../state/gameDefs';
 import { PilotableAircraft } from './aircraftControls';
 import { AiPilotController } from './aiPilotController';
-import { SceneWorldQuery, WorldQuery } from './worldQuery';
+import { Runway, SceneWorldQuery, WorldQuery } from './worldQuery';
 import { Combatant } from '../weapons/combatant';
 import { angleOff, ballisticAimPoint, closureRate, predictedMissDistance, specificEnergyHeight, trackingAngle } from './dogfightGeometry';
 
@@ -297,6 +297,8 @@ const FORMATION_ALT_TRIM_MAX = 400;
 export class AiPilot implements AiPilotController {
 
     private phase: AiFlightPhase = AiFlightPhase.NAVIGATE;
+    /** The runway this pilot committed to; see {@link homeRunway}. */
+    private runwayChoice: Runway | undefined;
     private target: Combatant | undefined;
 
     private readonly cruiseAltitude: number;
@@ -426,6 +428,12 @@ export class AiPilot implements AiPilotController {
         this.phase = phase;
         if (phase === AiFlightPhase.STRAIGHT) {
             this.straightHeadingLatched = false;
+        }
+        if (phase === AiFlightPhase.RTB) {
+            // Turning for home is the moment to decide where home is: by now
+            // the aircraft may be a long way from where it took off, and the
+            // nearest field is the one it should be going to.
+            this.runwayChoice = undefined;
         }
         if (phase === AiFlightPhase.FORMATION) {
             // Enter via the rejoin law: a fresh formation assignment is almost
@@ -809,8 +817,27 @@ export class AiPilot implements AiPilotController {
         this.aircraft.setLandingGearDeployed(true);
     }
 
+    /**
+     * The runway this pilot is working, chosen once.
+     *
+     * Picked by proximity the first time it is asked for — which on the ground
+     * is the one under the aircraft, and airborne is the nearest field — and
+     * then held. Re-deciding per frame would hand an aircraft off to a
+     * different runway the moment one drifted closer, halfway down an approach
+     * to the first.
+     *
+     * Re-picked when the pilot turns for home, because by then it may be a
+     * long way from where it started and the nearest field is the right one.
+     */
+    private homeRunway(): Runway {
+        if (this.runwayChoice === undefined) {
+            this.runwayChoice = this.world.nearestRunway(this.pos.x, this.pos.z);
+        }
+        return this.runwayChoice;
+    }
+
     private doTakeoff(delta: number): void {
-        const rwy = this.world.runway();
+        const rwy = this.homeRunway();
         this.aircraft.setLandingGearDeployed(true);
         this.aircraft.setFlapsExtended(true);
         this.aircraft.setWheelBrakes(false);
@@ -839,7 +866,7 @@ export class AiPilot implements AiPilotController {
     }
 
     private doClimbOut(delta: number): void {
-        const rwy = this.world.runway();
+        const rwy = this.homeRunway();
         const agl = this.pos.y - this.world.groundHeightAt(this.pos.x, this.pos.z);
         const airspeed = this.aircraft.getAirspeed();
         this.aircraft.setLandingGearDeployed(agl < GEAR_UP_ALT);
@@ -1352,7 +1379,7 @@ export class AiPilot implements AiPilotController {
     }
 
     private doRtb(delta: number): void {
-        const rwy = this.world.runway();
+        const rwy = this.homeRunway();
         // Fly to an initial approach fix on the extended centreline, then hand
         // off to the approach controller.
         const fwdX = Math.sin(rwy.heading);
@@ -1375,7 +1402,7 @@ export class AiPilot implements AiPilotController {
     }
 
     private doApproach(delta: number): void {
-        const rwy = this.world.runway();
+        const rwy = this.homeRunway();
         const fwdX = Math.sin(rwy.heading);
         const fwdZ = Math.cos(rwy.heading);
         const rightX = Math.cos(rwy.heading);
@@ -1432,7 +1459,7 @@ export class AiPilot implements AiPilotController {
     }
 
     private doRollout(): void {
-        const rwy = this.world.runway();
+        const rwy = this.homeRunway();
         this.aircraft.setThrottle(0);
         this.throttleCmd = 0;
         this.aircraft.setWheelBrakes(true);

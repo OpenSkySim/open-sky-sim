@@ -14,7 +14,7 @@ export interface Obstacle {
     height: number;
 }
 
-/** The single airfield the AI takes off from and lands on. */
+/** One runway an AI can take off from or land on. */
 export interface Runway {
     /** Runway centre (threshold-to-threshold midpoint), world space. */
     center: THREE.Vector3;
@@ -38,15 +38,26 @@ export interface WorldQuery {
     isLand(x: number, z: number): boolean;
     /** All static building/scenery obstacles. */
     obstacles(): readonly Obstacle[];
-    /** The airfield used for takeoff and landing. */
+    /**
+     * Every runway in the play area, longest first.
+     *
+     * Plural since the world stopped having exactly one airfield in it. A
+     * pilot picks once and keeps it — see {@link nearestRunway} — rather than
+     * re-deciding mid-approach, which would hand off to a different runway the
+     * moment one drifted closer.
+     */
+    runways(): readonly Runway[];
+    /** The main runway of the area: the one a session starts on. */
     runway(): Runway;
+    /** Closest runway to a point, for choosing somewhere to come home to. */
+    nearestRunway(x: number, z: number): Runway;
 }
 
 const TMP = new THREE.Vector3();
 
 /**
  * Concrete {@link WorldQuery} backed by the game's hill colliders, ski jumps,
- * carrier meshes, terrain land/water sampler, static obstacle list and runway.
+ * carrier meshes, terrain land/water sampler, static obstacle list and runways.
  */
 export class SceneWorldQuery implements WorldQuery {
 
@@ -54,7 +65,7 @@ export class SceneWorldQuery implements WorldQuery {
         private readonly hills: HillCollider[],
         private readonly isLandFn: (x: number, z: number) => boolean,
         private readonly obstacleList: Obstacle[],
-        private readonly runwayDef: Runway,
+        private readonly runwayList: readonly Runway[],
         private readonly skiJumps: readonly SkiJumpCollider[] = [],
         private readonly carrierMeshes: readonly CarrierMeshCollider[] = [],
         /** Optional DEM / base terrain height under hills and decks. */
@@ -77,8 +88,10 @@ export class SceneWorldQuery implements WorldQuery {
     }
 
     /**
-     * Carrier-deck surface Y at (x, z), or 0 if no carrier triangle covers that point.
-     * Used to detect gear-on-deck for riding a steaming ship.
+     * Carrier-deck surface Y at (x, z), or -Infinity if no carrier triangle
+     * covers that point. Used to detect gear-on-deck for riding a
+     * steaming ship — test it with `Number.isFinite`, not against zero: a deck
+     * is only above Y = 0 near the play area's origin.
      */
     carrierHeightAt(x: number, z: number): number {
         return sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes);
@@ -102,8 +115,28 @@ export class SceneWorldQuery implements WorldQuery {
         return this.obstacleList;
     }
 
+    runways(): readonly Runway[] {
+        return this.runwayList;
+    }
+
     runway(): Runway {
-        return this.runwayDef;
+        return this.runwayList[0];
+    }
+
+    nearestRunway(x: number, z: number): Runway {
+        let best = this.runwayList[0];
+        let bestSq = Infinity;
+        for (let i = 0; i < this.runwayList.length; i++) {
+            const r = this.runwayList[i];
+            const dx = r.center.x - x;
+            const dz = r.center.z - z;
+            const d = dx * dx + dz * dz;
+            if (d < bestSq) {
+                bestSq = d;
+                best = r;
+            }
+        }
+        return best;
     }
 
     /** Move carrier collision soups when the ship translates (local mesh frame unchanged). */

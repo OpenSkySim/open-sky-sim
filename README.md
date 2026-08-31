@@ -34,6 +34,7 @@ generated from `data/output_hh.tif` (tracked) plus OpenStreetMap coastlines:
 $ pip install rasterio numpy shapely requests
 $ python tools/bake_planet_dem.py --input data/output_hh.tif --out assets/planet
 $ python tools/bake_osm_coast.py --manifest assets/planet/manifest.json
+$ npm run bake:airports      # OSM aerodromes -> the manifest's airfields block
 $ npm run fetch:cover        # landcover + satellite imagery, optional
 $ npm run bake:cover
 $ npm run bake:mesh
@@ -42,7 +43,7 @@ $ npm run bake:mesh
 `data/output_hh.tif` only covers the Canaries. To add somewhere else, press
 **`F9`** in the running app and drag a box on the OpenStreetMap map — the dev
 server runs the whole bake for that area and streams the progress back. From
-the command line it is the same five stages, sharing one `--bbox`; fetch a DEM
+the command line it is the same six stages, sharing one `--bbox`; fetch a DEM
 for that area first — `npm run fetch:dem -- --bbox 7.6,45.9,7.8,46.0 --out
 data/imports/alps.tif` pulls it from the public Copernicus GLO-30 archive and
 writes the GeoTIFF the first command above takes as `--input`. See
@@ -166,6 +167,29 @@ The system supports a single device connected only. If the device has less than 
 * `G`: Landing gear
 * `F`: Flaps
 * `H`: Tailhook (raise/lower; a wire only snags with the hook down)
+* `K`: Rig / strike the carrier's emergency barricade — the 20 ft barrier net
+  across the landing area: two dark load-strap cables between hinged stanchions,
+  with a hundred feet of wide nylon engaging loops draped between them, bellying
+  aft toward the groove. It catches the *wings*, not the hook, so it is the way
+  down when the hook is up or unusable. Once an aircraft is in it the webbing
+  wraps its collision hull, but only where the hull is broad enough to gather
+  loops: the fuselage is too narrow, so it parts the webbing and comes out the
+  far side. Each load belt is cut to the mast-to-mast run and does not stretch,
+  with its ends shackled to a wire that pays out of the mast: driven into a
+  bight the belt covers less deck, its ends draw inboard, and the wire comes out
+  to make up the difference. Every stripe keeps its sewn position along the
+  webbing throughout, and the wire hangs off its sheave when idle —
+  coming straight under load. The stripes
+  are cut to a fixed length too, so one goes taut where it grips and its spare
+  webbing festoons — hanging down until it rests on the deck, then bellying out
+  once it can drop no further. A stripe that catches a wing closes right round the
+  section — flat on the leading edge, then curling aft along the skin above and
+  below before it runs back to the strap. The webbing closes
+  *around* the wings, over the leading edge and gripping above and below, with
+  the two straps drawing together onto the airframe as the net is hauled along. The stanchions take ~5 s to swing
+  upright and the webbing only takes a load once they are; the net is
+  expendable, so an arrestment consumes it and the deck crew needs ~12 s to
+  lace a replacement. Status shows in the HUD device stack as `BARRICADE`.
 * `T`: Select target
 * `I`: Toggle night (386/VGA) or IR (486/SVGA/HD) for the tracking camera
 * `U`: Cycle through HUD focus modes (disabled, partial, full)

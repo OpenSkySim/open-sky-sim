@@ -12,7 +12,7 @@ import { DemTile, sampleBilinear } from './demTile';
 import {
     Ecef, Enu, EnuBasis, ecefToEnu, enuToGeodeticApprox, geodeticToEcef,
 } from './geodesy';
-import { FlattenPad, applyFlattenPad } from './flattenPad';
+import { FlattenPad, applyFlattenPad, padBlendWeight } from './flattenPad';
 import { TileKey, tileAtLonLat, tileBounds, tileKeyString } from './tiling';
 
 /** Heights at or below seaLevel + this are open water. */
@@ -87,14 +87,38 @@ export class HeightSampler {
         return this.surfaceHeight(e, n, g.lon, g.lat);
     }
 
+    /**
+     * Height above the ellipsoid of a point *in the air*, from its scene Y.
+     *
+     * The inverse of what {@link heightAtEnu} does to the ground, and for the
+     * same reason: scene Y is up from the tangent plane at the play origin, so
+     * it drifts below true altitude with distance — ~1.8 km at the corner of a
+     * three-degree area. An altimeter reading raw Y therefore says zero while
+     * the aircraft is still well above the terrain. This is the altimeter's
+     * number; scene Y stays the renderer's.
+     */
+    geodeticAltitudeAtEnu(e: number, n: number, u: number): number {
+        return enuToGeodeticApprox(this.basis, e, n, u).height;
+    }
+
     isLandEnu(e: number, n: number): boolean {
         return this.geodeticHeightAtEnu(e, n) > this.seaLevel + WATER_HEIGHT_EPS_M;
     }
 
-    /** Sampled elevation with the flatten pads blended in. Water is never padded. */
+    /**
+     * Sampled elevation with the flatten pads blended in.
+     *
+     * Water is never padded, with one exception: the flat core of an airfield
+     * platform, which is ground by construction. Gran Canaria is why — the
+     * airport is built out onto the shore and part of it reads as sea in the
+     * DEM, and without this the aircraft would fall through the apron it is
+     * visibly parked on. The mesh bake makes the same exception (see the
+     * `paved` hook in tools/bake/shoreline.ts), which is what keeps the drawn
+     * surface and the collision surface the same surface.
+     */
     private surfaceHeight(e: number, n: number, lon: number, lat: number): number {
         const raw = this.heightAtLonLat(lon, lat);
-        if (isWaterHeight(raw, this.seaLevel)) {
+        if (isWaterHeight(raw, this.seaLevel) && !this.inPadCore(e, n)) {
             return raw;
         }
         let h = raw;
@@ -102,6 +126,16 @@ export class HeightSampler {
             h = applyFlattenPad(h, e, n, pad);
         }
         return h;
+    }
+
+    /** True over a platform's flat core — the paved part, not its feather. */
+    private inPadCore(e: number, n: number): boolean {
+        for (const pad of this.pads) {
+            if (padBlendWeight(e, n, pad) >= 1) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Raw sample, no pad. Fine tier if resident, else coarse, else sea level. */

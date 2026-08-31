@@ -318,17 +318,39 @@ describe('HeightField', () => {
             }
         });
 
-        it('never flattens water', async () => {
+        it('never flattens water beyond the paved core', async () => {
+            const h = makeStore(() => 0);
+            try {
+                const hf = new HeightField({
+                    manifest: manifest(), store: h.store, basis: BASIS, pads: [pad],
+                });
+                await hf.ensureLoadedAroundWorld(0, 0, 3000);
+                // Half way through the feather on the east edge: the platform
+                // is blending into whatever is beside it, and here that is sea.
+                // Compared as elevations rather than as scene Y, which carries
+                // the curvature drop away from the origin as well.
+                assert.equal(hf.geodeticHeightAtWorld(460, 0), 0,
+                    'sea in the feather stays at sea level');
+                assert.equal(hf.isLandAtWorld(460, 0), false);
+                assert.equal(hf.geodeticHeightAtWorld(3000, 0), 0,
+                    'sea outside the pad stays at sea level');
+            } finally {
+                h.restore();
+            }
+        });
+
+        it('is solid ground over the paved core even where the DEM says sea', async () => {
+            // Gran Canaria: the airport is built out onto the shore and part of
+            // it reads as water. Left as sea, the aircraft falls through the
+            // apron the mesh bake has already drawn as pavement.
             const h = makeStore(() => 0);
             try {
                 const hf = new HeightField({
                     manifest: manifest(), store: h.store, basis: BASIS, pads: [pad],
                 });
                 await hf.ensureLoadedAroundWorld(0, 0, 1000);
-                // Scene Y goes through a geodetic round trip, so compare with
-                // a tolerance rather than for exact zero.
-                assert.ok(Math.abs(hf.heightAtWorld(0, 0)) < 1e-6, 'sea stays at sea level');
-                assert.equal(hf.isLandAtWorld(0, 0), false);
+                assert.ok(Math.abs(hf.geodeticHeightAtWorld(0, 0) - 93.92) < 1e-6);
+                assert.equal(hf.isLandAtWorld(0, 0), true);
             } finally {
                 h.restore();
             }

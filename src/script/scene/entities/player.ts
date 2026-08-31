@@ -97,6 +97,11 @@ export class PlayerEntity implements Entity {
     private shadowScale = new THREE.Vector3();
     /** Solid-ground Y under the aircraft (flat datum, hills, decks). Defaults to water/flat Y=0. */
     private groundHeightAt: (x: number, z: number) => number = () => 0;
+    /**
+     * Scene position -> height above the ellipsoid. Identity until the terrain
+     * wires it, which is what a scene with no curved ground would want anyway.
+     */
+    private altitudeAt: (x: number, y: number, z: number) => number = (_x, y) => y;
 
     private controlSurfaceDescriptors: ControlSurfaceDescriptor[] = [];
     private cockpitOffset = new THREE.Vector3();
@@ -1089,6 +1094,25 @@ export class PlayerEntity implements Entity {
         this.groundHeightAt = fn;
     }
 
+    /**
+     * Scene Y -> altimeter altitude.
+     *
+     * The scene is a tangent plane at the play area's origin and the terrain is
+     * drawn curving away from it, so scene Y understates true altitude by more
+     * the further out you fly — ~1.8 km at the corner of a three-degree area,
+     * which is why an altimeter reading raw Y showed zero with the ground still
+     * a kilometre below. See `HeightSampler.geodeticAltitudeAtEnu`.
+     */
+    setAltitudeAt(fn: (x: number, y: number, z: number) => number): void {
+        this.altitudeAt = fn;
+    }
+
+    /** Height above the ellipsoid of the drawn aircraft, in metres. */
+    getDisplayAltitude(): number {
+        const p = this.displayPosition;
+        return this.altitudeAt(p.x, p.y, p.z);
+    }
+
     /** Mark that this aircraft carries a gun (config lives in the sim descriptor). */
     setHasGun(hasGun: boolean) {
         this.hasGunFlag = hasGun;
@@ -1201,6 +1225,20 @@ export class PlayerEntity implements Entity {
     /** Provide the live carrier pose so a latched hook aims at the moving sheave. */
     setArrestorCarrierPoseProvider(getPose: () => ArrestorCarrierPose): void {
         this.getArrestorCarrierPose = getPose;
+    }
+
+    private getBarricadeStatus: (() => string | undefined) | undefined;
+
+    /**
+     * Ship-side barricade status for the HUD device stack (undefined when the
+     * net is stowed). Provided by the game, which owns the carrier's systems.
+     */
+    setBarricadeStatusProvider(get: () => string | undefined): void {
+        this.getBarricadeStatus = get;
+    }
+
+    get barricadeStatus(): string | undefined {
+        return this.getBarricadeStatus?.();
     }
 
     getDisplayVelocity(): THREE.Vector3 {

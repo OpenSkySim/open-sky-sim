@@ -154,6 +154,17 @@ export class HeightField {
         return this.sampler.geodeticHeightAtEnu(x, northFromSceneZ(z));
     }
 
+    /**
+     * Height above the ellipsoid of a scene point — what an altimeter reads.
+     *
+     * Scene Y is not that number away from the play origin: the terrain curves
+     * away from the tangent plane, so Y = 0 sits above the ground by ~1.8 km at
+     * the corner of a three-degree area. See `HeightSampler.geodeticAltitudeAtEnu`.
+     */
+    geodeticAltitudeAtWorld(x: number, y: number, z: number): number {
+        return this.sampler.geodeticAltitudeAtEnu(x, northFromSceneZ(z), y);
+    }
+
     isLandAtWorld(x: number, z: number): boolean {
         return this.sampler.isLandEnu(x, northFromSceneZ(z));
     }

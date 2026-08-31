@@ -33,6 +33,7 @@ import { TracerModelLibBuilder } from './scene/models/lib/tracerModelBuilder';
 import { ModelManager } from './scene/models/models';
 import { Game, GameRenderTask, GameUpdateTask } from './state/game';
 import { FlightModels, TechProfiles } from './state/gameDefs';
+import { DETAIL_DISTANCE_OFF } from './terrain/lod';
 async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice, Game]> {
     const settings = loadSettings();
     // Single authoritative combat sim worker. The player's FM2/DEBUG models are
@@ -52,6 +53,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         settings.shadowQuality,
         settings.daytime,
         settings.terrainColour,
+        settings.terrainDetailDistanceM ?? DETAIL_DISTANCE_OFF,
     );
     config.flightModels.getActive().activate();
     // Place the sun before the first material is built, so the shaded ramp and

@@ -28,11 +28,12 @@ import {
     EnuBasis, WGS84_A, ecefToEnu, enuFrameRotation, geodeticToEcef, makeEnuBasis,
     northFromSceneZ,
 } from './geodesy';
-import { FlattenPad } from './flattenPad';
+import { AirfieldsFile, EMPTY_AIRFIELDS, loadAirfields } from './airfields';
+import { FlattenPad, padFromRecord, padReachM } from './flattenPad';
 import { HeightField, HeightTier } from './heightField';
 import {
     MESH_CACHE_BYTES, PREFETCH_LOOKAHEAD_S, PREFETCH_MIN_DISTANCE_M, RECONCILE_INTERVAL_MS,
-    adjustDetailScale,
+    TERRAIN_DETAIL_DISTANCE_DEFAULT_M, adjustDetailScale,
 } from './lod';
 import {
     TerrainManifest, baseUrlOf, heightIndexUrl, heightTileUrl, meshIndexUrl, meshTileUrl,
@@ -51,7 +52,7 @@ import {
     CLASS_TO_TONE, LAND_TONE_BASE, LAND_TONE_COUNT, TONE_COUNT, TerrainTone,
 } from './tones';
 import { TERRAIN_COLOUR_MODE_INDEX, TerrainColours } from '../state/gameDefs';
-import { TerrainColourSetting } from '../config/configService';
+import { TerrainColourSetting, TerrainDetailSetting } from '../config/configService';
 import { publishTerrainStats, trackTerrainMaterial } from './debug';
 
 const TONE_CATEGORIES: Record<number, PaletteCategory> = {
@@ -83,6 +84,15 @@ const HYBRID_SHADE_RANGE = 0.35;
 /** Used when the pyramid predates the bake measuring its own luminance. */
 const HYBRID_SHADE_FALLBACK = { mid: 0.5, spread: 0.2 };
 
+/**
+ * How far from the play origin a flatten pad is still worth carrying.
+ *
+ * An area spans at most three degrees, so everything that can matter is well
+ * inside this; anything past it belongs to another area and is being kept out
+ * of a per-frame loop, not out of the world.
+ */
+const PAD_RELEVANCE_M = 400_000;
+
 export interface TerrainEntityOptions {
     manifest: TerrainManifest;
     manifestUrl: string;
@@ -92,6 +102,7 @@ export interface TerrainEntityOptions {
     maxZoom?: number;
     /** Live terrain colour mode. Omit and the entity stays on its default. */
     terrainColour?: TerrainColourSetting;
+    terrainDetail?: TerrainDetailSetting;
 }
 
 export interface TerrainStats {
@@ -152,6 +163,12 @@ export class TerrainEntity implements Entity {
     private lastFrame = 0;
     private frameEmaMs = 16;
     private detailScale = 1;
+    /**
+     * How far out full detail is kept, from the *Terrain detail distance*
+     * setting. Read on every reconcile rather than cached into the quadtree, so
+     * moving the slider takes effect on the next pass with nothing to rebuild.
+     */
+    private detailDistanceM = TERRAIN_DETAIL_DISTANCE_DEFAULT_M;
     private drawList: QuadNode[] = [];
     private drawnTriangles = 0;
     /**
@@ -257,6 +274,11 @@ export class TerrainEntity implements Entity {
             opts.terrainColour.addChangeListener(mode => this.setTerrainColour(mode));
         }
 
+        if (opts.terrainDetail) {
+            this.detailDistanceM = opts.terrainDetail.getActive();
+            opts.terrainDetail.addChangeListener(m => { this.detailDistanceM = m; });
+        }
+
         this.meshStore = new TileStore<PtmTile>({
             baseUrl: base,
             url: (id) => meshTileUrl(this.manifest, id.z, id.x, id.y, base),
@@ -293,20 +315,18 @@ export class TerrainEntity implements Entity {
         //
         // Positioned properly, a pad belonging to another area simply lands
         // hundreds of kilometres off and never touches anything.
-        const pads: FlattenPad[] = (opts.manifest.flattenPads ?? []).map(p => {
-            const enu = ecefToEnu(this.basis, geodeticToEcef(p.lat, p.lon, 0));
-            return {
-                // A pad is compared against ENU east/north inside the sampler
-                // (and inside the bake), not against scene axes, so it is
-                // stored in ENU and no north flip belongs here.
-                centerX: enu.e,
-                centerZ: enu.n,
-                halfW: p.halfW,
-                halfD: p.halfD,
-                featherM: p.featherM,
-                heightMsl: p.heightMsl,
-            };
-        });
+        const toEnu = (lat: number, lon: number) => {
+            const enu = ecefToEnu(this.basis, geodeticToEcef(lat, lon, 0));
+            return { e: enu.e, n: enu.n };
+        };
+        // Dropped here rather than carried and rejected per query. The sampler
+        // walks this list on every height read — which is once per contact test
+        // per frame — and the manifest now lists every pad of every airfield in
+        // the pyramid, a hundred or so. A pad in another area is a thousand
+        // kilometres off and can never touch anything here.
+        const pads: FlattenPad[] = (opts.manifest.flattenPads ?? [])
+            .map(p => padFromRecord(p, toEnu))
+            .filter(p => Math.hypot(p.centerX, p.centerZ) - padReachM(p) <= PAD_RELEVANCE_M);
 
         this.heights = new HeightField({
             manifest: opts.manifest,
@@ -364,6 +384,22 @@ export class TerrainEntity implements Entity {
         this.meshIndex = meshIdx;
         this.heightIndex = heightIdx;
         await this.heights.loadCoarse(heightIdx);
+    }
+
+    /**
+     * The airfields baked beside this pyramid, or none.
+     *
+     * Fetched on demand rather than with the manifest: the descriptions run to
+     * hundreds of kilobytes against a manifest of tens, and nothing needs them
+     * until something is about to draw an airfield. The URL is resolved here
+     * because this is where the manifest and the base it came from both live.
+     */
+    async loadAirfields(): Promise<AirfieldsFile> {
+        const pointer = this.manifest.airfields;
+        if (pointer === undefined || this.manifestUrl === '') {
+            return EMPTY_AIRFIELDS;
+        }
+        return loadAirfields(`${baseUrlOf(this.manifestUrl)}/${pointer.path}`);
     }
 
     /** Deepest zoom the baked pyramid provides. */
@@ -437,6 +473,11 @@ export class TerrainEntity implements Entity {
 
     heightAtWorld(x: number, z: number): number {
         return this.heights.heightAtWorld(x, z);
+    }
+
+    /** Height above the ellipsoid of a scene point — what the altimeter reads. */
+    geodeticAltitudeAtWorld(x: number, y: number, z: number): number {
+        return this.heights.geodeticAltitudeAtWorld(x, y, z);
     }
 
     /**
@@ -565,6 +606,7 @@ export class TerrainEntity implements Entity {
             this.viewportHeightPx,
             camera.fov,
             this.detailScale,
+            this.detailDistanceM,
             (id) => this.pinned.has(tileKeyString(id)),
         );
 

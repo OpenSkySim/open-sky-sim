@@ -3,7 +3,7 @@ import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { Faction } from '../../weapons/combatant';
 import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
-import { SerializedArrestorCables, SerializedWorld } from './serializedWorld';
+import { SerializedArrestorCables, SerializedBarricade, SerializedWorld } from './serializedWorld';
 import { HeightTileUpdate, SerializedHeightField } from '../../terrain/heightMirror';
 import { AC_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
@@ -132,6 +132,10 @@ export class CombatSimClient {
 
     setArrestorCables(cables: SerializedArrestorCables[]): void {
         this.post({ type: 'setArrestorCables', cables });
+    }
+
+    setBarricades(barricades: SerializedBarricade[]): void {
+        this.post({ type: 'setBarricades', barricades });
     }
 
     setCarrierMeshOrigins(origins: { originX: number; originY: number; originZ: number }[]): void {

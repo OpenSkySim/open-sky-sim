@@ -48,12 +48,12 @@ describe('CombatSim arrestor trap', () => {
         const origin = ARRESTOR_CARRIER_ORIGIN;
         const field = defaultArrestorCableField(origin.x, origin.y, origin.z);
         const sim = new CombatSim();
-        sim.setWorld(serializeWorld([], [], {
+        sim.setWorld(serializeWorld([], [], [{
             center: new THREE.Vector3(0, 0, 0),
             heading: 0,
             halfLength: 100,
             halfWidth: 20,
-        }, [], [], [field]));
+        }], [], [], [field]));
 
         const cableZ = origin.z + ARRESTOR_CABLE_LOCAL_Z[0];
         const hookY = origin.y + ARRESTOR_CABLE_Y;
@@ -162,12 +162,12 @@ describe('CombatSim arrestor trap', () => {
         const deckY = 18;
         const deck = flatDeckCollider(40, deckY);
         const sim = new CombatSim();
-        sim.setWorld(serializeWorld([], [], {
+        sim.setWorld(serializeWorld([], [], [{
             center: new THREE.Vector3(0, 0, 0),
             heading: 0,
             halfLength: 100,
             halfWidth: 20,
-        }, [], [deck]));
+        }], [], [deck]));
 
         const restY = fm2GroundRestHeight(defaultFm2Config);
         const quat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);

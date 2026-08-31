@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-    DETAIL_SCALE_MAX, DETAIL_SCALE_MIN, TARGET_FRAME_MS, adjustDetailScale,
+    DETAIL_DISTANCE_OFF, DETAIL_SCALE_MAX, DETAIL_SCALE_MIN,
+    TARGET_FRAME_MS, TERRAIN_DETAIL_DISTANCE_DEFAULT_M, TERRAIN_DETAIL_DISTANCE_MAX_M,
+    TERRAIN_DETAIL_DISTANCE_MIN_M, adjustDetailScale, clampDetailDistanceM, detailFalloff,
 } from './lod';
 
 /** Reconciles needed to get from `from` to `to` at a steady frame time. */
@@ -61,5 +63,39 @@ describe('detail governor', () => {
         const up = adjustDetailScale(2, TARGET_FRAME_MS * 2) / 2;
         const down = 2 / adjustDetailScale(2, TARGET_FRAME_MS * 0.1);
         assert.ok(up > down, 'climb must outpace decay');
+    });
+});
+
+describe('far-field detail falloff', () => {
+    it('is neutral inside the knee', () => {
+        assert.equal(detailFalloff(0, 12_000), 1);
+        assert.equal(detailFalloff(6_000, 12_000), 1);
+        assert.equal(detailFalloff(12_000, 12_000), 1);
+    });
+
+    it('grows in proportion to distance outside it', () => {
+        // The error budget grows with distance, so the allowed *error* goes as
+        // d squared and every doubling past the knee drops one more level.
+        assert.equal(detailFalloff(24_000, 12_000), 2);
+        assert.equal(detailFalloff(48_000, 12_000), 4);
+    });
+
+    it('is off when the knee is off', () => {
+        assert.equal(detailFalloff(500_000, DETAIL_DISTANCE_OFF), 1);
+        // A nonsensical knee must not divide by zero into the LOD.
+        assert.equal(detailFalloff(500_000, 0), 1);
+        assert.equal(detailFalloff(500_000, -1), 1);
+    });
+
+    it('clamps a persisted value onto the slider', () => {
+        assert.equal(clampDetailDistanceM(TERRAIN_DETAIL_DISTANCE_DEFAULT_M),
+            TERRAIN_DETAIL_DISTANCE_DEFAULT_M);
+        // Below the bottom of the slider, which would coarsen the near field.
+        assert.equal(clampDetailDistanceM(10), TERRAIN_DETAIL_DISTANCE_MIN_M);
+        // At and past the top, the setting is off rather than merely far, so
+        // "off" compares equal however it was persisted.
+        assert.equal(clampDetailDistanceM(TERRAIN_DETAIL_DISTANCE_MAX_M), DETAIL_DISTANCE_OFF);
+        assert.equal(clampDetailDistanceM(1e9), DETAIL_DISTANCE_OFF);
+        assert.equal(clampDetailDistanceM(NaN), DETAIL_DISTANCE_OFF);
     });
 });

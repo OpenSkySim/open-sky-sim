@@ -7,6 +7,7 @@ import {
     SKI_JUMP_HEIGHT_M,
     SKI_JUMP_LENGTH_M,
 } from './skiJump';
+import { NO_SURFACE_Y } from './carrierDeck';
 
 describe('ski jump surface', () => {
     const ramp = createSkiJumpCollider(1500, 0, -845, 0);
@@ -28,9 +29,9 @@ describe('ski jump surface', () => {
         );
     });
 
-    it('returns 0 outside the footprint', () => {
-        assert.equal(sampleSkiJumpSurfaceY(1500, -900, ramp), 0);
-        assert.equal(sampleSkiJumpSurfaceY(1600, -800, ramp), 0);
+    it('reports no surface outside the footprint', () => {
+        assert.equal(sampleSkiJumpSurfaceY(1500, -900, ramp), NO_SURFACE_Y);
+        assert.equal(sampleSkiJumpSurfaceY(1600, -800, ramp), NO_SURFACE_Y);
     });
 
     it('adds originY so the ramp sits on raised terrain / pavement', () => {
@@ -42,7 +43,8 @@ describe('ski jump surface', () => {
             Math.abs(sampleSkiJumpSurfaceY(0, tipZ, raised) - (baseY + SKI_JUMP_HEIGHT_M)) < 1e-6,
             'tip is base + deck height',
         );
-        // Outside still 0 so Math.max with DEM/pad can win.
-        assert.equal(sampleSkiJumpSurfaceY(100, 0, raised), 0);
+        // Outside reports no surface so Math.max with DEM/pad can win — which
+        // 0 does not do where the DEM sits below the tangent plane.
+        assert.equal(sampleSkiJumpSurfaceY(100, 0, raised), NO_SURFACE_Y);
     });
 });

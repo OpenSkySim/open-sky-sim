@@ -16,8 +16,8 @@ import * as THREE from 'three';
 import { behindHorizon, sphereInFrustum } from './culling';
 import { WGS84_A } from './geodesy';
 import {
-    FRUSTUM_CULL_MARGIN_TAN, ellipsoidSagittaM, shouldRefine, terrainMaxZoomForAltitudeM,
-    terrainViewRangeM,
+    DETAIL_DISTANCE_OFF, FRUSTUM_CULL_MARGIN_TAN, detailFalloff, ellipsoidSagittaM,
+    shouldRefine, terrainMaxZoomForAltitudeM, terrainViewRangeM,
 } from './lod';
 import { TerrainManifest } from './manifest';
 import {
@@ -130,6 +130,11 @@ export class Quadtree {
         screenHeightPx: number,
         fovYDeg: number,
         detailScale: number,
+        /**
+         * Distance past which the far field is allowed to coarsen faster.
+         * {@link DETAIL_DISTANCE_OFF} leaves refinement to screen space alone.
+         */
+        detailDistanceM: number = DETAIL_DISTANCE_OFF,
         pinned?: (id: TileKey) => boolean,
     ): QuadtreeUpdate {
         this.generation++;
@@ -192,9 +197,13 @@ export class Quadtree {
             // where it belongs. So the sagitta bound is tested at detailScale
             // 1 regardless of how far the governor has backed off.
             const d = Math.max(1, distance);
+            // The far-field falloff rides on the same scale as the governor, so
+            // the two multiply rather than fight. Like the governor it is a
+            // *detail* knob, so the sagitta bound below still ignores it.
+            const farScale = detailScale * detailFalloff(d, detailDistanceM);
             const canRefine = node.id.z < zoomCap && (
                 shouldRefine(
-                    this.drawErrorM(node), d, screenHeightPx, fovYDeg, detailScale,
+                    this.drawErrorM(node), d, screenHeightPx, fovYDeg, farScale,
                 )
                 || node.ocean && shouldRefine(
                     ellipsoidSagittaM(node.id), d, screenHeightPx, fovYDeg, 1,

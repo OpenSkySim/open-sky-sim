@@ -8,6 +8,8 @@
         "build:prod": "webpack --mode=production && npm run pack-mods",
         "start": "node tools/dev.mjs",
         "watch": "node tools/watch.mjs",
+        "bake:airports": "node tools/run-python.mjs tools/bake_osm_airports.py",
+        "verify:airports": "node tools/run-python.mjs tools/verify_airports.py",
         "bake:cover": "node tools/run-python.mjs tools/bake_planet_cover.py",
         "fetch:cover": "node tools/run-python.mjs tools/fetch_cover_sources.py",
         "fetch:dem": "node tools/run-python.mjs tools/fetch_planet_dem.py",

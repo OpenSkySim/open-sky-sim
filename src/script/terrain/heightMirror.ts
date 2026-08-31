@@ -136,6 +136,11 @@ export class MirroredHeightField {
         return this.sampler ? this.sampler.geodeticHeightAtEnu(x, northFromSceneZ(z)) : 0;
     }
 
+    /** Height above the ellipsoid of a point in the air — the altimeter's number. */
+    geodeticAltitudeAtWorld(x: number, y: number, z: number): number {
+        return this.sampler ? this.sampler.geodeticAltitudeAtEnu(x, northFromSceneZ(z), y) : y;
+    }
+
     /** Which tier answered. `none` means we have no terrain here at all. */
     tierAtWorld(x: number, z: number): HeightTier {
         return this.sampler ? this.sampler.tierAtEnu(x, northFromSceneZ(z)) : 'none';

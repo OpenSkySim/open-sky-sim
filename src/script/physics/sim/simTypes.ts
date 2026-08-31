@@ -3,7 +3,7 @@ import { AiPilotOptions } from '../../ai/aiPilot';
 import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
 import { AircraftCollisionMesh } from '../../scene/entities/aircraftDef';
-import { SerializedArrestorCables, SerializedWorld } from './serializedWorld';
+import { SerializedArrestorCables, SerializedBarricade, SerializedWorld } from './serializedWorld';
 import { HeightTileUpdate, SerializedHeightField } from '../../terrain/heightMirror';
 
 /**
@@ -165,6 +165,7 @@ export type SimToWorkerMessage =
     | { type: 'setExternalState'; id: string; enabled: boolean; faction: number; position: Vec3; velocity: Vec3; alive: boolean }
     | { type: 'clearExternalState'; id: string }
     | { type: 'step'; delta: number; inputs: Record<string, SimControlInputs> }
+    | { type: 'setBarricades'; barricades: SerializedBarricade[] }
     | { type: 'keyDown'; id: string; key: string; repeat: boolean }
     | { type: 'keyUp'; id: string; key: string }
     | { type: 'setKeyboardLayout'; layoutId: KeyboardControlLayoutId }

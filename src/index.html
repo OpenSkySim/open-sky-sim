@@ -52,12 +52,15 @@
             <select id="aircraft-select"></select>
             <label for="livery-select" id="livery-label">Livery</label>
             <select id="livery-select"></select>
+            <label for="airfield-select" id="airfield-label">Airfield</label>
+            <select id="airfield-select"></select>
             <div id="spawn-actions">
                 <button type="button" id="spawn-approach">Approach (1)</button>
                 <button type="button" id="spawn-runway">Runway (2)</button>
                 <button type="button" id="spawn-headon">Head-on (3)</button>
                 <button type="button" id="spawn-carrier">Carrier land (4)</button>
                 <button type="button" id="spawn-carrier-takeoff">Carrier TO (5)</button>
+                <button type="button" id="spawn-carrier-barricade">Carrier barricade (8)</button>
                 <button type="button" id="spawn-high-alt">10 km (6)</button>
                 <button type="button" id="spawn-space">Space (7)</button>
             </div>
@@ -117,7 +120,9 @@
                 <li><span>3</span>: Head-on spawn</li>
                 <li><span>4</span>: Carrier landing spawn</li>
                 <li><span>5</span>: Carrier takeoff spawn</li>
-                <li><span>6</span>: Space spawn (400 km)</li>
+                <li><span>6</span>: High-altitude spawn (10 km)</li>
+                <li><span>7</span>: Space spawn (400 km)</li>
+                <li><span>8</span>: Carrier barricade spawn (50 m astern of the ramp, net rigged, flying solo)</li>
                 <li>Aircraft list: pick from the combobox in the spawn menu</li>
             </ul>
 
@@ -190,6 +195,18 @@
                     <label for="shadows-ultra">Ultra (16384) &mdash; needs &gt;2 GB VRAM</label>
                 </li>
             </ul>
+
+            <h2>Terrain detail distance</h2>
+            <p style="font-weight:normal;font-size:0.85rem;margin:0 0 0.5rem;color:rgb(184,184,184)">
+                How far out terrain keeps full detail. Past it the far field is
+                drawn coarser, which is where most of the triangles above the
+                horizon go &mdash; lower this if the frame rate is short. The
+                ground you are flying over is never affected. Rightmost is off.
+            </p>
+            <div id="terraindetail-row">
+                <input type="range" id="terraindetail-slider" min="2" max="42" step="2" value="12">
+                <output id="terraindetail-value" for="terraindetail-slider">12 km</output>
+            </div>
 
             <h2>Area</h2>
             <p style="font-weight:normal;font-size:0.85rem;margin:0 0 0.5rem;color:rgb(184,184,184)">

@@ -96,9 +96,10 @@ export function computeIlsDeviation(
     position: THREE.Vector3,
     targetType: string,
     carrierOrigin: { x: number; y: number; z: number } = ARRESTOR_CARRIER_ORIGIN,
+    runway?: ApproachRunway,
 ): IlsDeviation | null {
     if (targetType === 'Airbase') {
-        return airbaseIls(position);
+        return airbaseIls(position, runway);
     }
     if (targetType === 'Carrier') {
         return carrierIls(position, carrierOrigin);
@@ -106,14 +107,45 @@ export function computeIlsDeviation(
     return null;
 }
 
-function airbaseIls(position: THREE.Vector3): IlsDeviation {
-    // Approach along +Z (heading 0); touchdown near the south threshold.
-    const touchZ = AIRBASE_RUNWAY.z - RUNWAY_HALF_LENGTH_M + 200;
-    const centerX = AIRBASE_RUNWAY.x;
-    const distToTouch = Math.max(0, touchZ - position.z);
-    const desiredAlt = distToTouch * ILS_GLIDESLOPE_TAN;
+/** The runway the needles are guiding down. */
+export interface ApproachRunway {
+    center: THREE.Vector3;
+    /** Scene heading (rad) landing on it; 0 faces +Z. */
+    heading: number;
+    halfLength: number;
+}
+
+/** The one runway the sim used to have: heading 0 through the ENU origin. */
+const LEGACY_RUNWAY: ApproachRunway = {
+    center: new THREE.Vector3(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.y, AIRBASE_RUNWAY.z),
+    heading: 0,
+    halfLength: RUNWAY_HALF_LENGTH_M,
+};
+
+/** Touchdown this far past the threshold — the aiming point. */
+const TOUCHDOWN_PAST_THRESHOLD_M = 200;
+
+/**
+ * Airfield ILS, worked in the runway's own frame.
+ *
+ * It used to be worked in world Z because there was one runway and it pointed
+ * along +Z. Real runways point wherever they point, so the deviation is
+ * measured along and across the runway axis instead, and the world-axis version
+ * is what falls out when that axis happens to be north.
+ */
+function airbaseIls(position: THREE.Vector3, runway: ApproachRunway = LEGACY_RUNWAY): IlsDeviation {
+    const fwdX = Math.sin(runway.heading);
+    const fwdZ = Math.cos(runway.heading);
+    const touchX = runway.center.x - fwdX * (runway.halfLength - TOUCHDOWN_PAST_THRESHOLD_M);
+    const touchZ = runway.center.z - fwdZ * (runway.halfLength - TOUCHDOWN_PAST_THRESHOLD_M);
+    // Positive while still short of the aiming point, and clamped so passing it
+    // does not start commanding a climb.
+    const distToTouch = Math.max(
+        0, -((position.x - touchX) * fwdX + (position.z - touchZ) * fwdZ));
+    const desiredAlt = runway.center.y + distToTouch * ILS_GLIDESLOPE_TAN;
     // Right of course → positive lateral; CDI: fly opposite → negate.
-    const lateral = position.x - centerX;
+    const lateral = (position.x - runway.center.x) * fwdZ
+        - (position.z - runway.center.z) * fwdX;
     const altErr = position.y - desiredAlt;
     return {
         localizer: clamp1(-lateral / LOC_FULL_SCALE_M),

@@ -23,12 +23,12 @@ const WINGMAN_ID = 'wing0';
 
 function banditSim(quaternion: THREE.Quaternion = new THREE.Quaternion()): CombatSim {
     const sim = new CombatSim();
-    sim.setWorld(serializeWorld([], [], {
+    sim.setWorld(serializeWorld([], [], [{
         center: new THREE.Vector3(0, 0, 0),
         heading: 0,
         halfLength: 1000,
         halfWidth: 30,
-    }, [], [], []));
+    }], [], [], []));
     sim.addAircraft({
         id: BANDIT_ID,
         faction: Faction.ENEMY,

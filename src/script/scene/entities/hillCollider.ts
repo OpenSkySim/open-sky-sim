@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { HILL_GEOMETRY_Y_ROT } from '../models/lib/mountainModelBuilder';
+import { NO_SURFACE_Y } from './carrierDeck';
 
 /** Analytic cone collider matching lib:hill / lib:mountain geometry. */
 export interface HillCollider {
@@ -55,9 +56,9 @@ function hillMayAffectPoint(worldX: number, worldZ: number, hill: HillCollider):
 /** World Y of the highest hill/mountain surface at (worldX, worldZ), or 0 on flat ground. */
 export function sampleHillSurfaceY(worldX: number, worldZ: number, hills: HillCollider[]): number {
     if (hills.length === 0) {
-        return 0;
+        return NO_SURFACE_Y;
     }
-    let maxY = 0;
+    let maxY = NO_SURFACE_Y;
     for (let i = 0; i < hills.length; i++) {
         const hill = hills[i];
         if (!hillMayAffectPoint(worldX, worldZ, hill)) {

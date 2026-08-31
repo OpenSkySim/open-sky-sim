@@ -1,11 +1,12 @@
 import { KeyboardControlLayoutId } from "../input/devices/keyboardControlDevice";
 import { DEFAULT_SUN_HOURS } from "../scene/materials/shaders/sun";
 import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles, TerrainColours } from "../state/gameDefs";
+import { TERRAIN_DETAIL_DISTANCE_DEFAULT_M } from "../terrain/lod";
 
 const STORAGE_KEY = 'retroflightsim.settings';
 
 /** Spawn menu start modes (approach / runway / merge / carrier / highAlt / space). */
-export type SpawnMode = 'approach' | 'runway' | 'headon' | 'carrier' | 'carrierTakeoff' | 'highAlt' | 'space';
+export type SpawnMode = 'approach' | 'runway' | 'headon' | 'carrier' | 'carrierBarricade' | 'carrierTakeoff' | 'highAlt' | 'space';
 
 export interface AppSettings {
     techProfile: string;
@@ -31,6 +32,16 @@ export interface AppSettings {
      * unknown name falls back to home when the world is built.
      */
     terrainArea: string;
+    /**
+     * Metres out to which terrain keeps full detail; past it the far field
+     * coarsens faster. `null` is the top of the slider, meaning no falloff.
+     *
+     * Stored rather than derived because it is a frame-rate trade the player
+     * makes for their own machine, and the frame-time governor cannot make it
+     * for them: the governor coarsens *everything* when it backs off, which
+     * costs the ground under the aircraft first.
+     */
+    terrainDetailDistanceM: number | null;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -44,6 +55,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     spawnMode: 'headon',
     daytime: DEFAULT_SUN_HOURS,
     terrainArea: '',
+    terrainDetailDistanceM: TERRAIN_DETAIL_DISTANCE_DEFAULT_M,
 };
 
 const TECH_PROFILES = new Set<string>(Object.values(TechProfiles));
@@ -52,7 +64,9 @@ const KEYBOARD_LAYOUTS = new Set<number>(Object.values(KeyboardControlLayoutId).
 const AI_PILOT_MODELS = new Set<string>(Object.values(AiPilotModels));
 const SHADOW_QUALITIES = new Set<string>(Object.values(ShadowQualities));
 const TERRAIN_COLOURS = new Set<string>(Object.values(TerrainColours));
-const SPAWN_MODES = new Set<SpawnMode>(['approach', 'runway', 'headon', 'carrier', 'carrierTakeoff', 'highAlt', 'space']);
+const SPAWN_MODES = new Set<SpawnMode>([
+    'approach', 'runway', 'headon', 'carrier', 'carrierBarricade', 'carrierTakeoff', 'highAlt', 'space',
+]);
 
 export function loadSettings(): AppSettings {
     try {
@@ -74,6 +88,12 @@ export function loadSettings(): AppSettings {
             daytime: isValidDaytime(parsed.daytime) ? parsed.daytime : DEFAULT_SETTINGS.daytime,
             terrainArea: typeof parsed.terrainArea === 'string'
                 ? parsed.terrainArea : DEFAULT_SETTINGS.terrainArea,
+            // null is the top of the slider and a real value, so it cannot be
+            // told from "absent" by falsiness alone.
+            terrainDetailDistanceM: parsed.terrainDetailDistanceM === null
+                || typeof parsed.terrainDetailDistanceM === 'number'
+                ? parsed.terrainDetailDistanceM
+                : DEFAULT_SETTINGS.terrainDetailDistanceM,
         };
     } catch {
         return { ...DEFAULT_SETTINGS };

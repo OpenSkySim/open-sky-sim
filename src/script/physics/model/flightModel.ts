@@ -91,6 +91,20 @@ export abstract class FlightModel {
     /** Whether the debug force-vector snapshot should be produced each step. */
     protected forceVectorsRequested: boolean = false;
 
+    /**
+     * Scene position -> height above the ellipsoid, for the atmosphere.
+     *
+     * The scene is a tangent plane at the play area's origin and the terrain is
+     * drawn curving away from it, so a position's Y is not its altitude except
+     * near that origin: at the edge of a three-degree area sea level sits some
+     * 1.8 km below Y = 0. Feeding raw Y to the ISA model therefore flies the
+     * aircraft through air that is far too dense out there.
+     *
+     * Identity until something wires the terrain in, which is also the right
+     * answer for a flat world — see `HeightSampler.geodeticAltitudeAtEnu`.
+     */
+    private altitudeAt: (x: number, y: number, z: number) => number = (_x, y) => y;
+
     private prevPosition = new THREE.Vector3();
     private prevQuaternion = new THREE.Quaternion();
     private prevVelocity = new THREE.Vector3();
@@ -233,6 +247,17 @@ export abstract class FlightModel {
      */
     setAircraft(_config: Fm2AircraftConfig): void {
         // No-op by default.
+    }
+
+    /** Wire scene Y -> true altitude. See {@link atmosphereAltitudeM}. */
+    setAltitudeAt(fn: (x: number, y: number, z: number) => number): void {
+        this.altitudeAt = fn;
+    }
+
+    /** Height above the ellipsoid of this aircraft — what the atmosphere sees. */
+    protected get atmosphereAltitudeM(): number {
+        const p = this.obj.position;
+        return this.altitudeAt(p.x, p.y, p.z);
     }
 
     setLandingGearDeployed(deployed: boolean) {

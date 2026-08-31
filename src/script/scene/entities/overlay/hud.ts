@@ -83,6 +83,8 @@ export class HUDEntity implements Entity {
 
     private heading: number = 0; // degrees, 0 is North, increases CW
     private altitude: number = 0; // display units (m or ft)
+    /** The same altitude in metres, for the physics readouts that want SI. */
+    private altitudeM: number = 0;
     private renderFps: number = 0;
     private throttle: number = 0; // Normalised percentage [0, 1]
     private speed: number = 0; // display units (km/h or kt)
@@ -153,11 +155,14 @@ export class HUDEntity implements Entity {
         }
         this.lastRenderTime = now;
 
-        const displayPos = this.actor.getDisplayPosition();
         const displayQuat = this.actor.getDisplayQuaternion();
         const displayVel = this.actor.getDisplayVelocity();
 
-        this.altitude = Math.round(this.displayUnits.altitudeFromMeters(displayPos.y) * 10) / 10;
+        // Height above the ellipsoid, not scene Y: the two only agree at the play
+        // area's origin, and diverge by over a kilometre at the edge of a large one.
+        this.altitudeM = this.actor.getDisplayAltitude();
+        this.altitude = Math.round(
+            this.displayUnits.altitudeFromMeters(this.altitudeM) * 10) / 10;
 
         this._v.copy(FORWARD)
             .applyQuaternion(displayQuat)
@@ -177,7 +182,7 @@ export class HUDEntity implements Entity {
             this.velocityDirection.copy(displayVel).normalize();
         }
 
-        this.machNumber = computeMachNumber(displayVel.length(), displayPos.y);
+        this.machNumber = computeMachNumber(displayVel.length(), this.altitudeM);
     }
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
@@ -850,6 +855,7 @@ export class HUDEntity implements Entity {
             this.actor.getDisplayPosition(),
             this.weaponsTarget.targetType,
             this.weaponsTarget.targetType === 'Carrier' ? this.weaponsTarget.position : undefined,
+            this.weaponsTarget.approachRunway,
         );
         if (!dev) return;
 

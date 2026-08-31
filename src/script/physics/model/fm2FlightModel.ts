@@ -304,7 +304,10 @@ export class Fm2FlightModel extends FlightModel {
         this.rb.orientation.copy(this.obj.quaternion);
         this.rb.velocityWorld.copy(this.velocity);
 
-        const altitude = this.obj.position.y;
+        // Height above the ellipsoid, not scene Y: away from the play area's
+        // origin the two differ by up to ~1.8 km, and feeding raw Y to the ISA
+        // model would fly the aircraft through air a fifth too dense out there.
+        const altitude = this.atmosphereAltitudeM;
         const airDensity = computeAirDensity(altitude);
 
         // Body-frame velocity through the air.

@@ -28,13 +28,33 @@ import { DebrisField } from '../scene/entities/debrisField';
 import { DamageSmokeField } from '../scene/entities/damageSmokeField';
 import { GroundTargetEntity } from '../scene/entities/groundTarget';
 import { ActivePlayArea, resolvePlayArea } from '../terrain/playArea';
+import { Airfield, airfieldsInArea } from '../terrain/airfields';
+import {
+    SceneRunway, airfieldChoices, headingForward, pickStartRunway, sceneRunwaysOf,
+} from './activeAirfield';
+import {
+    AIRFIELD_SURFACE_EPS_M, buildAirfieldModel,
+} from '../scene/airfield/airfieldModel';
+import { ecefToEnu, geodeticToEcef, sceneFromEnu } from '../terrain/geodesy';
 import { AreaPicker } from '../osd/areaPicker';
 import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
+import { BarricadeEntity } from '../scene/entities/barricadeEntity';
+import {
+    BarricadeController,
+    BarricadeRig,
+    BarricadeState,
+    barricadeRig,
+    BARRICADE_DECK_LOCAL_Y,
+    BARRICADE_LOCAL_Z,
+    buildBarricadeField,
+    fitBarricadeRig,
+} from '../scene/entities/barricade';
 import { ARRESTOR_CARRIER_ORIGIN, ArrestorCarrierPose } from '../scene/entities/arrestorCables';
 import { ShipWakeEntity } from '../scene/entities/shipWake';
 import {
     CockpitEntity, CockpitMFD1X, CockpitMFD1Y, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize,
 } from '../scene/entities/overlay/cockpit';
+import { ILS_GLIDESLOPE_TAN } from '../scene/entities/overlay/approachAids';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
 import { HUDEntity } from '../scene/entities/overlay/hud';
 import { PerfHudEntity } from '../scene/entities/overlay/perfHud';
@@ -72,7 +92,9 @@ import { TargetToCameraUpdater } from './cameraUpdaters/targetToCameraUpdater';
 import { StaticModelCameraUpdater } from './cameraUpdaters/staticModelCameraUpdater';
 import { ShowcaseCameraUpdater } from './cameraUpdaters/showcaseCameraUpdater';
 import { restoreMainCameraParameters } from './stateUtils';
-import { forEachStaticAircraftSlot, STATIC_MODEL_VIEWS } from './staticModelViews';
+import {
+    StaticModelView, buildStaticModelViews, forEachStaticAircraftSlot,
+} from './staticModelViews';
 import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 import { setBootProgress } from '../osd/bootProgress';
 import { SpawnPanel } from '../osd/spawnPanel';
@@ -86,7 +108,7 @@ import { WeaponsField } from '../scene/entities/weaponsField';
 import { Faction } from '../weapons/combatant';
 import { CombatSimClient } from '../physics/sim/combatSimClient';
 import { SimProxyFlightModel } from '../physics/model/simProxyFlightModel';
-import { serializeWorld, defaultArrestorCableField } from '../physics/sim/serializedWorld';
+import { serializeWorld, defaultArrestorCableField, serializeBarricade } from '../physics/sim/serializedWorld';
 import { HeightFieldSender, MirrorFocus } from '../terrain/heightMirror';
 import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/simTypes';
 import { PLAYER_SIM_ID, WINGMAN_SIM_ID, aiSimId } from '../physics/sim/simIds';
@@ -96,7 +118,7 @@ import {
     isTerrainWireframe, loadTerrainManifest, setTerrainWireframe,
 } from '../terrain';
 import {
-    AIRBASE_LOCAL, TARGET_LOCAL, airbaseOffset, PLAY_ORIGIN, SCENERY_SURFACE_EPS_M,
+    AIRBASE_LOCAL, TARGET_LOCAL, PLAY_ORIGIN, SCENERY_SURFACE_EPS_M,
 } from './worldLayout';
 
 /** How many AI opponents the combat sim spawns. */
@@ -163,6 +185,12 @@ const RUNWAY_STRIP_HALF_LENGTH = RUNWAY_HALF_LENGTH_M + 150;
 const RUNWAY_PAVEMENT_HALF_WIDTH = 40;
 /** Skirt around pad edges blending down to the surrounding ground — no hard vertical lip. */
 const SURFACE_PAD_FEATHER_M = 15;
+/**
+ * How far around an airfield its height tiles are pinned before its taxiways
+ * are draped. Wide enough for the taxiway network of a large field, which
+ * reaches well past the runway strips the bake flattened.
+ */
+const AIRFIELD_GROUND_RADIUS_M = 4000;
 /** Hangar-ground pavement half extent: lib:pavement unit square × scale 200. */
 const HANGAR_GROUND_HALF_M = 100;
 /** Kuznetsov carrier origin — open water (matches {@link ARRESTOR_CARRIER_ORIGIN}). */
@@ -239,6 +267,19 @@ const CARRIER_SPEED_MPS = CARRIER_SPEED_KMH / 3.6;
 
 /** Carrier landing: final toward the ski-jump bow along -Z. */
 const PLAYER_CARRIER_HEADING = Math.PI;
+
+/**
+ * Barricade spawn: in the groove, {@link CARRIER_GROOVE_DISTANCE_M} astern of
+ * the ramp, hook stowed and the net already across the deck. Under a second of
+ * flying, which is the whole point — a hook-failure arrival, with none of the
+ * 2.5 km pattern in front of it.
+ */
+const CARRIER_GROOVE_DISTANCE_M = 50;
+/** Aiming point on the deck: the wires, 30 m forward of the stern (see approachAids). */
+const CARRIER_TOUCHDOWN_FROM_STERN_M = 30;
+/** ~3° glideslope, the same one the ILS needles and the ball are drawn from. */
+const CARRIER_GROOVE_ALTITUDE_M = CARRIER_DECK_Y
+    + (CARRIER_GROOVE_DISTANCE_M + CARRIER_TOUCHDOWN_FROM_STERN_M) * ILS_GLIDESLOPE_TAN;
 
 /** On-deck takeoff: 120 m aft of the bow tip, facing the ski jump (-Z). */
 const CARRIER_TAKEOFF_FROM_BOW_M = 120;
@@ -328,6 +369,36 @@ export class Game {
     private readonly carrierMeshes: CarrierMeshCollider[] = [];
     /** Flat solid surfaces (runway strip, pavement pads); gear rests on them, not the terrain below. */
     private readonly surfacePads: SurfacePadCollider[] = [];
+    /** Every runway of this play area, longest first. Empty on an old pyramid. */
+    private sceneRunways: SceneRunway[] = [];
+    /**
+     * The parked ramp slots, rebuilt once the session's runway is known. Empty
+     * until then, which is before anything can ask to look at one.
+     */
+    private staticModelViews: StaticModelView[] = [];
+    /**
+     * ICAO the player picked in the spawn menu, honoured on the next flight.
+     * Ignored when that airfield is not in the area being flown.
+     */
+    private preferredIcao: string | undefined;
+    /**
+     * The area's main airfield, chosen once at boot.
+     *
+     * The authored furniture — apron, hangars, tower, ramp, ski jump — is laid
+     * out around this one and stays there, because it is placed into the scene
+     * during setup and there is no path to pick it up again.
+     *
+     * Undefined only on a pyramid baked before airfields existed, and then the
+     * authored airbase at the ENU origin stands in for it.
+     */
+    private homeRunway: SceneRunway | undefined;
+    /**
+     * The runway the player launches from: their spawn, their heading, and
+     * where the ILS points by default. Follows the spawn menu's airfield
+     * picker, so it can be somewhere other than {@link homeRunway} — a real
+     * secondary field, with its own drawn pavement and no hangars.
+     */
+    private activeRunway: SceneRunway | undefined;
     /** Static scenery collision soups (hangars, tower, depots...); solid like the carrier deck. */
     private readonly sceneryMeshes: CarrierMeshCollider[] = [];
     /**
@@ -365,11 +436,26 @@ export class Game {
 
     /** Baked area this session flies in; decides the ENU origin and the scenery. */
     private playArea!: ActivePlayArea;
+    /** Edge-detect for {@link captureCrashProbe}. */
+    private wasCrashed = false;
+    private wasLanded = true;
 
     /** Live Kuznetsov entity; cables / trap physics / ILS follow its pose. */
     private kuz: GroundTargetEntity | undefined;
     private readonly syncedCarrierPos = new THREE.Vector3(Number.NaN, Number.NaN, Number.NaN);
     private readonly syncedCarrierQuat = new THREE.Quaternion(Number.NaN, Number.NaN, Number.NaN, Number.NaN);
+    /**
+     * Emergency barricade on the Kuznetsov: raise/lower state plus the one-shot
+     * re-rig rule. Drives both the visual net and the sim's barrier field.
+     */
+    private readonly barricade = new BarricadeController();
+    /** Deploy fraction last handed to the sim worker, so a raise re-syncs it. */
+    private syncedBarricadeDeploy = Number.NaN;
+    /**
+     * Barricade span fitted to the deck under it. Carrier-local, so it does not
+     * change as the ship steams — probed once, then cached.
+     */
+    private barricadeRigFit: BarricadeRig | undefined;
     /** World bow direction and velocity for the steaming carrier. */
     private readonly carrierBowDir = new THREE.Vector3(0, 0, -1);
     private readonly carrierVelocity = new THREE.Vector3();
@@ -494,10 +580,12 @@ export class Game {
         this.spawnPanel = new SpawnPanel(
             (modelIndex) => this.selectAircraftModel(modelIndex),
             (liveryIndex) => this.selectAircraftLivery(liveryIndex),
+            (icao) => this.selectAirfield(icao),
             () => void this.beginFlight('approach'),
             () => void this.beginFlight('runway'),
             () => void this.beginFlight('headon'),
             () => void this.beginFlight('carrier'),
+            () => void this.beginFlight('carrierBarricade'),
             () => void this.beginFlight('carrierTakeoff'),
             () => void this.beginFlight('highAlt'),
             () => void this.beginFlight('space'),
@@ -1183,15 +1271,21 @@ export class Game {
         if (this.playArea === undefined || this.playArea.isHome) {
             return spawn;
         }
-        return spawn === 'carrier' || spawn === 'carrierTakeoff' ? 'runway' : spawn;
+        return spawn === 'carrier' || spawn === 'carrierBarricade' || spawn === 'carrierTakeoff'
+            ? 'runway' : spawn;
     }
 
     private spawnCenterEnu(spawn: SpawnMode): { x: number; z: number } {
         if (spawn === 'runway') {
-            return { x: PLAYER_LAND_POSITION.x, z: PLAYER_LAND_POSITION.z };
+            const p = this.runwaySpawnPosition();
+            return { x: p.x, z: p.z };
         }
         if (spawn === 'carrier') {
             const p = this.carrierApproachSpawnPosition();
+            return { x: p.x, z: p.z };
+        }
+        if (spawn === 'carrierBarricade') {
+            const p = this.carrierBarricadeSpawnPosition();
             return { x: p.x, z: p.z };
         }
         if (spawn === 'carrierTakeoff') {
@@ -1202,10 +1296,11 @@ export class Game {
             };
         }
         if (spawn === 'highAlt' || spawn === 'space') {
-            return { x: AIRBASE_RUNWAY.x, z: AIRBASE_RUNWAY.z };
+            const f = this.spawnFrame;
+            return { x: f.centerX, z: f.centerZ };
         }
         // Approach and head-on.
-        return { x: AIRBASE_RUNWAY.x, z: AIRBASE_RUNWAY.z - LAND_APPROACH_FINAL_M };
+        return this.onRunwayAxis(LAND_APPROACH_FINAL_M);
     }
 
     /** Pin the tiles around the plane so the spawn area cannot be evicted. */
@@ -1270,36 +1365,113 @@ export class Game {
         };
     }
 
+    /**
+     * Where the base is and which way it faces, in scene space.
+     *
+     * The real runway when the bake found one, and otherwise the authored
+     * airbase at the ENU origin — which is what every area had before the
+     * airfields existed, and what an older pyramid still has.
+     */
+    private frameOf(r: SceneRunway | undefined): { centerX: number; centerZ: number;
+        heading: number; halfLength: number; halfWidth: number; slope: number } {
+        return r === undefined
+            ? {
+                centerX: AIRBASE_RUNWAY.x, centerZ: AIRBASE_RUNWAY.z,
+                heading: PLAYER_STARTING_HEADING,
+                halfLength: RUNWAY_HALF_LENGTH_M, halfWidth: RUNWAY_STRIP_HALF_WIDTH,
+                slope: 0,
+            }
+            : {
+                centerX: r.center.x, centerZ: r.center.z, heading: r.heading,
+                halfLength: r.halfLength, halfWidth: r.halfWidth, slope: r.slope,
+            };
+    }
+
+    /** Where the authored furniture stands: the area's main airfield. */
+    private get baseFrame() {
+        return this.frameOf(this.homeRunway);
+    }
+
+    /** True when the airfield the furniture stands on has aprons of its own. */
+    private homeHasRealAprons = false;
+
+    /** Where the player starts and which way they face. */
+    private get spawnFrame() {
+        return this.frameOf(this.activeRunway);
+    }
+
+    /**
+     * A runway-local offset in world XZ: `dx` right of the runway, `dz` along
+     * it.
+     *
+     * The hangars, the tower, the ramp and the Canaries targets are all
+     * authored as offsets from a runway pointing due north, because that is
+     * what the one authored airbase was. A real runway points wherever it
+     * points, so the layout turns with it — otherwise the hangar apron ends up
+     * across the threshold of a runway on 021.
+     */
+    private airbaseAt(dx: number, dz: number): { x: number; z: number } {
+        const f = this.baseFrame;
+        const cos = Math.cos(f.heading);
+        const sin = Math.sin(f.heading);
+        return {
+            x: f.centerX + dx * cos + dz * sin,
+            z: f.centerZ - dx * sin + dz * cos,
+        };
+    }
+
+    /** Which way the runway the player launches from is flown. */
+    private get baseHeading(): number {
+        return this.spawnFrame.heading;
+    }
+
+    /** A point `distance` m before the spawn runway's centre, on its axis. */
+    private onRunwayAxis(distance: number): { x: number; z: number } {
+        const f = this.spawnFrame;
+        const fwd = headingForward(f.heading);
+        return { x: f.centerX - fwd.x * distance, z: f.centerZ - fwd.z * distance };
+    }
+
     /** Runway spawn position; Y matches FM2 gear rest height above local ground. */
     private runwaySpawnPosition(): THREE.Vector3 {
         const gearY = this.currentDef.flight
             ? fm2GroundRestHeight(this.currentDef.flight)
             : PLANE_DISTANCE_TO_GROUND;
-        const pos = PLAYER_LAND_POSITION.clone();
-        pos.y = this.groundHeightAt(pos.x, pos.z) + gearY;
-        return pos;
+        // Lined up at the threshold with the roll-out ahead, whatever the
+        // runway's length: the inset is from the threshold, not from a fixed
+        // point that happened to be inside a 3 km strip.
+        const p = this.onRunwayAxis(this.spawnFrame.halfLength - RUNWAY_SPAWN_INSET_M);
+        return new THREE.Vector3(p.x, this.groundHeightAt(p.x, p.z) + gearY, p.z);
     }
 
     /** Short final toward the runway, AGL above DEM. */
     private landApproachSpawnPosition(): THREE.Vector3 {
-        const x = AIRBASE_RUNWAY.x;
-        const z = AIRBASE_RUNWAY.z - LAND_APPROACH_FINAL_M;
-        const groundY = this.groundHeightAt(x, z);
-        return new THREE.Vector3(x, groundY + APPROACH_ALTITUDE_M, z);
+        const p = this.onRunwayAxis(LAND_APPROACH_FINAL_M);
+        return new THREE.Vector3(
+            p.x, this.groundHeightAt(p.x, p.z) + APPROACH_ALTITUDE_M, p.z);
     }
 
     /** Overhead the airbase at high altitude (10 km AGL). */
     private highAltSpawnPosition(): THREE.Vector3 {
-        const x = AIRBASE_RUNWAY.x;
-        const z = AIRBASE_RUNWAY.z;
-        return new THREE.Vector3(x, this.groundHeightAt(x, z) + HIGH_ALTITUDE_M, z);
+        const f = this.spawnFrame;
+        return new THREE.Vector3(
+            f.centerX, this.groundHeightAt(f.centerX, f.centerZ) + HIGH_ALTITUDE_M, f.centerZ);
     }
 
     /** Overhead the airbase at LEO altitude. */
     private spaceSpawnPosition(): THREE.Vector3 {
-        const x = AIRBASE_RUNWAY.x;
-        const z = AIRBASE_RUNWAY.z;
-        return new THREE.Vector3(x, this.groundHeightAt(x, z) + SPACE_ALTITUDE_M, z);
+        const f = this.spawnFrame;
+        return new THREE.Vector3(
+            f.centerX, this.groundHeightAt(f.centerX, f.centerZ) + SPACE_ALTITUDE_M, f.centerZ);
+    }
+
+    /** Airborne spawn state pointing down the runway at approach speed. */
+    private approachSpawnState(throttle: number | undefined): PlayerSpawnState {
+        return {
+            velocity: headingForward(this.baseHeading).multiplyScalar(APPROACH_SPEED_MPS),
+            throttle: throttle ?? 0,
+            airborne: true,
+        };
     }
 
     /** Highest solid ground Y at (x, z): DEM/flat datum, hills, ski jumps, surface pads, scenery + carrier meshes. */
@@ -1332,6 +1504,98 @@ export class Game {
             sampleCarrierMeshSurfaceYMax(x, z, this.sceneryMeshes),
             sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes),
         );
+    }
+
+    /**
+     * Ground an obstacle cylinder stands on.
+     *
+     * Terrain and pavement only. Deliberately not {@link groundHeightAt},
+     * which maxes in the scenery collision soups — that would read the
+     * building's own roof and lift the cylinder off the top of it.
+     */
+    private obstacleBaseY(x: number, z: number): number {
+        return Math.max(
+            this.planetTerrain.heightAtWorld(x, z),
+            sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
+            sampleSurfacePadYMax(x, z, this.surfacePads),
+        );
+    }
+
+    /**
+     * Dev aid: snapshot the ground surfaces the instant the aircraft is
+     * declared crashed, so `__lastCrash` holds the numbers even though the
+     * moment itself is gone by the time anyone can type. Paired with
+     * {@link groundProbe}, which reads the same thing on demand.
+     */
+    private captureCrashProbe(): void {
+        const crashed = this.player?.isCrashed ?? false;
+        const landed = this.player?.isLanded ?? false;
+        // Two triggers, because "stops in mid-air" is not always a crash: the
+        // sim can equally decide the aircraft is *resting* on a surface that is
+        // not there. Either edge, while the drawn ground is well below, is the
+        // thing worth a snapshot.
+        const edge = (crashed && !this.wasCrashed) || (landed && !this.wasLanded);
+        if (edge) {
+            const probe = this.groundProbe();
+            const above = probe.aboveDrawn as number | null;
+            const suspicious = above !== null && above > 20;
+            (globalThis as Record<string, unknown>).__lastCrash = probe;
+            // Quiet on a normal touchdown; loud only when the aircraft met the
+            // ground well above the ground, which is the bug worth shouting at.
+            if (suspicious) {
+                console.warn('[GROUND CONTACT IN CLEAR AIR]',
+                    crashed ? 'crashed' : 'landed', probe);
+            }
+        }
+        this.wasCrashed = crashed;
+        this.wasLanded = landed;
+    }
+
+    /**
+     * Dev aid: every surface that claims to be the ground under the aircraft,
+     * side by side. Call `__probe()` from the console — with no argument it
+     * reads the player's current position.
+     *
+     * The point is to tell apart the two ways an aircraft can stop in clear
+     * air. If `dem` sits at the aircraft and `drawn` is far below, the mesh on
+     * screen is a coarse parent that has not been replaced yet and physics is
+     * right. If both sit far below, something in `worldGround` — a pad, a
+     * stale carrier or scenery collider — is holding a floor up there.
+     */
+    private groundProbe(at?: { x: number; z: number }): Record<string, unknown> {
+        if (this.planetTerrain === undefined || this.player === undefined) {
+            return { ready: false, note: 'world not built yet - start a flight first' };
+        }
+        const p = this.player.getDisplayPosition();
+        const x = at?.x ?? p.x;
+        const z = at?.z ?? p.z;
+        const dem = this.planetTerrain.heightAtWorld(x, z);
+        const drawn = this.planetTerrain.drawnHeightAtWorld(x, z);
+        const pad = sampleSurfacePadYMax(x, z, this.surfacePads);
+        const ski = sampleSkiJumpSurfaceYMax(x, z, this.skiJumps);
+        const scenery = sampleCarrierMeshSurfaceYMax(x, z, this.sceneryMeshes);
+        const carrier = sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes);
+        const worldGround = this.groundHeightAt(x, z);
+        const fin = (v: number) => (Number.isFinite(v) ? +v.toFixed(1) : null);
+        return {
+            aircraft: { x: +x.toFixed(1), y: +p.y.toFixed(1), z: +z.toFixed(1) },
+            altimeterMsl: +this.planetTerrain.geodeticAltitudeAtWorld(x, p.y, z).toFixed(1),
+            dem: fin(dem),
+            drawn: drawn === undefined ? null : fin(drawn),
+            worldGround: fin(worldGround),
+            aboveDem: +(p.y - dem).toFixed(1),
+            aboveDrawn: drawn === undefined ? null : +(p.y - drawn).toFixed(1),
+            aboveWorldGround: +(p.y - worldGround).toFixed(1),
+            contributors: { pad: fin(pad), skiJump: fin(ski), scenery: fin(scenery), carrier: fin(carrier) },
+            counts: {
+                surfacePads: this.surfacePads.length,
+                skiJumps: this.skiJumps.length,
+                sceneryMeshes: this.sceneryMeshes.length,
+                carrierMeshes: this.carrierMeshes.length,
+            },
+            tier: this.planetTerrain.heights.heightResolutionAtWorld(x, z),
+            area: this.playArea?.area.name,
+        };
     }
 
     /**
@@ -1383,6 +1647,34 @@ export class Game {
             CARRIER_APPROACH_ALTITUDE_M,
             pose.position.z + KUZ_HULL.maxZ + CARRIER_APPROACH_FINAL_DISTANCE_M,
         );
+    }
+
+    /**
+     * Short-final spawn: on the glideslope and centreline, a few seconds astern
+     * of the ramp. Stern Z is taken from the live pose, so it tracks the ship.
+     */
+    private carrierBarricadeSpawnPosition(): THREE.Vector3 {
+        const pose = this.carrierPose();
+        return new THREE.Vector3(
+            pose.position.x + KUZ_DECK_MID_X,
+            pose.position.y + CARRIER_GROOVE_ALTITUDE_M,
+            pose.position.z + KUZ_HULL.maxZ + CARRIER_GROOVE_DISTANCE_M,
+        );
+    }
+
+    /**
+     * Short final, already on the glidepath.
+     *
+     * The 2.5 km spawn starts level and lets the pilot fly the ball down. From
+     * half a second out there is no time for that, so the velocity carries the
+     * sink rate that holds 3° relative to the deck. Sink is scaled by the
+     * closure on the ship, not by groundspeed: the glidepath is drawn on a deck
+     * that is itself moving away.
+     */
+    private carrierBarricadeSpawn(): PlayerSpawnState {
+        const spawn = this.carrierApproachSpawn();
+        spawn.velocity!.y = -APPROACH_SPEED_MPS * ILS_GLIDESLOPE_TAN;
+        return spawn;
     }
 
     /** Approach airspeed in world frame (ship speed + relative groove speed). */
@@ -1474,8 +1766,10 @@ export class Game {
                 this.setCockpitPadlock(false);
             }
             this.updateOrbitFromKeys(delta);
+            this.captureCrashProbe();
             this.recordTelemetry(delta);
             this.advanceCarrier(delta);
+            this.advanceBarricade(delta);
             this.syncCarrierSystems();
             this.scene.update(delta);
             this.pumpCombatSim(delta);
@@ -1490,6 +1784,7 @@ export class Game {
             }
         } else if (this.state === GameState.SPAWN_MENU) {
             this.advanceCarrier(delta);
+            this.advanceBarricade(delta);
             this.syncCarrierSystems();
             this.scene.update(delta);
             this.pumpCombatSim(delta);
@@ -1502,6 +1797,59 @@ export class Game {
         this.carrierBowDir.set(0, 0, -1).applyQuaternion(this.kuz.quaternion);
         this.carrierVelocity.copy(this.carrierBowDir).multiplyScalar(CARRIER_SPEED_MPS);
         this.kuz.position.addScaledVector(this.carrierVelocity, delta);
+    }
+
+    /**
+     * Step the barricade's raise/lower animation, feeding it the sim's live
+     * engagement flag so an arrestment expends the webbing.
+     */
+    private advanceBarricade(delta: number): void {
+        const fm = this.player.getFlightModel();
+        const engaged = fm instanceof SimProxyFlightModel ? fm.getBarricadeEngaged() : false;
+        this.barricade.update(delta, engaged);
+    }
+
+    /**
+     * Barricade rig fitted to the deck. The probe walks the carrier mesh, so it
+     * runs once and is cached — the deck does not move in the ship's own frame.
+     */
+    private barricadeRig(): BarricadeRig {
+        // Probing before the hull soup is baked would find no deck and cache a
+        // permanently unfitted span, so fall back without caching until it is.
+        if (this.carrierMeshes.length === 0) {
+            return barricadeRig();
+        }
+        if (!this.barricadeRigFit) {
+            const pose = this.carrierPose();
+            this.barricadeRigFit = fitBarricadeRig(localX => {
+                const off = new THREE.Vector3(localX, 0, BARRICADE_LOCAL_Z);
+                if (pose.quaternion) off.applyQuaternion(pose.quaternion);
+                return this.groundHeightAt(pose.position.x + off.x, pose.position.z + off.z)
+                    - pose.position.y;
+            });
+        }
+        return this.barricadeRigFit;
+    }
+
+    /** Air-boss control: rig the barricade, or strike it if it is already up. */
+    private toggleBarricade(): void {
+        this.barricade.toggle();
+    }
+
+    /** Barricade status for the HUD/OSD. */
+    getBarricadeState(): BarricadeState {
+        return this.barricade.getState();
+    }
+
+    /** Short HUD label for the ship's barricade; undefined while it is stowed. */
+    private barricadeStatusLabel(): string | undefined {
+        switch (this.barricade.getState()) {
+            case BarricadeState.RAISING: return 'BARR RIG';
+            case BarricadeState.RAISED: return 'BARRICADE';
+            case BarricadeState.LOWERING: return 'BARR DN';
+            case BarricadeState.RERIGGING: return 'BARR OUT';
+            default: return undefined;
+        }
     }
 
     /** Carrier pose for arrestor visuals / latched hook (always live). */
@@ -1524,7 +1872,9 @@ export class Game {
         if (!this.kuz) return;
         const p = this.kuz.position;
         const q = this.kuz.quaternion;
+        const deploy = this.barricade.getDeploy();
         if (
+            deploy === this.syncedBarricadeDeploy &&
             Math.abs(p.x - this.syncedCarrierPos.x) < 1e-4 &&
             Math.abs(p.y - this.syncedCarrierPos.y) < 1e-4 &&
             Math.abs(p.z - this.syncedCarrierPos.z) < 1e-4 &&
@@ -1537,6 +1887,7 @@ export class Game {
         }
         this.syncedCarrierPos.copy(p);
         this.syncedCarrierQuat.copy(q);
+        this.syncedBarricadeDeploy = deploy;
 
         for (const m of this.carrierMeshes) {
             m.originX = p.x;
@@ -1555,6 +1906,11 @@ export class Game {
                 s.b.x - field.originX, s.b.y - field.originY, s.b.z - field.originZ,
             ] as [number, number, number, number, number, number]),
         }]);
+        this.combatSim.setBarricades([serializeBarricade(
+            buildBarricadeField(
+                this.carrierPose(), BARRICADE_DECK_LOCAL_Y, deploy, this.barricadeRig(),
+            ),
+        )]);
         this.combatSim.setCarrierMeshOrigins(
             this.carrierMeshes.map(c => ({
                 originX: c.originX, originY: c.originY, originZ: c.originZ,
@@ -1814,7 +2170,7 @@ export class Game {
     // world UP axis) and `viewPitch` (elevation), keeping the subject centred.
     private orbitCameraAroundAircraft() {
         if (this.view === PlayerViewState.STATIC_MODEL) {
-            this._orbitPivot.copy(STATIC_MODEL_VIEWS[this.staticModelIndex].position);
+            this._orbitPivot.copy(this.staticModelViews[this.staticModelIndex].position);
         } else if (this.view === PlayerViewState.AI_CHASE && this.aiOpponent) {
             this._orbitPivot.copy(this.aiOpponent.getDisplayPosition());
         } else {
@@ -2036,6 +2392,9 @@ export class Game {
             if (event.code === 'KeyR') {
                 event.preventDefault();
                 this.flightRecorder.toggle(this.configService.flightModels.getActiveKey());
+            } else if (event.code === 'KeyK') {
+                event.preventDefault();
+                this.toggleBarricade();
             } else if (event.code === 'KeyV') {
                 event.preventDefault();
                 this.player.setForceVectorsEnabled(!this.player.forceVectorsEnabled);
@@ -2127,6 +2486,10 @@ export class Game {
                     }
                     case '7': {
                         void this.beginFlight('space');
+                        break;
+                    }
+                    case '8': {
+                        void this.beginFlight('carrierBarricade');
                         break;
                     }
                 }
@@ -2292,14 +2655,14 @@ export class Game {
         if (this.view !== PlayerViewState.STATIC_MODEL) {
             this.staticModelIndex = 0;
         } else {
-            this.staticModelIndex = (this.staticModelIndex + 1) % STATIC_MODEL_VIEWS.length;
+            this.staticModelIndex = (this.staticModelIndex + 1) % this.staticModelViews.length;
         }
         this.setStaticModelView(this.staticModelIndex);
     }
 
     private setStaticModelView(index: number) {
         restoreMainCameraParameters(this.playerCamera.main);
-        const entry = STATIC_MODEL_VIEWS[index];
+        const entry = this.staticModelViews[index];
         this.staticModelCameraUpdater.setTarget(entry.position, entry.heading);
         this.setExteriorView(PlayerViewState.STATIC_MODEL);
     }
@@ -2356,7 +2719,7 @@ export class Game {
         this.refreshAircraftMenu();
         this.spawnPanel.show();
 
-        this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
+        this.player.reset(this.runwaySpawnPosition(), this.baseHeading, PLAYER_LAND_SPAWN);
         this.damageSmoke?.reset();
         this.setCockpitFrontView();
     }
@@ -2378,14 +2741,33 @@ export class Game {
         this.spawnMenu.enabled = false;
         this.spawnPanel.hide();
         this.damageSmoke?.reset();
+        // Fresh sortie: the deck crew has struck and re-rigged the barricade —
+        // except for the barricade spawn, which begins with it already across
+        // the deck, since it starts inside the groove.
+        this.barricade.reset();
+        if (spawn === 'carrierBarricade') {
+            this.barricade.rigImmediately();
+        }
+
+        // Warm DEM/meshes *before* the plane is placed: the sim worker keeps
+        // stepping through this await, and a spawn half a second from the ramp
+        // would otherwise spend its whole groove waiting for tiles.
+        const center = this.spawnCenterEnu(spawn);
+        await this.preloadTerrainAroundPlane(center.x, center.z, spawn);
 
         if (spawn === 'runway') {
-            this.player.reset(this.runwaySpawnPosition(), PLAYER_LAND_HEADING, PLAYER_LAND_SPAWN);
+            this.player.reset(this.runwaySpawnPosition(), this.baseHeading, PLAYER_LAND_SPAWN);
         } else if (spawn === 'carrier') {
             this.player.reset(
                 this.carrierApproachSpawnPosition(),
                 PLAYER_CARRIER_HEADING,
                 this.carrierApproachSpawn(),
+            );
+        } else if (spawn === 'carrierBarricade') {
+            this.player.reset(
+                this.carrierBarricadeSpawnPosition(),
+                PLAYER_CARRIER_HEADING,
+                this.carrierBarricadeSpawn(),
             );
         } else if (spawn === 'carrierTakeoff') {
             this.player.reset(
@@ -2394,17 +2776,24 @@ export class Game {
                 this.carrierTakeoffSpawn(),
             );
         } else if (spawn === 'highAlt') {
-            this.player.reset(this.highAltSpawnPosition(), PLAYER_STARTING_HEADING, PLAYER_SPACE_SPAWN);
+            this.player.reset(this.highAltSpawnPosition(), this.baseHeading,
+                this.approachSpawnState(PLAYER_SPACE_SPAWN.throttle));
         } else if (spawn === 'space') {
-            this.player.reset(this.spaceSpawnPosition(), PLAYER_STARTING_HEADING, PLAYER_SPACE_SPAWN);
+            this.player.reset(this.spaceSpawnPosition(), this.baseHeading,
+                this.approachSpawnState(PLAYER_SPACE_SPAWN.throttle));
         } else {
             // Approach and head-on both start on a short final toward the runway.
-            this.player.reset(this.landApproachSpawnPosition(), PLAYER_STARTING_HEADING, PLAYER_APPROACH_SPAWN);
+            this.player.reset(this.landApproachSpawnPosition(), this.baseHeading,
+                this.approachSpawnState(PLAYER_APPROACH_SPAWN.throttle));
         }
-        // Warm DEM/meshes around the live spawn (covers menu respawns too).
-        await this.preloadTerrainAroundPlane(this.player.position.x, this.player.position.z, spawn);
-        this.spawnOpponent(spawn === 'headon');
-        this.spawnWingman();
+        if (spawn === 'carrierBarricade') {
+            // A barricade arrival is a deck exercise, not a sortie: an opponent
+            // spawned a few hundred metres ahead would be inside the ship.
+            this.clearOtherAircraft();
+        } else {
+            this.spawnOpponent(spawn === 'headon');
+            this.spawnWingman();
+        }
         this.setCockpitFrontView();
         if (this.aiOpponent?.enabled) {
             this.player.setWeaponsTarget(this.aiOpponent);
@@ -2418,15 +2807,27 @@ export class Game {
      */
     private setupCombat() {
         this.obstacles.length = 0;
+        // The cylinder stands on the ground, not on Y = 0. Those are the same
+        // point only at the play area's origin: scene Y is up from the tangent
+        // plane there, so the ground falls away from it with distance and a
+        // cylinder pinned to zero floats. At the Canaries airfield that put the
+        // hangars a few tens of metres up; at a Crimean one, over a hundred —
+        // an invisible column near every airbase that stopped an aircraft in
+        // clear air. Same root as the altimeter reading raw Y: Y = 0 is not
+        // the ground.
         const addObstacle = (x: number, z: number, radius: number, height: number) =>
-            this.obstacles.push({ position: new THREE.Vector3(x, 0, z), radius, height });
+            this.obstacles.push({
+                position: new THREE.Vector3(x, this.obstacleBaseY(x, z), z),
+                radius,
+                height,
+            });
         // Airbase hangars + control tower — placed wherever the airbase is.
         {
-            const h1 = airbaseOffset(AIRBASE_LOCAL.hangar1.x, AIRBASE_LOCAL.hangar1.z);
-            const h2 = airbaseOffset(AIRBASE_LOCAL.hangar2.x, AIRBASE_LOCAL.hangar2.z);
-            const h3 = airbaseOffset(AIRBASE_LOCAL.hangar3.x, AIRBASE_LOCAL.hangar3.z);
-            const h4 = airbaseOffset(AIRBASE_LOCAL.hangar4.x, AIRBASE_LOCAL.hangar4.z);
-            const tw = airbaseOffset(AIRBASE_LOCAL.tower.x, AIRBASE_LOCAL.tower.z);
+            const h1 = this.airbaseAt(AIRBASE_LOCAL.hangar1.x, AIRBASE_LOCAL.hangar1.z);
+            const h2 = this.airbaseAt(AIRBASE_LOCAL.hangar2.x, AIRBASE_LOCAL.hangar2.z);
+            const h3 = this.airbaseAt(AIRBASE_LOCAL.hangar3.x, AIRBASE_LOCAL.hangar3.z);
+            const h4 = this.airbaseAt(AIRBASE_LOCAL.hangar4.x, AIRBASE_LOCAL.hangar4.z);
+            const tw = this.airbaseAt(AIRBASE_LOCAL.tower.x, AIRBASE_LOCAL.tower.z);
             addObstacle(h1.x, h1.z, 45, 22);
             addObstacle(h2.x, h2.z, 45, 22);
             addObstacle(h3.x, h3.z, 45, 22);
@@ -2435,26 +2836,39 @@ export class Game {
         }
         // Scenario scenery: only where it was actually placed.
         if (this.playArea.isHome) {
-            const ref = airbaseOffset(TARGET_LOCAL.refinery.x, TARGET_LOCAL.refinery.z);
+            const ref = this.airbaseAt(TARGET_LOCAL.refinery.x, TARGET_LOCAL.refinery.z);
             addObstacle(ref.x, ref.z, 70, 60);
-            const sam = airbaseOffset(TARGET_LOCAL.sam.x, TARGET_LOCAL.sam.z);
+            const sam = this.airbaseAt(TARGET_LOCAL.sam.x, TARGET_LOCAL.sam.z);
             addObstacle(sam.x, sam.z, 20, 25);
-            const wh = airbaseOffset(TARGET_LOCAL.warehouse.x, TARGET_LOCAL.warehouse.z);
+            const wh = this.airbaseAt(TARGET_LOCAL.warehouse.x, TARGET_LOCAL.warehouse.z);
             addObstacle(wh.x, wh.z, 45, 22);
         }
 
-        const runway: Runway = {
-            center: AIRBASE_RUNWAY.clone(),
-            heading: PLAYER_STARTING_HEADING,
-            halfLength: RUNWAY_HALF_LENGTH_M,
-            halfWidth: RUNWAY_STRIP_HALF_WIDTH,
-        };
+        // The AI is handed every runway in the area, with the one this session
+        // is based at first: `runway()` means "the main one" and a pilot picks
+        // its own by proximity. On a pyramid with no airfields this is the
+        // authored airbase, exactly as it always was.
+        const runways: Runway[] = this.sceneRunways.length > 0
+            ? [...this.sceneRunways]
+                .sort((a, b) => Number(b === this.activeRunway) - Number(a === this.activeRunway))
+                .map(r => ({
+                    center: r.center.clone(),
+                    heading: r.heading,
+                    halfLength: r.halfLength,
+                    halfWidth: r.halfWidth,
+                }))
+            : [{
+                center: AIRBASE_RUNWAY.clone(),
+                heading: PLAYER_STARTING_HEADING,
+                halfLength: RUNWAY_HALF_LENGTH_M,
+                halfWidth: RUNWAY_STRIP_HALF_WIDTH,
+            }];
 
         // Hand the static world (terrain hills, ski jump, carrier deck, obstacles, runway)
         // to the sim worker so its AI pilots can navigate; then register the player as a
         // sim-owned aircraft (its physics + gun + autopilot all live there).
         this.combatSim.setWorld(serializeWorld(
-            [], this.obstacles, runway, this.skiJumps, this.carrierMeshes,
+            [], this.obstacles, runways, this.skiJumps, this.carrierMeshes,
             (() => {
                 const pose = this.carrierPose();
                 return [defaultArrestorCableField(
@@ -2463,6 +2877,10 @@ export class Game {
             })(),
             this.surfacePads,
             this.sceneryMeshes,
+            [buildBarricadeField(
+                this.carrierPose(), BARRICADE_DECK_LOCAL_Y, this.barricade.getDeploy(),
+                this.barricadeRig(),
+            )],
         ));
         this.startHeightFieldMirror();
         this.combatSim.addAircraft({
@@ -2482,6 +2900,8 @@ export class Game {
         this.player.setCombatSimClient(this.combatSim);
         this.player.setHasGun(true);
         this.player.setGroundHeightAt((x, z) => this.drawnGroundHeightAt(x, z));
+        this.player.setAltitudeAt(
+            (x, y, z) => this.planetTerrain.geodeticAltitudeAtWorld(x, y, z));
 
         // The weapons field is now a pure renderer of the worker's projectile pool.
         this.weaponsField = new WeaponsField(this.models, this.combatSim);
@@ -2518,12 +2938,13 @@ export class Game {
                 aiSimId(i),
                 Faction.ENEMY,
                 {
-                    position: PLAYER_STARTING_POSITION.clone().add(
-                        FORWARD.clone().applyAxisAngle(UP, PLAYER_STARTING_HEADING).multiplyScalar(AI_SPAWN_DISTANCE_M)),
-                    heading: PLAYER_STARTING_HEADING,
+                    position: this.landApproachSpawnPosition().add(
+                        headingForward(this.baseHeading).multiplyScalar(AI_SPAWN_DISTANCE_M)),
+                    heading: this.baseHeading,
                     airborne: true,
                     throttle: PLAYER_APPROACH_SPAWN.throttle,
-                    velocity: PLAYER_APPROACH_SPAWN.velocity!.clone(),
+                    velocity: this.approachSpawnState(
+                        PLAYER_APPROACH_SPAWN.throttle).velocity!.clone(),
                 },
                 this.materials,
                 PLAYER_GUN,
@@ -2548,12 +2969,14 @@ export class Game {
             WINGMAN_SIM_ID,
             Faction.PLAYER,
             {
-                position: PLAYER_STARTING_POSITION.clone().add(
-                    RIGHT.clone().applyAxisAngle(UP, PLAYER_STARTING_HEADING).multiplyScalar(FORMATION_SLOT.side)),
-                heading: PLAYER_STARTING_HEADING,
+                position: this.landApproachSpawnPosition().add(
+                    RIGHT.clone().applyAxisAngle(UP, this.baseHeading)
+                        .multiplyScalar(FORMATION_SLOT.side)),
+                heading: this.baseHeading,
                 airborne: true,
                 throttle: PLAYER_APPROACH_SPAWN.throttle,
-                velocity: PLAYER_APPROACH_SPAWN.velocity!.clone(),
+                velocity: this.approachSpawnState(
+                    PLAYER_APPROACH_SPAWN.throttle).velocity!.clone(),
             },
             this.materials,
             PLAYER_GUN,
@@ -2602,6 +3025,21 @@ export class Game {
      * Spawn/enable AI opponents at the player's altitude/speed.
      * Same-heading: ahead on the player's nose. Head-on: ahead facing the player.
      */
+    /** Empty sky: park every AI airframe and drop the player's autopilot target. */
+    private clearOtherAircraft(): void {
+        for (const ai of this.aiOpponents) {
+            ai.enabled = false;
+            this.combatSim.setEnabled(ai.simId, false);
+        }
+        if (this.wingman) {
+            this.wingman.enabled = false;
+            this.combatSim.setEnabled(this.wingman.simId, false);
+        }
+        this.aiStraightTimer = 0;
+        this.combatSim.setTarget(PLAYER_SIM_ID, null);
+        this.player.setWeaponsTarget(undefined);
+    }
+
     private spawnOpponent(headOn = false) {
         if (this.aiOpponents.length === 0) {
             return;
@@ -2814,6 +3252,7 @@ export class Game {
             materials: this.materials,
             enuOrigin: this.playArea.origin,
             terrainColour: this.configService.terrainColour,
+            terrainDetail: this.configService.terrainDetail,
         });
         await this.planetTerrain.load(DEFAULT_TERRAIN_URL);
         this.planetTerrain.setLodCamera(this.playerCamera.main);
@@ -2825,10 +3264,18 @@ export class Game {
         // the re-mesh it forced were the slowest step in the old boot.
         await this.preloadTerrainAroundPlane(center.x, center.z, spawn);
         setBootProgress(50, 'Building terrain meshes...');
-        // The airbase goes wherever the bake flattened a pad for it, which is
-        // every area: local ENU (0, 0) is the pad centre by construction, and
-        // that is exactly what airbaseOffset measures from.
-        setBootProgress(60, 'Loading airbase...');
+        // The airbase furniture goes around whichever runway this session is
+        // based at, turned to its heading — see airbaseAt.
+        // Airfields first: the runway this session is based at decides where
+        // the spawns are, which way the ILS points, and where the hangars and
+        // the ramp go — so it has to be chosen before any of that is placed.
+        setBootProgress(60, 'Loading airfields...');
+        this.surfacePads.length = 0;
+        this.sceneryMeshes.length = 0;
+        this.stagedSceneryMeshes.length = 0;
+        await this.addOsmAirfields(this.scene);
+
+        setBootProgress(68, 'Loading airbase...');
         await this.addAirBase(this.scene, this.models);
 
         // The rest is the Canaries scenario rather than the airfield — a
@@ -2841,7 +3288,7 @@ export class Game {
 
             const samradar = new GroundTargetEntity(this.models.getModel('assets/samradar01.glb'), 0, 'SAM Radar', 'Stosneehar');
             {
-                const p = airbaseOffset(TARGET_LOCAL.sam.x, TARGET_LOCAL.sam.z);
+                const p = this.airbaseAt(TARGET_LOCAL.sam.x, TARGET_LOCAL.sam.z);
                 samradar.position.set(p.x, this.groundHeightMaxUnder(p.x, p.z, 25, 25), p.z);
             }
             this.scene.add(samradar);
@@ -2849,7 +3296,7 @@ export class Game {
 
             const warehouse = new GroundTargetEntity(this.models.getModel('assets/hangar01.gltf'), undefined, 'Warehouse', 'Radlydd');
             {
-                const p = airbaseOffset(TARGET_LOCAL.warehouse.x, TARGET_LOCAL.warehouse.z);
+                const p = this.airbaseAt(TARGET_LOCAL.warehouse.x, TARGET_LOCAL.warehouse.z);
                 warehouse.position.set(p.x, this.groundHeightMaxUnder(p.x, p.z, 30, 40), p.z);
             }
             warehouse.quaternion.setFromAxisAngle(UP, Math.PI / 2);
@@ -2885,8 +3332,131 @@ export class Game {
         this.scene.add(this.perfHud);
     }
 
+    /**
+     * Draw every airfield the bake found in this area.
+     *
+     * The terrain under each was already cut to its own plane by the mesh bake,
+     * so the pavement here is laid on that same plane and the two agree by
+     * construction rather than by both being roughly flat.
+     *
+     * A runway also becomes solid ground. Its collider is fitted to the drawn
+     * surface rather than derived from the plane: sampling the pavement at
+     * three points and taking the line through them folds in both the runway's
+     * slope and the first-order curvature of the earth falling away from the
+     * play origin, which over a 3 km strip is metres.
+     */
+    private async addOsmAirfields(scene: Scene): Promise<void> {
+        const file = await this.planetTerrain.loadAirfields();
+        const here = airfieldsInArea(file, this.playArea.area.name);
+        this.sceneRunways = sceneRunwaysOf(
+            here, this.planetTerrain.basis, AIRFIELD_SURFACE_EPS_M);
+        this.homeRunway = pickStartRunway(this.sceneRunways);
+        this.activeRunway = pickStartRunway(this.sceneRunways, this.preferredIcao);
+        const homeField = this.homeRunway === undefined
+            ? undefined
+            : here.find(a => a.icao === this.homeRunway!.icao
+                && a.name === this.homeRunway!.name);
+        this.homeHasRealAprons = (homeField?.aprons.length ?? 0) > 0;
+        if (here.length === 0) {
+            return;
+        }
+        // The ground under the taxiways has to be readable before they can be
+        // draped on it, and an airfield two hundred kilometres away has none of
+        // its height tiles resident at boot. Pinned per airfield rather than
+        // for the whole area: they can be a degree apart.
+        for (const runway of this.sceneRunways) {
+            if (runway.primary) {
+                await this.planetTerrain.heights.ensureLoadedAroundWorld(
+                    runway.center.x, -runway.center.z, AIRFIELD_GROUND_RADIUS_M);
+            }
+        }
+        // Elevation of the real ground, which inside a runway's pad is the
+        // airfield's own plane and outside it is whatever is there.
+        const groundElevationAt = (e: number, n: number) =>
+            this.planetTerrain.heights.geodeticHeightAtWorld(e, -n);
+
+        for (const airfield of here) {
+            const built = buildAirfieldModel(
+                airfield, this.planetTerrain.basis, this.materials, groundElevationAt);
+            if (built === undefined) {
+                continue;
+            }
+            // A weapons target rather than plain scenery: an airfield is what
+            // the ILS needles guide to, and picking one as a target is how the
+            // player asks for them.
+            const entity = new GroundTargetEntity(
+                built.model, undefined, 'Airbase', airfield.icao || airfield.name);
+            entity.position.copy(built.origin);
+            const primary = this.sceneRunways.find(
+                r => r.primary && r.icao === airfield.icao && r.name === airfield.name);
+            if (primary !== undefined) {
+                entity.approachRunway = {
+                    center: primary.center.clone(),
+                    heading: primary.heading,
+                    halfLength: primary.halfLength,
+                };
+            }
+            scene.add(entity);
+        }
+        for (const runway of this.sceneRunways) {
+            this.addRunwayPad(runway);
+        }
+        const active = this.activeRunway;
+        console.log(`airfields: ${here.length} in "${this.playArea.area.name}", `
+            + `${this.sceneRunways.length} runways`
+            + (active ? `; based at ${active.icao || active.name} ${active.ref}` : ''));
+        // Dev aid, alongside __terrain: the pavement is laid on the same plane
+        // the terrain under it was cut to, and the only way to see whether
+        // those two agree is to read the numbers back.
+        (globalThis as Record<string, unknown>).__airfields = here;
+        (globalThis as Record<string, unknown>).__runways = this.sceneRunways;
+        this.spawnPanel.setAirfields(
+            airfieldChoices(this.sceneRunways),
+            active ? (active.icao || active.name) : undefined);
+    }
+
+    /**
+     * Base the next flight at another airfield.
+     *
+     * Only the choice is recorded here. Everything derived from it — the
+     * spawns, the hangars, the ILS, where the AI comes home to — is rebuilt on
+     * the next `beginFlight`, because moving them under an aircraft that is
+     * already flying would teleport the world around it.
+     */
+    private selectAirfield(icao: string): void {
+        if (this.preferredIcao === icao) {
+            return;
+        }
+        this.preferredIcao = icao;
+        const picked = pickStartRunway(this.sceneRunways, icao);
+        if (picked !== undefined) {
+            this.activeRunway = picked;
+        }
+    }
+
+    /**
+     * Solid, sloping ground over one runway's pavement.
+     *
+     * The collider comes from the same three sampled points the drawn pavement
+     * and the scene heading do, so the gear rests on the surface that is
+     * visible rather than on a plane fitted separately to the same idea.
+     */
+    private addRunwayPad(runway: SceneRunway): void {
+        this.surfacePads.push({
+            centerX: runway.center.x,
+            centerZ: runway.center.z,
+            heading: runway.heading,
+            halfLength: runway.halfLength,
+            halfWidth: runway.halfWidth,
+            surfaceY: runway.center.y,
+            baseY: runway.center.y - AIRFIELD_SURFACE_EPS_M,
+            feather: SURFACE_PAD_FEATHER_M,
+            slope: runway.slope,
+        });
+    }
+
     private async addRefinery(scene: Scene, models: ModelManager) {
-        const base = airbaseOffset(TARGET_LOCAL.refinery.x, TARGET_LOCAL.refinery.z);
+        const base = this.airbaseAt(TARGET_LOCAL.refinery.x, TARGET_LOCAL.refinery.z);
         const x = base.x;
         const z = base.z;
         const yAt = (px: number, pz: number, halfW = 40, halfD = 40) =>
@@ -2962,46 +3532,64 @@ export class Game {
         this.stagedSceneryMeshes.length = 0;
     }
 
+    /**
+     * The furniture around the session's runway: apron, hangars, tower, ramp.
+     *
+     * The collider lists are cleared by the caller rather than here, because
+     * the airfields are placed first and their runway pads must survive.
+     */
     private async addAirBase(scene: Scene, models: ModelManager) {
-        this.surfacePads.length = 0;
-        this.sceneryMeshes.length = 0;
-        this.stagedSceneryMeshes.length = 0;
+        this.staticModelViews = buildStaticModelViews({
+            at: (dx, dz) => this.airbaseAt(dx, dz),
+            heading: this.baseFrame.heading,
+        });
         const yAt = (px: number, pz: number, halfW = 40, halfD = 40) =>
             this.groundHeightMaxUnder(px, pz, halfW, halfD);
         const place = (dx: number, dz: number, halfW = 40, halfD = 40) => {
-            const p = airbaseOffset(dx, dz);
+            const p = this.airbaseAt(dx, dz);
             return { x: p.x, y: yAt(p.x, p.z, halfW, halfD), z: p.z };
         };
 
-        const hangarGround1 = new StaticSceneryEntity(models.getModel('lib:pavement'), 5);
-        {
-            const p = place(AIRBASE_LOCAL.hangarGround1.x, AIRBASE_LOCAL.hangarGround1.z, 100, 100);
-            hangarGround1.position.set(p.x, p.y + SCENERY_SURFACE_EPS_M, p.z);
-            this.addSurfacePad(p.x, p.z, 0, HANGAR_GROUND_HALF_M, HANGAR_GROUND_HALF_M, p.y + SCENERY_SURFACE_EPS_M, p.y);
-        }
-        hangarGround1.scale.set(200, 1, 200);
-        scene.add(hangarGround1);
+        const baseHeading = this.baseFrame.heading;
+        // The authored apron is two 200 m squares of pavement either side of
+        // the runway, invented because the one airbase had no real ones. A
+        // field that OSM maps aprons for has its own, at their own size and
+        // shape, already drawn — and the squares then sit on top of them as
+        // two grey rectangles that belong to nothing.
+        const apron = this.homeHasRealAprons ? () => { } : (local: { x: number; z: number }) => {
+            const ground = new StaticSceneryEntity(models.getModel('lib:pavement'), 5);
+            const p = place(local.x, local.z, 100, 100);
+            ground.position.set(p.x, p.y + SCENERY_SURFACE_EPS_M, p.z);
+            ground.quaternion.setFromAxisAngle(UP, baseHeading);
+            ground.scale.set(200, 1, 200);
+            this.addSurfacePad(
+                p.x, p.z, baseHeading, HANGAR_GROUND_HALF_M, HANGAR_GROUND_HALF_M,
+                p.y + SCENERY_SURFACE_EPS_M, p.y);
+            scene.add(ground);
+        };
+        apron(AIRBASE_LOCAL.hangarGround1);
+        apron(AIRBASE_LOCAL.hangarGround2);
 
-        const hangarGround2 = new StaticSceneryEntity(models.getModel('lib:pavement'), 5);
-        {
-            const p = place(AIRBASE_LOCAL.hangarGround2.x, AIRBASE_LOCAL.hangarGround2.z, 100, 100);
-            hangarGround2.position.set(p.x, p.y + SCENERY_SURFACE_EPS_M, p.z);
-            this.addSurfacePad(p.x, p.z, 0, HANGAR_GROUND_HALF_M, HANGAR_GROUND_HALF_M, p.y + SCENERY_SURFACE_EPS_M, p.y);
+        // The authored runway model, only where the bake found no real one.
+        //
+        // It is a 3 km strip of pavement at the ENU origin with no relation to
+        // anything on the ground, which is exactly what it was for while the
+        // world had one invented airbase in it. Draw it beside a real GCLP and
+        // it is a second airport in a field eight kilometres north.
+        if (this.homeRunway === undefined) {
+            const runway = new GroundTargetEntity(
+                models.getModel('assets/runway01.gltf'), 0, 'Airbase', 'Stosneehar');
+            runway.position.copy(AIRBASE_RUNWAY);
+            const runwayPadY = yAt(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z, 80, 900);
+            runway.position.y = runwayPadY + SCENERY_SURFACE_EPS_M;
+            scene.add(runway);
+            // The pavement is solid ground: gear rests on its top, not the pad below.
+            this.addSurfacePad(
+                AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z, PLAYER_STARTING_HEADING,
+                RUNWAY_HALF_LENGTH_M, RUNWAY_PAVEMENT_HALF_WIDTH,
+                runway.position.y, runwayPadY,
+            );
         }
-        hangarGround2.scale.set(200, 1, 200);
-        scene.add(hangarGround2);
-
-        const runway = new GroundTargetEntity(models.getModel('assets/runway01.gltf'), 0, 'Airbase', 'Stosneehar');
-        runway.position.copy(AIRBASE_RUNWAY);
-        const runwayPadY = yAt(AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z, 80, 900);
-        runway.position.y = runwayPadY + SCENERY_SURFACE_EPS_M;
-        scene.add(runway);
-        // The pavement is solid ground: gear/physics rest on its top, not the pad below.
-        this.addSurfacePad(
-            AIRBASE_RUNWAY.x, AIRBASE_RUNWAY.z, PLAYER_STARTING_HEADING,
-            RUNWAY_HALF_LENGTH_M, RUNWAY_PAVEMENT_HALF_WIDTH,
-            runway.position.y, runwayPadY,
-        );
 
         // The carrier and its cables need open water ten kilometres east, which
         // is a fact about Gran Canaria and not about airbases. An imported area
@@ -3016,6 +3604,8 @@ export class Game {
         await this.models.waitForModel('assets/kuz.glb');
         const kuzModel = models.getModel('assets/kuz.glb');
         this.carrierMeshes.length = 0;
+        // New hull under the barricade: the span has to be re-fitted to it.
+        this.barricadeRigFit = undefined;
         const kuzCollision = bakeCollisionMeshFromModel(kuzModel);
         if (kuzCollision) {
             this.carrierMeshes.push(createCarrierMeshCollider(
@@ -3038,6 +3628,18 @@ export class Game {
         );
         scene.add(arrestorCables);
         this.player.setArrestorCarrierPoseProvider(() => this.carrierPose());
+        this.player.setBarricadeStatusProvider(() => this.barricadeStatusLabel());
+
+        const barricade = new BarricadeEntity(
+            this.materials,
+            () => this.carrierPose(),
+            () => this.player,
+            () => this.barricade.getDeploy(),
+            (x, z) => this.groundHeightAt(x, z),
+            () => this.currentDef?.collisionMesh,
+            () => this.barricadeRig(),
+        );
+        scene.add(barricade);
 
         const shipWake = new ShipWakeEntity(this.materials, () => this.carrierPose());
         scene.add(shipWake);
@@ -3045,19 +3647,23 @@ export class Game {
         // Carrier-style ski jump 90 m ahead of the runway spawn, rising toward +Z (takeoff).
         this.skiJumps.length = 0;
         const skiJumpAheadM = 90;
-        const skiJumpOrigin = PLAYER_LAND_POSITION.clone().setY(0).add(
-            FORWARD.clone().applyAxisAngle(UP, PLAYER_LAND_HEADING).multiplyScalar(skiJumpAheadM),
-        );
+        const home = this.baseFrame;
+        const skiJumpHeading = home.heading;
+        const fwd = headingForward(skiJumpHeading);
+        // Ninety metres past where an aircraft lines up on the home runway.
+        const fromCentre = home.halfLength - RUNWAY_SPAWN_INSET_M - skiJumpAheadM;
+        const skiJumpOrigin = new THREE.Vector3(
+            home.centerX - fwd.x * fromCentre, 0, home.centerZ - fwd.z * fromCentre);
         skiJumpOrigin.y = yAt(skiJumpOrigin.x, skiJumpOrigin.z, 30, 40);
         this.skiJumps.push(createSkiJumpCollider(
             skiJumpOrigin.x,
             skiJumpOrigin.y,
             skiJumpOrigin.z,
-            PLAYER_LAND_HEADING,
+            skiJumpHeading,
         ));
         const skiJump = new StaticSceneryEntity(models.getModel('lib:skiJump'));
         skiJump.position.copy(skiJumpOrigin);
-        skiJump.quaternion.setFromAxisAngle(UP, PLAYER_LAND_HEADING);
+        skiJump.quaternion.setFromAxisAngle(UP, skiJumpHeading);
         scene.add(skiJump);
 
         const hangar1 = new StaticSceneryEntity(models.getModel('assets/hangar01.gltf'));
@@ -3065,7 +3671,7 @@ export class Game {
             const p = place(AIRBASE_LOCAL.hangar1.x, AIRBASE_LOCAL.hangar1.z, 40, 50);
             hangar1.position.set(p.x, p.y, p.z);
         }
-        hangar1.quaternion.setFromAxisAngle(UP, Math.PI / 2);
+        hangar1.quaternion.setFromAxisAngle(UP, baseHeading + Math.PI / 2);
         scene.add(hangar1);
         await this.addSolidSceneryMesh('assets/hangar01.gltf', hangar1);
 
@@ -3074,7 +3680,7 @@ export class Game {
             const p = place(AIRBASE_LOCAL.hangar2.x, AIRBASE_LOCAL.hangar2.z, 40, 50);
             hangar2.position.set(p.x, p.y, p.z);
         }
-        hangar2.quaternion.setFromAxisAngle(UP, Math.PI / 2);
+        hangar2.quaternion.setFromAxisAngle(UP, baseHeading + Math.PI / 2);
         scene.add(hangar2);
         await this.addSolidSceneryMesh('assets/hangar01.gltf', hangar2);
 
@@ -3083,7 +3689,7 @@ export class Game {
             const p = place(AIRBASE_LOCAL.hangar3.x, AIRBASE_LOCAL.hangar3.z, 40, 50);
             hangar3.position.set(p.x, p.y, p.z);
         }
-        hangar3.quaternion.setFromAxisAngle(UP, Math.PI / 2);
+        hangar3.quaternion.setFromAxisAngle(UP, baseHeading + Math.PI / 2);
         scene.add(hangar3);
         await this.addSolidSceneryMesh('assets/hangar01.gltf', hangar3);
 
@@ -3092,12 +3698,12 @@ export class Game {
             const p = place(AIRBASE_LOCAL.hangar4.x, AIRBASE_LOCAL.hangar4.z, 40, 50);
             hangar4.position.set(p.x, p.y, p.z);
         }
-        hangar4.quaternion.setFromAxisAngle(UP, Math.PI);
+        hangar4.quaternion.setFromAxisAngle(UP, baseHeading + Math.PI);
         scene.add(hangar4);
         await this.addSolidSceneryMesh('assets/hangar01.gltf', hangar4);
 
         const staticAircraft: Promise<void>[] = [];
-        forEachStaticAircraftSlot((type, position, heading) => {
+        forEachStaticAircraftSlot(this.staticModelViews, (type, position, heading) => {
             const gy = yAt(position.x, position.z, 15, 15);
             const plane = new StaticSceneryEntity(models.getModel(type.body), type.lodBias);
             plane.position.copy(position).setY(gy + PLANE_DISTANCE_TO_GROUND);
@@ -3185,6 +3791,8 @@ export class Game {
         // Dev aids, alongside __terrain / __shadowSettings. The sun is worth
         // reaching for because its two halves are drawn in different passes,
         // and the only way to see that from outside is to walk their parents.
+        (globalThis as Record<string, unknown>).__probe =
+            (at?: { x: number; z: number }) => this.groundProbe(at);
         (globalThis as Record<string, unknown>).__skyDome = this.skyDome;
         (globalThis as Record<string, unknown>).__sunModel = this.sunModel;
     }

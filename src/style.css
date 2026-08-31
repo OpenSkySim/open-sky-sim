@@ -132,7 +132,8 @@ a:hover {
     cursor: pointer;
 }
 
-#daytime-row {
+#daytime-row,
+#terraindetail-row {
     display: flex;
     align-items: center;
     gap: 0.75rem;
@@ -161,14 +162,16 @@ a:hover {
     opacity: 0.5;
 }
 
-#daytime-slider {
+#daytime-slider,
+#terraindetail-slider {
     flex: 1 1 auto;
     min-width: 0;
     cursor: pointer;
     accent-color: rgb(200, 160, 90);
 }
 
-#daytime-value {
+#daytime-value,
+#terraindetail-value {
     flex: 0 0 auto;
     min-width: 3.5rem;
     text-align: right;

@@ -220,12 +220,12 @@ describe('arrestorCables serialize', () => {
             await import('../../physics/sim/serializedWorld');
         const origin = { ...ARRESTOR_CARRIER_ORIGIN };
         const field = defaultArrestorCableField(origin.x, origin.y, origin.z);
-        const world = serializeWorld([], [], {
+        const world = serializeWorld([], [], [{
             center: new THREE.Vector3(),
             heading: 0,
             halfLength: 100,
             halfWidth: 20,
-        }, [], [], [field]);
+        }], [], [], [field]);
         const restored = deserializeArrestorCables(world);
         assert.equal(restored.length, 1);
         assert.equal(restored[0].segments.length, 4);

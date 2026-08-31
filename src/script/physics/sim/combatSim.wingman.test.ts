@@ -24,12 +24,12 @@ const LEAD_ID = 'lead';
 
 function flatWorldSim(): CombatSim {
     const sim = new CombatSim();
-    sim.setWorld(serializeWorld([], [], {
+    sim.setWorld(serializeWorld([], [], [{
         center: new THREE.Vector3(0, 0, 0),
         heading: 0,
         halfLength: 1000,
         halfWidth: 30,
-    }, [], [], []));
+    }], [], [], []));
     return sim;
 }
 

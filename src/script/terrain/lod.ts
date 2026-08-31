@@ -27,6 +27,63 @@ export const TERRAIN_ZOOM_OFFSET = 1;
  */
 export const SSE_TARGET_PX = 1;
 
+/**
+ * Distance (m) past which terrain is allowed to coarsen faster than screen
+ * space alone would coarsen it.
+ *
+ * Screen-space error already falls with distance — a tile twice as far has half
+ * the projected error — so the far field refines less than the near field
+ * without any help. It still costs far more than it is worth: error falls
+ * as 1/d while the *number* of tiles in a ring grows with d, so the ring at
+ * 40 km carries more triangles than everything inside 10 km put together while
+ * covering a few dozen rows of pixels above the horizon.
+ *
+ * Past this knee the error budget grows in proportion to distance, so the
+ * allowed error goes as d² rather than d and each doubling of distance drops
+ * one more level. Inside it nothing changes at all: this is a far-field knob
+ * and it must not touch the ground the aircraft is actually over.
+ *
+ * The default is a compromise for a cockpit view; the *Terrain detail distance*
+ * setting moves it, and the top of that slider is {@link DETAIL_DISTANCE_OFF}.
+ */
+export const TERRAIN_DETAIL_DISTANCE_DEFAULT_M = 12_000;
+export const TERRAIN_DETAIL_DISTANCE_MIN_M = 2_000;
+export const TERRAIN_DETAIL_DISTANCE_MAX_M = 40_000;
+
+/**
+ * Slider position meaning "no far-field falloff at all".
+ *
+ * A number rather than a null so the whole setting stays one scalar from the
+ * options panel down to {@link detailFalloff}, which is the only place that
+ * has to know this value is special.
+ */
+export const DETAIL_DISTANCE_OFF = Infinity;
+
+/**
+ * Extra error budget for a tile at `distanceM`, given the falloff knee.
+ *
+ * 1 inside the knee, growing linearly outside it. Multiplied into the same
+ * detail scale the frame-time governor uses, so the two compose: a governor
+ * that has backed off 2x and a tile 3 knees out is drawn to 6x the error.
+ */
+export function detailFalloff(distanceM: number, kneeM: number): number {
+    if (!(kneeM > 0)) {
+        return 1;
+    }
+    return Math.max(1, distanceM / kneeM);
+}
+
+/** Clamp a persisted or user-supplied detail distance onto the slider's range. */
+export function clampDetailDistanceM(value: number): number {
+    if (!Number.isFinite(value)) {
+        return DETAIL_DISTANCE_OFF;
+    }
+    if (value >= TERRAIN_DETAIL_DISTANCE_MAX_M) {
+        return DETAIL_DISTANCE_OFF;
+    }
+    return Math.max(TERRAIN_DETAIL_DISTANCE_MIN_M, value);
+}
+
 /** LOD reconcile cadence; rendering stays per-frame. */
 export const RECONCILE_INTERVAL_MS = 100;
 

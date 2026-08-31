@@ -50,11 +50,31 @@ export interface HeightStreamManifest {
 export interface FlattenPadManifest {
     lat: number;
     lon: number;
+    /** Half extent across the pad axis (m). */
     halfW: number;
+    /** Half extent along the pad axis (m). */
     halfD: number;
     featherM: number;
-    /** Baked max DEM height under the footprint. */
+    /** Baked DEM height at the pad centre. */
     heightMsl: number;
+    /**
+     * True bearing the pad's long axis runs along. Absent means due north,
+     * which is what every pad baked before pads could turn was.
+     */
+    headingDeg?: number;
+    /**
+     * Longitudinal slope of the platform this pad belongs to, rise per metre,
+     * and the true bearing it rises along. Absent means level.
+     *
+     * The direction is recorded separately from `headingDeg` because a
+     * crossing runway keeps its own footprint while being cut to the same
+     * plane as the rest of its airfield — see `FlattenPad.gradE`. It defaults
+     * to `headingDeg`, which covers every pad whose runway is the platform's.
+     */
+    gradient?: number;
+    gradientHeadingDeg?: number;
+    /** ICAO identifier of the airfield this pad belongs to, where it has one. */
+    icao?: string;
 }
 
 /**
@@ -81,6 +101,13 @@ export interface TerrainManifest {
     mesh: MeshStreamManifest;
     height: HeightStreamManifest;
     flattenPads: FlattenPadManifest[];
+    /**
+     * Where the airfield descriptions live, beside this file. Only a pointer:
+     * the runways, taxiways and aprons of a whole pyramid are an order of
+     * magnitude larger than the manifest, and the manifest is fetched before
+     * anything can be drawn. See `airfields.ts`.
+     */
+    airfields?: { path: string; count: number };
     bake?: { tool: string; version: string; utc: string };
 }
 

@@ -52,6 +52,9 @@ function handleMessage(data: SimToWorkerMessage): void {
         case 'setArrestorCables':
             sim.setArrestorCables(data.cables);
             break;
+        case 'setBarricades':
+            sim.setBarricades(data.barricades);
+            break;
         case 'setCarrierMeshOrigins':
             sim.setCarrierMeshOrigins(data.origins);
             break;

@@ -1,5 +1,8 @@
 import { ConfigService } from "../config/configService";
 import { loadSettings, updateSettings } from "../config/settingsStorage";
+import {
+    DETAIL_DISTANCE_OFF, TERRAIN_DETAIL_DISTANCE_MAX_M, TERRAIN_DETAIL_DISTANCE_MIN_M,
+} from "../terrain/lod";
 import { DEFAULT_TERRAIN_URL, loadTerrainManifest } from "../terrain/manifest";
 import { terrainAreas } from "../terrain/playArea";
 import { PLAY_ORIGIN } from "../state/worldLayout";
@@ -15,6 +18,7 @@ export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDe
     setupButtons();
     setupGenerationOptions(config);
     setupDaytime(config);
+    setupTerrainDetail(config);
     setupShadowQuality(config);
     setupTerrainColour(config);
     setupArea();
@@ -113,6 +117,53 @@ function setupDaytime(config: ConfigService) {
 
     slider.value = config.daytime.getActive().toString();
     readout.textContent = formatSunTime(config.daytime.getActive());
+}
+
+/**
+ * Terrain detail distance slider.
+ *
+ * The slider is in kilometres and the setting is in metres, because kilometres
+ * are what the label has to read and metres are what every distance in the LOD
+ * is already in. The top step is off — `DETAIL_DISTANCE_OFF` — rather than a
+ * very large number, so "off" is exact instead of merely far.
+ */
+function setupTerrainDetail(config: ConfigService) {
+    const slider = document.getElementById('terraindetail-slider') as HTMLInputElement | null;
+    assertIsDefined(slider);
+    const readout = document.getElementById('terraindetail-value');
+    assertIsDefined(readout);
+
+    const offKm = TERRAIN_DETAIL_DISTANCE_MAX_M / 1000;
+    slider.min = (TERRAIN_DETAIL_DISTANCE_MIN_M / 1000).toString();
+    slider.max = (offKm + 2).toString();
+
+    const toMetres = (km: number) =>
+        (km > offKm ? DETAIL_DISTANCE_OFF : km * 1000);
+    const toKm = (m: number) =>
+        (Number.isFinite(m) ? m / 1000 : offKm + 2);
+
+    slider.addEventListener('input', () => {
+        config.terrainDetail.setActive(toMetres(parseFloat(slider.value)));
+    });
+
+    config.terrainDetail.addChangeListener(distanceM => {
+        const value = toKm(distanceM).toString();
+        if (slider.value !== value) {
+            slider.value = value;
+        }
+        readout.textContent = Number.isFinite(distanceM)
+            ? `${Math.round(distanceM / 1000)} km`
+            : 'Off';
+        updateSettings({
+            terrainDetailDistanceM: Number.isFinite(distanceM) ? distanceM : null,
+        });
+    });
+
+    const initial = config.terrainDetail.getActive();
+    slider.value = toKm(initial).toString();
+    readout.textContent = Number.isFinite(initial)
+        ? `${Math.round(initial / 1000)} km`
+        : 'Off';
 }
 
 /**

@@ -46,3 +46,42 @@ describe('surface pad', () => {
         assert.equal(sampleSurfacePadYMax(0, 0, []), -Infinity);
     });
 });
+
+describe('sloping pads', () => {
+    // A runway on a 0.8% grade: the terrain under it is cut to that slope, so
+    // the gear has to rest on the same slope or it lands on an invisible shelf.
+    const SLOPED: SurfacePadCollider = {
+        centerX: 0, centerZ: 0, heading: 0,
+        halfLength: 1500, halfWidth: 75,
+        surfaceY: 100, baseY: 90, feather: 40, slope: 0.008,
+    };
+
+    it('rises along the pad axis', () => {
+        assert.equal(sampleSurfacePadY(0, 0, SLOPED), 100);
+        assert.equal(sampleSurfacePadY(0, 1000, SLOPED), 108);
+        assert.equal(sampleSurfacePadY(0, -1000, SLOPED), 92);
+    });
+
+    it('is level across the pad', () => {
+        assert.equal(sampleSurfacePadY(70, 500, SLOPED), sampleSurfacePadY(-70, 500, SLOPED));
+    });
+
+    it('turns the slope with the heading', () => {
+        const turned = { ...SLOPED, heading: Math.PI / 2 };
+        assert.ok(Math.abs(sampleSurfacePadY(1000, 0, turned) - 92) < 1e-9);
+        assert.ok(Math.abs(sampleSurfacePadY(-1000, 0, turned) - 108) < 1e-9);
+    });
+
+    it('blends the feather from the height at that point, not the centre', () => {
+        // Half way through the skirt at the high end. Blending toward the
+        // centre height instead would drop the pavement 4 m at the threshold.
+        const y = sampleSurfacePadY(0, 1520, SLOPED);
+        const atEdge = 100 + 0.008 * 1520;
+        assert.ok(Math.abs(y - (90 + (atEdge - 90) * 0.5)) < 1e-9, `blended to ${y}`);
+    });
+
+    it('is unchanged when no slope is given', () => {
+        const level = { ...SLOPED, slope: undefined };
+        assert.equal(sampleSurfacePadY(0, 1000, level), 100);
+    });
+});

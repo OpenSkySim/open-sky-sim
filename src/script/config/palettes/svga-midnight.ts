@@ -82,6 +82,7 @@ const colors: PaletteColors = {
 
     [PaletteCategory.SCENERY_BASE_RUNWAY_LINES]: '#C0C0C0',
     [PaletteCategory.SCENERY_BASE_RUNWAY_THRESHOLD]: '#3a3a3a',
+    [PaletteCategory.SCENERY_BASE_CONCRETE]: '#272727',
 
     [PaletteCategory.FX_FIRE]: '#ff8800',
     [PaletteCategory.FX_FIRE__B]: '#ffff00',

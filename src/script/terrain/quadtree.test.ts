@@ -3,8 +3,10 @@ import { describe, it } from 'node:test';
 import * as THREE from 'three';
 import { Quadtree } from './quadtree';
 import { TerrainManifest } from './manifest';
-import { DETAIL_SCALE_MAX, FRUSTUM_CULL_MARGIN_RAD, RECONCILE_INTERVAL_MS } from './lod';
-import { TileKey, parentOf, tileKeyString } from './tiling';
+import {
+    DETAIL_DISTANCE_OFF, DETAIL_SCALE_MAX, FRUSTUM_CULL_MARGIN_RAD, RECONCILE_INTERVAL_MS,
+} from './lod';
+import { TileKey, childrenOf, parentOf, tileKeyString } from './tiling';
 
 function manifest(maxZoom = 4): TerrainManifest {
     return {
@@ -171,7 +173,7 @@ describe('Quadtree', () => {
 
         it('marks pinned tiles for the streamer', () => {
             const h = makeTree();
-            const r = h.tree.update(camera(), 200, 50, 1, () => true);
+            const r = h.tree.update(camera(), 200, 50, 1, DETAIL_DISTANCE_OFF, () => true);
             assert.ok(r.wants.every(w => w.pinned));
         });
     });
@@ -355,5 +357,110 @@ describe('Quadtree', () => {
             h.tree.update(camera(1e9, 500, 1e9), 200, 50, 1);
         }
         assert.ok(h.tree.stale(2).length > 0, 'nodes go stale once out of view');
+    });
+});
+
+describe('far-field detail falloff', () => {
+    /** Everything resident, so refinement is limited only by the LOD rules. */
+    function everythingResident(maxZoom = 7) {
+        const resident = new Set<string>();
+        const add = (z: number, x: number, y: number) => {
+            resident.add(tileKeyString({ z, x, y }));
+            if (z >= maxZoom) return;
+            for (const c of childrenOf({ z, x, y })) add(c.z, c.x, c.y);
+        };
+        for (let x = 0; x < 2; x++) add(0, x, 0);
+        return makeTree({ maxZoom, resident });
+    }
+
+    /**
+     * A camera looking at the horizon rather than at its feet.
+     *
+     * `camera()` above looks almost straight down — from 500 m at a point one
+     * metre away — so nothing but the near field is ever in frustum and there
+     * is no far field to coarsen. This is the view the setting exists for.
+     */
+    function horizonCamera(y = 500): THREE.PerspectiveCamera {
+        const c = new THREE.PerspectiveCamera(50, 1.6, 1, 5_000_000);
+        c.position.set(0, y, 0);
+        c.lookAt(0, y, 100_000);
+        c.updateMatrixWorld(true);
+        c.updateProjectionMatrix();
+        return c;
+    }
+
+    const drawnWithin = (
+        tree: ReturnType<typeof everythingResident>['tree'],
+        cam: THREE.PerspectiveCamera, knee: number, metres: number,
+    ) => new Set(
+        tree.update(cam, 200, 50, 1, knee).draw
+            .filter(n => n.center.distanceTo(cam.position) - n.radius < metres)
+            .map(n => n.key));
+
+    it('leaves everything inside the knee bit-identical', () => {
+        // The whole point of a far-field knob: the ground the aircraft is over
+        // must not change. The frame-time governor is the one that coarsens
+        // everything, and it costs the near field first.
+        const h = everythingResident();
+        const cam = horizonCamera();
+        for (const metres of [5_000, 12_000]) {
+            const off = drawnWithin(h.tree, cam, DETAIL_DISTANCE_OFF, metres);
+            const knee = drawnWithin(h.tree, cam, 12_000, metres);
+            assert.equal(knee.size, off.size, `${metres} m: ${knee.size} vs ${off.size}`);
+            for (const key of off) {
+                assert.ok(knee.has(key), `${key} changed inside the knee`);
+            }
+        }
+    });
+
+    it('coarsens the far field, and more as the knee comes in', () => {
+        // The finest level reached beyond a given range. Monotone by
+        // construction — a tighter knee gives a node less error budget, so it
+        // can never refine further than a wider one — which the mean level is
+        // not: coarsening removes fine tiles, and the mean over what is left
+        // can rise even as the count halves.
+        const h = everythingResident();
+        const cam = horizonCamera();
+        const deepestBeyond = (knee: number, metres: number) => {
+            const levels = h.tree.update(cam, 200, 50, 1, knee).draw
+                .filter(n => n.center.distanceTo(cam.position) - n.radius > metres)
+                .map(n => n.id.z);
+            return levels.length ? Math.max(...levels) : -1;
+        };
+        const off = deepestBeyond(DETAIL_DISTANCE_OFF, 20_000);
+        const wide = deepestBeyond(60_000, 20_000);
+        const tight = deepestBeyond(6_000, 20_000);
+        assert.ok(wide <= off, `wide knee reached z${wide}, off reached z${off}`);
+        assert.ok(tight < off, `tight knee reached z${tight}, off reached z${off}`);
+        assert.ok(tight <= wide, `tight knee reached z${tight}, wide reached z${wide}`);
+    });
+
+    it('draws far fewer tiles, which is the frame time it buys', () => {
+        // Measured on this toy world with a horizon view: 520 tiles drawn with
+        // no falloff, 274 at the 12 km default, 186 at 6 km. Tiles carry a
+        // roughly fixed triangle budget each, so that is the saving.
+        const h = everythingResident();
+        const cam = horizonCamera();
+        const count = (knee: number) => h.tree.update(cam, 200, 50, 1, knee).draw.length;
+        const off = count(DETAIL_DISTANCE_OFF);
+        assert.ok(count(12_000) < off * 0.7, `12 km knee drew ${count(12_000)} of ${off}`);
+        assert.ok(count(6_000) < count(12_000), 'a tighter knee did not draw fewer');
+    });
+
+    it('still holds the planet round over ocean', () => {
+        // The sagitta bound is the shape of the world, not its detail: a knob
+        // that coarsened it would put the sea kilometres from where it belongs.
+        const ocean = new Set<string>();
+        const walk = (z: number, x: number, y: number) => {
+            ocean.add(tileKeyString({ z, x, y }));
+            if (z >= 4) return;
+            for (const c of childrenOf({ z, x, y })) walk(c.z, c.x, c.y);
+        };
+        for (let x = 0; x < 2; x++) walk(0, x, 0);
+        const h = makeTree({ maxZoom: 4, resident: new Set<string>(), ocean });
+        const cam = horizonCamera();
+        const off = h.tree.update(cam, 200, 50, 1, DETAIL_DISTANCE_OFF).draw.length;
+        const tight = h.tree.update(cam, 200, 50, 1, 2_000).draw.length;
+        assert.equal(tight, off, 'the falloff reached the ocean sagitta bound');
     });
 });

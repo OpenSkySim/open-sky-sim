@@ -37,6 +37,8 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     private simLimitersEnabled = true;
     private simPitchLimiterMode = 0;
     private simArrestorLatch = -1;
+    /** True while the wings are wrapped in the carrier barricade webbing. */
+    private simBarricadeEngaged = false;
     private readonly simArrestorHook = new THREE.Vector3();
 
     constructor(
@@ -113,6 +115,7 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
         this.pitchLimiterMode = this.simPitchLimiterMode as FcsPitchLimiter;
         this.limitersEnabled = this.simLimitersEnabled;
         this.simArrestorLatch = buf[base + AC.arrestorLatch] ?? -1;
+        this.simBarricadeEngaged = (buf[base + AC.barricadeEngaged] ?? 0) !== 0;
         this.simArrestorHook.set(
             buf[base + AC.hookX] ?? 0,
             buf[base + AC.hookY] ?? 0,
@@ -188,6 +191,11 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     }
 
     /** Latched arrestor cable index, or -1 when free. */
+    /** True while the barricade webbing is loaded by this airframe. */
+    getBarricadeEngaged(): boolean {
+        return this.simBarricadeEngaged;
+    }
+
     getArrestorLatch(): number {
         return this.simArrestorLatch;
     }

@@ -55,6 +55,8 @@ export function getAircraftDeviceStatusPosition(targetHeight: number, mfdSize: n
 }
 
 /** Bottom-left GEAR / FLAPS / HOOK / BRAKE stack beside the map MFD. */
+/* The ship's barricade rides the same stack: on the boat it is exactly as
+ * relevant to the pilot as his own hook. */
 export function renderAircraftDeviceStatus(
     actor: PlayerEntity,
     x: number,
@@ -80,6 +82,10 @@ export function renderAircraftDeviceStatus(
     }
     if (actor.wheelBrakesApplied) {
         labels.push('BRAKE');
+    }
+    const barricade = actor.barricadeStatus;
+    if (barricade !== undefined) {
+        labels.push(barricade);
     }
 
     for (let i = 0; i < labels.length; i++) {

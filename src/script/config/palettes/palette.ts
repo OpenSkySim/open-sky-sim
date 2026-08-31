@@ -87,6 +87,15 @@ export enum PaletteCategory {
 
     SCENERY_BASE_RUNWAY_LINES = 'SCENERY_BASE_RUNWAY_LINES',
     SCENERY_BASE_RUNWAY_THRESHOLD = 'SCENERY_BASE_RUNWAY_THRESHOLD',
+    /**
+     * Concrete slab pavement, as against the asphalt of
+     * {@link SCENERY_ROAD_SECONDARY}.
+     *
+     * A military field laid in concrete plates is markedly paler than an
+     * asphalt civil one, and from the air that difference is most of what
+     * tells the two apart. OSM records which it is, so the sim can too.
+     */
+    SCENERY_BASE_CONCRETE = 'SCENERY_BASE_CONCRETE',
 
     FX_FIRE = 'FX_FIRE',
     FX_FIRE__B = 'FX_FIRE__B',
