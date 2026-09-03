@@ -111,6 +111,12 @@ export class BarricadeRigidBodySolver {
     /** Idle step accumulation (for coarse update of rigged nets). */
     private idleTime: number = 0;
 
+    /** Accumulated force on aircraft from contact constraints (N). */
+    private accumulatedAirframeForce = new THREE.Vector3();
+
+    /** Accumulated torque on aircraft from contact constraints (N⋅m). */
+    private accumulatedAirframeTorque = new THREE.Vector3();
+
     constructor(spec: BarricadeSolverSpec, layout: BarricadeLayout) {
         this.spec = spec;
         this.layout = layout;
@@ -502,12 +508,18 @@ export class BarricadeRigidBodySolver {
      * Set the current deployment fraction (0 = stowed, 1 = raised).
      *
      * Animates the stanchion hinge constraint toward the target angle.
+     * Stanchions rotate about the X axis (pitch) from 0° (flat on deck) to 90° (vertical).
      *
      * @param fraction - Deploy fraction (0 to 1)
      */
     setDeploy(fraction: number): void {
         this.deploy = Math.max(0, Math.min(1, fraction));
-        // TODO: Update hinge constraint target angles
+
+        // Target angle: 0° when stowed, 90° when raised
+        const targetAngle = fraction * Math.PI / 2;
+
+        // Update hinge constraints for both stanchions
+        // TODO: Find hinge constraints for stanchions and set their targetAngle
     }
 
     /**
@@ -562,6 +574,10 @@ export class BarricadeRigidBodySolver {
         const h = dt / substeps;
         const invH2 = 1 / (h * h);
 
+        // Clear accumulated forces each full step
+        this.accumulatedAirframeForce.set(0, 0, 0);
+        this.accumulatedAirframeTorque.set(0, 0, 0);
+
         for (let i = 0; i < substeps; i++) {
             // Store previous positions for velocity computation
             for (const body of this.bodies) {
@@ -571,19 +587,47 @@ export class BarricadeRigidBodySolver {
             // Predict: apply forces and gravity
             this.predict(h);
 
-            // Constrain: solve distance/slider/hinge/motor constraints
+            // Detect collisions with aircraft and generate contact constraints
+            if (this.bvh && this.airframePose) {
+                this.detectCollisions();
+            }
+
+            // Constrain: solve distance/slider/hinge/motor/contact constraints
             for (let pass = 0; pass < this.spec.solverPasses; pass++) {
                 for (const constraint of this.constraints) {
                     constraint.project(this.bodies, invH2);
                 }
             }
 
-            // Finish: compute velocities from position change
+            // Finish: compute velocities from position change and contact damping
             this.finish(h);
         }
 
         // Update rendering positions
         this.writeRenderingPositions();
+    }
+
+    /**
+     * Detect collisions between webbing and aircraft hull.
+     *
+     * Generates ContactConstraint entries for any bodies that have penetrated
+     * the aircraft collision mesh. Reuses existing contact constraints where
+     * possible to maintain continuity.
+     *
+     * TODO: Full implementation with BVH queries and normal computation.
+     * For now, this is a placeholder.
+     */
+    private detectCollisions(): void {
+        if (!this.bvh || !this.airframePose) return;
+
+        // TODO: Implement collision detection
+        // 1. For each body, query BVH for closest point on aircraft surface
+        // 2. If penetrating (distance < BARRICADE_RB_SKIN_M), generate contact
+        // 3. Compute contact normal (pointing away from aircraft)
+        // 4. Create or update ContactConstraint
+        // 5. Accumulate force/torque from contact
+
+        // Placeholder: no collisions detected
     }
 
     /**
@@ -769,17 +813,12 @@ export class BarricadeRigidBodySolver {
      *
      * Sums all contact impulses from webbing collisions.
      * Called by CombatSim to apply forces to the flight model.
-     * Contact forces are computed from constraint multipliers.
+     * Force is computed from contact constraint multipliers and normals.
+     *
+     * @returns Force in carrier-local coordinates (N)
      */
     airframeForce(): THREE.Vector3 {
-        const force = new THREE.Vector3();
-
-        // TODO: Implement contact force accumulation
-        // For each contact constraint, the force is the Lagrange multiplier * normal
-        // and the constraint solver already computed these multipliers
-
-        // Placeholder: return zero for now
-        return force;
+        return this.accumulatedAirframeForce.clone();
     }
 
     /**
@@ -787,16 +826,40 @@ export class BarricadeRigidBodySolver {
      *
      * Sums all contact torques from webbing collisions.
      * Torque = (contact_pos - aircraft_cg) × force
+     *
+     * @returns Torque in carrier-local coordinates (N⋅m)
      */
     airframeTorque(): THREE.Vector3 {
-        const torque = new THREE.Vector3();
+        return this.accumulatedAirframeTorque.clone();
+    }
 
-        // TODO: Implement contact torque accumulation
-        // For each contact, torque is computed as r × F
-        // where r is from aircraft CG to contact point
+    /**
+     * Signal that aircraft has engaged the barricade.
+     *
+     * Activates motor constraints on the 4 wire runs to begin
+     * applying holding force and limiting payout speed.
+     *
+     * TODO: Full implementation should:
+     * - Create MotorConstraint instances for the 4 wires
+     * - Set engaged=true on each motor
+     * - Add them to the constraint list
+     */
+    engageAircraft(): void {
+        // TODO: Set up motor constraints for wires
+        // For each wire run (0-3):
+        // 1. Create MotorConstraint(wireStartBodyIdx, wireEndBodyIdx)
+        // 2. Set engaged = true
+        // 3. Add to constraints list
+        // 4. Update motorConstraintRange
+    }
 
-        // Placeholder: return zero for now
-        return torque;
+    /**
+     * Signal that aircraft has disengaged from the barricade.
+     *
+     * Deactivates motor constraints so wires return to retract mode.
+     */
+    disengageAircraft(): void {
+        // TODO: Set engaged=false on all motor constraints
     }
 
     /**

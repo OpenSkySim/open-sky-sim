@@ -247,13 +247,25 @@ export class SliderConstraint extends BarricadeConstraint {
     minSpacing: number = 0.12;
 
     project(bodies: BarricadeRigidBody[], invDt2: number): number {
-        // TODO: Implement slider constraint projection
-        // This is a complex constraint that tracks position along a curve
+        if (!this.intact) return 0;
+
+        const body = bodies[this.bodyA];
+
+        // TODO: Implement full slider constraint
+        // This requires:
+        // 1. Tracking the fitting's current arc-length position along the belt curve
+        // 2. Projecting the fitting back onto the curve
+        // 3. Applying friction forces based on tension
+        // 4. Limiting creep speed under load
+        // 5. Enforcing minimum spacing between fittings
+
+        // For now, pin the fitting to its current belt position (no sliding)
         return 0;
     }
 
     getViolation(bodies: BarricadeRigidBody[]): number {
-        // TODO: Compute how far the body has strayed from the slider path
+        // Slider violation is how far the body has strayed from the belt curve
+        // TODO: Implement projection distance computation
         return 0;
     }
 }
@@ -294,14 +306,30 @@ export class HingeConstraint extends BarricadeConstraint {
     angularStiffness: number = 1000;
 
     project(bodies: BarricadeRigidBody[], invDt2: number): number {
-        // TODO: Implement hinge constraint projection
-        // Constrains rotation about the axis, applies angular impulse
-        return 0;
+        // Hinge constraints control stanchion deployment
+        // The angle is driven toward targetAngle over time
+
+        const body = bodies[this.bodyA];
+        if (body.invMass === 0) return 0; // Pinned bodies don't rotate
+
+        // TODO: Full implementation requires quaternion integration
+        // For now, we just track the angle without applying rotation
+
+        // Compute error from target angle
+        const angleError = this.targetAngle - this.angle;
+
+        // Apply angular "force" proportional to error and stiffness
+        const dLambda = -angleError * this.angularStiffness * invDt2;
+
+        // TODO: Convert dLambda to angular impulse on body
+        // This requires adding angular momentum and integrating via quaternion
+
+        return dLambda;
     }
 
     getViolation(bodies: BarricadeRigidBody[]): number {
-        // TODO: Compute angular difference from target
-        return 0;
+        // Violation is angular error from target
+        return Math.abs(this.targetAngle - this.angle);
     }
 }
 
@@ -365,8 +393,43 @@ export class MotorConstraint extends BarricadeConstraint {
     appliedTension: number = 0;
 
     project(bodies: BarricadeRigidBody[], invDt2: number): number {
-        // TODO: Implement motor constraint projection
-        // Applies limited force to control cable payout
+        // Motor constraints apply force directly, not through position correction
+        // They control cable payout by limiting how fast the constraint can stretch
+
+        if (!this.engaged) {
+            // Not engaged: retract cable slowly to keep rig taut
+            this.payoutDist = Math.max(0, this.payoutDist - this.retractSpeed * (1 / Math.sqrt(invDt2)));
+            return 0;
+        }
+
+        // Aircraft is engaged: manage payout under load
+        const a = bodies[this.bodyA];
+        const b = bodies[this.bodyB];
+        const dist = a.pos.distanceTo(b.pos);
+
+        // Compute soft-start ramp: gradually ramp up to full holding force
+        if (this.payoutDist < this.softStartDist) {
+            this.softStartFraction = this.payoutDist / this.softStartDist;
+            this.appliedTension = this.engineHoldN * this.softStartFraction;
+        } else {
+            this.softStartFraction = 1.0;
+            this.appliedTension = this.engineHoldN;
+        }
+
+        // Current rigged length is restValue + payoutDist
+        const riggedLength = this.restValue + this.payoutDist;
+
+        // If cable is being pulled, it can pay out up to maxPayoutSpeed
+        const violation = dist - riggedLength;
+        if (violation > 1e-6) {
+            // Cable is stretched: payout is limited by speed
+            const maxPayoutThisFrame = this.maxPayoutSpeed * (1 / Math.sqrt(invDt2));
+            this.payoutDist = Math.min(this.payoutDist + maxPayoutThisFrame, this.payoutDist + violation);
+        }
+
+        // Apply tension as a constraint multiplier
+        this.lambda = this.appliedTension / invDt2;
+
         return 0;
     }
 
