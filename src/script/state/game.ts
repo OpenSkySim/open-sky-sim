@@ -88,6 +88,7 @@ import { CrashedCameraUpdater } from './cameraUpdaters/crashedCameraUpdater';
 import { ExteriorFrontBehindCameraUpdater, ExteriorViewHeading } from './cameraUpdaters/exteriorFrontBehindCameraUpdater';
 import { AiExteriorCameraUpdater, AI_SPAWN_DISTANCE_M } from './cameraUpdaters/aiExteriorCameraUpdater';
 import { ExteriorSideCameraUpdater, ExteriorViewSide } from './cameraUpdaters/exteriorSideCameraUpdater';
+import { CarrierOverSternCameraUpdater } from './cameraUpdaters/carrierOverSternCameraUpdater';
 import { TargetFromCameraUpdater } from './cameraUpdaters/targetFromCameraUpdater';
 import { TargetToCameraUpdater } from './cameraUpdaters/targetToCameraUpdater';
 import { StaticModelCameraUpdater } from './cameraUpdaters/staticModelCameraUpdater';
@@ -312,6 +313,7 @@ enum PlayerViewState {
     TARGET_FROM,
     STATIC_MODEL,
     AI_CHASE,
+    CARRIER_OVER_STERN,
     SHOWCASE,
 }
 
@@ -616,6 +618,7 @@ export class Game {
         this.cameraUpdaters.set(PlayerViewState.TARGET_FROM, new TargetFromCameraUpdater(this.player, this.playerCamera.main));
         this.staticModelCameraUpdater = new StaticModelCameraUpdater(this.player, this.playerCamera.main);
         this.cameraUpdaters.set(PlayerViewState.STATIC_MODEL, this.staticModelCameraUpdater);
+        this.cameraUpdaters.set(PlayerViewState.CARRIER_OVER_STERN, new CarrierOverSternCameraUpdater(this.player, this.playerCamera.main));
         this.cameraUpdaters.set(PlayerViewState.SHOWCASE, new ShowcaseCameraUpdater(this.player, this.playerCamera.main));
         this.cameraUpdater = this.getCameraUpdater(this.view);
         this.configService.techProfiles.addChangeListener(profile => {
@@ -2432,7 +2435,7 @@ export class Game {
                 case 'F3': {
                     event.preventDefault();
                     this.resetOrbit();
-                    this.setExteriorSideView();
+                    this.setCarrierOverSternView();
                     break;
                 }
                 case 'F6': {
@@ -2695,6 +2698,11 @@ export class Game {
         } else {
             this.setExteriorView(PlayerViewState.EXTERIOR_LEFT);
         }
+    }
+
+    private setCarrierOverSternView() {
+        restoreMainCameraParameters(this.playerCamera.main);
+        this.setExteriorView(PlayerViewState.CARRIER_OVER_STERN);
     }
 
     private setTargetView() {

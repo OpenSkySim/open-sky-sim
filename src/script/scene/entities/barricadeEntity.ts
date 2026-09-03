@@ -417,8 +417,9 @@ export class BarricadeEntity implements Entity {
         const samples = this.layout.spec.stripeNodes;
         for (let s = 0; s < this.stripeMeshes.length; s++) {
             this.beltTangentAt(nodes, s, this.tangent);
-            const hx = this.tangent.x * STRIPE_HALF_W_M;
-            const hz = this.tangent.z * STRIPE_HALF_W_M;
+            // Perpendicular to belt tangent: rotate 90° in the deck plane
+            const hx = -this.tangent.z * STRIPE_HALF_W_M;
+            const hz = this.tangent.x * STRIPE_HALF_W_M;
             const mesh = this.stripeMeshes[s];
             const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
             for (let j = 0; j < samples; j++) {

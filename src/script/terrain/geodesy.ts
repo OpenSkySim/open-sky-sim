@@ -174,6 +174,31 @@ export function enuFromScene(world: THREE.Vector3, out: Enu = { e: 0, n: 0, u: 0
     return out;
 }
 
+/** Geodetic (lat/lon/altitude) → scene space, via the ENU basis. */
+export function geodeticToWorld(
+    basis: EnuBasis,
+    latDeg: number,
+    lonDeg: number,
+    altitudeM: number,
+    out: THREE.Vector3 = new THREE.Vector3(),
+): THREE.Vector3 {
+    const ecef = geodeticToEcef(latDeg, lonDeg, altitudeM);
+    const enu = ecefToEnu(basis, ecef);
+    return sceneFromEnu(enu, out);
+}
+
+/** Scene space (x/y/z) → geodetic (lat/lon/altitude), via the ENU basis. */
+export function worldToGeodetic(
+    basis: EnuBasis,
+    x: number,
+    y: number,
+    z: number,
+): Geodetic {
+    const enu = enuFromScene(new THREE.Vector3(x, y, z));
+    const ecef = enuToEcef(basis, enu);
+    return ecefToGeodetic(ecef.x, ecef.y, ecef.z);
+}
+
 /** ENU north of a scene z. North runs against z, so the map is its own inverse. */
 export function northFromSceneZ(z: number): number {
     return -z;

@@ -16,7 +16,7 @@
  */
 
 import { STREAM_CONCURRENCY_MAX, STREAM_CONCURRENCY_MIN } from './lod';
-import { TileKey, tileKeyString } from './tiling';
+import { TileKey, tileKeyString, parseTileKey } from './tiling';
 
 /** Doubly-linked LRU node, so eviction is O(1) rather than a full scan. */
 interface Entry<T> {
@@ -120,6 +120,16 @@ export class TileStore<T> {
     /** Look up without changing recency (for read-only probes). */
     peek(id: TileKey): T | undefined {
         return this.map.get(tileKeyString(id))?.value;
+    }
+
+    /** Return all cached tiles without marking them as used. */
+    peekAll(): Array<{ id: TileKey; value: T }> {
+        const out: Array<{ id: TileKey; value: T }> = [];
+        for (const entry of this.map.values()) {
+            const id = parseTileKey(entry.key);
+            out.push({ id, value: entry.value });
+        }
+        return out;
     }
 
     /** Look up and mark as used this generation. */
