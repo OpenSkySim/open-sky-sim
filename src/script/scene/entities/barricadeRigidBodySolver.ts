@@ -753,17 +753,30 @@ export class BarricadeRigidBodySolver {
             body.contactN.copy(this.contactNormal);
             body.contactVn = 0; // Aircraft surface velocity (TODO: compute from pose)
 
-            // Accumulate force on aircraft (reaction force)
-            // For now, simple contact force: push aircraft in opposite direction
-            // This will be refined once we have proper tension values from constraints
-            const contactForce = 10000; // Placeholder: 10 kN per contact
-            this.accumulatedAirframeForce.addScaledVector(this.contactNormal, -contactForce);
+            // Accumulate impulse on aircraft from constraint forces pulling this body
+            // Sum all constraints pulling on this body to get the net tension
+            let constraintForce = 0;
+            for (const constraint of this.constraints) {
+                if (constraint.bodyA === i || constraint.bodyB === i) {
+                    // Distance constraint lambda is tension in Newtons
+                    constraintForce += Math.abs(constraint.lambda);
+                }
+            }
+
+            // If no constraints are pulling on this body, use contact penalty force
+            // This prevents the aircraft from slipping through unconnected webbing
+            if (constraintForce < 1000) {
+                constraintForce = Math.max(constraintForce, 5000); // Minimum 5 kN contact force
+            }
+
+            // Apply reaction impulse to aircraft: -F (Newton's third law)
+            this.accumulatedAirframeForce.addScaledVector(this.contactNormal, -constraintForce);
 
             // Accumulate torque: r × F where r is from aircraft CG to contact point
             this.relativePos.copy(this.contactPoint).sub(this.airframePose.position);
             const torque = new THREE.Vector3();
             torque.crossVectors(this.relativePos, this.contactNormal);
-            torque.multiplyScalar(contactForce);
+            torque.multiplyScalar(constraintForce);
             this.accumulatedAirframeTorque.add(torque);
         }
     }
@@ -983,12 +996,45 @@ export class BarricadeRigidBodySolver {
      * - Add them to the constraint list
      */
     engageAircraft(): void {
-        // TODO: Set up motor constraints for wires
-        // For each wire run (0-3):
-        // 1. Create MotorConstraint(wireStartBodyIdx, wireEndBodyIdx)
-        // 2. Set engaged = true
-        // 3. Add to constraints list
-        // 4. Update motorConstraintRange
+        // Only engage once
+        if (this.rbLayout.motorConstraintRange[1] > this.rbLayout.motorConstraintRange[0]) {
+            // Motors already created, just engage them
+            for (let i = this.rbLayout.motorConstraintRange[0]; i < this.rbLayout.motorConstraintRange[1]; i++) {
+                const motor = this.constraints[i] as MotorConstraint;
+                motor.engaged = true;
+            }
+            return;
+        }
+
+        // Create motor constraints for the 4 wire runs
+        this.rbLayout.motorConstraintRange[0] = this.constraints.length;
+
+        for (let w = 0; w < 4; w++) {
+            const wireBodies = this.rbLayout.wireBodies[w];
+            if (wireBodies.length < 2) continue; // Need at least anchor + end
+
+            // Wire runs from anchor (first body) to aircraft contact point (last body)
+            const anchorBodyIdx = wireBodies[0];
+            const endBodyIdx = wireBodies[wireBodies.length - 1];
+
+            const motorConstraint = new MotorConstraint(anchorBodyIdx, endBodyIdx);
+            motorConstraint.engaged = true; // Engage immediately
+            motorConstraint.engineHoldN = this.spec.engineHoldN;
+            motorConstraint.maxPayoutSpeed = this.spec.enginePayoutMaxMps;
+            motorConstraint.softStartDist = 3; // Default soft-start distance (m)
+            motorConstraint.retractSpeed = this.spec.engineRetractMps;
+            motorConstraint.holdingForce = 0; // No holding force before engagement
+
+            // Compute initial cable length from anchor to end body
+            const anchorBody = this.bodies[anchorBodyIdx];
+            const endBody = this.bodies[endBodyIdx];
+            motorConstraint.restValue = anchorBody.pos.distanceTo(endBody.pos);
+            motorConstraint.payoutDist = 0;
+
+            this.constraints.push(motorConstraint);
+        }
+
+        this.rbLayout.motorConstraintRange[1] = this.constraints.length;
     }
 
     /**
@@ -997,7 +1043,10 @@ export class BarricadeRigidBodySolver {
      * Deactivates motor constraints so wires return to retract mode.
      */
     disengageAircraft(): void {
-        // TODO: Set engaged=false on all motor constraints
+        for (let i = this.rbLayout.motorConstraintRange[0]; i < this.rbLayout.motorConstraintRange[1]; i++) {
+            const motor = this.constraints[i] as MotorConstraint;
+            motor.engaged = false;
+        }
     }
 
     /**
