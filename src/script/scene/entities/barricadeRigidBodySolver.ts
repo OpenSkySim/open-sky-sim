@@ -32,6 +32,12 @@ import {
     BarricadeRigidBodyLayout,
 } from './barricadeRigidBody';
 import { BarricadeSolverSpec, BarricadeLayout } from './barricadeSolver';
+import {
+    bvhClosestPoint,
+    bvhContainsPoint,
+    bvhClosest,
+    BvhClosest,
+} from '../../physics/collision/triangleBvh';
 
 /** Gravity in carrier-local Y (m/s²). */
 export const BARRICADE_RB_GRAVITY = 9.81;
@@ -116,6 +122,14 @@ export class BarricadeRigidBodySolver {
 
     /** Accumulated torque on aircraft from contact constraints (N⋅m). */
     private accumulatedAirframeTorque = new THREE.Vector3();
+
+    /** Reusable BvhClosest structure for collision queries. */
+    private readonly bvhNear: BvhClosest = bvhClosest();
+
+    /** Reusable vectors for collision calculations. */
+    private contactPoint = new THREE.Vector3();
+    private contactNormal = new THREE.Vector3();
+    private relativePos = new THREE.Vector3();
 
     constructor(spec: BarricadeSolverSpec, layout: BarricadeLayout) {
         this.spec = spec;
@@ -697,24 +711,61 @@ export class BarricadeRigidBodySolver {
     /**
      * Detect collisions between webbing and aircraft hull.
      *
-     * Generates ContactConstraint entries for any bodies that have penetrated
-     * the aircraft collision mesh. Reuses existing contact constraints where
-     * possible to maintain continuity.
-     *
-     * TODO: Full implementation with BVH queries and normal computation.
-     * For now, this is a placeholder.
+     * Queries the BVH for each body to find closest points on the aircraft
+     * surface. Bodies that penetrate are corrected and contact forces are accumulated.
      */
     private detectCollisions(): void {
         if (!this.bvh || !this.airframePose) return;
 
-        // TODO: Implement collision detection
-        // 1. For each body, query BVH for closest point on aircraft surface
-        // 2. If penetrating (distance < BARRICADE_RB_SKIN_M), generate contact
-        // 3. Compute contact normal (pointing away from aircraft)
-        // 4. Create or update ContactConstraint
-        // 5. Accumulate force/torque from contact
+        const skinMargin = BARRICADE_RB_SKIN_M;
 
-        // Placeholder: no collisions detected
+        // Skip stanchions (indices 0-3) as they're pinned
+        for (let i = 4; i < this.bodies.length; i++) {
+            const body = this.bodies[i];
+            if (body.invMass === 0) continue; // Skip pinned bodies
+
+            // Query BVH for closest point on aircraft surface
+            if (!bvhClosestPoint(this.bvh, body.pos.x, body.pos.y, body.pos.z, 1e4, this.bvhNear)) {
+                continue; // No collision
+            }
+
+            // Check if body penetrated the mesh
+            if (!bvhContainsPoint(this.bvh, body.pos.x, body.pos.y, body.pos.z)) {
+                continue; // Body is outside mesh, no contact
+            }
+
+            // Body has penetrated: compute normal and push it out
+            this.contactPoint.set(this.bvhNear.x, this.bvhNear.y, this.bvhNear.z);
+            this.contactNormal.subVectors(body.pos, this.contactPoint);
+
+            const distToSurface = this.contactNormal.length();
+            if (distToSurface < 1e-9) continue; // Degenerate case
+
+            this.contactNormal.multiplyScalar(1 / distToSurface);
+
+            // Position correction: push body out of mesh
+            const penetration = distToSurface - skinMargin;
+            if (penetration < 0) {
+                body.pos.addScaledVector(this.contactNormal, -penetration * 0.5);
+            }
+
+            // Track contact for this body
+            body.contactN.copy(this.contactNormal);
+            body.contactVn = 0; // Aircraft surface velocity (TODO: compute from pose)
+
+            // Accumulate force on aircraft (reaction force)
+            // For now, simple contact force: push aircraft in opposite direction
+            // This will be refined once we have proper tension values from constraints
+            const contactForce = 10000; // Placeholder: 10 kN per contact
+            this.accumulatedAirframeForce.addScaledVector(this.contactNormal, -contactForce);
+
+            // Accumulate torque: r × F where r is from aircraft CG to contact point
+            this.relativePos.copy(this.contactPoint).sub(this.airframePose.position);
+            const torque = new THREE.Vector3();
+            torque.crossVectors(this.relativePos, this.contactNormal);
+            torque.multiplyScalar(contactForce);
+            this.accumulatedAirframeTorque.add(torque);
+        }
     }
 
     /**
