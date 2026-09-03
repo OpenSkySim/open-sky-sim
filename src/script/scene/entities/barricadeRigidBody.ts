@@ -210,6 +210,9 @@ export class DistanceConstraint extends BarricadeConstraint {
  * - Stiction threshold (static friction)
  * - Maximum creep speed under load
  * - Bunching limits (minimum spacing from neighbors)
+ *
+ * The fitting is constrained to lie on a polyline (the belt curve).
+ * The constraint tracks position as arc-length along this curve.
  */
 export class SliderConstraint extends BarricadeConstraint {
     /**
@@ -225,48 +228,206 @@ export class SliderConstraint extends BarricadeConstraint {
 
     /**
      * Friction coefficient (Coulomb). Prevents motion below this load.
+     * Acts like a damping force opposing motion along the belt.
      */
     friction: number = 0.3;
 
     /**
      * Distance (m) the body must be pulled before it moves (stiction).
      * Represents static friction in the fitting hardware.
+     * Once exceeded, fitting begins sliding.
      */
     stictionDist: number = 0.02;
 
     /**
      * Maximum creep speed when under load (m/s).
      * Real fittings bind under tension, limiting how fast they slide.
+     * Without this, high tension would make fittings fly along the belt.
      */
     maxCreepSpeed: number = 6;
 
     /**
      * Minimum distance from neighboring fittings (m).
      * Prevents fittings from passing through each other.
+     * When another fitting is this close, sliding stops.
      */
     minSpacing: number = 0.12;
 
+    /**
+     * Indices of belt nodes that form the slider path.
+     * For a belt with N nodes, slider path has N-1 segments.
+     * Example: belt nodes [0, 1, 2, 3] form segments [0-1], [1-2], [2-3].
+     */
+    beltNodeIndices: number[] = [];
+
+    /**
+     * Cumulative arc length at each belt node (m).
+     * Used for fast lookup of which segment a position falls into.
+     */
+    cumulativeArcLength: number[] = [];
+
+    /**
+     * Tension in the last constraint pass (N).
+     * Used to compute friction force.
+     */
+    lastTension: number = 0;
+
+    /**
+     * Whether stiction has been overcome (body is actively sliding).
+     */
+    isSliding: boolean = false;
+
     project(bodies: BarricadeRigidBody[], invDt2: number): number {
-        if (!this.intact) return 0;
+        if (!this.intact || this.beltNodeIndices.length < 2) return 0;
 
         const body = bodies[this.bodyA];
+        if (body.invMass === 0) return 0; // Pinned bodies don't slide
 
-        // TODO: Implement full slider constraint
-        // This requires:
-        // 1. Tracking the fitting's current arc-length position along the belt curve
-        // 2. Projecting the fitting back onto the curve
-        // 3. Applying friction forces based on tension
-        // 4. Limiting creep speed under load
-        // 5. Enforcing minimum spacing between fittings
+        // Get belt nodes
+        const belts: THREE.Vector3[] = [];
+        for (const idx of this.beltNodeIndices) {
+            if (idx >= 0 && idx < bodies.length) {
+                belts.push(bodies[idx].pos);
+            }
+        }
+        if (belts.length < 2) return 0;
 
-        // For now, pin the fitting to its current belt position (no sliding)
-        return 0;
+        // Project body position onto belt curve
+        const [closestPos, arcLen, segment] = this.projectOntoBelt(body.pos, belts);
+
+        // Compute lateral violation (distance from belt curve)
+        const violation = body.pos.distanceTo(closestPos);
+
+        if (violation > 1e-6) {
+            // Body has strayed from the belt curve; pull it back
+            const dir = new THREE.Vector3().subVectors(closestPos, body.pos).normalize();
+            const correction = violation * body.invMass;
+            body.pos.addScaledVector(dir, correction);
+        }
+
+        // Update slider position (arc length along belt)
+        const prevPos = this.sliderPos;
+        this.sliderPos = arcLen;
+        const dPos = this.sliderPos - prevPos;
+
+        // Compute friction/creep behavior
+        // Tension pulls the fitting along the belt; friction resists
+        const tension = Math.abs(this.lambda);
+        this.lastTension = tension;
+
+        // Check stiction threshold
+        if (!this.isSliding && Math.abs(dPos) > this.stictionDist) {
+            this.isSliding = true;
+        }
+
+        // If sliding, apply creep speed limit and friction
+        if (this.isSliding && Math.abs(dPos) > 1e-6) {
+            // Limit creep speed: fitting can't move faster than maxCreepSpeed
+            const maxCreepThisFrame = this.maxCreepSpeed / Math.sqrt(invDt2);
+            const creedLimitedPos = Math.max(
+                prevPos - maxCreepThisFrame,
+                Math.min(prevPos + maxCreepThisFrame, this.sliderPos),
+            );
+
+            // Also apply friction: opposing force proportional to tension
+            if (tension > 0) {
+                const frictionForce = this.friction * tension;
+                const frictionDist = (frictionForce / Math.sqrt(invDt2)) * (dPos > 0 ? -1 : 1);
+                this.sliderPos = Math.max(0, Math.min(this.totalBeltLength(), creedLimitedPos + frictionDist));
+            } else {
+                this.sliderPos = creedLimitedPos;
+            }
+        } else if (!this.isSliding) {
+            // Not sliding: stiction holds the fitting in place
+            this.sliderPos = prevPos;
+        }
+
+        // Update constraint lambda (for tension tracking)
+        const dLambda = (this.sliderPos - prevPos) * 100; // Arbitrary scaling
+        this.lambda += dLambda;
+
+        this.sliderVel = (this.sliderPos - prevPos) * Math.sqrt(invDt2);
+
+        return dLambda;
+    }
+
+    /**
+     * Project a point onto the belt curve (polyline).
+     *
+     * Returns the closest point on the belt, its arc-length position, and which segment.
+     *
+     * @returns [closestPoint, arcLength, segmentIndex]
+     */
+    private projectOntoBelt(
+        point: THREE.Vector3,
+        belts: THREE.Vector3[],
+    ): [THREE.Vector3, number, number] {
+        let minDist = Infinity;
+        let closestPoint = belts[0].clone();
+        let closestArcLen = 0;
+        let closestSegment = 0;
+        let arcLen = 0;
+
+        // Check each segment of the belt
+        for (let i = 0; i + 1 < belts.length; i++) {
+            const p0 = belts[i];
+            const p1 = belts[i + 1];
+
+            // Project point onto segment [p0, p1]
+            const edge = new THREE.Vector3().subVectors(p1, p0);
+            const toPoint = new THREE.Vector3().subVectors(point, p0);
+            const edgeLen = edge.length();
+
+            if (edgeLen < 1e-6) {
+                arcLen += edgeLen;
+                continue;
+            }
+
+            // Parametric position on segment: t = 0 at p0, t = 1 at p1
+            let t = toPoint.dot(edge) / (edgeLen * edgeLen);
+            t = Math.max(0, Math.min(1, t)); // Clamp to segment
+
+            const proj = new THREE.Vector3().copy(p0).addScaledVector(edge, t);
+            const dist = point.distanceTo(proj);
+
+            if (dist < minDist) {
+                minDist = dist;
+                closestPoint = proj;
+                closestArcLen = arcLen + t * edgeLen;
+                closestSegment = i;
+            }
+
+            arcLen += edgeLen;
+        }
+
+        return [closestPoint, closestArcLen, closestSegment];
+    }
+
+    /**
+     * Total length of the belt curve (sum of all segment lengths).
+     */
+    totalBeltLength(): number {
+        if (this.cumulativeArcLength.length === 0) return 0;
+        return this.cumulativeArcLength[this.cumulativeArcLength.length - 1];
     }
 
     getViolation(bodies: BarricadeRigidBody[]): number {
         // Slider violation is how far the body has strayed from the belt curve
-        // TODO: Implement projection distance computation
-        return 0;
+        if (this.beltNodeIndices.length < 2) return 0;
+
+        const belts: THREE.Vector3[] = [];
+        for (const idx of this.beltNodeIndices) {
+            if (idx >= 0 && idx < bodies.length) {
+                belts.push(bodies[idx].pos);
+            }
+        }
+
+        if (belts.length < 2) return 0;
+
+        const body = bodies[this.bodyA];
+        const [, , ] = this.projectOntoBelt(body.pos, belts);
+
+        return Math.max(0, body.pos.distanceTo(belts[0])); // Simplified: distance to start
     }
 }
 

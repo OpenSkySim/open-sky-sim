@@ -456,6 +456,31 @@ export class BarricadeRigidBodySolver {
 
         this.rbLayout.tieDownConstraintRange[1] = this.constraints.length;
 
+        // Stripe fitting slider constraints
+        // Each stripe has two fittings: one on upper belt, one on lower belt
+        // These fittings can slide along the belt when pulled by the fuselage
+        for (let s = 0; s < spec.stripes; s++) {
+            // Upper belt fitting
+            const upperFittingIdx = this.rbLayout.stripeBodies[s][spec.stripeNodes - 1]; // Last node = upper fitting
+            const upperConstraint = new SliderConstraint(upperFittingIdx, -1);
+            upperConstraint.beltNodeIndices = this.rbLayout.upperBeltBodies;
+            upperConstraint.friction = 0.35; // Nylon on aluminum/rope
+            upperConstraint.stictionDist = 0.02; // BARRICADE_FITTING_STICTION_M
+            upperConstraint.maxCreepSpeed = spec.slideSpeed;
+            upperConstraint.minSpacing = 0.12; // BARRICADE_FITTING_GAP_M
+            this.constraints.push(upperConstraint);
+
+            // Lower belt fitting
+            const lowerFittingIdx = this.rbLayout.stripeBodies[s][0]; // First node = lower fitting
+            const lowerConstraint = new SliderConstraint(lowerFittingIdx, -1);
+            lowerConstraint.beltNodeIndices = this.rbLayout.lowerBeltBodies;
+            lowerConstraint.friction = 0.35;
+            lowerConstraint.stictionDist = 0.02;
+            lowerConstraint.maxCreepSpeed = spec.slideSpeed;
+            lowerConstraint.minSpacing = 0.12;
+            this.constraints.push(lowerConstraint);
+        }
+
         // Motor constraints (will be added when aircraft engages)
         this.rbLayout.motorConstraintRange = [this.constraints.length, this.constraints.length];
 
@@ -597,6 +622,8 @@ export class BarricadeRigidBodySolver {
                 for (const constraint of this.constraints) {
                     constraint.project(this.bodies, invH2);
                 }
+                // After each pass, enforce fitting spacing to prevent bunching
+                this.enforceSpacing();
             }
 
             // Finish: compute velocities from position change and contact damping
@@ -605,6 +632,66 @@ export class BarricadeRigidBodySolver {
 
         // Update rendering positions
         this.writeRenderingPositions();
+    }
+
+    /**
+     * Enforce minimum spacing between neighboring stripe fittings.
+     *
+     * Prevents fittings from bunching and passing through each other when
+     * a fuselage shoulders them aside. This is done as a separate pass after
+     * main constraint solving to ensure proper collision avoidance.
+     */
+    private enforceSpacing(): void {
+        const spec = this.spec;
+
+        // For each stripe, check spacing between this and next stripe's fittings
+        for (let s = 0; s + 1 < spec.stripes; s++) {
+            const thisStripeBodies = this.rbLayout.stripeBodies[s];
+            const nextStripeBodies = this.rbLayout.stripeBodies[s + 1];
+
+            // Check upper belt fittings
+            const thisUpperIdx = thisStripeBodies[spec.stripeNodes - 1];
+            const nextUpperIdx = nextStripeBodies[spec.stripeNodes - 1];
+            const thisUpperPos = this.bodies[thisUpperIdx].pos;
+            const nextUpperPos = this.bodies[nextUpperIdx].pos;
+
+            let upperDist = thisUpperPos.distanceTo(nextUpperPos);
+            if (upperDist < 0.12) { // BARRICADE_FITTING_GAP_M
+                // Too close: push them apart
+                const dir = new THREE.Vector3().subVectors(nextUpperPos, thisUpperPos);
+                if (dir.length() > 1e-6) {
+                    dir.normalize();
+                    const push = (0.12 - upperDist) / 2;
+                    if (this.bodies[thisUpperIdx].invMass > 0) {
+                        thisUpperPos.addScaledVector(dir, -push);
+                    }
+                    if (this.bodies[nextUpperIdx].invMass > 0) {
+                        nextUpperPos.addScaledVector(dir, push);
+                    }
+                }
+            }
+
+            // Check lower belt fittings
+            const thisLowerIdx = thisStripeBodies[0];
+            const nextLowerIdx = nextStripeBodies[0];
+            const thisLowerPos = this.bodies[thisLowerIdx].pos;
+            const nextLowerPos = this.bodies[nextLowerIdx].pos;
+
+            let lowerDist = thisLowerPos.distanceTo(nextLowerPos);
+            if (lowerDist < 0.12) {
+                const dir = new THREE.Vector3().subVectors(nextLowerPos, thisLowerPos);
+                if (dir.length() > 1e-6) {
+                    dir.normalize();
+                    const push = (0.12 - lowerDist) / 2;
+                    if (this.bodies[thisLowerIdx].invMass > 0) {
+                        thisLowerPos.addScaledVector(dir, -push);
+                    }
+                    if (this.bodies[nextLowerIdx].invMass > 0) {
+                        nextLowerPos.addScaledVector(dir, push);
+                    }
+                }
+            }
+        }
     }
 
     /**
