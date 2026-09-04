@@ -95,6 +95,7 @@ export class BarricadeEntity implements Entity {
     // Track last logged values to only emit on change
     private lastLoggedWires = { upperLeft: -1, upperRight: -1, lowerLeft: -1, lowerRight: -1 };
     private lastLoggedBelts = { upper: -1, lower: -1 };
+    private lastEngagementState = false;
 
     private readonly sampleWorld = new THREE.Vector3();
     private readonly lodAnchorLocal = new THREE.Vector3();
@@ -737,18 +738,22 @@ export class BarricadeEntity implements Entity {
             const upperTotal = parseFloat(upperTotalLen.toFixed(2));
             const lowerTotal = parseFloat(lowerTotalLen.toFixed(2));
 
-            // Check if any value has changed
+            // Detect engagement: upper cables significantly longer than 4.8m indicates release/impact
+            const engaged = wireLengthsData.upperLeft > 5.5 || wireLengthsData.upperRight > 5.5;
+
+            // Check if any value has changed or engagement state changed
             const valuesChanged =
                 this.lastLoggedWires.upperLeft !== wireLengthsData.upperLeft ||
                 this.lastLoggedWires.upperRight !== wireLengthsData.upperRight ||
                 this.lastLoggedWires.lowerLeft !== wireLengthsData.lowerLeft ||
                 this.lastLoggedWires.lowerRight !== wireLengthsData.lowerRight ||
                 this.lastLoggedBelts.upper !== upperTotal ||
-                this.lastLoggedBelts.lower !== lowerTotal;
+                this.lastLoggedBelts.lower !== lowerTotal ||
+                this.lastEngagementState !== engaged;
 
             if (valuesChanged) {
                 console.log(
-                    `barricade-lengths\n` +
+                    `barricade-lengths (engaged=${engaged})\n` +
                     `Upper:     L=${wireLengthsData.upperLeft.toFixed(2)}         R=${wireLengthsData.upperRight.toFixed(2)}\n` +
                     `Lower:     L=${wireLengthsData.lowerLeft.toFixed(2)}         R=${wireLengthsData.lowerRight.toFixed(2)}\n` +
                     `Belt:     up=${upperTotal.toFixed(2)}      low=${lowerTotal.toFixed(2)}`
@@ -757,6 +762,7 @@ export class BarricadeEntity implements Entity {
                 // Update tracked values
                 this.lastLoggedWires = { ...wireLengthsData };
                 this.lastLoggedBelts = { upper: upperTotal, lower: lowerTotal };
+                this.lastEngagementState = engaged;
             }
         }
     }
