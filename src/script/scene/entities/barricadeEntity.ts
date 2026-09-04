@@ -27,6 +27,7 @@
 import * as THREE from 'three';
 import { Palette, PaletteCategory } from '../../config/palettes/palette';
 import { CanvasPainter } from '../../render/screen/canvasPainter';
+import { Font, TextAlignment } from '../../render/screen/text';
 import { attachToRenderList } from '../../render/renderList';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../materials/materials';
 import { updateUniforms } from '../utils';
@@ -609,13 +610,57 @@ export class BarricadeEntity implements Entity {
     }
 
     render2D(
-        _targetWidth: number,
-        _targetHeight: number,
+        targetWidth: number,
+        targetHeight: number,
         _camera: THREE.Camera,
         _lists: Set<string>,
-        _painter: CanvasPainter,
+        painter: CanvasPainter,
         _palette: Palette,
     ): void {
-        //
+        if (!this.root.visible) return;
+        const nodes = this.getNodes();
+        if (!nodes) return;
+
+        // Draw debug wire length box in upper right corner
+        const font = Font.HUD_SMALL;
+        const boxW = 160;
+        const boxH = 110;
+        const margin = 10;
+        const x = targetWidth - boxW - margin;
+        const y = margin;
+
+        // Background
+        painter.setBackground('#00000080');
+        painter.fillRect(x, y, boxW, boxH);
+
+        // Border
+        painter.setColor('#ffffff');
+        painter.setLineWidth(1);
+        painter.rectangle(x, y, boxW, boxH, false);
+
+        // Title
+        painter.text(font, x + 5, y + 8, 'Wire Lengths', '#ffffff', TextAlignment.LEFT);
+
+        // Wire information
+        const wireColors = ['#8b6f47', '#8b6f47', '#ff3333', '#ff3333'];
+        const wireNames = ['Upper-L', 'Upper-R', 'Lower-L', 'Lower-R'];
+        const layout = this.layout;
+
+        for (let w = 0; w < 4; w++) {
+            const a = layout.wireNodeIndex(w as BarricadeWire, 0);
+            const b = layout.wireNodeIndex(w as BarricadeWire, layout.spec.wireNodes + 1);
+            const ax = nodes[a * 3], ay = nodes[a * 3 + 1], az = nodes[a * 3 + 2];
+            const bx = nodes[b * 3], by = nodes[b * 3 + 1], bz = nodes[b * 3 + 2];
+            const len = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2);
+
+            const lineY = y + 25 + w * 20;
+
+            // Draw colored dot
+            painter.setBackground(wireColors[w]);
+            painter.fillRect(x + 8, lineY - 4, 6, 6);
+
+            // Draw text
+            painter.text(font, x + 20, lineY, `${wireNames[w]}: ${len.toFixed(2)}m`, '#ffffff', TextAlignment.LEFT);
+        }
     }
 }
