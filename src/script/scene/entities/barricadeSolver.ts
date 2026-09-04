@@ -968,6 +968,7 @@ export class BarricadeSolver {
 
         // Wires first: they are what holds the panel out to the masts, so the
         // rest of the pass works from ends that are already where they belong.
+        // Lower wires are arresting cables (hold aircraft load), upper are auxiliary cables.
         const bare = Math.max(
             0.25,
             (this.spec.rightX - this.spec.leftX) * 0.5 - this.spec.webHalfWidth,
@@ -979,8 +980,11 @@ export class BarricadeSolver {
             rests.length = 0;
             for (let j = 0; j <= wireNodes + 1; j++) nodes.push(this.wireNodeIndex(w, j));
             for (let j = 0; j <= wireNodes; j++) rests.push(bare / (wireNodes + 1));
+            // Only lower wires (LOWER_LEFT=2, LOWER_RIGHT=3) are arresting cables with engine hold
+            const isArrestingWire = w >= BarricadeWire.LOWER_LEFT;
+            const maxTension = isArrestingWire ? this.spec.engineHoldN : 0;
             BarricadeSolver.chain(
-                out, nodes, rests, this.spec.wireAxialStiffnessN, this.spec.engineHoldN,
+                out, nodes, rests, this.spec.wireAxialStiffnessN, maxTension,
             );
             this.wireEnd[w] = out.length;
         }
