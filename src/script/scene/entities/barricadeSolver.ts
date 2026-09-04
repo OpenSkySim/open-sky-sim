@@ -383,7 +383,7 @@ export function defaultBarricadeSolverSpec(
     return {
         leftX: -17.5,
         rightX: 17.5,
-        webHalfWidth: 15.24,
+        webHalfWidth: 12.0,
         planeZ: 30,
         deckY: 13.55,
         height: 6.1,
