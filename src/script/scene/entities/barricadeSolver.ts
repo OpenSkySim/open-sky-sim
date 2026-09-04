@@ -1202,7 +1202,8 @@ export class BarricadeSolver {
             // Gradually reduce damping over last 60 frames to avoid shock
             if (i > SETTLE_STEPS - 60) {
                 const transitionProgress = (i - (SETTLE_STEPS - 60)) / 60;
-                this.dampingRate = SETTLE_DAMPING * (1 - transitionProgress * 0.9) + this.spec.damping * (transitionProgress * 0.9);
+                // Smoothly interpolate from SETTLE_DAMPING to spec.damping
+                this.dampingRate = SETTLE_DAMPING * (1 - transitionProgress) + this.spec.damping * transitionProgress;
             }
             this.step(1 / 60);
         }
