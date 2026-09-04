@@ -96,7 +96,7 @@ export const BARRICADE_MAX_STEP_S = 1 / 30;
  * Strap and hull cannot occupy the same plane, and a particle resting exactly
  * on a triangle flickers in and out of contact.
  */
-export const BARRICADE_SKIN_M = 0.15;
+export const BARRICADE_SKIN_M = 0.30;
 
 /**
  * Coulomb friction between webbing and airframe skin.
@@ -1269,6 +1269,14 @@ export class BarricadeSolver {
         // Force is the impulse the contacts delivered, spread over the step.
         this.forceOnAirframe.multiplyScalar(1 / dt);
         this.torqueOnAirframe.multiplyScalar(1 / dt);
+
+        // Instrumentation: Log arrestment forces for debugging
+        const forceMagnitude = this.forceOnAirframe.length();
+        if (forceMagnitude > 1000) { // Log significant forces (>1kN)
+            const netForceKN = forceMagnitude / 1000;
+            console.log(`[BARRICADE] Arrestment force: ${netForceKN.toFixed(1)} kN (X:${this.forceOnAirframe.x.toFixed(0)} Y:${this.forceOnAirframe.y.toFixed(0)} Z:${this.forceOnAirframe.z.toFixed(0)} N)`);
+        }
+
         // The stanchions have finished travelling; a step nobody re-commanded
         // leaves them where they are.
         this.deployFrom = this.deploy;
