@@ -401,6 +401,18 @@ a:hover {
     min-height: 1.1em;
 }
 
+.area-delete {
+    margin-left: 0.2rem;
+    padding: 0 0.3rem;
+    font-size: 0.75rem;
+    line-height: 1.1;
+    cursor: pointer;
+}
+
+.area-delete:disabled {
+    cursor: default;
+}
+
 #area-controls {
     display: flex;
     align-items: center;

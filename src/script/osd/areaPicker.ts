@@ -168,9 +168,33 @@ export class AreaPicker {
         } catch {
             this.areas = [];
         }
-        this.areaList.textContent = this.areas.length
-            ? `Already baked: ${this.areas.map(a => a.name).join(', ')}`
-            : 'Nothing baked yet.';
+        this.renderAreas();
+    }
+
+    private renderAreas(): void {
+        this.areaList.textContent = '';
+        if (this.areas.length === 0) {
+            this.areaList.textContent = 'Nothing baked yet.';
+            return;
+        }
+        this.areaList.append('Already baked: ');
+        this.areas.forEach((area, i) => {
+            if (i > 0) {
+                this.areaList.append(', ');
+            }
+            this.areaList.append(area.name);
+            if (this.areas.length <= 1) {
+                return;
+            }
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'area-delete';
+            del.textContent = '×';
+            del.title = `Delete "${area.name}" and its baked terrain`;
+            del.disabled = this.running;
+            del.addEventListener('click', () => void this.deleteArea(area.name));
+            this.areaList.append(del);
+        });
     }
 
     // --- view maths --------------------------------------------------------
@@ -409,6 +433,9 @@ export class AreaPicker {
         const blocked = this.blockedBecause();
         this.importButton.disabled = blocked !== undefined;
         this.importButton.title = blocked ?? 'Bake this area into the terrain';
+        for (const b of this.areaList.querySelectorAll('button')) {
+            b.disabled = this.running;
+        }
         this.updateReadout();
     }
 
@@ -447,6 +474,48 @@ export class AreaPicker {
             return;
         }
 
+        this.follow(id, 'Reload the page and pick it under Settings -> Area.');
+    }
+
+    private async deleteArea(name: string): Promise<void> {
+        if (this.running) {
+            return;
+        }
+        const sure = window.confirm(
+            `Delete the area "${name}"?\n\nIts terrain is removed from the baked `
+            + 'pyramids and the coarse tiles around it are rebaked. Getting it '
+            + 'back means importing it again.');
+        if (!sure) {
+            return;
+        }
+        this.running = true;
+        this.syncButton();
+        this.logEl.textContent = '';
+        this.lastLineWasProgress = false;
+
+        let id: string;
+        try {
+            const res = await fetch('/api/delete-area', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name }),
+            });
+            const body = await res.json();
+            if (!res.ok || !body.ok) {
+                throw new Error(body.error ?? `server said ${res.status}`);
+            }
+            id = body.id;
+        } catch (err) {
+            this.append(`could not start: ${(err as Error).message}`);
+            this.running = false;
+            this.syncButton();
+            return;
+        }
+
+        this.follow(id, 'Reload the page; the area is gone.');
+    }
+
+    private follow(id: string, doneNote: string): void {
         this.progress.classList.remove('hidden');
         this.progress.classList.remove('failed');
         this.setProgress(0, 1, 0, 'starting');
@@ -478,8 +547,8 @@ export class AreaPicker {
                 if (data.state === 'done') {
                     const n = data.stepCount ?? 0;
                     this.setProgress(100, n, n, 'done', 100);
-                    void this.loadAreas();
-                    this.append('\nReload the page and pick it under Settings -> Area.');
+                    void this.loadAreas().then(() => this.draw());
+                    this.append(`\n${doneNote}`);
                 }
             }
         };
