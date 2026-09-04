@@ -1732,7 +1732,12 @@ export class BarricadeSolver {
         // 6.0 changed the outcome by nothing at all, and why a strap driven onto
         // a wing would never grip it.
         const slip = Math.hypot(dtx, dty, dtz);
-        const maxSlip = BARRICADE_HULL_FRICTION * normalPush;
+        // Detect leading edge: high curvature manifests as stripe particles having
+        // large normal components relative to their motion. Boost friction for leading
+        // edges to enhance wrapping behavior.
+        const isLeadingEdge = Math.abs(dn) > slip * 0.5;
+        const frictionMult = isLeadingEdge ? 1.5 : 1.0;
+        const maxSlip = BARRICADE_HULL_FRICTION * normalPush * frictionMult;
         let px = _p.x;
         let py = _p.y;
         let pz = _p.z;
