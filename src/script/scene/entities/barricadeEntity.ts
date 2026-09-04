@@ -132,8 +132,26 @@ export class BarricadeEntity implements Entity {
             colorDither: false,
             rawColor: '#e0dccb',
         }) as THREE.ShaderMaterial;
-        // Belts and wires are arresting-gear cable: dark, and much thinner.
-        const cableMat = materials.build({
+        // Upper belt: navy blue
+        const upperBeltMat = materials.build({
+            type: SceneMaterialPrimitiveType.MESH,
+            category: PaletteCategory.SCENERY_TREE_SHADOW,
+            shaded: false,
+            depthWrite: false,
+            colorDither: false,
+            rawColor: '#001a4d',
+        }) as THREE.ShaderMaterial;
+        // Lower belt: light blue
+        const lowerBeltMat = materials.build({
+            type: SceneMaterialPrimitiveType.MESH,
+            category: PaletteCategory.SCENERY_TREE_SHADOW,
+            shaded: false,
+            depthWrite: false,
+            colorDither: false,
+            rawColor: '#6699ff',
+        }) as THREE.ShaderMaterial;
+        // Wires are arresting-gear cable: dark
+        const wireMat = materials.build({
             type: SceneMaterialPrimitiveType.MESH,
             category: PaletteCategory.SCENERY_TREE_SHADOW,
             shaded: false,
@@ -146,7 +164,9 @@ export class BarricadeEntity implements Entity {
         // half of them wound away from the groove, leaving the net invisible to
         // a pilot flying into it.
         stripeMat.side = THREE.DoubleSide;
-        cableMat.side = THREE.DoubleSide;
+        upperBeltMat.side = THREE.DoubleSide;
+        lowerBeltMat.side = THREE.DoubleSide;
+        wireMat.side = THREE.DoubleSide;
         const stanchionMat = materials.build({
             type: SceneMaterialPrimitiveType.MESH,
             category: PaletteCategory.SCENERY_TREE_SHADOW,
@@ -170,15 +190,15 @@ export class BarricadeEntity implements Entity {
         // The mesh budget is fixed: refitting the span moves the stations, it
         // never changes how many of anything there are.
         for (let i = 0; i + 1 < this.layout.beltNodes; i++) {
-            const upper = this.makeQuad(cableMat);
-            const lower = this.makeQuad(cableMat);
+            const upper = this.makeQuad(upperBeltMat);
+            const lower = this.makeQuad(lowerBeltMat);
             this.upperSegs.push(upper);
             this.lowerSegs.push(lower);
             this.root.add(upper);
             this.root.add(lower);
         }
         for (let i = 0; i < 4 * (wireNodes + 1); i++) {
-            const seg = this.makeQuad(cableMat);
+            const seg = this.makeQuad(wireMat);
             this.wireSegs.push(seg);
             this.root.add(seg);
         }
