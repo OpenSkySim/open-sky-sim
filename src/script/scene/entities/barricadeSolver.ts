@@ -1007,8 +1007,11 @@ export class BarricadeSolver {
         this.beltCEnd = out.length;
 
         // Y connectors: the two lower arresting wires form V junctions connecting
-        // to both upper and lower belts. The upper belt is held in position by an
-        // auxiliary cable (not an arresting wire), so only LOWER wires connect here.
+        // to both upper and lower belts. The upper belt is initially held in position
+        // by an auxiliary cable, but once the aircraft touches the net this cable
+        // becomes slack/irrelevant. The actual arrestment is handled solely by the
+        // lower wires, which receive load from both belt levels via these Y connectors
+        // and extend via the arresting engines (max 100m payout).
         const upperBeltLeft = this.beltNodeIndex(true, 0);
         const upperBeltRight = this.beltNodeIndex(true, this.beltNodes - 1);
         const lowerBeltLeft = this.beltNodeIndex(false, 0);
