@@ -1006,16 +1006,19 @@ export class BarricadeSolver {
 
         this.beltCEnd = out.length;
 
-        // Connect belts to arresting wires: lower belt connects directly to wire,
-        // upper belt connects to lower belt. This forms the load path:
-        // Arresting wire <- Lower belt <- Upper belt
+        // Y connectors: upper belt bends down 90° to meet lower belt, and both
+        // connect together to the arresting wire. Upper belt maintains vertical gap
+        // by connecting upward from the junction point; lower belt is at junction.
         const upperBeltLeft = this.beltNodeIndex(true, 0);
         const upperBeltRight = this.beltNodeIndex(true, this.beltNodes - 1);
         const lowerBeltLeft = this.beltNodeIndex(false, 0);
         const lowerBeltRight = this.beltNodeIndex(false, this.beltNodes - 1);
 
-        // Lower-left belt connects to lower-left arresting wire
+        // Both belts connect to the same arresting wire endpoint (junction point)
         const wireLowerLeft = this.layout.wireNodeIndex(BarricadeWire.LOWER_LEFT, wireNodes + 1);
+        const wireLowerRight = this.layout.wireNodeIndex(BarricadeWire.LOWER_RIGHT, wireNodes + 1);
+
+        // Lower-left belt connects directly to wire
         out.push({
             a: lowerBeltLeft,
             b: wireLowerLeft,
@@ -1025,8 +1028,18 @@ export class BarricadeSolver {
             breakTension: 0,
         });
 
-        // Lower-right belt connects to lower-right arresting wire
-        const wireLowerRight = this.layout.wireNodeIndex(BarricadeWire.LOWER_RIGHT, wireNodes + 1);
+        // Upper-left belt bends down 90° to same junction, maintaining gap
+        const gapBelts = height - lowerLift;
+        out.push({
+            a: upperBeltLeft,
+            b: wireLowerLeft,
+            rest: gapBelts,
+            compliance: 0,
+            maxTension: 0,
+            breakTension: 0,
+        });
+
+        // Lower-right belt connects directly to wire
         out.push({
             a: lowerBeltRight,
             b: wireLowerRight,
@@ -1036,19 +1049,10 @@ export class BarricadeSolver {
             breakTension: 0,
         });
 
-        // Upper belt connects to lower belt, maintaining vertical gap
-        const gapBelts = height - lowerLift;
-        out.push({
-            a: upperBeltLeft,
-            b: lowerBeltLeft,
-            rest: gapBelts,
-            compliance: 0,
-            maxTension: 0,
-            breakTension: 0,
-        });
+        // Upper-right belt bends down 90° to same junction, maintaining gap
         out.push({
             a: upperBeltRight,
-            b: lowerBeltRight,
+            b: wireLowerRight,
             rest: gapBelts,
             compliance: 0,
             maxTension: 0,
