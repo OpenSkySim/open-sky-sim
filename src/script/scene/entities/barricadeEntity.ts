@@ -730,12 +730,11 @@ export class BarricadeEntity implements Entity {
         const worldState = (globalThis as any).worldState;
         const isAircraftDead = worldState?.aircraftCrashed || worldState?.playerDead || worldState?.aircraftDead;
         if (!isAircraftDead) {
-            console.log(`barricade-lengths Upper-L: ${wireLengthsData.upperLeft}m`);
-            console.log(`barricade-lengths Upper-R: ${wireLengthsData.upperRight}m`);
-            console.log(`barricade-lengths Lower-L: ${wireLengthsData.lowerLeft}m`);
-            console.log(`barricade-lengths Lower-R: ${wireLengthsData.lowerRight}m`);
-            console.log(`barricade-lengths Upper Belt: ${parseFloat(upperTotalLen.toFixed(2))}m`);
-            console.log(`barricade-lengths Lower Belt: ${parseFloat(lowerTotalLen.toFixed(2))}m`);
+            console.log(
+                `barricade-lengths Upper-L: ${wireLengthsData.upperLeft}m Upper-R: ${wireLengthsData.upperRight}m ` +
+                `Lower-L: ${wireLengthsData.lowerLeft}m Lower-R: ${wireLengthsData.lowerRight}m ` +
+                `Upper Belt: ${parseFloat(upperTotalLen.toFixed(2))}m Lower Belt: ${parseFloat(lowerTotalLen.toFixed(2))}m`
+            );
         }
     }
 }
