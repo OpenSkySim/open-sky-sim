@@ -705,14 +705,6 @@ export class BarricadeEntity implements Entity {
         painter.text(font, x + 28, lineY, `Lower Belt: ${lowerTotalLen.toFixed(2)}m`, '#ffffff', TextAlignment.LEFT);
         lineY += lineHeight;
 
-        // Draw first 3 stripe segments
-        for (let stripe = 0; stripe < Math.min(3, upperBeltLengths.length); stripe++) {
-            const stripeNum = stripe + 1;
-            painter.setBackground('#00cc00');
-            painter.fillRect(x + 12, lineY - 5, 5, 5);
-            painter.text(font, x + 24, lineY, `Stripe ${stripeNum}U: ${upperBeltLengths[stripe].toFixed(3)}m`, '#ffffff', TextAlignment.LEFT);
-            lineY += 20;
-        }
 
         // Calculate wire lengths for JSON
         const wireLengthsData = {
@@ -739,26 +731,10 @@ export class BarricadeEntity implements Entity {
         const isAircraftDead = worldState?.aircraftCrashed || worldState?.playerDead || worldState?.aircraftDead;
         if (!isAircraftDead) {
             const beltData = {
-                wires: {
-                    upperLeft: wireNames[0],
-                    upperRight: wireNames[1],
-                    lowerLeft: wireNames[2],
-                    lowerRight: wireNames[3],
-                },
                 wireLengths: wireLengthsData,
                 belts: {
                     upperTotal: parseFloat(upperTotalLen.toFixed(2)),
                     lowerTotal: parseFloat(lowerTotalLen.toFixed(2)),
-                    stripeSegments: {
-                        upper: upperBeltLengths.map((len, i) => ({
-                            stripe: i + 1,
-                            length: parseFloat(len.toFixed(3)),
-                        })),
-                        lower: lowerBeltLengths.map((len, i) => ({
-                            stripe: i + 1,
-                            length: parseFloat(len.toFixed(3)),
-                        })),
-                    },
                 },
             };
             console.log('barricade-lengths', JSON.stringify(beltData));
