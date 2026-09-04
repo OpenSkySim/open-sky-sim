@@ -985,8 +985,11 @@ export class BarricadeSolver {
             this.wireEnd[w] = out.length;
         }
 
-        // Belts: cut to the panel, bar the thousandth of surplus that lets a
-        // rigged net droop instead of standing like a drawn bowstring.
+        // Belts: fixed inextensible length, bar the slack that lets a rigged net
+        // droop instead of standing like a drawn bowstring. Solved with multi-stride
+        // distance constraints (no axial stiffness = infinite stiffness = fixed length).
+        // The belts cannot stretch; only the arresting wires pay out to accommodate
+        // the aircraft impact (max 100m extension).
         this.beltCFirst = out.length;
         const beltFactor = 1 + this.spec.beltSlack;
         for (const upper of [true, false]) {
@@ -996,6 +999,8 @@ export class BarricadeSolver {
             for (let i = 0; i + 1 < this.beltNodes; i++) {
                 rests.push((this.beltStationX(i + 1) - this.beltStationX(i)) * beltFactor);
             }
+            // Chain with axialStiffnessN=0 and maxTension=0 creates inextensible
+            // constraints via multi-stride rigid distance constraints.
             BarricadeSolver.chain(out, nodes, rests);
         }
 
