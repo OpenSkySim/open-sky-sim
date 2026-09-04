@@ -455,6 +455,8 @@ export class BarricadeController {
         this.rerigRemaining = 0;
         this.wasEngaged = false;
         this.rigGeneration++;
+        // Auto-raise the barricade when rigged
+        this.raise();
     }
 
     /**
