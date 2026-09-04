@@ -1405,6 +1405,8 @@ export class CombatSim implements ProjectileSink {
                     a.barricadeFieldIndex = fi;
                     a.barricadeSnagAlong = pos.dot(field.deckAxis);
                     a.barricadeHeld = false;
+                    // Release upper belt from auxiliary cables when aircraft impacts
+                    this.barricadeSolvers[fi]?.releaseUpperBelt();
                     break;
                 }
             }

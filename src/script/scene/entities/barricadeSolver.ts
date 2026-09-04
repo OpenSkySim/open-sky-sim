@@ -753,6 +753,8 @@ export class BarricadeSolver {
     private stripeCEnd = 0;
     private tieCFirst = 0;
     private tieCEnd = 0;
+    /** Indices of upper belt Y connector constraints (released when aircraft engages). */
+    private upperBeltConnectorIndices: number[] = [];
     /** Rigged length of each bare wire run (m). */
     private readonly wireRest = new Float64Array(4);
     /** Cable let out by the arresting engine beyond the rigged run (m). */
@@ -879,6 +881,14 @@ export class BarricadeSolver {
     /** How far along the belt a stripe's fitting has run (m from the port end). */
     stripeSlide(s: number, upper: boolean): number {
         return (upper ? this.uUpper : this.uLower)[s];
+    }
+
+    /** Release upper belt from auxiliary cables when aircraft engages. */
+    releaseUpperBelt(): void {
+        for (const idx of this.upperBeltConnectorIndices) {
+            // Set compliance to infinity to effectively disable the constraint
+            this.cCompliance[idx] = Infinity;
+        }
     }
 
     /** Particle index of node `j` of wire `w`, counted from the stanchion out. */
@@ -1057,6 +1067,7 @@ export class BarricadeSolver {
 
         // Upper-left belt held above lower belt by auxiliary cable
         const gapBelts = height - lowerLift;
+        this.upperBeltConnectorIndices.push(out.length);
         out.push({
             a: upperBeltLeft,
             b: wireLowerLeft,
@@ -1077,6 +1088,7 @@ export class BarricadeSolver {
         });
 
         // Upper-right belt held above lower belt by auxiliary cable
+        this.upperBeltConnectorIndices.push(out.length);
         out.push({
             a: upperBeltRight,
             b: wireLowerRight,
