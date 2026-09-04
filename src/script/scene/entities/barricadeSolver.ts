@@ -1266,6 +1266,14 @@ export class BarricadeSolver {
                     this.pos[a * 3 + 2] + (this.pos[b * 3 + 2] - this.pos[a * 3 + 2]) * t,
                 );
             }
+            // Recalibrate wire rest length based on actual positioned distance
+            // so auxiliary cables maintain fixed length through deployment
+            this.wireRest[w] = this.distance(a, b);
+            // Update constraint rest lengths to match
+            const actualSegRest = this.wireRest[w] / (wireNodes + 1);
+            for (let c = this.wireFirst[w]; c < this.wireEnd[w]; c++) {
+                this.cRest[c] = actualSegRest * ((this.cRest[c] / this.cRigged[c]) > 1.5 ? 2 : 1);
+            }
         }
 
         this.lacing = true;
