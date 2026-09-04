@@ -1006,29 +1006,16 @@ export class BarricadeSolver {
 
         this.beltCEnd = out.length;
 
-        // Y connectors: the two lower arresting wires form V junctions connecting
-        // to both upper and lower belts. The upper belt is initially held in position
-        // by an auxiliary cable, but once the aircraft touches the net this cable
-        // becomes slack/irrelevant. The actual arrestment is handled solely by the
-        // lower wires, which receive load from both belt levels via these Y connectors
-        // and extend via the arresting engines (max 100m payout).
+        // Connect belts to arresting wires: lower belt connects directly to wire,
+        // upper belt connects to lower belt. This forms the load path:
+        // Arresting wire <- Lower belt <- Upper belt
         const upperBeltLeft = this.beltNodeIndex(true, 0);
         const upperBeltRight = this.beltNodeIndex(true, this.beltNodes - 1);
         const lowerBeltLeft = this.beltNodeIndex(false, 0);
         const lowerBeltRight = this.beltNodeIndex(false, this.beltNodes - 1);
 
-        // Lower-left arresting wire forms V with left belt nodes.
-        // Y connectors maintain the vertical gap between upper and lower belts.
+        // Lower-left belt connects to lower-left arresting wire
         const wireLowerLeft = this.layout.wireNodeIndex(BarricadeWire.LOWER_LEFT, wireNodes + 1);
-        const gapBelts = height - lowerLift;
-        out.push({
-            a: upperBeltLeft,
-            b: wireLowerLeft,
-            rest: gapBelts,
-            compliance: 0,
-            maxTension: 0,
-            breakTension: 0,
-        });
         out.push({
             a: lowerBeltLeft,
             b: wireLowerLeft,
@@ -1038,20 +1025,31 @@ export class BarricadeSolver {
             breakTension: 0,
         });
 
-        // Lower-right arresting wire forms V with right belt nodes
+        // Lower-right belt connects to lower-right arresting wire
         const wireLowerRight = this.layout.wireNodeIndex(BarricadeWire.LOWER_RIGHT, wireNodes + 1);
         out.push({
-            a: upperBeltRight,
+            a: lowerBeltRight,
             b: wireLowerRight,
+            rest: 0,
+            compliance: 0,
+            maxTension: 0,
+            breakTension: 0,
+        });
+
+        // Upper belt connects to lower belt, maintaining vertical gap
+        const gapBelts = height - lowerLift;
+        out.push({
+            a: upperBeltLeft,
+            b: lowerBeltLeft,
             rest: gapBelts,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
         });
         out.push({
-            a: lowerBeltRight,
-            b: wireLowerRight,
-            rest: 0,
+            a: upperBeltRight,
+            b: lowerBeltRight,
+            rest: gapBelts,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
