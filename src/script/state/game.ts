@@ -654,6 +654,7 @@ export class Game {
             this.renderer.setShadowQuality(quality);
         });
         this.configService.flightModels.addChangeListener(flightModel => {
+            flightModel.activate();
             this.player.setFlightModel(flightModel);
             flightModel.setAircraft(flightConfigWithArrestorHook(this.currentDef));
             // FM2/DEBUG are simulated in the combat worker; JSBSim runs in its own

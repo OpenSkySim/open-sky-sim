@@ -32,6 +32,11 @@ export class WorkerJsbsimFlightModel extends FlightModel {
         };
     }
 
+    /** No-ops if called before {@link activate} has spun up the worker. */
+    private post(message: any): void {
+        this.worker?.postMessage(message);
+    }
+
     private applyState(state: any) {
         this.lastState = state;
         this.obj.position.fromArray(state.position);
@@ -63,7 +68,7 @@ export class WorkerJsbsimFlightModel extends FlightModel {
     }
 
     update(delta: number): void {
-        this.worker.postMessage({
+        this.post({
             type: 'update',
             delta,
             inputs: {
@@ -90,7 +95,7 @@ export class WorkerJsbsimFlightModel extends FlightModel {
 
     reset() {
         super.reset();
-        this.worker.postMessage({
+        this.post({
             type: 'reset',
             position: this.obj.position.toArray(),
             quaternion: this.obj.quaternion.toArray(),
@@ -102,7 +107,7 @@ export class WorkerJsbsimFlightModel extends FlightModel {
 
     syncEffectiveThrottle() {
         super.syncEffectiveThrottle();
-        this.worker.postMessage({
+        this.post({
             type: 'syncEffectiveThrottle',
             throttle: this.throttle
         });
@@ -110,14 +115,14 @@ export class WorkerJsbsimFlightModel extends FlightModel {
 
     snapPhysicsState() {
         super.snapPhysicsState();
-        this.worker.postMessage({
+        this.post({
             type: 'snapPhysicsState'
         });
     }
 
     set position(p: THREE.Vector3) {
         super.position = p;
-        this.worker.postMessage({
+        this.post({
             type: 'setPosition',
             position: p.toArray()
         });
@@ -129,7 +134,7 @@ export class WorkerJsbsimFlightModel extends FlightModel {
 
     set quaternion(q: THREE.Quaternion) {
         super.quaternion = q;
-        this.worker.postMessage({
+        this.post({
             type: 'setQuaternion',
             quaternion: q.toArray()
         });
@@ -141,7 +146,7 @@ export class WorkerJsbsimFlightModel extends FlightModel {
 
     set velocityVector(v: THREE.Vector3) {
         super.velocityVector = v;
-        this.worker.postMessage({
+        this.post({
             type: 'setVelocity',
             velocity: v.toArray()
         });
