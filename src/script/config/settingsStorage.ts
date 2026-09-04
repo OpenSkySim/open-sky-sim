@@ -42,6 +42,8 @@ export interface AppSettings {
      * costs the ground under the aircraft first.
      */
     terrainDetailDistanceM: number | null;
+    /** Master audio volume level (0.0 to 1.0). */
+    volume: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -56,6 +58,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     daytime: DEFAULT_SUN_HOURS,
     terrainArea: '',
     terrainDetailDistanceM: TERRAIN_DETAIL_DISTANCE_DEFAULT_M,
+    volume: 0.7,
 };
 
 const TECH_PROFILES = new Set<string>(Object.values(TechProfiles));
@@ -94,6 +97,7 @@ export function loadSettings(): AppSettings {
                 || typeof parsed.terrainDetailDistanceM === 'number'
                 ? parsed.terrainDetailDistanceM
                 : DEFAULT_SETTINGS.terrainDetailDistanceM,
+            volume: isValidVolume(parsed.volume) ? parsed.volume : DEFAULT_SETTINGS.volume,
         };
     } catch {
         return { ...DEFAULT_SETTINGS };
@@ -148,4 +152,8 @@ function isValidSpawnMode(value: unknown): value is SpawnMode {
 
 function isValidDaytime(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value < 24;
+}
+
+function isValidVolume(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 }

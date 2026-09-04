@@ -2870,11 +2870,12 @@ export class Game {
             // A barricade arrival is a deck exercise, not a sortie: an opponent
             // spawned a few hundred metres ahead would be inside the ship.
             this.clearOtherAircraft();
+            this.setCarrierOverSternView();
         } else {
             this.spawnOpponent(spawn === 'headon');
             this.spawnWingman();
+            this.setCockpitFrontView();
         }
-        this.setCockpitFrontView();
         if (this.aiOpponent?.enabled) {
             this.player.setWeaponsTarget(this.aiOpponent);
         }

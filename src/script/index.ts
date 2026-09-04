@@ -34,7 +34,7 @@ import { ModelManager } from './scene/models/models';
 import { Game, GameRenderTask, GameUpdateTask } from './state/game';
 import { FlightModels, TechProfiles } from './state/gameDefs';
 import { DETAIL_DISTANCE_OFF } from './terrain/lod';
-async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice, Game]> {
+async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice, Game, AudioSystem]> {
     const settings = loadSettings();
     // Single authoritative combat sim worker. The player's FM2/DEBUG models are
     // render-side proxies bound to it (id PLAYER_SIM_ID); JSBSim keeps its own
@@ -124,14 +124,14 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
 
     config.techProfiles.addChangeListener(profile => kernel.setTargetFPS(targetFpsFor(profile)));
 
-    return [kernel, config, keyboardInput, joystickInput, game];
+    return [kernel, config, keyboardInput, joystickInput, game, audio];
 }
 
 window.addEventListener("load", () => {
     setBootProgress(0, 'Loading...');
-    void setup().then(([kernel, config, keyboardInput, joystickInput, game]) => {
+    void setup().then(([kernel, config, keyboardInput, joystickInput, game, audio]) => {
         kernel.start();
-        setupOSD(config, keyboardInput, joystickInput);
+        setupOSD(config, keyboardInput, joystickInput, audio);
         hideBootProgress();
     }).catch((err) => {
         setBootProgress(100, `Load failed: ${err instanceof Error ? err.message : String(err)}`);

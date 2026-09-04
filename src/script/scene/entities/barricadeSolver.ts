@@ -157,10 +157,10 @@ export const BARRICADE_FITTING_STICTION_M = 0.02;
 const BARRICADE_MIN_WIRE_FRAC = 0.5;
 
 /** Velocity retained per second while a fresh assembly is being laced. */
-const SETTLE_DAMPING = 6;
+const SETTLE_DAMPING = 12;
 
 /** Frames of settling {@link BarricadeSolver.reset} runs before handing the rig over. */
-const SETTLE_STEPS = 90;
+const SETTLE_STEPS = 180;
 
 /** Scratch for the gap measurements a lacing pass takes. */
 const _gaps: number[] = [];
@@ -1191,10 +1191,18 @@ export class BarricadeSolver {
      *
      * The damping is wound right up for this: the rig is being *laced*, not
      * flown, and nobody wants to watch a fresh assembly swing itself to a stop.
+     * Gradual damping transition prevents oscillation shock when settling ends.
      */
     private settle(): void {
         this.dampingRate = SETTLE_DAMPING;
-        for (let i = 0; i < SETTLE_STEPS; i++) this.step(1 / 60);
+        for (let i = 0; i < SETTLE_STEPS; i++) {
+            // Gradually reduce damping over last 60 frames to avoid shock
+            if (i > SETTLE_STEPS - 60) {
+                const transitionProgress = (i - (SETTLE_STEPS - 60)) / 60;
+                this.dampingRate = SETTLE_DAMPING * (1 - transitionProgress * 0.9) + this.spec.damping * (transitionProgress * 0.9);
+            }
+            this.step(1 / 60);
+        }
         this.dampingRate = this.spec.damping;
         this.vel.fill(0);
     }

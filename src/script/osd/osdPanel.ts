@@ -1,3 +1,4 @@
+import { AudioSystem } from "../audio/audioSystem";
 import { ConfigService } from "../config/configService";
 import { loadSettings, updateSettings } from "../config/settingsStorage";
 import {
@@ -14,10 +15,11 @@ import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles, TerrainColo
 import { assertIsDefined } from "../utils/asserts";
 
 
-export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDevice, joystickInput: JoystickControlDevice) {
+export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDevice, joystickInput: JoystickControlDevice, audio: AudioSystem) {
     setupButtons();
     setupGenerationOptions(config);
     setupDaytime(config);
+    setupVolume(audio);
     setupTerrainDetail(config);
     setupShadowQuality(config);
     setupTerrainColour(config);
@@ -117,6 +119,27 @@ function setupDaytime(config: ConfigService) {
 
     slider.value = config.daytime.getActive().toString();
     readout.textContent = formatSunTime(config.daytime.getActive());
+}
+
+function setupVolume(audio: AudioSystem) {
+    const slider = document.getElementById('volume-slider') as HTMLInputElement | null;
+    assertIsDefined(slider);
+    const readout = document.getElementById('volume-value');
+    assertIsDefined(readout);
+
+    const settings = loadSettings();
+    const volumePercent = settings.volume * 100;
+
+    slider.value = volumePercent.toString();
+    readout.textContent = `${Math.round(volumePercent)}%`;
+    audio.setMasterVolume(settings.volume);
+
+    slider.addEventListener('input', () => {
+        const volume = parseFloat(slider.value) / 100;
+        audio.setMasterVolume(volume);
+        readout.textContent = `${Math.round(parseFloat(slider.value))}%`;
+        updateSettings({ volume });
+    });
 }
 
 /**
