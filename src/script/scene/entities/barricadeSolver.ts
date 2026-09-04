@@ -992,10 +992,11 @@ export class BarricadeSolver {
             // Only lower wires (LOWER_LEFT=2, LOWER_RIGHT=3) are arresting cables with engine hold
             const isArrestingWire = w >= BarricadeWire.LOWER_LEFT;
             const maxTension = isArrestingWire ? this.spec.engineHoldN : 0;
-            // Upper auxiliary cables snap under load
+            // Upper auxiliary cables are inextensible (infinite stiffness) and snap under load
+            const stiffness = isArrestingWire ? this.spec.wireAxialStiffnessN : 1e9;
             const breakTension = isArrestingWire ? 0 : this.spec.auxCableBreakN;
             BarricadeSolver.chain(
-                out, nodes, rests, this.spec.wireAxialStiffnessN, maxTension,
+                out, nodes, rests, stiffness, maxTension,
             );
             // Add break tension to auxiliary cable constraints
             if (breakTension > 0) {
