@@ -77,10 +77,6 @@ export class CombatSimClient {
             const data = event.data;
             if (data.type === 'state') {
                 const workerStepMs = data.workerStepMs ?? -1;
-                // RTT includes main-thread scheduling; only warn on real worker compute cost.
-                if (workerStepMs > 20) {
-                    console.warn(`[siminstr] worker step compute ${workerStepMs.toFixed(1)}ms for delta=${(this.lastDelta * 1000).toFixed(1)}ms`);
-                }
                 if (data.shared) {
                     this.sharedIds = data.ids;
                     this.sharedForceVectors = data.forceVectors ?? {};

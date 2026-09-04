@@ -8,11 +8,16 @@ import { FlightModel } from './flightModel';
  * this model always flies the bundled F-16 (see jsbsimFlightModel.ts).
  */
 export class WorkerJsbsimFlightModel extends FlightModel {
-    private worker: Worker;
+    private worker: Worker | null = null;
     private lastState: any = null;
 
-    constructor() {
-        super();
+    /**
+     * Spins up the JSBSim worker (and its WASM module) on first activation,
+     * rather than unconditionally at boot — most players never select JSBSIM,
+     * and the load is not cheap. Idempotent across repeated activations.
+     */
+    activate(): void {
+        if (this.worker) return;
         this.worker = new Worker(new URL('../worker/jsbsimWorker.ts', import.meta.url));
         this.worker.postMessage({ type: 'init' });
         this.worker.onmessage = (event) => {
