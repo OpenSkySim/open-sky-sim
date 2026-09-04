@@ -609,13 +609,52 @@ export class BarricadeEntity implements Entity {
     }
 
     render2D(
-        _targetWidth: number,
-        _targetHeight: number,
+        targetWidth: number,
+        targetHeight: number,
         _camera: THREE.Camera,
         _lists: Set<string>,
-        _painter: CanvasPainter,
+        painter: CanvasPainter,
         _palette: Palette,
     ): void {
-        //
+        if (!this.root.visible) return;
+        const nodes = this.getNodes();
+        if (!nodes) return;
+
+        // Draw debug wire length box in upper right corner
+        const boxW = 180;
+        const boxH = 120;
+        const margin = 10;
+        const x = targetWidth - boxW - margin;
+        const y = margin;
+
+        // Background
+        painter.rect(x, y, boxW, boxH, '#00000080');
+        painter.strokeStyle = '#ffffff';
+        painter.lineWidth = 1;
+        painter.stroke(x, y, boxW, boxH);
+
+        // Title
+        painter.fillStyle = '#ffffff';
+        painter.font = '12px monospace';
+        painter.fillText('Wire Lengths', x + 5, y + 15);
+
+        // Wire information
+        const wireColors = ['#8b6f47', '#8b6f47', '#ff3333', '#ff3333'];
+        const wireNames = ['Upper-L', 'Upper-R', 'Lower-L', 'Lower-R'];
+        const layout = this.layout;
+
+        for (let w = 0; w < 4; w++) {
+            const a = layout.wireNodeIndex(w as BarricadeWire, 0);
+            const b = layout.wireNodeIndex(w as BarricadeWire, layout.spec.wireNodes + 1);
+            const ax = nodes[a * 3], ay = nodes[a * 3 + 1], az = nodes[a * 3 + 2];
+            const bx = nodes[b * 3], by = nodes[b * 3 + 1], bz = nodes[b * 3 + 2];
+            const len = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2);
+
+            const lineY = y + 30 + w * 18;
+            painter.fillStyle = wireColors[w];
+            painter.fillRect(x + 8, lineY - 5, 8, 8);
+            painter.fillStyle = '#ffffff';
+            painter.fillText(`${wireNames[w]}: ${len.toFixed(2)}m`, x + 20, lineY);
+        }
     }
 }
