@@ -145,8 +145,11 @@ export const BARRICADE_FITTING_GAP_M = 0.12;
  * and the whole panel creeps sideways for as long as it is rigged — centimetres
  * a second, which is nothing to look at for a moment and several metres by the
  * time an aircraft turns up.
+ *
+ * Reduced from 0.02m to 0.005m to allow stripes to engage wing during arrestment
+ * without requiring excessive pull force to overcome stiction threshold.
  */
-export const BARRICADE_FITTING_STICTION_M = 0.02;
+export const BARRICADE_FITTING_STICTION_M = 0.005;
 
 /**
  * Shortest an engine may wind its wire, as a fraction of the rigged run.
