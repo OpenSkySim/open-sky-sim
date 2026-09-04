@@ -622,9 +622,9 @@ export class BarricadeEntity implements Entity {
         if (!nodes) return;
 
         // Draw debug wire length box in upper right corner
-        const font = Font.HUD_SMALL;
-        const boxW = 160;
-        const boxH = 110;
+        const font = Font.HUD_LARGE;
+        const boxW = 220;
+        const boxH = 160;
         const margin = 10;
         const x = targetWidth - boxW - margin;
         const y = margin;
@@ -639,7 +639,7 @@ export class BarricadeEntity implements Entity {
         painter.rectangle(x, y, boxW, boxH, false);
 
         // Title
-        painter.text(font, x + 5, y + 8, 'Wire Lengths', '#ffffff', TextAlignment.LEFT);
+        painter.text(font, x + 8, y + 12, 'Wire Lengths', '#ffffff', TextAlignment.LEFT);
 
         // Wire information
         const wireColors = ['#8b6f47', '#8b6f47', '#ff3333', '#ff3333'];
@@ -653,14 +653,14 @@ export class BarricadeEntity implements Entity {
             const bx = nodes[b * 3], by = nodes[b * 3 + 1], bz = nodes[b * 3 + 2];
             const len = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2);
 
-            const lineY = y + 25 + w * 20;
+            const lineY = y + 40 + w * 28;
 
             // Draw colored dot
             painter.setBackground(wireColors[w]);
-            painter.fillRect(x + 8, lineY - 4, 6, 6);
+            painter.fillRect(x + 12, lineY - 5, 8, 8);
 
             // Draw text
-            painter.text(font, x + 20, lineY, `${wireNames[w]}: ${len.toFixed(2)}m`, '#ffffff', TextAlignment.LEFT);
+            painter.text(font, x + 28, lineY, `${wireNames[w]}: ${len.toFixed(2)}m`, '#ffffff', TextAlignment.LEFT);
         }
     }
 }
