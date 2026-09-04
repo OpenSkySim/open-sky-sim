@@ -96,7 +96,7 @@ export const BARRICADE_MAX_STEP_S = 1 / 30;
  * Strap and hull cannot occupy the same plane, and a particle resting exactly
  * on a triangle flickers in and out of contact.
  */
-export const BARRICADE_SKIN_M = 0.04;
+export const BARRICADE_SKIN_M = 0.15;
 
 /**
  * Coulomb friction between webbing and airframe skin.
