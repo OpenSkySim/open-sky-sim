@@ -1006,17 +1006,16 @@ export class BarricadeSolver {
 
         this.beltCEnd = out.length;
 
-        // Y connectors: join arresting wires to both upper and lower belts.
-        // Each wire connects to both belt ends, forming a Y-shaped load path that
-        // distributes forces from the wires through both belt levels.
+        // Y connectors: each arresting wire forms a V junction connecting to both
+        // upper and lower belts at a single node on each belt. The wires at leftX
+        // and rightX connect to the corresponding belt ends.
         const upperBeltLeft = this.beltNodeIndex(true, 0);
         const upperBeltRight = this.beltNodeIndex(true, this.beltNodes - 1);
         const lowerBeltLeft = this.beltNodeIndex(false, 0);
         const lowerBeltRight = this.beltNodeIndex(false, this.beltNodes - 1);
 
-        // Upper wires connect to upper belt ends
+        // Upper-left wire forms V with left belt nodes
         const wireUpperLeft = this.layout.wireNodeIndex(BarricadeWire.UPPER_LEFT, wireNodes + 1);
-        const wireUpperRight = this.layout.wireNodeIndex(BarricadeWire.UPPER_RIGHT, wireNodes + 1);
         out.push({
             a: upperBeltLeft,
             b: wireUpperLeft,
@@ -1026,18 +1025,19 @@ export class BarricadeSolver {
             breakTension: 0,
         });
         out.push({
-            a: upperBeltRight,
-            b: wireUpperRight,
+            a: lowerBeltLeft,
+            b: wireUpperLeft,
             rest: 0,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
         });
 
-        // Upper wires also connect to lower belt ends (Y junction)
+        // Upper-right wire forms V with right belt nodes
+        const wireUpperRight = this.layout.wireNodeIndex(BarricadeWire.UPPER_RIGHT, wireNodes + 1);
         out.push({
-            a: lowerBeltLeft,
-            b: wireUpperLeft,
+            a: upperBeltRight,
+            b: wireUpperRight,
             rest: 0,
             compliance: 0,
             maxTension: 0,
@@ -1052,9 +1052,8 @@ export class BarricadeSolver {
             breakTension: 0,
         });
 
-        // Lower wires connect to both upper and lower belt ends
+        // Lower-left wire forms V with left belt nodes
         const wireLowerLeft = this.layout.wireNodeIndex(BarricadeWire.LOWER_LEFT, wireNodes + 1);
-        const wireLowerRight = this.layout.wireNodeIndex(BarricadeWire.LOWER_RIGHT, wireNodes + 1);
         out.push({
             a: upperBeltLeft,
             b: wireLowerLeft,
@@ -1064,16 +1063,19 @@ export class BarricadeSolver {
             breakTension: 0,
         });
         out.push({
-            a: upperBeltRight,
-            b: wireLowerRight,
+            a: lowerBeltLeft,
+            b: wireLowerLeft,
             rest: 0,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
         });
+
+        // Lower-right wire forms V with right belt nodes
+        const wireLowerRight = this.layout.wireNodeIndex(BarricadeWire.LOWER_RIGHT, wireNodes + 1);
         out.push({
-            a: lowerBeltLeft,
-            b: wireLowerLeft,
+            a: upperBeltRight,
+            b: wireLowerRight,
             rest: 0,
             compliance: 0,
             maxTension: 0,
