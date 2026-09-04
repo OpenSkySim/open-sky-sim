@@ -1652,6 +1652,9 @@ export class BarricadeSolver {
         let ny = 0;
         let nz = 0;
         if (bvhSegmentHit(bvh, _a.x, _a.y, _a.z, _b.x, _b.y, _b.z, _hit)) {
+            if (i >= this.layout.stripe0 && i < this.layout.wire0 && Math.random() < 0.001) {
+                console.log(`[BARRICADE] Stripe particle ${i} swept collision detected at (${_hit.x.toFixed(2)}, ${_hit.y.toFixed(2)}, ${_hit.z.toFixed(2)}) normal=(${_hit.nx.toFixed(2)}, ${_hit.ny.toFixed(2)}, ${_hit.nz.toFixed(2)})`);
+            }
             // Stay on the side the strap came from.
             const side = (_a.x - _hit.x) * _hit.nx + (_a.y - _hit.y) * _hit.ny
                 + (_a.z - _hit.z) * _hit.nz;
