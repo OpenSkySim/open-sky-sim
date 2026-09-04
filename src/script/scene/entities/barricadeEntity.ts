@@ -92,6 +92,10 @@ export class BarricadeEntity implements Entity {
     private layout: BarricadeLayout;
     private layoutRig: BarricadeRig;
 
+    // Track last logged values to only emit on change
+    private lastLoggedWires = { upperLeft: -1, upperRight: -1, lowerLeft: -1, lowerRight: -1 };
+    private lastLoggedBelts = { upper: -1, lower: -1 };
+
     private readonly sampleWorld = new THREE.Vector3();
     private readonly lodAnchorLocal = new THREE.Vector3();
     private readonly lodAnchorWorld = new THREE.Vector3();
@@ -726,16 +730,34 @@ export class BarricadeEntity implements Entity {
             if (w === 3) wireLengthsData.lowerRight = parseFloat(len.toFixed(2));
         }
 
-        // Only log if aircraft is alive
+        // Only log if aircraft is alive and values have changed
         const worldState = (globalThis as any).worldState;
         const isAircraftDead = worldState?.aircraftCrashed || worldState?.playerDead || worldState?.aircraftDead;
         if (!isAircraftDead) {
-            console.log(
-                `barricade-lengths\n` +
-                `Upper:     L=${wireLengthsData.upperLeft.toFixed(2)}         R=${wireLengthsData.upperRight.toFixed(2)}\n` +
-                `Lower:     L=${wireLengthsData.lowerLeft.toFixed(2)}         R=${wireLengthsData.lowerRight.toFixed(2)}\n` +
-                `Belt:     up=${parseFloat(upperTotalLen.toFixed(2)).toFixed(2)}      low=${parseFloat(lowerTotalLen.toFixed(2)).toFixed(2)}`
-            );
+            const upperTotal = parseFloat(upperTotalLen.toFixed(2));
+            const lowerTotal = parseFloat(lowerTotalLen.toFixed(2));
+
+            // Check if any value has changed
+            const valuesChanged =
+                this.lastLoggedWires.upperLeft !== wireLengthsData.upperLeft ||
+                this.lastLoggedWires.upperRight !== wireLengthsData.upperRight ||
+                this.lastLoggedWires.lowerLeft !== wireLengthsData.lowerLeft ||
+                this.lastLoggedWires.lowerRight !== wireLengthsData.lowerRight ||
+                this.lastLoggedBelts.upper !== upperTotal ||
+                this.lastLoggedBelts.lower !== lowerTotal;
+
+            if (valuesChanged) {
+                console.log(
+                    `barricade-lengths\n` +
+                    `Upper:     L=${wireLengthsData.upperLeft.toFixed(2)}         R=${wireLengthsData.upperRight.toFixed(2)}\n` +
+                    `Lower:     L=${wireLengthsData.lowerLeft.toFixed(2)}         R=${wireLengthsData.lowerRight.toFixed(2)}\n` +
+                    `Belt:     up=${upperTotal.toFixed(2)}      low=${lowerTotal.toFixed(2)}`
+                );
+
+                // Update tracked values
+                this.lastLoggedWires = { ...wireLengthsData };
+                this.lastLoggedBelts = { upper: upperTotal, lower: lowerTotal };
+            }
         }
     }
 }
