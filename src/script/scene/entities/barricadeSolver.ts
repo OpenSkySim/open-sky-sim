@@ -389,7 +389,7 @@ export function defaultBarricadeSolverSpec(
         slideSpeed: 6,
         stripeSlack: 0.09,
         beltSlack: 4e-4,
-        stripeAxialStiffnessN: 400000,
+        stripeAxialStiffnessN: 200000,
         stripeMass: 0.5,
         beltMass: 1.5,
         wireMass: 2,
