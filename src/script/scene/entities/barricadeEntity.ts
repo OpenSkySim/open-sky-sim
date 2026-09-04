@@ -734,9 +734,10 @@ export class BarricadeEntity implements Entity {
             if (w === 3) wireLengthsData.lowerRight = parseFloat(len.toFixed(2));
         }
 
-        // Only log if aircraft hasn't crashed
+        // Only log if aircraft is alive
         const worldState = (globalThis as any).worldState;
-        if (!worldState || !worldState.aircraftCrashed) {
+        const isAircraftDead = worldState?.aircraftCrashed || worldState?.playerDead || worldState?.aircraftDead;
+        if (!isAircraftDead) {
             const beltData = {
                 wires: {
                     upperLeft: wireNames[0],
