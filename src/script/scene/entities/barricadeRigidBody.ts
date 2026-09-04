@@ -292,61 +292,61 @@ export class SliderConstraint extends BarricadeConstraint {
         }
         if (belts.length < 2) return 0;
 
-        // Project body position onto belt curve
-        const [closestPos, arcLen, segment] = this.projectOntoBelt(body.pos, belts);
-
-        // Compute lateral violation (distance from belt curve)
-        const violation = body.pos.distanceTo(closestPos);
-
-        if (violation > 1e-6) {
-            // Body has strayed from the belt curve; pull it back
-            const dir = new THREE.Vector3().subVectors(closestPos, body.pos).normalize();
-            const correction = violation * body.invMass;
-            body.pos.addScaledVector(dir, correction);
-        }
-
-        // Update slider position (arc length along belt)
         const prevPos = this.sliderPos;
-        this.sliderPos = arcLen;
-        const dPos = this.sliderPos - prevPos;
-
-        // Compute friction/creep behavior
-        // Tension pulls the fitting along the belt; friction resists
         const tension = Math.abs(this.lambda);
         this.lastTension = tension;
 
-        // Check stiction threshold
-        if (!this.isSliding && Math.abs(dPos) > this.stictionDist) {
+        // Check stiction threshold: if fitting is being pulled, start sliding
+        const [closestPos, currentArcLen, segment] = this.projectOntoBelt(body.pos, belts);
+        const arcLenDelta = currentArcLen - prevPos;
+
+        if (!this.isSliding && Math.abs(arcLenDelta) > this.stictionDist) {
             this.isSliding = true;
         }
 
-        // If sliding, apply creep speed limit and friction
-        if (this.isSliding && Math.abs(dPos) > 1e-6) {
-            // Limit creep speed: fitting can't move faster than maxCreepSpeed
+        // Determine target arc-length position for this frame
+        let targetArcLen = prevPos; // Default: stay pinned
+
+        if (this.isSliding && Math.abs(arcLenDelta) > 1e-6) {
+            // Sliding: allow movement with friction and creep limits
             const maxCreepThisFrame = this.maxCreepSpeed / Math.sqrt(invDt2);
-            const creedLimitedPos = Math.max(
+            targetArcLen = Math.max(
                 prevPos - maxCreepThisFrame,
-                Math.min(prevPos + maxCreepThisFrame, this.sliderPos),
+                Math.min(prevPos + maxCreepThisFrame, currentArcLen),
             );
 
-            // Also apply friction: opposing force proportional to tension
+            // Apply friction as opposing force
             if (tension > 0) {
                 const frictionForce = this.friction * tension;
-                const frictionDist = (frictionForce / Math.sqrt(invDt2)) * (dPos > 0 ? -1 : 1);
-                this.sliderPos = Math.max(0, Math.min(this.totalBeltLength(), creedLimitedPos + frictionDist));
-            } else {
-                this.sliderPos = creedLimitedPos;
+                const frictionDist = (frictionForce / Math.sqrt(invDt2)) * (arcLenDelta > 0 ? -1 : 1);
+                targetArcLen = Math.max(0, Math.min(this.totalBeltLength(), targetArcLen + frictionDist));
             }
-        } else if (!this.isSliding) {
-            // Not sliding: stiction holds the fitting in place
-            this.sliderPos = prevPos;
+        }
+        // else: not sliding, targetArcLen stays at prevPos (pinned)
+
+        // Update slider position
+        this.sliderPos = targetArcLen;
+        const dPos = this.sliderPos - prevPos;
+
+        // Project fitting to target arc-length position on belt
+        const [projectedPos] = this.projectToArcLength(this.sliderPos, belts);
+
+        // Pull body to projected position on belt
+        const lateralError = body.pos.clone().sub(projectedPos);
+        const lateralDist = lateralError.length();
+
+        if (lateralDist > 1e-6) {
+            // Move body toward belt curve
+            const dir = lateralError.normalize();
+            const correction = Math.min(lateralDist, lateralDist * body.invMass);
+            body.pos.sub(dir.multiplyScalar(correction));
         }
 
         // Update constraint lambda (for tension tracking)
-        const dLambda = (this.sliderPos - prevPos) * 100; // Arbitrary scaling
+        const dLambda = dPos * 100; // Arbitrary scaling
         this.lambda += dLambda;
 
-        this.sliderVel = (this.sliderPos - prevPos) * Math.sqrt(invDt2);
+        this.sliderVel = dPos * Math.sqrt(invDt2);
 
         return dLambda;
     }
@@ -401,6 +401,44 @@ export class SliderConstraint extends BarricadeConstraint {
         }
 
         return [closestPoint, closestArcLen, closestSegment];
+    }
+
+    /**
+     * Find the 3D position on the belt at a given arc-length.
+     *
+     * Inverse of projectOntoBelt: given an arc-length distance along the belt,
+     * compute the 3D position at that location.
+     *
+     * @param targetArcLen - Arc length position (m)
+     * @param belts - Array of belt node positions
+     * @returns [position3D, segmentIndex]
+     */
+    private projectToArcLength(
+        targetArcLen: number,
+        belts: THREE.Vector3[],
+    ): [THREE.Vector3, number] {
+        let arcLen = 0;
+
+        // Find which segment contains this arc length
+        for (let i = 0; i + 1 < belts.length; i++) {
+            const p0 = belts[i];
+            const p1 = belts[i + 1];
+            const edge = new THREE.Vector3().subVectors(p1, p0);
+            const edgeLen = edge.length();
+
+            if (arcLen + edgeLen >= targetArcLen) {
+                // Found the segment; interpolate within it
+                const segmentProgress = (targetArcLen - arcLen) / (edgeLen > 1e-6 ? edgeLen : 1);
+                const t = Math.max(0, Math.min(1, segmentProgress));
+                const position = new THREE.Vector3().copy(p0).addScaledVector(edge, t);
+                return [position, i];
+            }
+
+            arcLen += edgeLen;
+        }
+
+        // Beyond the end of the belt; return last position
+        return [belts[belts.length - 1].clone(), belts.length - 2];
     }
 
     /**

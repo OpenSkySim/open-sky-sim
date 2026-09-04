@@ -3778,6 +3778,10 @@ export class Game {
         const kuz = new GroundTargetEntity(kuzModel, 0, 'Carrier', 'Stosneehar');
         kuz.position.copy(KUZ_POSITION);
         this.kuz = kuz;
+        const carrierUpdater = this.cameraUpdaters.get(PlayerViewState.CARRIER_OVER_STERN);
+        if (carrierUpdater instanceof CarrierOverSternCameraUpdater) {
+            carrierUpdater.setCarrier(kuz);
+        }
         scene.add(kuz);
 
         const arrestorCables = new ArrestorCablesEntity(

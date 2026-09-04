@@ -1,39 +1,54 @@
 import * as THREE from 'three';
 import { PlayerEntity } from "../../scene/entities/player";
+import { GroundTargetEntity } from "../../scene/entities/groundTarget";
 import { FORWARD, UP } from '../../utils/math';
 import { CameraUpdater } from "./cameraUpdater";
 
 export class CarrierOverSternCameraUpdater extends CameraUpdater {
 
     private tmpVector = new THREE.Vector3();
+    private tmpSternPos = new THREE.Vector3();
+    private tmpCameraPos = new THREE.Vector3();
 
-    constructor(actor: PlayerEntity, camera: THREE.PerspectiveCamera) {
+    constructor(
+        actor: PlayerEntity,
+        camera: THREE.PerspectiveCamera,
+        private carrier: GroundTargetEntity | undefined = undefined
+    ) {
         super(actor, camera);
     }
 
+    setCarrier(carrier: GroundTargetEntity | undefined): void {
+        this.carrier = carrier;
+    }
+
     update(delta: number): void {
-        // Carrier position and stern point
-        const carrierPos = new THREE.Vector3(0, 0, 0); // Kuznetsov carrier origin
-        const sternZ = 124.28; // Stern is forward along +Z in carrier local space
-        const deckY = 14; // Carrier deck height
+        if (!this.carrier) {
+            return;
+        }
 
-        // Camera positioned above and behind the carrier, looking toward stern
-        const cameraHeight = deckY + 30; // 30m above deck
-        const distanceBehindCarrier = -100; // 100m behind (negative Z)
+        // Carrier position in world space
+        const carrierPos = this.carrier.position;
+        const carrierQuat = this.carrier.quaternion;
 
-        this.camera.position.set(
-            carrierPos.x,
-            cameraHeight,
-            carrierPos.z + distanceBehindCarrier
-        );
+        // Stern offset in carrier local space (bow at -Z, stern at +Z)
+        const sternLocalZ = 124.28;
+        const deckY = 14;
+        const cameraDistanceBehind = 100; // 100m behind stern
+        const cameraHeightAboveDeck = 30;
 
-        // Look toward the stern (at +Z from carrier center)
-        const lookAtPoint = new THREE.Vector3(
-            carrierPos.x,
-            deckY + 5,
-            carrierPos.z + sternZ
-        );
+        // Transform stern position to world space
+        this.tmpSternPos.set(0, deckY + 5, sternLocalZ);
+        this.tmpSternPos.applyQuaternion(carrierQuat);
+        this.tmpSternPos.add(carrierPos);
 
-        this.camera.lookAt(lookAtPoint);
+        // Camera position: behind the carrier, looking toward stern
+        // Start from carrier center
+        this.tmpCameraPos.set(0, deckY + cameraHeightAboveDeck, -cameraDistanceBehind);
+        this.tmpCameraPos.applyQuaternion(carrierQuat);
+        this.tmpCameraPos.add(carrierPos);
+
+        this.camera.position.copy(this.tmpCameraPos);
+        this.camera.lookAt(this.tmpSternPos);
     }
 }
