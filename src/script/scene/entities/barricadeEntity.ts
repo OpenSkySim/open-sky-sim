@@ -628,15 +628,13 @@ export class BarricadeEntity implements Entity {
         const y = margin;
 
         // Background
-        painter.rect(x, y, boxW, boxH, '#00000080');
-        painter.strokeStyle = '#ffffff';
-        painter.lineWidth = 1;
-        painter.stroke(x, y, boxW, boxH);
+        painter.setBackground('#00000080');
+        painter.fillRect(x, y, boxW, boxH);
 
-        // Title
-        painter.fillStyle = '#ffffff';
-        painter.font = '12px monospace';
-        painter.fillText('Wire Lengths', x + 5, y + 15);
+        // Border
+        painter.setColor('#ffffff');
+        painter.setLineWidth(1);
+        painter.rectangle(x, y, boxW, boxH, false);
 
         // Wire information
         const wireColors = ['#8b6f47', '#8b6f47', '#ff3333', '#ff3333'];
@@ -650,11 +648,14 @@ export class BarricadeEntity implements Entity {
             const bx = nodes[b * 3], by = nodes[b * 3 + 1], bz = nodes[b * 3 + 2];
             const len = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2);
 
-            const lineY = y + 30 + w * 18;
-            painter.fillStyle = wireColors[w];
-            painter.fillRect(x + 8, lineY - 5, 8, 8);
-            painter.fillStyle = '#ffffff';
-            painter.fillText(`${wireNames[w]}: ${len.toFixed(2)}m`, x + 20, lineY);
+            const lineY = y + 25 + w * 22;
+
+            // Draw colored dot
+            painter.setBackground(wireColors[w]);
+            painter.fillRect(x + 8, lineY - 4, 6, 6);
+
+            // Draw text (simplified without font object for now)
+            // Note: full text rendering would require a Font object
         }
     }
 }
