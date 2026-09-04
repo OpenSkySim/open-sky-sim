@@ -1006,14 +1006,38 @@ export class BarricadeSolver {
 
         this.beltCEnd = out.length;
 
-        // Connect belt ends to the lower arresting wires
+        // Y connectors: join arresting wires to both upper and lower belts.
+        // Each wire connects to both belt ends, forming a Y-shaped load path that
+        // distributes forces from the wires through both belt levels.
+        const upperBeltLeft = this.beltNodeIndex(true, 0);
+        const upperBeltRight = this.beltNodeIndex(true, this.beltNodes - 1);
         const lowerBeltLeft = this.beltNodeIndex(false, 0);
         const lowerBeltRight = this.beltNodeIndex(false, this.beltNodes - 1);
-        const wireLeft = this.layout.wireNodeIndex(BarricadeWire.LOWER_LEFT, wireNodes + 1);
-        const wireRight = this.layout.wireNodeIndex(BarricadeWire.LOWER_RIGHT, wireNodes + 1);
+
+        // Upper wires connect to upper belt ends
+        const wireUpperLeft = this.layout.wireNodeIndex(BarricadeWire.UPPER_LEFT, wireNodes + 1);
+        const wireUpperRight = this.layout.wireNodeIndex(BarricadeWire.UPPER_RIGHT, wireNodes + 1);
+        out.push({
+            a: upperBeltLeft,
+            b: wireUpperLeft,
+            rest: 0,
+            compliance: 0,
+            maxTension: 0,
+            breakTension: 0,
+        });
+        out.push({
+            a: upperBeltRight,
+            b: wireUpperRight,
+            rest: 0,
+            compliance: 0,
+            maxTension: 0,
+            breakTension: 0,
+        });
+
+        // Upper wires also connect to lower belt ends (Y junction)
         out.push({
             a: lowerBeltLeft,
-            b: wireLeft,
+            b: wireUpperLeft,
             rest: 0,
             compliance: 0,
             maxTension: 0,
@@ -1021,7 +1045,43 @@ export class BarricadeSolver {
         });
         out.push({
             a: lowerBeltRight,
-            b: wireRight,
+            b: wireUpperRight,
+            rest: 0,
+            compliance: 0,
+            maxTension: 0,
+            breakTension: 0,
+        });
+
+        // Lower wires connect to both upper and lower belt ends
+        const wireLowerLeft = this.layout.wireNodeIndex(BarricadeWire.LOWER_LEFT, wireNodes + 1);
+        const wireLowerRight = this.layout.wireNodeIndex(BarricadeWire.LOWER_RIGHT, wireNodes + 1);
+        out.push({
+            a: upperBeltLeft,
+            b: wireLowerLeft,
+            rest: 0,
+            compliance: 0,
+            maxTension: 0,
+            breakTension: 0,
+        });
+        out.push({
+            a: upperBeltRight,
+            b: wireLowerRight,
+            rest: 0,
+            compliance: 0,
+            maxTension: 0,
+            breakTension: 0,
+        });
+        out.push({
+            a: lowerBeltLeft,
+            b: wireLowerLeft,
+            rest: 0,
+            compliance: 0,
+            maxTension: 0,
+            breakTension: 0,
+        });
+        out.push({
+            a: lowerBeltRight,
+            b: wireLowerRight,
             rest: 0,
             compliance: 0,
             maxTension: 0,
