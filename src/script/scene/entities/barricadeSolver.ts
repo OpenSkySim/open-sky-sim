@@ -1733,10 +1733,10 @@ export class BarricadeSolver {
         // a wing would never grip it.
         const slip = Math.hypot(dtx, dty, dtz);
         // Detect leading edge: high curvature manifests as stripe particles having
-        // large normal components relative to their motion. Boost friction for leading
-        // edges to enhance wrapping behavior.
+        // large normal components relative to their motion. Boost friction aggressively
+        // for leading edges to prevent aircraft from slipping through while wrapping.
         const isLeadingEdge = Math.abs(dn) > slip * 0.5;
-        const frictionMult = isLeadingEdge ? 1.5 : 1.0;
+        const frictionMult = isLeadingEdge ? 2.5 : 1.0;
         const maxSlip = BARRICADE_HULL_FRICTION * normalPush * frictionMult;
         let px = _p.x;
         let py = _p.y;
