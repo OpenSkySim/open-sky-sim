@@ -736,7 +736,7 @@ export class BarricadeEntity implements Entity {
 
         // Only log if aircraft hasn't crashed
         const worldState = (globalThis as any).worldState;
-        if (worldState && !worldState.aircraftCrashed) {
+        if (!worldState || !worldState.aircraftCrashed) {
             const beltData = {
                 wires: {
                     upperLeft: wireNames[0],
