@@ -1017,12 +1017,14 @@ export class BarricadeSolver {
         const lowerBeltLeft = this.beltNodeIndex(false, 0);
         const lowerBeltRight = this.beltNodeIndex(false, this.beltNodes - 1);
 
-        // Lower-left arresting wire forms V with left belt nodes
+        // Lower-left arresting wire forms V with left belt nodes.
+        // Y connectors maintain the vertical gap between upper and lower belts.
         const wireLowerLeft = this.layout.wireNodeIndex(BarricadeWire.LOWER_LEFT, wireNodes + 1);
+        const gapBelts = height - lowerLift;
         out.push({
             a: upperBeltLeft,
             b: wireLowerLeft,
-            rest: 0,
+            rest: gapBelts,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
@@ -1041,7 +1043,7 @@ export class BarricadeSolver {
         out.push({
             a: upperBeltRight,
             b: wireLowerRight,
-            rest: 0,
+            rest: gapBelts,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
