@@ -386,7 +386,7 @@ export function defaultBarricadeSolverSpec(
         webHalfWidth: 12.0,
         planeZ: 30,
         deckY: 13.55,
-        height: 6.1,
+        height: 7.5,
         lowerLift: 0.45,
         stripes: 24,
         stripeNodes: 11,
