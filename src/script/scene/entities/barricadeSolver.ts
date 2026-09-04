@@ -85,7 +85,7 @@ export const BARRICADE_DECK_WIND_MPS = 13;
 export const BARRICADE_SUBSTEPS = 32;
 
 /** Default constraint sweeps per substep; direction alternates, so keep it even. */
-export const BARRICADE_SOLVER_PASSES = 2;
+export const BARRICADE_SOLVER_PASSES = 6;
 
 /** Longest step the solver will take in one go (s); longer calls are split. */
 export const BARRICADE_MAX_STEP_S = 1 / 30;
@@ -96,7 +96,7 @@ export const BARRICADE_MAX_STEP_S = 1 / 30;
  * Strap and hull cannot occupy the same plane, and a particle resting exactly
  * on a triangle flickers in and out of contact.
  */
-export const BARRICADE_SKIN_M = 0.30;
+export const BARRICADE_SKIN_M = 0.04;
 
 /**
  * Coulomb friction between webbing and airframe skin.
@@ -389,7 +389,7 @@ export function defaultBarricadeSolverSpec(
         slideSpeed: 6,
         stripeSlack: 0.09,
         beltSlack: 4e-4,
-        stripeAxialStiffnessN: 200000,
+        stripeAxialStiffnessN: 350000,
         stripeMass: 0.5,
         beltMass: 1.5,
         wireMass: 2,
