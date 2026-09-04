@@ -734,7 +734,7 @@ export class BarricadeEntity implements Entity {
                 `barricade-lengths\n` +
                 `Upper:     L=${wireLengthsData.upperLeft.toFixed(2)}         R=${wireLengthsData.upperRight.toFixed(2)}\n` +
                 `Lower:     L=${wireLengthsData.lowerLeft.toFixed(2)}         R=${wireLengthsData.lowerRight.toFixed(2)}\n` +
-                `Belt:         up=${parseFloat(upperTotalLen.toFixed(2)).toFixed(2)}   low=${parseFloat(lowerTotalLen.toFixed(2)).toFixed(2)}`
+                `Belt:     up=${parseFloat(upperTotalLen.toFixed(2)).toFixed(2)}      low=${parseFloat(lowerTotalLen.toFixed(2)).toFixed(2)}`
             );
         }
     }
