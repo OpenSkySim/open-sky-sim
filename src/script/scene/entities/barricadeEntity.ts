@@ -761,7 +761,7 @@ export class BarricadeEntity implements Entity {
                     },
                 },
             };
-            console.log('barricade-lengths', beltData);
+            console.log('barricade-lengths', JSON.stringify(beltData));
         }
     }
 }
