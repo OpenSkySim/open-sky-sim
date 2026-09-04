@@ -77,6 +77,9 @@ export class BarricadeEntity implements Entity {
     /** Far LOD: every run as 1px segments. */
     private readonly webLines: THREE.LineSegments;
     private readonly webLinePos: THREE.BufferAttribute;
+    /** Debug visualization: black circles at every node. */
+    private readonly debugNodes: THREE.Points;
+    private readonly debugNodePos: THREE.BufferAttribute;
 
     /**
      * Where each particle sits in the snapshot block.
@@ -234,6 +237,20 @@ export class BarricadeEntity implements Entity {
         this.webLines.onBeforeRender = updateUniforms;
         this.root.add(this.webLines);
 
+        // Debug nodes: black circles at every particle
+        const debugGeom = new THREE.BufferGeometry();
+        this.debugNodePos = new THREE.BufferAttribute(new Float32Array(this.layout.count * 3), 3);
+        debugGeom.setAttribute('position', this.debugNodePos);
+        const debugMat = new THREE.PointsMaterial({
+            color: 0x000000,
+            size: 0.15,
+            sizeAttenuation: true,
+        });
+        this.debugNodes = new THREE.Points(debugGeom, debugMat);
+        this.debugNodes.frustumCulled = false;
+        this.debugNodes.onBeforeRender = updateUniforms;
+        this.root.add(this.debugNodes);
+
         // Stanchions: a box authored along +Z from the hinge, so rotating −90°
         // about X stands it up. Stowed, it lies flat on the deck pointing aft.
         // Their stations are re-seated from the fitted rig every rebuild.
@@ -373,6 +390,14 @@ export class BarricadeEntity implements Entity {
         line = this.placeStripes(nodes, line);
         this.webLinePos.needsUpdate = true;
         this.webLines.geometry.computeBoundingSphere();
+
+        // Update debug nodes at every particle position
+        for (let i = 0; i < this.layout.count; i++) {
+            this.debugNodePos.setXYZ(i, nodes[i * 3], nodes[i * 3 + 1], nodes[i * 3 + 2]);
+        }
+        this.debugNodePos.needsUpdate = true;
+        this.debugNodes.geometry.computeBoundingSphere();
+
         this.applyLodVisibility();
     }
 
