@@ -224,6 +224,14 @@ export interface BarricadeSolverSpec {
      */
     tieDownBreakN: number;
     /**
+     * Load at which auxiliary cables snap (N).
+     *
+     * The upper structure is held by auxiliary cables that are intentionally
+     * designed to fail under excessive load to prevent catastrophic damage
+     * to the ship when an aircraft is caught by the barricade.
+     */
+    auxCableBreakN: number;
+    /**
      * How fast a stripe fitting can travel along a belt (m/s).
      *
      * The stripes are not sewn to the belts, they ride them on fittings, and
@@ -386,6 +394,7 @@ export function defaultBarricadeSolverSpec(
         wireNodes: 3,
         tieDowns: 6,
         tieDownBreakN: 6000,
+        auxCableBreakN: 15000,
         slideSpeed: 6,
         stripeSlack: 0.09,
         beltSlack: 4e-4,
@@ -983,9 +992,19 @@ export class BarricadeSolver {
             // Only lower wires (LOWER_LEFT=2, LOWER_RIGHT=3) are arresting cables with engine hold
             const isArrestingWire = w >= BarricadeWire.LOWER_LEFT;
             const maxTension = isArrestingWire ? this.spec.engineHoldN : 0;
+            // Upper auxiliary cables snap under load
+            const breakTension = isArrestingWire ? 0 : this.spec.auxCableBreakN;
             BarricadeSolver.chain(
                 out, nodes, rests, this.spec.wireAxialStiffnessN, maxTension,
             );
+            // Add break tension to auxiliary cable constraints
+            if (breakTension > 0) {
+                const start = this.wireFirst[w];
+                const end = out.length;
+                for (let c = start; c < end; c++) {
+                    out[c].breakTension = breakTension;
+                }
+            }
             this.wireEnd[w] = out.length;
         }
 
@@ -1032,12 +1051,11 @@ export class BarricadeSolver {
             breakTension: 0,
         });
 
-        // Upper-left belt bends down 90° to same junction, maintaining gap
-        const gapBelts = height - lowerLift;
+        // Upper-left belt connects down to the junction
         out.push({
             a: upperBeltLeft,
             b: wireLowerLeft,
-            rest: gapBelts,
+            rest: 0,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
@@ -1053,11 +1071,11 @@ export class BarricadeSolver {
             breakTension: 0,
         });
 
-        // Upper-right belt bends down 90° to same junction, maintaining gap
+        // Upper-right belt connects down to the junction
         out.push({
             a: upperBeltRight,
             b: wireLowerRight,
-            rest: gapBelts,
+            rest: 0,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
