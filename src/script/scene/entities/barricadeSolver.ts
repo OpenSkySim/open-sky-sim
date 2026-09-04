@@ -106,7 +106,7 @@ export const BARRICADE_SKIN_M = 0.30;
  * anything; with the clamp fixed it grips, and 0.85 grips hard enough to sling
  * an off-centre catch clean across the deck.
  */
-export const BARRICADE_HULL_FRICTION = 0.35;
+export const BARRICADE_HULL_FRICTION = 0.65;
 
 /**
  * Smallest wing half-span a stand-in hull is built to (m).
