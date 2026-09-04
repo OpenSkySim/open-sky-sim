@@ -1001,6 +1001,28 @@ export class BarricadeSolver {
 
         this.beltCEnd = out.length;
 
+        // Connect belt ends to the lower arresting wires
+        const lowerBeltLeft = this.beltNodeIndex(false, 0);
+        const lowerBeltRight = this.beltNodeIndex(false, this.beltNodes - 1);
+        const wireLeft = this.layout.wireNodeIndex(BarricadeWire.LOWER_LEFT, wireNodes + 1);
+        const wireRight = this.layout.wireNodeIndex(BarricadeWire.LOWER_RIGHT, wireNodes + 1);
+        out.push({
+            a: lowerBeltLeft,
+            b: wireLeft,
+            rest: 0,
+            compliance: 0,
+            maxTension: 0,
+            breakTension: 0,
+        });
+        out.push({
+            a: lowerBeltRight,
+            b: wireRight,
+            rest: 0,
+            compliance: 0,
+            maxTension: 0,
+            breakTension: 0,
+        });
+
         // Stripes: one length of webbing, cut longer than the gap it spans.
         this.stripeCFirst = out.length;
         const gap = height - lowerLift;
