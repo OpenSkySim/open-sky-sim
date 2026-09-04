@@ -982,13 +982,16 @@ export class BarricadeSolver {
             0.25,
             (this.spec.rightX - this.spec.leftX) * 0.5 - this.spec.webHalfWidth,
         );
+        const upperWireLength = 4.0; // Auxiliary cables are 4m
         for (let w = 0; w < 4; w++) {
             this.wireFirst[w] = out.length;
-            this.wireRest[w] = bare;
+            const isUpperWire = w < BarricadeWire.LOWER_LEFT;
+            const wireLength = isUpperWire ? upperWireLength : bare;
+            this.wireRest[w] = wireLength;
             nodes.length = 0;
             rests.length = 0;
             for (let j = 0; j <= wireNodes + 1; j++) nodes.push(this.wireNodeIndex(w, j));
-            for (let j = 0; j <= wireNodes; j++) rests.push(bare / (wireNodes + 1));
+            for (let j = 0; j <= wireNodes; j++) rests.push(wireLength / (wireNodes + 1));
             // Only lower wires (LOWER_LEFT=2, LOWER_RIGHT=3) are arresting cables with engine hold
             const isArrestingWire = w >= BarricadeWire.LOWER_LEFT;
             const maxTension = isArrestingWire ? this.spec.engineHoldN : 0;
