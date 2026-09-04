@@ -31,19 +31,17 @@ export class CarrierOverSternCameraUpdater extends CameraUpdater {
         const carrierPos = this.carrier.position;
         const carrierQuat = this.carrier.quaternion;
 
-        // Stern offset in carrier local space (bow at -Z, stern at +Z)
-        const sternLocalZ = 124.28;
         const deckY = 14;
-        const cameraDistanceBehind = 100; // 100m behind stern
+        const cameraDistanceBehind = 100; // 100m behind carrier
         const cameraHeightAboveDeck = 30;
+        const focusHeightAboveDeck = 20;
 
-        // Transform stern position to world space
-        this.tmpSternPos.set(0, deckY + 5, sternLocalZ);
+        // Focal point: center of carrier at 20m above deck
+        this.tmpSternPos.set(0, deckY + focusHeightAboveDeck, 0);
         this.tmpSternPos.applyQuaternion(carrierQuat);
         this.tmpSternPos.add(carrierPos);
 
-        // Camera position: behind the carrier, looking toward stern
-        // Start from carrier center
+        // Camera position: behind the carrier
         this.tmpCameraPos.set(0, deckY + cameraHeightAboveDeck, -cameraDistanceBehind);
         this.tmpCameraPos.applyQuaternion(carrierQuat);
         this.tmpCameraPos.add(carrierPos);

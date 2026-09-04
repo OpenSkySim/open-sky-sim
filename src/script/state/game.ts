@@ -120,6 +120,9 @@ import {
     isTerrainWireframe, loadTerrainManifest, setTerrainWireframe,
 } from '../terrain';
 import {
+    isAircraftWireframe, setAircraftWireframe, isVisibleMeshesOnly, setVisibleMeshesOnly,
+} from '../scene/entities/aircraftDebug';
+import {
     AIRBASE_LOCAL, TARGET_LOCAL, PLAY_ORIGIN, SCENERY_SURFACE_EPS_M,
 } from './worldLayout';
 
@@ -2065,12 +2068,16 @@ export class Game {
 
         if (this.state === GameState.PLAYER || this.state === GameState.SPAWN_MENU) {
             this.cameraUpdater.update(0);
+            const isCarrierViewWithManualInput = this.view === PlayerViewState.CARRIER_OVER_STERN
+                && (this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1);
             if (!this.cockpitPadlock
-                && (this.view !== PlayerViewState.AI_CHASE
-                    && (this.exteriorEnemyLock && this.isF2ExteriorView()
-                        || this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)
-                    || this.view === PlayerViewState.AI_CHASE
-                        && (this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1))) {
+                && (isCarrierViewWithManualInput
+                    || this.view !== PlayerViewState.CARRIER_OVER_STERN
+                        && (this.view !== PlayerViewState.AI_CHASE
+                            && (this.exteriorEnemyLock && this.isF2ExteriorView()
+                                || this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)
+                            || this.view === PlayerViewState.AI_CHASE
+                                && (this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)))) {
                 this.orbitCameraAroundAircraft();
             }
             this.playerCamera.update();
@@ -2248,6 +2255,8 @@ export class Game {
             this._orbitPivot.copy(this.staticModelViews[this.staticModelIndex].position);
         } else if (this.view === PlayerViewState.AI_CHASE && this.aiOpponent) {
             this._orbitPivot.copy(this.aiOpponent.getDisplayPosition());
+        } else if (this.view === PlayerViewState.CARRIER_OVER_STERN && this.kuz) {
+            this._orbitPivot.copy(this.kuz.position);
         } else {
             this._orbitPivot.copy(this.player.getDisplayPosition());
         }
@@ -2447,7 +2456,10 @@ export class Game {
                 case 'F8': {
                     event.preventDefault();
                     // Terrain wireframe coloured by QT zoom (one hue per LOD).
+                    // Aircraft wireframe + visibility filtering for LOD debugging.
                     setTerrainWireframe(!isTerrainWireframe());
+                    setAircraftWireframe(!isAircraftWireframe());
+                    setVisibleMeshesOnly(!isVisibleMeshesOnly());
                     break;
                 }
                 case 'F9': {
@@ -2778,9 +2790,12 @@ export class Game {
         this.leaveShowcaseIfActive();
         this.resetOrbit();
         restoreMainCameraParameters(this.playerCamera.main);
-        this.view = PlayerViewState.CRASHED;
+        // Keep carrier view on crash; otherwise switch to crash camera
+        if (this.view !== PlayerViewState.CARRIER_OVER_STERN) {
+            this.view = PlayerViewState.CRASHED;
+            this.cameraUpdater = this.getCameraUpdater(this.view);
+        }
         this.player.exteriorView = true;
-        this.cameraUpdater = this.getCameraUpdater(this.view);
         for (let i = 0; i < this.cockpitEntities.length; i++) {
             this.cockpitEntities[i].enabled = false;
         }

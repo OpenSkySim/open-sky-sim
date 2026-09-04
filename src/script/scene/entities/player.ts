@@ -11,11 +11,12 @@ import { HUDFocusMode } from '../../state/gameDefs';
 import { clamp, easeOutQuad, easeOutQuint, FORWARD, RIGHT, UP } from '../../utils/math';
 import { Entity, ENTITY_TAGS } from "../entity";
 import { SceneMaterialManager } from '../materials/materials';
-import { ModelManager } from '../models/models';
+import { ModelManager, Model } from '../models/models';
 import { Scene, SceneLayers } from "../scene";
 import { AircraftFx } from './aircraftFx';
 import { AircraftForceVectors } from './aircraftForceVectors';
 import { setAircraftShadowPose } from './aircraftShadow';
+import { trackAircraftMaterial, trackAircraftMesh } from './aircraftDebug';
 import { SHADOW_SETTINGS } from '../../render/shadowVolumes';
 import { SUN_STATE } from '../materials/shaders/sun';
 import { WeaponsTarget } from './weaponsTarget';
@@ -236,13 +237,18 @@ export class PlayerEntity implements Entity {
             // this.modelBody has been reassigned, so this.modelBody would still be
             // the previous aircraft.
             this.fx.onBodyModelLoaded(model);
+            this.trackAircraftModel(model);
         }));
-        this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
+        const shadowModel = this.models.getModel(def.shadow);
+        this.modelShadow = new LODHelper(shadowModel, 5);
+        this.trackAircraftModel(shadowModel);
 
         this.modelCollision = undefined;
         if (def.collision) {
             // Prefetch so the asset is resident; meshes stay visible=false in ModelManager.
-            this.modelCollision = new LODHelper(this.models.getModel(def.collision));
+            const collisionModel = this.models.getModel(def.collision);
+            this.modelCollision = new LODHelper(collisionModel);
+            this.trackAircraftModel(collisionModel);
         }
 
         this.modelLandingGear = undefined;
@@ -256,10 +262,13 @@ export class PlayerEntity implements Entity {
                     this.modelLandingGear.setPlaybackDuration(LANDING_GEAR_ANIM_DURATION);
                     this.modelLandingGear.setPlaybackPosition(1);
                 }
+                this.trackAircraftModel(model);
             });
         }
 
-        this.modelTailhook = new LODHelper(this.models.getModel('lib:tailhook'));
+        const tailhookModel = this.models.getModel('lib:tailhook');
+        this.modelTailhook = new LODHelper(tailhookModel);
+        this.trackAircraftModel(tailhookModel);
 
         const hook = arrestorHookPlacementForAircraft(def);
         this._hookTipBody.fromArray(hook.tip);
@@ -270,13 +279,56 @@ export class PlayerEntity implements Entity {
         // Anchor the thrust force arrow at the nozzle exit centroid when present.
         this.hasThrustOrigin = this.fx.getThrustOrigin(this.thrustOrigin) !== null;
 
-        this.controlSurfaceDescriptors = def.surfaces.map((s: ControlSurfaceConfig) => ({
-            model: new LODHelper(this.models.getModel(s.model)),
-            position: new THREE.Vector3().fromArray(s.pivot),
-            axis: new THREE.Vector3().fromArray(s.axis),
-            value: () => this.surfaceValue(s.control, s.sign),
-            range: s.rangeRad,
-        }));
+        this.controlSurfaceDescriptors = def.surfaces.map((s: ControlSurfaceConfig) => {
+            const surfaceModel = this.models.getModel(s.model);
+            this.trackAircraftModel(surfaceModel);
+            return {
+                model: new LODHelper(surfaceModel),
+                position: new THREE.Vector3().fromArray(s.pivot),
+                axis: new THREE.Vector3().fromArray(s.axis),
+                value: () => this.surfaceValue(s.control, s.sign),
+                range: s.rangeRad,
+            };
+        });
+    }
+
+    private trackAircraftModel(model: Model): void {
+        for (const lod of model.lod) {
+            for (const obj of lod.flats) {
+                this.traverseAndTrackMeshes(obj);
+            }
+            for (const obj of lod.volumes) {
+                this.traverseAndTrackMeshes(obj);
+            }
+        }
+    }
+
+    private traverseAndTrackMeshes(obj: THREE.Object3D): void {
+        obj.traverse(child => {
+            if ((child as THREE.Mesh).isMesh) {
+                const mesh = child as THREE.Mesh;
+                const mat = mesh.material;
+                if (mat) {
+                    if (Array.isArray(mat)) {
+                        mat.forEach(m => trackAircraftMaterial(m));
+                    } else {
+                        trackAircraftMaterial(mat);
+                    }
+                }
+                trackAircraftMesh(mesh);
+            } else if ((child as THREE.LineSegments).isLineSegments) {
+                const mesh = child as THREE.LineSegments;
+                const mat = mesh.material;
+                if (mat) {
+                    if (Array.isArray(mat)) {
+                        mat.forEach(m => trackAircraftMaterial(m));
+                    } else {
+                        trackAircraftMaterial(mat);
+                    }
+                }
+                trackAircraftMesh(mesh);
+            }
+        });
     }
 
     /** Swap the visual aircraft at runtime (flight model swapped separately). */
@@ -734,6 +786,11 @@ export class PlayerEntity implements Entity {
         this._forceVectorsEnabled = enabled;
         this.flightModel.setForceVectorsRequested(enabled);
         this.combatSim?.setForceVectorsRequested(PLAYER_SIM_ID, enabled);
+    }
+
+    /** Get aircraft model node for debug manipulation. */
+    getModelNode(): LODHelper {
+        return this.modelBody;
     }
 
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
