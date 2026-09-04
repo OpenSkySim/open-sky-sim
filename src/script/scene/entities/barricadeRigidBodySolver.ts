@@ -516,7 +516,7 @@ export class BarricadeRigidBodySolver {
     reset(deployFraction: number = 1): void {
         this.deploy = deployFraction;
         this.laced = false;
-        this.dampingRate = 6; // High damping during settling
+        this.dampingRate = 12; // Very high damping during settling (exponential decay)
         this.idleTime = 0;
 
         // Clear all velocities and contact state
@@ -534,8 +534,14 @@ export class BarricadeRigidBodySolver {
         }
 
         // Run settling substeps to reach equilibrium
-        const settleSteps = 90; // Frames to settle (3 seconds at 30 Hz)
+        // Use many steps and then gradually reduce damping to avoid oscillation
+        const settleSteps = 180; // 6 seconds at 30 Hz for full settling
         for (let i = 0; i < settleSteps; i++) {
+            // Gradually reduce damping over last 60 frames to transition smoothly
+            if (i > settleSteps - 60) {
+                const transitionProgress = (i - (settleSteps - 60)) / 60;
+                this.dampingRate = 12 * (1 - transitionProgress * 0.9) + this.spec.damping * (transitionProgress * 0.9);
+            }
             this.step(1 / 30);
         }
 
