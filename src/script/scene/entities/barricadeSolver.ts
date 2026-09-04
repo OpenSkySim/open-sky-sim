@@ -1051,11 +1051,12 @@ export class BarricadeSolver {
             breakTension: 0,
         });
 
-        // Upper-left belt connects down to the junction
+        // Upper-left belt held above lower belt by auxiliary cable
+        const gapBelts = height - lowerLift;
         out.push({
             a: upperBeltLeft,
             b: wireLowerLeft,
-            rest: 0,
+            rest: gapBelts,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
@@ -1071,11 +1072,11 @@ export class BarricadeSolver {
             breakTension: 0,
         });
 
-        // Upper-right belt connects down to the junction
+        // Upper-right belt held above lower belt by auxiliary cable
         out.push({
             a: upperBeltRight,
             b: wireLowerRight,
-            rest: 0,
+            rest: gapBelts,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
