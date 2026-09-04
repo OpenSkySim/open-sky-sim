@@ -713,5 +713,51 @@ export class BarricadeEntity implements Entity {
             painter.text(font, x + 24, lineY, `Stripe ${stripeNum}U: ${upperBeltLengths[stripe].toFixed(3)}m`, '#ffffff', TextAlignment.LEFT);
             lineY += 20;
         }
+
+        // Log as JSON to console
+        const beltData = {
+            timestamp: Date.now(),
+            wires: {
+                upperLeft: wireNames[0],
+                upperRight: wireNames[1],
+                lowerLeft: wireNames[2],
+                lowerRight: wireNames[3],
+            },
+            wireLengths: {
+                upperLeft: 0,
+                upperRight: 0,
+                lowerLeft: 0,
+                lowerRight: 0,
+            },
+            belts: {
+                upperTotal: parseFloat(upperTotalLen.toFixed(2)),
+                lowerTotal: parseFloat(lowerTotalLen.toFixed(2)),
+                stripeSegments: {
+                    upper: upperBeltLengths.map((len, i) => ({
+                        stripe: i + 1,
+                        length: parseFloat(len.toFixed(3)),
+                    })),
+                    lower: lowerBeltLengths.map((len, i) => ({
+                        stripe: i + 1,
+                        length: parseFloat(len.toFixed(3)),
+                    })),
+                },
+            },
+        };
+
+        // Calculate wire lengths for JSON
+        for (let w = 0; w < 4; w++) {
+            const a = layout.wireNodeIndex(w as BarricadeWire, 0);
+            const b = layout.wireNodeIndex(w as BarricadeWire, layout.spec.wireNodes + 1);
+            const ax = nodes[a * 3], ay = nodes[a * 3 + 1], az = nodes[a * 3 + 2];
+            const bx = nodes[b * 3], by = nodes[b * 3 + 1], bz = nodes[b * 3 + 2];
+            const len = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2);
+            if (w === 0) beltData.wireLengths.upperLeft = parseFloat(len.toFixed(2));
+            if (w === 1) beltData.wireLengths.upperRight = parseFloat(len.toFixed(2));
+            if (w === 2) beltData.wireLengths.lowerLeft = parseFloat(len.toFixed(2));
+            if (w === 3) beltData.wireLengths.lowerRight = parseFloat(len.toFixed(2));
+        }
+
+        console.log('barricade-lengths', beltData);
     }
 }
