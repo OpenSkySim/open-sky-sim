@@ -2068,16 +2068,12 @@ export class Game {
 
         if (this.state === GameState.PLAYER || this.state === GameState.SPAWN_MENU) {
             this.cameraUpdater.update(0);
-            const isCarrierViewWithManualInput = this.view === PlayerViewState.CARRIER_OVER_STERN
-                && (this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1);
             if (!this.cockpitPadlock
-                && (isCarrierViewWithManualInput
-                    || this.view !== PlayerViewState.CARRIER_OVER_STERN
-                        && (this.view !== PlayerViewState.AI_CHASE
-                            && (this.exteriorEnemyLock && this.isF2ExteriorView()
-                                || this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)
-                            || this.view === PlayerViewState.AI_CHASE
-                                && (this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)))) {
+                && (this.view !== PlayerViewState.AI_CHASE
+                    && (this.exteriorEnemyLock && this.isF2ExteriorView()
+                        || this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)
+                    || this.view === PlayerViewState.AI_CHASE
+                        && (this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1))) {
                 this.orbitCameraAroundAircraft();
             }
             this.playerCamera.update();
@@ -2788,7 +2784,10 @@ export class Game {
         }
         this.damageSmoke?.ensureCrashPlume(PLAYER_SIM_ID);
         this.leaveShowcaseIfActive();
-        this.resetOrbit();
+        // Keep orbit state for carrier view so numpad still works after crash
+        if (this.view !== PlayerViewState.CARRIER_OVER_STERN) {
+            this.resetOrbit();
+        }
         restoreMainCameraParameters(this.playerCamera.main);
         // Keep carrier view on crash; otherwise switch to crash camera
         if (this.view !== PlayerViewState.CARRIER_OVER_STERN) {
