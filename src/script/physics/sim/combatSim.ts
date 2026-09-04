@@ -824,13 +824,20 @@ export class CombatSim implements ProjectileSink {
      */
     private barricadeHullFor(a: SimAircraft): AircraftCollisionMesh {
         // The drawn model first: that is what the webbing has to be lying on.
-        if (barricadeHullIsUsable(a.barricadeDrape, a.wingHalfSpanM)) return a.barricadeDrape;
-        if (barricadeHullIsUsable(a.collision, a.wingHalfSpanM)) return a.collision;
+        if (barricadeHullIsUsable(a.barricadeDrape, a.wingHalfSpanM)) {
+            console.log(`[BARRICADE] Using barricadeDrape mesh for arrestment (span: ${a.wingHalfSpanM.toFixed(1)}m)`);
+            return a.barricadeDrape;
+        }
+        if (barricadeHullIsUsable(a.collision, a.wingHalfSpanM)) {
+            console.log(`[BARRICADE] Using aircraft collision mesh for arrestment (span: ${a.wingHalfSpanM.toFixed(1)}m)`);
+            return a.collision;
+        }
         let hull = this.barricadeFallbackHulls.get(a.wingHalfSpanM);
         if (!hull) {
             hull = barricadeFallbackHull(a.wingHalfSpanM);
             this.barricadeFallbackHulls.set(a.wingHalfSpanM, hull);
         }
+        console.log(`[BARRICADE] Using fallback geometric hull for arrestment (span: ${a.wingHalfSpanM.toFixed(1)}m, tris: ${hull.triangles.length / 9})`);
         return hull;
     }
 
