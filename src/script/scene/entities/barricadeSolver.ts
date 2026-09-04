@@ -146,10 +146,12 @@ export const BARRICADE_FITTING_GAP_M = 0.12;
  * a second, which is nothing to look at for a moment and several metres by the
  * time an aircraft turns up.
  *
- * Reduced from 0.02m to 0.005m to allow stripes to engage wing during arrestment
- * without requiring excessive pull force to overcome stiction threshold.
+ * Set to 0.015m: balances stripe stability against belt motion (prevents
+ * drift during settling, ~1.5cm threshold) with stripe engagement during
+ * aircraft impact (impact forces >> settling forces, easily overcomes 1.5cm).
+ * Original 0.02m prevented aircraft engagement; 0.005m was too low and allowed drift.
  */
-export const BARRICADE_FITTING_STICTION_M = 0.005;
+export const BARRICADE_FITTING_STICTION_M = 0.015;
 
 /**
  * Shortest an engine may wind its wire, as a fraction of the rigged run.
