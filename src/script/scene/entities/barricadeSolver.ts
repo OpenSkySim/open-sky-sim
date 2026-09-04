@@ -753,8 +753,9 @@ export class BarricadeSolver {
     private stripeCEnd = 0;
     private tieCFirst = 0;
     private tieCEnd = 0;
-    /** Indices of upper belt Y connector constraints (released when aircraft engages). */
-    private upperBeltIndices: number[] = [];
+    /** Indices of upper belt and upper cable constraints (released when aircraft engages). */
+    private upperStructureIndices: number[] = [];
+    private upperCableStartIndices: { [key: number]: number } = {};
     /** Rigged length of each bare wire run (m). */
     private readonly wireRest = new Float64Array(4);
     /** Cable let out by the arresting engine beyond the rigged run (m). */
@@ -883,11 +884,11 @@ export class BarricadeSolver {
         return (upper ? this.uUpper : this.uLower)[s];
     }
 
-    /** Release upper belt from wire junction when aircraft engages. */
+    /** Release upper structure (cables + belt) when aircraft engages by breaking constraints. */
     releaseUpperBelt(): void {
-        for (const idx of this.upperBeltIndices) {
-            // Set compliance to infinity to effectively disable the constraint
-            this.cCompliance[idx] = Infinity;
+        for (const idx of this.upperStructureIndices) {
+            // Break the constraint by setting maxTension to 0 (will snap immediately)
+            this.cMaxTension[idx] = 0;
         }
     }
 
@@ -1008,11 +1009,26 @@ export class BarricadeSolver {
             // Upper auxiliary cables are rigid (compliance = 0), lower wires use normal stiffness
             const stiffness = isArrestingWire ? this.spec.wireAxialStiffnessN : 0;
             const breakTension = isArrestingWire ? 0 : this.spec.auxCableBreakN;
+
+            // Track upper cable constraint start index
+            const cableStart = out.length;
+            if (!isArrestingWire) {
+                this.upperCableStartIndices[w] = cableStart;
+            }
+
             BarricadeSolver.chain(
                 out, nodes, rests, stiffness, maxTension,
             );
-            // Add break tension to auxiliary cable constraints
-            if (breakTension > 0) {
+
+            // Track upper cable constraint indices and add break tension
+            if (!isArrestingWire) {
+                for (let c = cableStart; c < out.length; c++) {
+                    this.upperStructureIndices.push(c);
+                    if (breakTension > 0) {
+                        out[c].breakTension = breakTension;
+                    }
+                }
+            } else if (breakTension > 0) {
                 const start = this.wireFirst[w];
                 const end = out.length;
                 for (let c = start; c < end; c++) {
@@ -1067,7 +1083,7 @@ export class BarricadeSolver {
 
         // Upper-left belt held above lower belt by auxiliary cable
         const gapBelts = height - lowerLift;
-        this.upperBeltIndices.push(out.length);
+        this.upperStructureIndices.push(out.length);
         out.push({
             a: upperBeltLeft,
             b: wireLowerLeft,
@@ -1088,7 +1104,7 @@ export class BarricadeSolver {
         });
 
         // Upper-right belt held above lower belt by auxiliary cable
-        this.upperBeltIndices.push(out.length);
+        this.upperStructureIndices.push(out.length);
         out.push({
             a: upperBeltRight,
             b: wireLowerRight,
