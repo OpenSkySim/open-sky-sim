@@ -621,10 +621,10 @@ export class BarricadeEntity implements Entity {
         const nodes = this.getNodes();
         if (!nodes) return;
 
-        // Draw debug wire length box in upper right corner
+        // Draw debug info box in upper right corner
         const font = Font.HUD_LARGE;
-        const boxW = 220;
-        const boxH = 160;
+        const boxW = 280;
+        const boxH = 280;
         const margin = 10;
         const x = targetWidth - boxW - margin;
         const y = margin;
@@ -639,12 +639,16 @@ export class BarricadeEntity implements Entity {
         painter.rectangle(x, y, boxW, boxH, false);
 
         // Title
-        painter.text(font, x + 8, y + 12, 'Wire Lengths', '#ffffff', TextAlignment.LEFT);
+        painter.text(font, x + 8, y + 12, 'Wire & Belt Lengths', '#ffffff', TextAlignment.LEFT);
+
+        const layout = this.layout;
+        let lineY = y + 40;
+        const lineHeight = 28;
+        const dotSize = 8;
 
         // Wire information
         const wireColors = ['#8b6f47', '#8b6f47', '#ff3333', '#ff3333'];
         const wireNames = ['Upper-L', 'Upper-R', 'Lower-L', 'Lower-R'];
-        const layout = this.layout;
 
         for (let w = 0; w < 4; w++) {
             const a = layout.wireNodeIndex(w as BarricadeWire, 0);
@@ -653,14 +657,61 @@ export class BarricadeEntity implements Entity {
             const bx = nodes[b * 3], by = nodes[b * 3 + 1], bz = nodes[b * 3 + 2];
             const len = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2);
 
-            const lineY = y + 40 + w * 28;
-
             // Draw colored dot
             painter.setBackground(wireColors[w]);
-            painter.fillRect(x + 12, lineY - 5, 8, 8);
+            painter.fillRect(x + 12, lineY - 5, dotSize, dotSize);
 
             // Draw text
             painter.text(font, x + 28, lineY, `${wireNames[w]}: ${len.toFixed(2)}m`, '#ffffff', TextAlignment.LEFT);
+            lineY += lineHeight;
+        }
+
+        // Belt segment information
+        lineY += 8; // Spacing
+
+        // Calculate total belt lengths and per-segment lengths
+        const upperBeltLengths: number[] = [];
+        const lowerBeltLengths: number[] = [];
+
+        for (let i = 0; i < layout.beltNodes - 1; i++) {
+            // Upper belt segment
+            const ua = layout.beltNodeIndex(true, i);
+            const ub = layout.beltNodeIndex(true, i + 1);
+            const uax = nodes[ua * 3], uay = nodes[ua * 3 + 1], uaz = nodes[ua * 3 + 2];
+            const ubx = nodes[ub * 3], uby = nodes[ub * 3 + 1], ubz = nodes[ub * 3 + 2];
+            const ulen = Math.sqrt((ubx - uax) ** 2 + (uby - uay) ** 2 + (ubz - uaz) ** 2);
+            upperBeltLengths.push(ulen);
+
+            // Lower belt segment
+            const la = layout.beltNodeIndex(false, i);
+            const lb = layout.beltNodeIndex(false, i + 1);
+            const lax = nodes[la * 3], lay = nodes[la * 3 + 1], laz = nodes[la * 3 + 2];
+            const lbx = nodes[lb * 3], lby = nodes[lb * 3 + 1], lbz = nodes[lb * 3 + 2];
+            const llen = Math.sqrt((lbx - lax) ** 2 + (lby - lay) ** 2 + (lbz - laz) ** 2);
+            lowerBeltLengths.push(llen);
+        }
+
+        const upperTotalLen = upperBeltLengths.reduce((a, b) => a + b, 0);
+        const lowerTotalLen = lowerBeltLengths.reduce((a, b) => a + b, 0);
+
+        // Draw belt totals
+        painter.setBackground('#00cc00');
+        painter.fillRect(x + 12, lineY - 5, dotSize, dotSize);
+        painter.text(font, x + 28, lineY, `Upper Belt: ${upperTotalLen.toFixed(2)}m`, '#ffffff', TextAlignment.LEFT);
+        lineY += lineHeight;
+
+        painter.setBackground('#6699ff');
+        painter.fillRect(x + 12, lineY - 5, dotSize, dotSize);
+        painter.text(font, x + 28, lineY, `Lower Belt: ${lowerTotalLen.toFixed(2)}m`, '#ffffff', TextAlignment.LEFT);
+        lineY += lineHeight;
+
+        // Draw first 3 stripe segments
+        for (let stripe = 0; stripe < Math.min(3, upperBeltLengths.length); stripe++) {
+            const stripeNum = stripe + 1;
+            painter.setBackground('#00cc00');
+            painter.fillRect(x + 12, lineY - 5, 5, 5);
+            painter.text(font, x + 24, lineY, `Stripe ${stripeNum}U: ${upperBeltLengths[stripe].toFixed(3)}m`, '#ffffff', TextAlignment.LEFT);
+            lineY += 20;
         }
     }
 }
