@@ -132,17 +132,8 @@ export class BarricadeEntity implements Entity {
             colorDither: false,
             rawColor: '#e0dccb',
         }) as THREE.ShaderMaterial;
-        // Upper belt: navy blue
-        const upperBeltMat = materials.build({
-            type: SceneMaterialPrimitiveType.MESH,
-            category: PaletteCategory.SCENERY_TREE_SHADOW,
-            shaded: false,
-            depthWrite: false,
-            colorDither: false,
-            rawColor: '#001a4d',
-        }) as THREE.ShaderMaterial;
-        // Lower belt: light blue
-        const lowerBeltMat = materials.build({
+        // Upper belt: alternating light blue and white per segment
+        const upperBeltMat1 = materials.build({
             type: SceneMaterialPrimitiveType.MESH,
             category: PaletteCategory.SCENERY_TREE_SHADOW,
             shaded: false,
@@ -150,23 +141,59 @@ export class BarricadeEntity implements Entity {
             colorDither: false,
             rawColor: '#6699ff',
         }) as THREE.ShaderMaterial;
-        // Wires are arresting-gear cable: dark
-        const wireMat = materials.build({
+        const upperBeltMat2 = materials.build({
             type: SceneMaterialPrimitiveType.MESH,
             category: PaletteCategory.SCENERY_TREE_SHADOW,
             shaded: false,
             depthWrite: false,
             colorDither: false,
-            rawColor: '#14171a',
+            rawColor: '#ffffff',
+        }) as THREE.ShaderMaterial;
+        // Lower belt: alternating red and white per segment
+        const lowerBeltMat1 = materials.build({
+            type: SceneMaterialPrimitiveType.MESH,
+            category: PaletteCategory.SCENERY_TREE_SHADOW,
+            shaded: false,
+            depthWrite: false,
+            colorDither: false,
+            rawColor: '#ff3333',
+        }) as THREE.ShaderMaterial;
+        const lowerBeltMat2 = materials.build({
+            type: SceneMaterialPrimitiveType.MESH,
+            category: PaletteCategory.SCENERY_TREE_SHADOW,
+            shaded: false,
+            depthWrite: false,
+            colorDither: false,
+            rawColor: '#ffffff',
+        }) as THREE.ShaderMaterial;
+        // Wires: alternating green and white per segment
+        const wireMat1 = materials.build({
+            type: SceneMaterialPrimitiveType.MESH,
+            category: PaletteCategory.SCENERY_TREE_SHADOW,
+            shaded: false,
+            depthWrite: false,
+            colorDither: false,
+            rawColor: '#00cc00',
+        }) as THREE.ShaderMaterial;
+        const wireMat2 = materials.build({
+            type: SceneMaterialPrimitiveType.MESH,
+            category: PaletteCategory.SCENERY_TREE_SHADOW,
+            shaded: false,
+            depthWrite: false,
+            colorDither: false,
+            rawColor: '#ffffff',
         }) as THREE.ShaderMaterial;
         // A strap has no inside. These ribbons are built from a centreline out,
         // so which way they wind depends on which way the webbing runs — and
         // half of them wound away from the groove, leaving the net invisible to
         // a pilot flying into it.
         stripeMat.side = THREE.DoubleSide;
-        upperBeltMat.side = THREE.DoubleSide;
-        lowerBeltMat.side = THREE.DoubleSide;
-        wireMat.side = THREE.DoubleSide;
+        upperBeltMat1.side = THREE.DoubleSide;
+        upperBeltMat2.side = THREE.DoubleSide;
+        lowerBeltMat1.side = THREE.DoubleSide;
+        lowerBeltMat2.side = THREE.DoubleSide;
+        wireMat1.side = THREE.DoubleSide;
+        wireMat2.side = THREE.DoubleSide;
         const stanchionMat = materials.build({
             type: SceneMaterialPrimitiveType.MESH,
             category: PaletteCategory.SCENERY_TREE_SHADOW,
@@ -190,15 +217,15 @@ export class BarricadeEntity implements Entity {
         // The mesh budget is fixed: refitting the span moves the stations, it
         // never changes how many of anything there are.
         for (let i = 0; i + 1 < this.layout.beltNodes; i++) {
-            const upper = this.makeQuad(upperBeltMat);
-            const lower = this.makeQuad(lowerBeltMat);
+            const upper = this.makeQuad(i % 2 === 0 ? upperBeltMat1 : upperBeltMat2);
+            const lower = this.makeQuad(i % 2 === 0 ? lowerBeltMat1 : lowerBeltMat2);
             this.upperSegs.push(upper);
             this.lowerSegs.push(lower);
             this.root.add(upper);
             this.root.add(lower);
         }
         for (let i = 0; i < 4 * (wireNodes + 1); i++) {
-            const seg = this.makeQuad(wireMat);
+            const seg = this.makeQuad(i % 2 === 0 ? wireMat1 : wireMat2);
             this.wireSegs.push(seg);
             this.root.add(seg);
         }
