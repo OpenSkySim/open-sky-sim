@@ -886,9 +886,12 @@ export class BarricadeSolver {
 
     /** Release upper structure (cables + belt) when aircraft engages by breaking constraints. */
     releaseUpperBelt(): void {
+        console.log(`[RELEASE] Breaking ${this.upperStructureIndices.length} upper structure constraints`);
         for (const idx of this.upperStructureIndices) {
-            // Break the constraint by setting maxTension to 0 (will snap immediately)
-            this.cMaxTension[idx] = 0;
+            // project() skips any constraint with cIntact === 0, same as a
+            // tension-break — cMaxTension <= 0 means "uncapped", not "broken",
+            // so it made these constraints rigid and unbreakable instead.
+            this.cIntact[idx] = 0;
         }
     }
 
@@ -1006,8 +1009,8 @@ export class BarricadeSolver {
             // Only lower wires (LOWER_LEFT=2, LOWER_RIGHT=3) are arresting cables with engine hold
             const isArrestingWire = w >= BarricadeWire.LOWER_LEFT;
             const maxTension = isArrestingWire ? this.spec.engineHoldN : 0;
-            // Upper auxiliary cables are rigid (compliance = 0), lower wires use normal stiffness
-            const stiffness = isArrestingWire ? this.spec.wireAxialStiffnessN : 0;
+            // Upper auxiliary cables and lower wires both use high stiffness for rigidity
+            const stiffness = this.spec.wireAxialStiffnessN;
             const breakTension = isArrestingWire ? 0 : this.spec.auxCableBreakN;
 
             // Track upper cable constraint start index

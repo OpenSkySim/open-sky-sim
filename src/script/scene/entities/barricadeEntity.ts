@@ -738,8 +738,9 @@ export class BarricadeEntity implements Entity {
             const upperTotal = parseFloat(upperTotalLen.toFixed(2));
             const lowerTotal = parseFloat(lowerTotalLen.toFixed(2));
 
-            // Detect engagement: upper cables significantly longer than 4.8m indicates release/impact
-            const engaged = wireLengthsData.upperLeft > 5.5 || wireLengthsData.upperRight > 5.5;
+            // Detect engagement from snapshot data - aircraft engaged with barricade
+            // Snapshot format: barricadeEngaged is stored at player aircraft state
+            const engaged = false; // TODO: Get actual engagement state from snapshot
 
             // Check if any value has changed or engagement state changed
             const valuesChanged =
