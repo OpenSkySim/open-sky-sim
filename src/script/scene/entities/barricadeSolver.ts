@@ -889,28 +889,22 @@ export class BarricadeSolver {
         const cableLen = 2.4;
         const pos = this.pos;
 
-        // Upper belt must have vertical cables of exactly 2.4m
-        // Position all upper belt nodes directly below their anchor points
+        // Upper cables stay rigid at 2.4m, but belt itself is flexible like lower belt
+        // Only lock the Y coordinate to maintain 2.4m height
         const upperLeftAnchor = BarricadeWire.UPPER_LEFT;
         const upperRightAnchor = BarricadeWire.UPPER_RIGHT;
 
-        const leftAnchorX = pos[upperLeftAnchor * 3];
         const leftAnchorY = pos[upperLeftAnchor * 3 + 1];
-        const leftAnchorZ = pos[upperLeftAnchor * 3 + 2];
-
-        const rightAnchorX = pos[upperRightAnchor * 3];
         const rightAnchorY = pos[upperRightAnchor * 3 + 1];
-        const rightAnchorZ = pos[upperRightAnchor * 3 + 2];
 
-        // Lock all upper belt nodes to be directly below anchors
+        // Only constrain Y height; belt can move freely in X and Z like lower belt
         for (let i = 0; i < this.beltNodes; i++) {
             const beltIdx = this.beltNodeIndex(true, i);
             const t = this.beltNodes > 1 ? i / (this.beltNodes - 1) : 0;
 
-            // Interpolate between left and right anchor positions
-            pos[beltIdx * 3] = leftAnchorX + (rightAnchorX - leftAnchorX) * t;
+            // Interpolate Y position: belt is 2.4m below anchor line
             pos[beltIdx * 3 + 1] = leftAnchorY + (rightAnchorY - leftAnchorY) * t - cableLen;
-            pos[beltIdx * 3 + 2] = leftAnchorZ + (rightAnchorZ - leftAnchorZ) * t;
+            // X and Z are free to move like the lower belt
         }
     }
 
