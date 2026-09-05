@@ -33,19 +33,7 @@ import {
     hookWorldPos,
     trySnag,
 } from '../../scene/entities/arrestorCables';
-import {
-    BarricadeField,
-    BARRICADE_DEFAULT_WING_HALF_SPAN_M,
-    BARRICADE_PULL_OUT_M,
-    BARRICADE_RELEASE_SPEED_MPS,
-    tryBarricadeEngage,
-} from '../../scene/entities/barricade';
-import {
-    BarricadeSolver,
-    barricadeFallbackHull,
-    barricadeHullIsUsable,
-    barricadeSolverSpecForRig,
-} from '../../scene/entities/barricadeSolver';
+// Barricade imports removed
 import { triangleBvhFor } from '../collision/triangleBvh';
 
 /**

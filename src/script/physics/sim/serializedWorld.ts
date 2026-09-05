@@ -7,7 +7,6 @@ import {
     arrestorCableLocals,
     buildArrestorCableField,
 } from '../../scene/entities/arrestorCables';
-import { BarricadeField, barricadeRig } from '../../scene/entities/barricade';
 import { HillCollider } from '../../scene/entities/hillCollider';
 import { SurfacePadCollider } from '../../scene/entities/surfacePad';
 import { SkiJumpCollider } from '../../scene/entities/skiJump';

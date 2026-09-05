@@ -38,16 +38,9 @@ import {
 import { ecefToEnu, geodeticToEcef, sceneFromEnu } from '../terrain/geodesy';
 import { AreaPicker } from '../osd/areaPicker';
 import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
-import { BarricadeEntity } from '../scene/entities/barricadeEntity';
 import {
-    BarricadeController,
-    BarricadeRig,
-    BarricadeState,
-    barricadeRig,
     BARRICADE_DECK_LOCAL_Y,
     BARRICADE_LOCAL_Z,
-    buildBarricadeField,
-    fitBarricadeRig,
 } from '../scene/entities/barricade';
 import { ARRESTOR_CARRIER_ORIGIN, ArrestorCarrierPose } from '../scene/entities/arrestorCables';
 import { ShipWakeEntity } from '../scene/entities/shipWake';
@@ -110,7 +103,6 @@ import { WeaponsField } from '../scene/entities/weaponsField';
 import { Faction } from '../weapons/combatant';
 import { CombatSimClient } from '../physics/sim/combatSimClient';
 import { SimProxyFlightModel } from '../physics/model/simProxyFlightModel';
-import { serializeWorld, defaultArrestorCableField, serializeBarricade } from '../physics/sim/serializedWorld';
 import { HeightFieldSender, MirrorFocus } from '../terrain/heightMirror';
 import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/simTypes';
 import { PLAYER_SIM_ID, WINGMAN_SIM_ID, aiSimId } from '../physics/sim/simIds';
@@ -1984,7 +1976,6 @@ export class Game {
                 s.b.x - field.originX, s.b.y - field.originY, s.b.z - field.originZ,
             ] as [number, number, number, number, number, number]),
         }]);
-        this.combatSim.setBarricades([serializeBarricade(
             buildBarricadeField(
                 this.carrierPose(), BARRICADE_DECK_LOCAL_Y, deploy, this.barricadeRig(),
                 this.barricade.getRigGeneration(),
