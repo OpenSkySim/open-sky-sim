@@ -746,8 +746,7 @@ export class BarricadeEntity implements Entity {
             const lowerTotal = parseFloat(lowerTotalLen.toFixed(2));
 
             // Detect engagement from snapshot data - aircraft engaged with barricade
-            // Snapshot format: barricadeEngaged is stored at player aircraft state
-            const engaged = false; // TODO: Get actual engagement state from snapshot
+            const engaged = worldState?.playerAircraft?.barricadeEngaged ?? false;
 
             // Check if any value has changed or engagement state changed
             const valuesChanged =
