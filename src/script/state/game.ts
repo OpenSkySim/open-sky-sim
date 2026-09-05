@@ -1000,37 +1000,9 @@ export class Game {
      * once per airframe and cached, since it is only the gross shape and does not
      * move with the control surfaces.
      */
-    private barricadeDrapeFor(def: FlyableAircraftDef): AircraftCollisionMesh | undefined {
-        const cached = this.barricadeDrapes.get(def.id);
-        if (cached) return cached;
-        // Only ever asked for once per airframe: a model still in flight comes
-        // back as an empty placeholder, so the bake has to happen in the load
-        // callback, on the model the callback hands back rather than the one
-        // returned here. Nothing is cached until then, or a spawn that beats
-        // the download would leave the airframe without a drape for good.
-        this.models.getModel(def.body, (_url, model) => {
-            const soup = bakeCollisionMeshFromModel(model);
-            if (!soup) return;
-            this.barricadeDrapes.set(def.id, soup);
-            for (const simId of this.barricadeDrapeUsers.get(def.id) ?? []) {
-                this.combatSim.setBarricadeDrape(simId, soup);
-            }
-        });
-        return this.barricadeDrapes.get(def.id);
-    }
-
-    private readonly barricadeDrapes = new Map<string, AircraftCollisionMesh>();
-    /** Which sims are flying each airframe, so a late bake can reach them. */
-    private readonly barricadeDrapeUsers = new Map<string, Set<string>>();
-
     /** Hand the sim both the hitbox and the drawn shape for a given airframe. */
     private pushAircraftMeshes(simId: string, def: FlyableAircraftDef): void {
         this.combatSim.setCollision(simId, def.collisionMesh);
-        for (const users of this.barricadeDrapeUsers.values()) users.delete(simId);
-        let users = this.barricadeDrapeUsers.get(def.id);
-        if (!users) this.barricadeDrapeUsers.set(def.id, users = new Set());
-        users.add(simId);
-        this.combatSim.setBarricadeDrape(simId, this.barricadeDrapeFor(def));
     }
 
     /** Swap the player (and AI opponents) to the aircraft chosen in the spawn menu. */
@@ -1823,7 +1795,6 @@ export class Game {
             this.captureCrashProbe();
             this.recordTelemetry(delta);
             this.advanceCarrier(delta);
-            this.advanceBarricade(delta);
             this.syncCarrierSystems();
             this.scene.update(delta);
             this.pumpCombatSim(delta);
@@ -1838,7 +1809,6 @@ export class Game {
             }
         } else if (this.state === GameState.SPAWN_MENU) {
             this.advanceCarrier(delta);
-            this.advanceBarricade(delta);
             this.syncCarrierSystems();
             this.scene.update(delta);
             this.pumpCombatSim(delta);
@@ -1856,16 +1826,6 @@ export class Game {
     /**
      * Step the barricade's raise/lower animation, feeding it the sim's live
      * engagement flag so an arrestment expends the webbing.
-     */
-    private advanceBarricade(delta: number): void {
-        const fm = this.player.getFlightModel();
-        const engaged = fm instanceof SimProxyFlightModel ? fm.getBarricadeEngaged() : false;
-        this.barricade.update(delta, engaged);
-    }
-
-    /**
-     * Barricade rig fitted to the deck. The probe walks the carrier mesh, so it
-     * runs once and is cached — the deck does not move in the ship's own frame.
      */
     /** Carrier pose for arrestor visuals / latched hook (always live). */
     private carrierPose(): ArrestorCarrierPose {

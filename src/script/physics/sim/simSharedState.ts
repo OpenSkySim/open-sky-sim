@@ -76,10 +76,6 @@ export function projectileBank(views: SimSharedViews, bank: number): Float32Arra
     return bank === 0 ? views.projectiles0 : views.projectiles1;
 }
 
-export function barricadeBank(views: SimSharedViews, bank: number): Float32Array {
-    return bank === 0 ? views.barricades0 : views.barricades1;
-}
-
 /**
  * Worker: finish writing the back bank, then publish counts/bank/seq and clear busy.
  * Callers must have already filled the back-bank float regions.
@@ -114,8 +110,6 @@ export function tryPullSharedSnapshot(views: SimSharedViews, lastSeq: number): S
         const bank = Atomics.load(views.ctrl, CTRL.ACTIVE_BANK);
         const aircraftCount = Atomics.load(views.ctrl, CTRL.AIRCRAFT_COUNT);
         const projectileCount = Atomics.load(views.ctrl, CTRL.PROJECTILE_COUNT);
-        const barricadeCount = Atomics.load(views.ctrl, CTRL.BARRICADE_COUNT);
-        const barricadeNodes = Atomics.load(views.ctrl, CTRL.BARRICADE_NODES);
         // Seq must still match — otherwise a newer publish raced; retry.
         if (Atomics.load(views.ctrl, CTRL.WRITE_SEQ) !== seq) {
             continue;
@@ -126,9 +120,6 @@ export function tryPullSharedSnapshot(views: SimSharedViews, lastSeq: number): S
             projectileCount,
             aircraft: aircraftBank(views, bank),
             projectiles: projectileBank(views, bank),
-            barricadeCount,
-            barricadeNodes,
-            barricades: barricadeBank(views, bank),
         };
     }
     return null;
