@@ -624,74 +624,6 @@ export class CombatSim implements ProjectileSink {
     }
 
 
-    /**
-     * Hand the airframe the load its webbing is actually carrying.
-     *
-     * Only the part across the deck. The along-deck retardation stays with
-     * {@link applyArrestorVelocity} and its tuned run-out, because that is the
-     * arresting engine's job and it is the number the whole feel of a trap is
-     * built on. What the engine cannot tell you is where the net has hold of
-     * you: a wing caught off centre is dragged back toward the middle and the
-     * nose comes round with it, and that is a real moment from real tension on
-     * real geometry rather than anything anyone tuned.
-     */
-    private applyWebbingLoad(a: SimAircraft, field: BarricadeField, delta: number): void {
-        const solver = this.barricadeSolvers[a.barricadeFieldIndex];
-        if (!solver || delta <= 0) return;
-
-        // Carrier-local out to world, since that is the frame the airframe flies in.
-        solver.airframeForce(this.webForce).applyQuaternion(field.quaternion);
-        solver.airframeTorque(this.webTorque).applyQuaternion(field.quaternion);
-
-        // Everything along the deck belongs to the arresting engine, and that
-        // includes the couple that comes with it — the net catches an airframe
-        // well above its centre of gravity, so the retardation it applies is
-        // also a large nose-down pitching moment. Feeding that back on top of a
-        // run-out that already accounts for it would put the aircraft on its
-        // nose. Take only what the engine has no way of expressing: the load
-        // across the deck, and the yaw that goes with catching one wing first.
-        this.webForce.addScaledVector(field.deckAxis, -this.webForce.dot(field.deckAxis));
-        this.webUp.crossVectors(field.deckAxis, field.lateralAxis).normalize();
-        this.webTorque.copy(this.webUp).multiplyScalar(this.webTorque.dot(this.webUp));
-
-        a.model.applyExternalWrench(
-            this.webForce.multiplyScalar(delta),
-            this.webTorque.multiplyScalar(delta),
-        );
-    }
-
-    private readonly webQuat = new THREE.Quaternion();
-    private readonly webAirframe = new THREE.Quaternion();
-    private readonly webPos = new THREE.Vector3();
-    /**
-     * The hull the webbing collides against.
-     *
-     * The drawn model if the main thread has handed one over, since that is the
-     * shape the webbing is drawn lying on. Failing that the airframe's own
-     * hitbox — and a few of those are broken imports, a cube around the cockpit
-     * or absent altogether, so those fall through to a stand-in the size of the
-     * aircraft. Cached: the substitute is built once per span.
-     */
-    private barricadeHullFor(a: SimAircraft): AircraftCollisionMesh {
-        // The drawn model first: that is what the webbing has to be lying on.
-        if (barricadeHullIsUsable(a.barricadeDrape, a.wingHalfSpanM)) {
-            return a.barricadeDrape;
-        }
-        if (barricadeHullIsUsable(a.collision, a.wingHalfSpanM)) {
-            return a.collision;
-        }
-        let hull = this.barricadeFallbackHulls.get(a.wingHalfSpanM);
-        if (!hull) {
-            hull = barricadeFallbackHull(a.wingHalfSpanM);
-            this.barricadeFallbackHulls.set(a.wingHalfSpanM, hull);
-        }
-        return hull;
-    }
-
-    private readonly barricadeFallbackHulls = new Map<number, AircraftCollisionMesh>();
-    private readonly webForce = new THREE.Vector3();
-    private readonly webTorque = new THREE.Vector3();
-    private readonly webUp = new THREE.Vector3();
 
     setArrestorCables(cables: SerializedArrestorCables[]): void {
         this.arrestorFields = deserializeArrestorCables({ arrestorCables: cables } as SerializedWorld);
@@ -838,10 +770,6 @@ export class CombatSim implements ProjectileSink {
         a.arrestorFieldIndex = -1;
         a.arrestorSnagAlong = 0;
         a.arrestorHeld = false;
-        a.barricadeEngaged = false;
-        a.barricadeFieldIndex = -1;
-        a.barricadeSnagAlong = 0;
-        a.barricadeHeld = false;
         a.carrierDeckSticky = false;
         a.carrierParkLocalValid = false;
         a.hasPrevHook = false;
@@ -1101,7 +1029,6 @@ export class CombatSim implements ProjectileSink {
                 this.resolveSolidWorldContact(a, delta);
             }
             this.resolveArrestor(a, delta);
-            this.resolveBarricade(a, delta);
             a.resolveFiring();
         }
         // 5. Guns + projectiles (hits already cleared; scrapes may have appended).
@@ -1113,8 +1040,6 @@ export class CombatSim implements ProjectileSink {
             }
         }
         this.updateProjectiles(delta);
-        // 6. The webbing, last: it is driven by where the airframes ended up.
-        this.stepBarricadeWebbing(delta);
     }
 
     /** {@link ProjectileSink} — guns push rounds here. */
@@ -1232,70 +1157,6 @@ export class CombatSim implements ProjectileSink {
     /**
      * Emergency barricade: the webbing catches the *wings*, so there is no hook
      * test — any airframe that crosses a raised net inside the stanchion span
-     * and below its top edge is engaged, and is then scrubbed to a stop over
-     * {@link BARRICADE_PULL_OUT_M} exactly like a pendant arrestment.
-     *
-     * An aircraft already latched to a wire never loads the webbing; the wire
-     * stops it first.
-     */
-    private resolveBarricade(a: SimAircraft, delta: number): void {
-        const pos = a.model.position;
-        const prev = a.hasPrevPos ? a.prevPos : null;
-
-        if (!a.model.isCrashed() && this.barricades.length > 0) {
-            if (!a.barricadeEngaged && a.arrestorLatch < 0) {
-                for (let fi = 0; fi < this.barricades.length; fi++) {
-                    const field = this.barricades[fi];
-                    if (!tryBarricadeEngage(
-                        pos, prev, a.model.velocityVector, a.wingHalfSpanM, field, this.carrierVel,
-                    )) {
-                        continue;
-                    }
-                    a.barricadeEngaged = true;
-                    a.barricadeFieldIndex = fi;
-                    a.barricadeSnagAlong = pos.dot(field.deckAxis);
-                    a.barricadeHeld = false;
-                    // Release upper belt from auxiliary cables when aircraft impacts
-                    this.barricadeSolvers[fi]?.releaseUpperBelt();
-                    break;
-                }
-            }
-
-            if (a.barricadeEngaged && a.barricadeFieldIndex >= 0) {
-                const field = this.barricades[a.barricadeFieldIndex];
-                const vel = a.model.velocityVector;
-                const shipAlong = this.carrierVel.dot(field.deckAxis);
-                if (!a.barricadeHeld) {
-                    const traveled = pos.dot(field.deckAxis) - a.barricadeSnagAlong;
-                    const stillPulling = applyArrestorVelocity(
-                        vel, field.deckAxis, delta, BARRICADE_PULL_OUT_M - traveled, shipAlong,
-                    );
-                    this.applyWebbingLoad(a, field, delta);
-                    a.model.snapPhysicsState();
-                    if (!stillPulling) {
-                        a.model.setLanded(true);
-                        a.barricadeHeld = true;
-                    }
-                } else {
-                    // Ride with the ship until the deck crew cuts the webbing free.
-                    const along = vel.dot(field.deckAxis);
-                    vel.addScaledVector(field.deckAxis, shipAlong - along);
-                    a.model.snapPhysicsState();
-                    const relSpeed = Math.hypot(
-                        vel.x - this.carrierVel.x,
-                        vel.z - this.carrierVel.z,
-                    );
-                    if (relSpeed > BARRICADE_RELEASE_SPEED_MPS) {
-                        a.barricadeEngaged = false;
-                        a.barricadeFieldIndex = -1;
-                        a.barricadeHeld = false;
-                    }
-                }
-            }
-        }
-
-        a.prevPos.copy(pos);
-        a.hasPrevPos = true;
     }
 
     /**
