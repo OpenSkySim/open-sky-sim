@@ -106,9 +106,6 @@ function handleMessage(data: SimToWorkerMessage): void {
         case 'setCollision':
             sim.setCollision(data.id, data.collision);
             break;
-        case 'setBarricadeDrape':
-            sim.setBarricadeDrape(data.id, data.drape);
-            break;
         case 'setPosition':
             sim.setPosition(data.id, v.fromArray(data.position));
             break;
@@ -162,11 +159,9 @@ function handleMessage(data: SimToWorkerMessage): void {
                 const snapshot = sim.encodeSnapshotInto(
                     aircraftBank(shared, back),
                     projectileBank(shared, back),
-                    barricadeBank(shared, back),
                 );
                 const seq = publishSharedBanks(
                     shared, snapshot.ids.length, snapshot.projectileCount,
-                    snapshot.barricadeCount, snapshot.barricadeNodes,
                 );
                 self.postMessage({
                     type: 'state',

@@ -283,7 +283,7 @@ const CARRIER_GROOVE_SPEED_MPS = CARRIER_GROOVE_SPEED_KMH / 3.6;
  * the hook up the wires are scenery, and the flatter path clears the ramp by
  * ~5 m instead of the ~1 m that put the gear through the rounddown.
  */
-const CARRIER_GROOVE_AIM_FROM_STERN_M = KUZ_HULL.maxZ - BARRICADE_LOCAL_Z;
+const CARRIER_GROOVE_AIM_FROM_STERN_M = 0;  // barricade removed
 /** ~3° glideslope, the same one the ILS needles and the ball are drawn from. */
 const CARRIER_GROOVE_ALTITUDE_M = CARRIER_DECK_Y
     + (CARRIER_GROOVE_DISTANCE_M + CARRIER_GROOVE_AIM_FROM_STERN_M) * ILS_GLIDESLOPE_TAN;
@@ -452,18 +452,6 @@ export class Game {
     private kuz: GroundTargetEntity | undefined;
     private readonly syncedCarrierPos = new THREE.Vector3(Number.NaN, Number.NaN, Number.NaN);
     private readonly syncedCarrierQuat = new THREE.Quaternion(Number.NaN, Number.NaN, Number.NaN, Number.NaN);
-    /**
-     * Emergency barricade on the Kuznetsov: raise/lower state plus the one-shot
-     * re-rig rule. Drives both the visual net and the sim's barrier field.
-     */
-    private readonly barricade = new BarricadeController();
-    /** Deploy fraction last handed to the sim worker, so a raise re-syncs it. */
-    private syncedBarricadeDeploy = Number.NaN;
-    /**
-     * Barricade span fitted to the deck under it. Carrier-local, so it does not
-     * change as the ship steams — probed once, then cached.
-     */
-    private barricadeRigFit: BarricadeRig | undefined;
     /** World bow direction and velocity for the steaming carrier. */
     private readonly carrierBowDir = new THREE.Vector3(0, 0, -1);
     private readonly carrierVelocity = new THREE.Vector3();
@@ -1879,45 +1867,6 @@ export class Game {
      * Barricade rig fitted to the deck. The probe walks the carrier mesh, so it
      * runs once and is cached — the deck does not move in the ship's own frame.
      */
-    private barricadeRig(): BarricadeRig {
-        // Probing before the hull soup is baked would find no deck and cache a
-        // permanently unfitted span, so fall back without caching until it is.
-        if (this.carrierMeshes.length === 0) {
-            return barricadeRig();
-        }
-        if (!this.barricadeRigFit) {
-            const pose = this.carrierPose();
-            this.barricadeRigFit = fitBarricadeRig(localX => {
-                const off = new THREE.Vector3(localX, 0, BARRICADE_LOCAL_Z);
-                if (pose.quaternion) off.applyQuaternion(pose.quaternion);
-                return this.groundHeightAt(pose.position.x + off.x, pose.position.z + off.z)
-                    - pose.position.y;
-            });
-        }
-        return this.barricadeRigFit;
-    }
-
-    /** Air-boss control: rig the barricade, or strike it if it is already up. */
-    private toggleBarricade(): void {
-        this.barricade.toggle();
-    }
-
-    /** Barricade status for the HUD/OSD. */
-    getBarricadeState(): BarricadeState {
-        return this.barricade.getState();
-    }
-
-    /** Short HUD label for the ship's barricade; undefined while it is stowed. */
-    private barricadeStatusLabel(): string | undefined {
-        switch (this.barricade.getState()) {
-            case BarricadeState.RAISING: return 'BARR RIG';
-            case BarricadeState.RAISED: return 'BARRICADE';
-            case BarricadeState.LOWERING: return 'BARR DN';
-            case BarricadeState.RERIGGING: return 'BARR OUT';
-            default: return undefined;
-        }
-    }
-
     /** Carrier pose for arrestor visuals / latched hook (always live). */
     private carrierPose(): ArrestorCarrierPose {
         if (this.kuz) {
@@ -1938,9 +1887,7 @@ export class Game {
         if (!this.kuz) return;
         const p = this.kuz.position;
         const q = this.kuz.quaternion;
-        const deploy = this.barricade.getDeploy();
         if (
-            deploy === this.syncedBarricadeDeploy &&
             Math.abs(p.x - this.syncedCarrierPos.x) < 1e-4 &&
             Math.abs(p.y - this.syncedCarrierPos.y) < 1e-4 &&
             Math.abs(p.z - this.syncedCarrierPos.z) < 1e-4 &&
@@ -1953,7 +1900,6 @@ export class Game {
         }
         this.syncedCarrierPos.copy(p);
         this.syncedCarrierQuat.copy(q);
-        this.syncedBarricadeDeploy = deploy;
 
         for (const m of this.carrierMeshes) {
             m.originX = p.x;
@@ -2458,9 +2404,6 @@ export class Game {
             if (event.code === 'KeyR') {
                 event.preventDefault();
                 this.flightRecorder.toggle(this.configService.flightModels.getActiveKey());
-            } else if (event.code === 'KeyK') {
-                event.preventDefault();
-                this.toggleBarricade();
             } else if (event.code === 'KeyV') {
                 event.preventDefault();
                 this.player.setForceVectorsEnabled(!this.player.forceVectorsEnabled);
@@ -3759,8 +3702,6 @@ export class Game {
         await this.models.waitForModel('assets/kuz.glb');
         const kuzModel = models.getModel('assets/kuz.glb');
         this.carrierMeshes.length = 0;
-        // New hull under the barricade: the span has to be re-fitted to it.
-        this.barricadeRigFit = undefined;
         const kuzCollision = bakeCollisionMeshFromModel(kuzModel);
         if (kuzCollision) {
             this.carrierMeshes.push(createCarrierMeshCollider(
@@ -3787,19 +3728,6 @@ export class Game {
         );
         scene.add(arrestorCables);
         this.player.setArrestorCarrierPoseProvider(() => this.carrierPose());
-        this.player.setBarricadeStatusProvider(() => this.barricadeStatusLabel());
-
-        const barricade = new BarricadeEntity(
-            this.materials,
-            () => this.carrierPose(),
-            () => this.barricade.getDeploy(),
-            // The webbing is solved in the sim worker; this is the shape it
-            // published, and the only one anything draws.
-            () => this.combatSim.getBarricadeNodes(0),
-            (x, z) => this.groundHeightAt(x, z),
-            () => this.barricadeRig(),
-        );
-        scene.add(barricade);
 
         const shipWake = new ShipWakeEntity(this.materials, () => this.carrierPose());
         scene.add(shipWake);

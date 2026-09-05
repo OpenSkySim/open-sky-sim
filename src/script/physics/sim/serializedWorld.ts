@@ -136,7 +136,6 @@ export function serializeWorld(
     arrestorCables: readonly ArrestorCableField[] = [],
     surfacePads: readonly SurfacePadCollider[] = [],
     sceneryMeshes: readonly CarrierMeshCollider[] = [],
-    barricades: readonly BarricadeField[] = [],
 ): SerializedWorld {
     return {
         hills: hills.map(h => ({
@@ -185,7 +184,7 @@ export function serializeWorld(
                 s.b.x - f.originX, s.b.y - f.originY, s.b.z - f.originZ,
             ] as [number, number, number, number, number, number]),
         })),
-        barricades: barricades.map(serializeBarricade),
+        barricades: [],
         surfacePads: surfacePads.map(p => ({ ...p })),
         sceneryMeshes: sceneryMeshes.map(c => ({
             originX: c.originX,
@@ -276,46 +275,6 @@ export function deserializeArrestorCables(world: SerializedWorld): ArrestorCable
         }
         return field;
     });
-}
-
-/** Flatten one barricade for the structured-clone hop to the sim worker. */
-export function serializeBarricade(f: BarricadeField): SerializedBarricade {
-    return {
-        originX: f.originX,
-        originY: f.originY,
-        originZ: f.originZ,
-        deckAxis: [f.deckAxis.x, f.deckAxis.y, f.deckAxis.z],
-        lateralAxis: [f.lateralAxis.x, f.lateralAxis.y, f.lateralAxis.z],
-        center: [f.center.x, f.center.y, f.center.z],
-        halfSpan: f.halfSpan,
-        height: f.height,
-        deploy: f.deploy,
-        quaternion: [f.quaternion.x, f.quaternion.y, f.quaternion.z, f.quaternion.w],
-        rigLeftX: f.rig.leftX,
-        rigRightX: f.rig.rightX,
-        rigDeckY: f.rig.deckY,
-        rigGeneration: f.rigGeneration,
-    };
-}
-
-/** Rebuild barricade fields for combat-sim barrier physics. */
-export function deserializeBarricades(world: SerializedWorld): BarricadeField[] {
-    return (world.barricades ?? []).map(s => ({
-        originX: s.originX,
-        originY: s.originY,
-        originZ: s.originZ,
-        deckAxis: new THREE.Vector3(s.deckAxis[0], s.deckAxis[1], s.deckAxis[2]),
-        lateralAxis: new THREE.Vector3(s.lateralAxis[0], s.lateralAxis[1], s.lateralAxis[2]),
-        center: new THREE.Vector3(s.center[0], s.center[1], s.center[2]),
-        halfSpan: s.halfSpan,
-        height: s.height,
-        deploy: s.deploy,
-        quaternion: new THREE.Quaternion(
-            s.quaternion[0], s.quaternion[1], s.quaternion[2], s.quaternion[3],
-        ),
-        rig: barricadeRig(s.rigLeftX, s.rigRightX, s.rigDeckY),
-        rigGeneration: s.rigGeneration ?? 0,
-    }));
 }
 
 /** Helper: default Kuznetsov cable field at an origin (for game-side serialize). */

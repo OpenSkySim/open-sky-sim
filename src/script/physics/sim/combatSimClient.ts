@@ -3,9 +3,9 @@ import { Fm2AircraftConfig } from '../fm2/fm2AircraftConfig';
 import { Faction } from '../../weapons/combatant';
 import { ForceVectorSample } from '../model/flightModel';
 import { KeyboardControlLayoutId } from '../../input/keyboardLayouts';
-import { SerializedArrestorCables, SerializedBarricade, SerializedWorld } from './serializedWorld';
+import { SerializedArrestorCables, SerializedWorld } from './serializedWorld';
 import { HeightTileUpdate, SerializedHeightField } from '../../terrain/heightMirror';
-import { AC_STRIDE, BARRICADE_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
+import { AC_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
     createSimSharedState,
     isSharedBusy,
@@ -387,9 +387,6 @@ export class CombatSimClient {
         this.maneuverLabels = snapshot.maneuverLabels ?? EMPTY_MANEUVER_LABELS;
         this.projectiles = snapshot.projectiles;
         this.projectileCount = snapshot.projectileCount;
-        this.barricades = snapshot.barricades;
-        this.barricadeCount = snapshot.barricadeCount;
-        this.barricadeNodes = snapshot.barricadeNodes;
         this.applyHits(snapshot.hits);
     }
 

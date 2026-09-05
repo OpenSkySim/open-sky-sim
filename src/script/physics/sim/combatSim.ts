@@ -823,11 +823,6 @@ export class CombatSim implements ProjectileSink {
      * carries — that one is right for bullets and crashes and wrong here, and
      * against it the net reads as threaded through the wings.
      */
-    setBarricadeDrape(id: string, drape: AircraftCollisionMesh | undefined): void {
-        const a = this.aircraft.get(id);
-        if (a) a.barricadeDrape = drape;
-    }
-
     setCollision(id: string, collision: AircraftCollisionMesh | undefined): void {
         const a = this.aircraft.get(id);
         if (a) a.collision = collision;
@@ -1174,10 +1169,6 @@ export class CombatSim implements ProjectileSink {
             return false;
         }
         // Still pulling out — do not freeze pose.
-        if (a.barricadeEngaged && !a.barricadeHeld) {
-            a.carrierParkLocalValid = false;
-            return false;
-        }
         if (a.arrestorLatch >= 0 && !a.arrestorHeld) {
             a.carrierParkLocalValid = false;
             return false;
@@ -1257,7 +1248,7 @@ export class CombatSim implements ProjectileSink {
         if (!this.world || a.model.isCrashed() || !a.isGearDeployed()) return false;
         this.updateCarrierDeckSticky(a);
         if (!a.carrierDeckSticky && !this.isOnCarrierDeck(a)) return false;
-        if (a.isLanded() || a.arrestorLatch >= 0 || a.barricadeEngaged) return true;
+        if (a.isLanded() || a.arrestorLatch >= 0) return true;
         return a.model.getGearCompressionMean() > 0.005;
     }
 
@@ -1510,24 +1501,9 @@ export class CombatSim implements ProjectileSink {
             k += PROJ_STRIDE;
         }
 
-        // The webbing: one block of carrier-local particle positions per rig.
-        // Every rig laces the same number of particles, so one node count
-        // describes them all and the reader can stride straight through.
-        const barricadeCount = Math.min(
-            this.barricadeSolvers.length,
-            barricadeBank ? Math.floor(barricadeBank.length / BARRICADE_STRIDE) : Infinity,
-        );
-        const barricadeNodes = this.barricadeSolvers[0]?.count ?? 0;
-        const barricades = barricadeBank
-            ?? new Float32Array(barricadeCount * BARRICADE_STRIDE);
-        for (let i = 0; i < barricadeCount; i++) {
-            this.barricadeSolvers[i].writeTo(barricades, i * BARRICADE_STRIDE);
-        }
-
         return {
             ids, aircraft, forceVectors, maneuverLabels,
             projectiles, projectileCount,
-            barricades, barricadeCount, barricadeNodes,
             hits: this.hits.slice(),
         };
     }

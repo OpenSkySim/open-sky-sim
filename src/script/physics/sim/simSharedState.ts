@@ -1,4 +1,4 @@
-import { AC_STRIDE, BARRICADE_STRIDE, PROJ_STRIDE } from './simSnapshotCodec';
+import { AC_STRIDE, PROJ_STRIDE } from './simSnapshotCodec';
 
 /** Max aircraft rows mirrored in the shared banks (player + AI + room). */
 export const SIM_SHARED_MAX_AIRCRAFT = 16;
