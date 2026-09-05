@@ -884,6 +884,47 @@ export class BarricadeSolver {
         return (upper ? this.uUpper : this.uLower)[s];
     }
 
+    /** Clamp upper cable lengths to 2.4m maximum - they must never exceed this. */
+    private clampUpperCableLengths(): void {
+        const maxLen = 2.4;
+        const pos = this.pos;
+
+        // Get unique particle indices for upper cables (wire 0 and 1 only)
+        const upperParticles = new Set<number>();
+        for (let w = 0; w < 2; w++) {  // 0 = upper-left, 1 = upper-right
+            for (let j = 0; j <= this.spec.wireNodes + 1; j++) {
+                upperParticles.add(this.wireNodeIndex(w as BarricadeWire, j));
+            }
+        }
+
+        // For each upper cable constraint, clamp distance to maxLen
+        for (const idx of this.upperStructureIndices) {
+            const a = this.cA[idx];
+            const b = this.cB[idx];
+            const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
+            const bx = pos[b * 3], by = pos[b * 3 + 1], bz = pos[b * 3 + 2];
+
+            const dx = bx - ax, dy = by - ay, dz = bz - az;
+            const dist = Math.hypot(dx, dy, dz);
+
+            if (dist > maxLen && dist > 1e-9) {
+                // Scale positions to enforce max length
+                const scale = maxLen / dist;
+                const midX = (ax + bx) * 0.5;
+                const midY = (ay + by) * 0.5;
+                const midZ = (az + bz) * 0.5;
+
+                pos[a * 3] = midX - dx * scale * 0.5;
+                pos[a * 3 + 1] = midY - dy * scale * 0.5;
+                pos[a * 3 + 2] = midZ - dz * scale * 0.5;
+
+                pos[b * 3] = midX + dx * scale * 0.5;
+                pos[b * 3 + 1] = midY + dy * scale * 0.5;
+                pos[b * 3 + 2] = midZ + dz * scale * 0.5;
+            }
+        }
+    }
+
     /** Release upper structure (cables + belt) when aircraft engages by breaking constraints. */
     releaseUpperBelt(): void {
         console.log(`[RELEASE] Breaking ${this.upperStructureIndices.length} upper structure constraints`);
@@ -1027,6 +1068,10 @@ export class BarricadeSolver {
             if (!isArrestingWire) {
                 for (let c = cableStart; c < out.length; c++) {
                     this.upperStructureIndices.push(c);
+                    // Upper cables must be completely rigid (compliance = 0 = steel, no stretch)
+                    // AND they MUST NOT be treated as arresting cables (no maxTension payOut)
+                    out[c].compliance = 0;
+                    out[c].maxTension = 0;  // Ensure no payOut extends upper cables
                     if (breakTension > 0) {
                         out[c].breakTension = breakTension;
                     }
@@ -1084,34 +1129,15 @@ export class BarricadeSolver {
             breakTension: 0,
         });
 
-        // Upper-left belt held above lower belt by auxiliary cable
+        // Upper belt is held ONLY by auxiliary cables, not by Y-connectors
+        // This ensures upper cable length stays fixed at 2.4m and isn't pulled down
         const gapBelts = height - lowerLift;
-        this.upperStructureIndices.push(out.length);
-        out.push({
-            a: upperBeltLeft,
-            b: wireLowerLeft,
-            rest: gapBelts,
-            compliance: 0,
-            maxTension: 0,
-            breakTension: 0,
-        });
 
         // Lower-right belt connects directly to wire
         out.push({
             a: lowerBeltRight,
             b: wireLowerRight,
             rest: 0,
-            compliance: 0,
-            maxTension: 0,
-            breakTension: 0,
-        });
-
-        // Upper-right belt held above lower belt by auxiliary cable
-        this.upperStructureIndices.push(out.length);
-        out.push({
-            a: upperBeltRight,
-            b: wireLowerRight,
-            rest: gapBelts,
             compliance: 0,
             maxTension: 0,
             breakTension: 0,
@@ -1415,6 +1441,8 @@ export class BarricadeSolver {
             this.predict(h, keep);
             this.placeAnchors(this.deployFrom + (this.deploy - this.deployFrom) * to);
             this.solve(h);
+            // Clamp upper cables to 2.4m - they must never exceed this length
+            this.clampUpperCableLengths();
             this.payOut(h);
             this.contact(h, from, to);
             this.finish(h);
