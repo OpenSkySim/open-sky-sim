@@ -38,10 +38,6 @@ import {
 import { ecefToEnu, geodeticToEcef, sceneFromEnu } from '../terrain/geodesy';
 import { AreaPicker } from '../osd/areaPicker';
 import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
-import {
-    BARRICADE_DECK_LOCAL_Y,
-    BARRICADE_LOCAL_Z,
-} from '../scene/entities/barricade';
 import { ARRESTOR_CARRIER_ORIGIN, ArrestorCarrierPose } from '../scene/entities/arrestorCables';
 import { ShipWakeEntity } from '../scene/entities/shipWake';
 import {
@@ -1976,11 +1972,6 @@ export class Game {
                 s.b.x - field.originX, s.b.y - field.originY, s.b.z - field.originZ,
             ] as [number, number, number, number, number, number]),
         }]);
-            buildBarricadeField(
-                this.carrierPose(), BARRICADE_DECK_LOCAL_Y, deploy, this.barricadeRig(),
-                this.barricade.getRigGeneration(),
-            ),
-        )]);
         this.combatSim.setCarrierMeshOrigins(
             this.carrierMeshes.map(c => ({
                 originX: c.originX, originY: c.originY, originZ: c.originZ,
@@ -2971,10 +2962,7 @@ export class Game {
             })(),
             this.surfacePads,
             this.sceneryMeshes,
-            [buildBarricadeField(
-                this.carrierPose(), BARRICADE_DECK_LOCAL_Y, this.barricade.getDeploy(),
-                this.barricadeRig(), this.barricade.getRigGeneration(),
-            )],
+            [],
         ));
         this.startHeightFieldMirror();
         this.combatSim.addAircraft({

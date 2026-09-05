@@ -16,9 +16,7 @@ import { ForceVectorSample } from '../model/flightModel';
 import {
     deserializeWorldQuery,
     deserializeArrestorCables,
-    deserializeBarricades,
     SerializedArrestorCables,
-    SerializedBarricade,
     SerializedWorld,
 } from './serializedWorld';
 import {
@@ -36,16 +34,7 @@ import {
 // Barricade imports removed
 import { triangleBvhFor } from '../collision/triangleBvh';
 
-/**
- * How often a barricade with nothing in it is advanced (s).
- *
- * A rigged net just hangs — gravity and the wind over the deck are both steady,
- * and it settles to a standstill and stays there. Solving it at the full rate is
- * a millisecond a frame spent watching it not move.
- */
-const BARRICADE_IDLE_STEP_S = 1 / 20;
-
-import { AC, AC_STRIDE, BARRICADE_STRIDE, PROJ_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
+import { AC, AC_STRIDE, PROJ_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
 import {
     AircraftCollisionMesh,
     findCollisionMeshTerrainContact,
@@ -172,18 +161,6 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     arrestorSnagAlong = 0;
     /** True after pull-out finished; cable stays bent until the plane taxis away. */
     arrestorHeld = false;
-    /** Drawn airframe the barricade's webbing drapes over, when one is known. */
-    barricadeDrape: AircraftCollisionMesh | undefined;
-    /** True while the wings are wrapped in a carrier barricade's webbing. */
-    barricadeEngaged = false;
-    /** Which barricade is engaged (carrier index), or -1. */
-    barricadeFieldIndex = -1;
-    /** Deck-axis projection of the CG at webbing contact (for pull-out distance). */
-    barricadeSnagAlong = 0;
-    /** True after the barricade pull-out finished. */
-    barricadeHeld = false;
-    /** Wing half-span used for the barricade's lateral catch window (m). */
-    wingHalfSpanM = BARRICADE_DEFAULT_WING_HALF_SPAN_M;
     /** Sticky: stay on-deck until gear up / leave carrier height / not landed. */
     carrierDeckSticky = false;
     /** Ship-local XZ park offset valid while kinematically locked to the deck. */
@@ -224,11 +201,6 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.kinematic = desc.kinematic;
         this.hitRadius = desc.hitRadius;
         this.collision = desc.collision;
-        // Barricade catches wings, so its lateral window follows the airframe.
-        if (desc.collision) {
-            const { min, max } = desc.collision.aabb;
-            this.wingHalfSpanM = Math.max(Math.abs(min[0]), Math.abs(max[0]));
-        }
         this.maxHealth = desc.maxHealth;
         this.health = desc.maxHealth;
         this.afterburner = fm2UsesAfterburner(desc.aircraftConfig);
@@ -283,10 +255,6 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.arrestorFieldIndex = -1;
         this.arrestorSnagAlong = 0;
         this.arrestorHeld = false;
-        this.barricadeEngaged = false;
-        this.barricadeFieldIndex = -1;
-        this.barricadeSnagAlong = 0;
-        this.barricadeHeld = false;
         this.carrierDeckSticky = false;
         this.carrierParkLocalValid = false;
         this.hasPrevHook = false;
@@ -529,7 +497,6 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         out[base + AC.pitchLimiterMode] = mirror.pitchLimiterMode;
         out[base + AC.autopilot] = mirror.autopilot ? 1 : 0;
         out[base + AC.arrestorLatch] = this.arrestorLatch;
-        out[base + AC.barricadeEngaged] = this.barricadeEngaged ? 1 : 0;
         out[base + AC.hookX] = this.hookNow.x;
         out[base + AC.hookY] = this.hookNow.y;
         out[base + AC.hookZ] = this.hookNow.z;
@@ -572,19 +539,6 @@ export class CombatSim implements ProjectileSink {
 
     private world: SceneWorldQuery | undefined;
     private arrestorFields: ArrestorCableField[] = [];
-    private barricades: BarricadeField[] = [];
-    /** One rigged net per barricade, simulated here and drawn on the main thread. */
-    private barricadeSolvers: BarricadeSolver[] = [];
-    /**
-     * Time owed to each idle rig.
-     *
-     * A net with nothing in it is quasi-static — it hangs, and the wind over
-     * the deck is steady — so it is stepped at a coarser rate and the frames in
-     * between are banked here. An engaged rig always runs at full rate.
-     */
-    private barricadeIdle: number[] = [];
-    /** Which webbing assembly each solver is currently lacing. */
-    private barricadeRigGeneration: number[] = [];
     /** World velocity of the moving carrier (m/s); trap scrub is relative to this. */
     private readonly carrierVel = new THREE.Vector3();
     private readonly aircraft = new Map<string, SimAircraft>();
@@ -657,8 +611,6 @@ export class CombatSim implements ProjectileSink {
             world, (x, z) => this.heightField.heightAtWorld(x, z),
         );
         this.arrestorFields = deserializeArrestorCables(world);
-        this.barricades = deserializeBarricades(world);
-        this.syncBarricadeSolvers();
         // Any aircraft added before the world arrived can now get its pilot + terrain.
         for (const a of this.aircraft.values()) {
             a.bindWorld(this.world);
@@ -666,101 +618,11 @@ export class CombatSim implements ProjectileSink {
         }
     }
 
-    /** Update trap-cable world segments when the carrier moves. */
-    setBarricades(barricades: SerializedBarricade[]): void {
-        this.barricades = deserializeBarricades({ barricades } as SerializedWorld);
-        this.syncBarricadeSolvers();
+    /** Barricade functionality has been removed. */
+    setBarricades(_barricades: any[]): void {
+        // No-op: barricade system has been removed
     }
 
-    /**
-     * Lace a net for each barricade, and only when there is a new net to lace.
-     *
-     * This arrives every frame the carrier moves, carrying a fresh deploy
-     * fraction and pose, so it has to be cheap in the common case: re-rigging
-     * unconditionally would throw away the webbing's state — and settle a new
-     * assembly from scratch — sixty times a second. What actually calls for a
-     * fresh rig is the *geometry* changing, which happens when the deck probe
-     * refits the stanchions and essentially never after that.
-     */
-    private syncBarricadeSolvers(): void {
-        while (this.barricadeSolvers.length > this.barricades.length) {
-            this.barricadeSolvers.pop();
-            this.barricadeIdle.pop();
-            this.barricadeRigGeneration.pop();
-        }
-        for (let i = 0; i < this.barricades.length; i++) {
-            const field = this.barricades[i];
-            const rig = field.rig;
-            const existing = this.barricadeSolvers[i];
-            const sameRig = existing
-                && existing.spec.leftX === rig.leftX
-                && existing.spec.rightX === rig.rightX
-                && existing.spec.deckY === rig.deckY;
-            if (sameRig && this.barricadeRigGeneration[i] === field.rigGeneration) {
-                continue;
-            }
-            if (sameRig) {
-                // Same rig, fresh webbing: the stanchions have not moved, so
-                // the net is re-laced on them rather than rebuilt from nothing.
-                existing.reset(field.deploy);
-            } else {
-                this.barricadeSolvers[i] = new BarricadeSolver(
-                    barricadeSolverSpecForRig(rig.leftX, rig.rightX, rig.deckY),
-                );
-                this.barricadeSolvers[i].reset(field.deploy);
-            }
-            this.barricadeRigGeneration[i] = field.rigGeneration;
-            this.barricadeIdle[i] = 0;
-        }
-    }
-
-    /**
-     * Advance every rigged net.
-     *
-     * The webbing is driven by the aircraft in it, so the airframe is handed
-     * over in carrier-local space — the frame the rig is laced in — and the
-     * solver collides against its real hull. Nothing here feeds back into the
-     * flight model yet; the arrestment is still the scripted pull-out in
-     * {@link resolveBarricade}.
-     */
-    private stepBarricadeWebbing(delta: number): void {
-        for (let i = 0; i < this.barricadeSolvers.length; i++) {
-            const solver = this.barricadeSolvers[i];
-            const field = this.barricades[i];
-            solver.setDeploy(field.deploy);
-
-            let engaged: SimAircraft | undefined;
-            for (const a of this.aircraft.values()) {
-                if (a.barricadeEngaged && a.barricadeFieldIndex === i) {
-                    engaged = a;
-                    break;
-                }
-            }
-
-            if (engaged) {
-                this.barricadeIdle[i] = 0;
-                this.webQuat.copy(field.quaternion).invert();
-                this.webPos
-                    .set(field.originX, field.originY, field.originZ)
-                    .subVectors(engaged.model.position, this.webPos)
-                    .applyQuaternion(this.webQuat);
-                this.webAirframe.copy(this.webQuat).multiply(engaged.model.quaternion);
-                solver.setAirframe(
-                    triangleBvhFor(this.barricadeHullFor(engaged)),
-                    { position: this.webPos, quaternion: this.webAirframe },
-                );
-            } else {
-                solver.setAirframe(null);
-                // Nothing in it: bank the frame and step on the coarse cadence.
-                this.barricadeIdle[i] += delta;
-                if (this.barricadeIdle[i] < BARRICADE_IDLE_STEP_S) continue;
-                solver.step(this.barricadeIdle[i]);
-                this.barricadeIdle[i] = 0;
-                continue;
-            }
-            solver.step(delta);
-        }
-    }
 
     /**
      * Hand the airframe the load its webbing is actually carrying.
