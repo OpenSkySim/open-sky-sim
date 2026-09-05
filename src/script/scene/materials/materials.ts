@@ -20,6 +20,12 @@ import {
 } from './shaders/terrainVP';
 import { SUN_UNIFORMS } from './shaders/sun';
 
+/**
+ * Elapsed seconds, shared *by reference* with every material the manager
+ * builds — see SUN_UNIFORMS for the same idiom. Currently only the water
+ * material's wave animation reads it, but it costs nothing for the rest.
+ */
+const TIME_UNIFORM = { value: 0 };
 
 export enum SceneMaterialPrimitiveType {
     MESH,
@@ -100,6 +106,8 @@ export type SceneMaterialMeshProperties = {
              * pixels. Terrain watercourses only — see RiverVertProgram.
              */
             river?: boolean;
+            /** Travelling dithered wave bands in the fragment shader. Sea water only. */
+            waves?: boolean;
             /** Screen-space ordered dither opacity (0 = opaque, 0.5 ≈ half transparent). */
             alphaDither?: number;
             /**
@@ -158,6 +166,8 @@ export interface SceneFlatMaterialUniforms {
     fogType: { value: number; };
     alphaDither: { value: number; };
     colorDither: { value: number; };
+    uWaveAnim: { value: number; };
+    uTime: { value: number; };
     [uniform: string]: THREE.IUniform<any>;
 }
 
@@ -171,6 +181,7 @@ export interface SceneShadedMaterialUniforms {
     fogDensity: { value: number; };
     fogColor: { value: THREE.Color; };
     normalModelMatrix: { value: THREE.Matrix3; };
+    uTime: { value: number; };
     /** World-Y clip; very negative = disabled. */
     clipBelowY: { value: number; };
     [uniform: string]: THREE.IUniform<any>;
@@ -319,6 +330,7 @@ export class SceneMaterialManager implements KernelTask {
 
     update(delta: number) {
         this.elapsed += delta;
+        TIME_UNIFORM.value = this.elapsed;
         this.updateFxFire();
     }
 
@@ -440,6 +452,13 @@ export class SceneMaterialManager implements KernelTask {
                         : 0,
                 },
                 uMaxStretch: { value: RIVER_MAX_STRETCH },
+                uWaveAnim: {
+                    value: properties.type === SceneMaterialPrimitiveType.MESH
+                        && !properties.shaded && properties.waves
+                        ? 1
+                        : 0,
+                },
+                uTime: TIME_UNIFORM,
                 uRenderOrigin: { value: new THREE.Vector3() },
                 // Shared by reference: moving the sun (time of day) rewrites
                 // these once and every material sees it.

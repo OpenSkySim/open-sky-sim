@@ -884,45 +884,24 @@ export class BarricadeSolver {
         return (upper ? this.uUpper : this.uLower)[s];
     }
 
-    /** Clamp upper cable lengths to 2.4m maximum - they must never exceed this. */
-    private clampUpperCableLengths(): void {
-        const maxLen = 2.4;
+    /** Lock upper belt Y position to be exactly 2.4m below mast anchor. */
+    private lockUpperBeltHeight(): void {
+        const cableLen = 2.4;
         const pos = this.pos;
 
-        // Get unique particle indices for upper cables (wire 0 and 1 only)
-        const upperParticles = new Set<number>();
-        for (let w = 0; w < 2; w++) {  // 0 = upper-left, 1 = upper-right
-            for (let j = 0; j <= this.spec.wireNodes + 1; j++) {
-                upperParticles.add(this.wireNodeIndex(w as BarricadeWire, j));
-            }
-        }
+        // Upper left cable: from wire anchor to upper belt
+        const upperLeftAnchor = BarricadeWire.UPPER_LEFT;  // Wire index 0
+        const upperLeftBelt = this.beltNodeIndex(true, 0);
+        const upperRightAnchor = BarricadeWire.UPPER_RIGHT;  // Wire index 1
+        const upperRightBelt = this.beltNodeIndex(true, this.beltNodes - 1);
 
-        // For each upper cable constraint, clamp distance to maxLen
-        for (const idx of this.upperStructureIndices) {
-            const a = this.cA[idx];
-            const b = this.cB[idx];
-            const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
-            const bx = pos[b * 3], by = pos[b * 3 + 1], bz = pos[b * 3 + 2];
+        // Lock left belt to be exactly 2.4m below left anchor
+        const leftAnchorY = pos[upperLeftAnchor * 3 + 1];
+        pos[upperLeftBelt * 3 + 1] = leftAnchorY - cableLen;
 
-            const dx = bx - ax, dy = by - ay, dz = bz - az;
-            const dist = Math.hypot(dx, dy, dz);
-
-            if (dist > maxLen && dist > 1e-9) {
-                // Scale positions to enforce max length
-                const scale = maxLen / dist;
-                const midX = (ax + bx) * 0.5;
-                const midY = (ay + by) * 0.5;
-                const midZ = (az + bz) * 0.5;
-
-                pos[a * 3] = midX - dx * scale * 0.5;
-                pos[a * 3 + 1] = midY - dy * scale * 0.5;
-                pos[a * 3 + 2] = midZ - dz * scale * 0.5;
-
-                pos[b * 3] = midX + dx * scale * 0.5;
-                pos[b * 3 + 1] = midY + dy * scale * 0.5;
-                pos[b * 3 + 2] = midZ + dz * scale * 0.5;
-            }
-        }
+        // Lock right belt to be exactly 2.4m below right anchor
+        const rightAnchorY = pos[upperRightAnchor * 3 + 1];
+        pos[upperRightBelt * 3 + 1] = rightAnchorY - cableLen;
     }
 
     /** Release upper structure (cables + belt) when aircraft engages by breaking constraints. */
@@ -1441,8 +1420,8 @@ export class BarricadeSolver {
             this.predict(h, keep);
             this.placeAnchors(this.deployFrom + (this.deploy - this.deployFrom) * to);
             this.solve(h);
-            // Clamp upper cables to 2.4m - they must never exceed this length
-            this.clampUpperCableLengths();
+            // Lock upper belt to be exactly 2.4m below mast anchors (rigid cable constraint)
+            this.lockUpperBeltHeight();
             this.payOut(h);
             this.contact(h, from, to);
             this.finish(h);
