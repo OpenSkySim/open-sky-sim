@@ -4,7 +4,6 @@ import { Faction } from '../../weapons/combatant';
 import { SimToWorkerMessage } from '../sim/simTypes';
 import {
     aircraftBank,
-    barricadeBank,
     projectileBank,
     publishSharedBanks,
     sharedBackBank,

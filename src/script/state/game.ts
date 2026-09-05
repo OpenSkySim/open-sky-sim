@@ -99,6 +99,7 @@ import { WeaponsField } from '../scene/entities/weaponsField';
 import { Faction } from '../weapons/combatant';
 import { CombatSimClient } from '../physics/sim/combatSimClient';
 import { SimProxyFlightModel } from '../physics/model/simProxyFlightModel';
+import { serializeWorld, defaultArrestorCableField } from '../physics/sim/serializedWorld';
 import { HeightFieldSender, MirrorFocus } from '../terrain/heightMirror';
 import { SimAircraftDesc, SimAircraftSpawn, SimGunConfig } from '../physics/sim/simTypes';
 import { PLAYER_SIM_ID, WINGMAN_SIM_ID, aiSimId } from '../physics/sim/simIds';
@@ -2721,13 +2722,6 @@ export class Game {
         this.spawnMenu.enabled = false;
         this.spawnPanel.hide();
         this.damageSmoke?.reset();
-        // Fresh sortie: the deck crew has struck and re-rigged the barricade —
-        // except for the barricade spawn, which begins with it already across
-        // the deck, since it starts inside the groove.
-        this.barricade.reset();
-        if (spawn === 'carrierBarricade') {
-            this.barricade.rigImmediately();
-        }
 
         // Warm DEM/meshes *before* the plane is placed: the sim worker keeps
         // stepping through this await, and a spawn half a second from the ramp
@@ -2865,7 +2859,6 @@ export class Game {
             })(),
             this.surfacePads,
             this.sceneryMeshes,
-            [],
         ));
         this.startHeightFieldMirror();
         this.combatSim.addAircraft({
