@@ -6,9 +6,6 @@ export const SIM_SHARED_MAX_AIRCRAFT = 16;
 /** Must match combatSim projectile pool size. */
 export const SIM_SHARED_MAX_PROJECTILES = 480;
 
-/** Rigged barricades mirrored in the shared banks — one per carrier. */
-export const SIM_SHARED_MAX_BARRICADES = 2;
-
 /** Int32 control-block indices (Atomics). */
 export const CTRL = {
     BUSY: 0,
@@ -16,25 +13,20 @@ export const CTRL = {
     ACTIVE_BANK: 2,
     AIRCRAFT_COUNT: 3,
     PROJECTILE_COUNT: 4,
-    BARRICADE_COUNT: 5,
-    BARRICADE_NODES: 6,
     /** Reserved / padding through 7. */
 } as const;
 
-const CTRL_INTS = 8;
+const CTRL_INTS = 6;
 const AIRCRAFT_BANK_FLOATS = SIM_SHARED_MAX_AIRCRAFT * AC_STRIDE;
 const PROJECTILE_BANK_FLOATS = SIM_SHARED_MAX_PROJECTILES * PROJ_STRIDE;
-const BARRICADE_BANK_FLOATS = SIM_SHARED_MAX_BARRICADES * BARRICADE_STRIDE;
 
 const HEADER_BYTES = CTRL_INTS * 4;
 const AIRCRAFT_BANK_BYTES = AIRCRAFT_BANK_FLOATS * 4;
 const PROJECTILE_BANK_BYTES = PROJECTILE_BANK_FLOATS * 4;
-const BARRICADE_BANK_BYTES = BARRICADE_BANK_FLOATS * 4;
 const TOTAL_BYTES =
     HEADER_BYTES
     + AIRCRAFT_BANK_BYTES * 2
-    + PROJECTILE_BANK_BYTES * 2
-    + BARRICADE_BANK_BYTES * 2;
+    + PROJECTILE_BANK_BYTES * 2;
 
 export interface SimSharedViews {
     readonly buffer: SharedArrayBuffer;
@@ -43,8 +35,6 @@ export interface SimSharedViews {
     readonly aircraft1: Float32Array;
     readonly projectiles0: Float32Array;
     readonly projectiles1: Float32Array;
-    readonly barricades0: Float32Array;
-    readonly barricades1: Float32Array;
 }
 
 export interface SimSharedPull {
@@ -53,9 +43,6 @@ export interface SimSharedPull {
     projectileCount: number;
     aircraft: Float32Array;
     projectiles: Float32Array;
-    barricadeCount: number;
-    barricadeNodes: number;
-    barricades: Float32Array;
 }
 
 /** Allocate the combat-sim shared mirror (main thread, requires crossOriginIsolated). */
@@ -74,15 +61,10 @@ export function wrapSimSharedState(buffer: SharedArrayBuffer): SimSharedViews {
     const projectiles0 = new Float32Array(buffer, offset, PROJECTILE_BANK_FLOATS);
     offset += PROJECTILE_BANK_BYTES;
     const projectiles1 = new Float32Array(buffer, offset, PROJECTILE_BANK_FLOATS);
-    offset += PROJECTILE_BANK_BYTES;
-    const barricades0 = new Float32Array(buffer, offset, BARRICADE_BANK_FLOATS);
-    offset += BARRICADE_BANK_BYTES;
-    const barricades1 = new Float32Array(buffer, offset, BARRICADE_BANK_FLOATS);
     return {
         buffer, ctrl,
         aircraft0, aircraft1,
         projectiles0, projectiles1,
-        barricades0, barricades1,
     };
 }
 
@@ -106,15 +88,11 @@ export function publishSharedBanks(
     views: SimSharedViews,
     aircraftCount: number,
     projectileCount: number,
-    barricadeCount = 0,
-    barricadeNodes = 0,
 ): number {
     const back = 1 - Atomics.load(views.ctrl, CTRL.ACTIVE_BANK);
     // Counts and bank before seq so readers that observe seq see consistent metadata.
     Atomics.store(views.ctrl, CTRL.AIRCRAFT_COUNT, aircraftCount);
     Atomics.store(views.ctrl, CTRL.PROJECTILE_COUNT, projectileCount);
-    Atomics.store(views.ctrl, CTRL.BARRICADE_COUNT, barricadeCount);
-    Atomics.store(views.ctrl, CTRL.BARRICADE_NODES, barricadeNodes);
     Atomics.store(views.ctrl, CTRL.ACTIVE_BANK, back);
     const seq = Atomics.add(views.ctrl, CTRL.WRITE_SEQ, 1) + 1;
     Atomics.store(views.ctrl, CTRL.BUSY, 0);

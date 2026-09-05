@@ -181,7 +181,6 @@ function handleMessage(data: SimToWorkerMessage): void {
                         transfer: [
                             snapshot.aircraft.buffer,
                             snapshot.projectiles.buffer,
-                            snapshot.barricades.buffer,
                         ] as Transferable[],
                     });
             }
