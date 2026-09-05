@@ -996,7 +996,7 @@ export class BarricadeSolver {
             0.25,
             (this.spec.rightX - this.spec.leftX) * 0.5 - this.spec.webHalfWidth,
         );
-        const upperWireLength = 4.8; // Auxiliary cables are 4.8m
+        const upperWireLength = 2.4; // Auxiliary cables max 2.4m
         for (let w = 0; w < 4; w++) {
             this.wireFirst[w] = out.length;
             const isUpperWire = w < BarricadeWire.LOWER_LEFT;

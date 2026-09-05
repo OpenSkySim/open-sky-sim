@@ -417,6 +417,7 @@ export class BarricadeController {
     raise(): void {
         if (this.state === BarricadeState.RERIGGING) return;
         if (this.state === BarricadeState.RAISED || this.state === BarricadeState.RAISING) return;
+        console.log(`[BARRICADE] raise() called, state=${this.state} → RAISING`);
         this.state = BarricadeState.RAISING;
         this.rigGeneration++;
     }
@@ -450,6 +451,7 @@ export class BarricadeController {
 
     /** Back to stowed and freshly rigged (respawn / new sortie). */
     reset(): void {
+        console.log(`[BARRICADE] reset() called`);
         this.deploy = 0;
         this.state = BarricadeState.STOWED;
         this.rerigRemaining = 0;
@@ -475,8 +477,15 @@ export class BarricadeController {
 
         switch (this.state) {
             case BarricadeState.RAISING:
+                const oldDeploy = this.deploy;
                 this.deploy = Math.min(1, this.deploy + delta / BARRICADE_RAISE_SECONDS);
-                if (this.deploy >= 1) this.state = BarricadeState.RAISED;
+                if (Math.floor(this.deploy * 10) > Math.floor(oldDeploy * 10)) {
+                    console.log(`[BARRICADE] Raising: deploy=${(this.deploy * 100).toFixed(1)}%`);
+                }
+                if (this.deploy >= 1) {
+                    console.log(`[BARRICADE] Raised complete: deploy=100%`);
+                    this.state = BarricadeState.RAISED;
+                }
                 break;
             case BarricadeState.LOWERING:
                 this.deploy = Math.max(0, this.deploy - delta / BARRICADE_LOWER_SECONDS);
