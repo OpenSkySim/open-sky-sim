@@ -677,6 +677,8 @@ export class BarricadeEntity implements Entity {
         // Calculate total belt lengths and per-segment lengths
         const upperBeltLengths: number[] = [];
         const lowerBeltLengths: number[] = [];
+        let upperBeltHeightSum = 0;
+        let lowerBeltHeightSum = 0;
 
         for (let i = 0; i < layout.beltNodes - 1; i++) {
             // Upper belt segment
@@ -686,6 +688,7 @@ export class BarricadeEntity implements Entity {
             const ubx = nodes[ub * 3], uby = nodes[ub * 3 + 1], ubz = nodes[ub * 3 + 2];
             const ulen = Math.sqrt((ubx - uax) ** 2 + (uby - uay) ** 2 + (ubz - uaz) ** 2);
             upperBeltLengths.push(ulen);
+            upperBeltHeightSum += uay + uby;
 
             // Lower belt segment
             const la = layout.beltNodeIndex(false, i);
@@ -694,10 +697,14 @@ export class BarricadeEntity implements Entity {
             const lbx = nodes[lb * 3], lby = nodes[lb * 3 + 1], lbz = nodes[lb * 3 + 2];
             const llen = Math.sqrt((lbx - lax) ** 2 + (lby - lay) ** 2 + (lbz - laz) ** 2);
             lowerBeltLengths.push(llen);
+            lowerBeltHeightSum += lay + lby;
         }
 
         const upperTotalLen = upperBeltLengths.reduce((a, b) => a + b, 0);
         const lowerTotalLen = lowerBeltLengths.reduce((a, b) => a + b, 0);
+        const upperBeltHeight = parseFloat((upperBeltHeightSum / (layout.beltNodes * 2 - 2)).toFixed(2));
+        const lowerBeltHeight = parseFloat((lowerBeltHeightSum / (layout.beltNodes * 2 - 2)).toFixed(2));
+        const deckY = layout.spec.deckY;
 
         // Draw belt totals
         painter.setBackground('#00cc00');
@@ -757,7 +764,8 @@ export class BarricadeEntity implements Entity {
                     `barricade-lengths (engaged=${engaged})\n` +
                     `Upper:     L=${wireLengthsData.upperLeft.toFixed(2)}         R=${wireLengthsData.upperRight.toFixed(2)}\n` +
                     `Lower:     L=${wireLengthsData.lowerLeft.toFixed(2)}         R=${wireLengthsData.lowerRight.toFixed(2)}\n` +
-                    `Belt:     up=${upperTotal.toFixed(2)}      low=${lowerTotal.toFixed(2)}`
+                    `Belt:     up=${upperTotal.toFixed(2)}      low=${lowerTotal.toFixed(2)}\n` +
+                    `Height:    up=${(upperBeltHeight - deckY).toFixed(2)}m       low=${(lowerBeltHeight - deckY).toFixed(2)}m`
                 );
 
                 // Update tracked values
