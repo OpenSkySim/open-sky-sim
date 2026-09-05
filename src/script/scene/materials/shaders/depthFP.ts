@@ -16,8 +16,6 @@ export const DepthFragProgram: string = `
   uniform float alphaDither;
   uniform float colorDither;
   uniform float overbright;
-  uniform float uWaveAnim;
-  uniform float uTime;
 
   varying vec3 vPosition;
 ${LOG_DEPTH_PARS_FRAGMENT}
@@ -50,23 +48,7 @@ ${DITHER_PARS_FRAGMENT}
     }
 
     vec3 diffuse;
-    if (uWaveAnim > 0.5) {
-      // Three low-frequency sine trains at different speeds/directions, so the
-      // crest pattern never repeats on a visible cycle. Thresholded against the
-      // ordered dither (not a smooth mix) so the swell reads as more of the
-      // same pixel-art stipple the rest of the palette uses, not a gradient.
-      //
-      // The crest tone is derived from color itself rather than taken from
-      // colorSecondary: several palettes give water a single flat entry with
-      // no distinct shade (colorSecondary equals color there), which made the
-      // dither pick between two identical colours and rendered as no motion
-      // at all.
-      float wave = sin(vPosition.x * 0.006 + uTime * 0.9)
-                 + sin(vPosition.z * 0.008 - uTime * 0.6) * 0.8
-                 + sin((vPosition.x + vPosition.z) * 0.0035 + uTime * 0.35) * 0.6;
-      vec3 crest = min(color * 1.35 + 0.03, vec3(1.0));
-      diffuse = wave + bayerThreshold(screen) * 0.9 > 0.0 ? crest : color;
-    } else if (colorDither > 0.5 || (shadingType == 0 && colorDither > -0.5)) {
+    if (colorDither > 0.5 || (shadingType == 0 && colorDither > -0.5)) {
       // colorDither: 1 = force two-tone stipple, 0 = duotone-only, -1 = solid primary.
       bool dithering = mod(floor(screen.x + screen.y), 2.0) > 0.5;
       diffuse = dithering ? color : colorSecondary;

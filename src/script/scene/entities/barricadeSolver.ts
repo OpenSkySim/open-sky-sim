@@ -889,19 +889,29 @@ export class BarricadeSolver {
         const cableLen = 2.4;
         const pos = this.pos;
 
-        // Upper left cable: from wire anchor to upper belt
-        const upperLeftAnchor = BarricadeWire.UPPER_LEFT;  // Wire index 0
-        const upperLeftBelt = this.beltNodeIndex(true, 0);
-        const upperRightAnchor = BarricadeWire.UPPER_RIGHT;  // Wire index 1
-        const upperRightBelt = this.beltNodeIndex(true, this.beltNodes - 1);
+        // Upper belt must have vertical cables of exactly 2.4m
+        // Position all upper belt nodes directly below their anchor points
+        const upperLeftAnchor = BarricadeWire.UPPER_LEFT;
+        const upperRightAnchor = BarricadeWire.UPPER_RIGHT;
 
-        // Lock left belt to be exactly 2.4m below left anchor
+        const leftAnchorX = pos[upperLeftAnchor * 3];
         const leftAnchorY = pos[upperLeftAnchor * 3 + 1];
-        pos[upperLeftBelt * 3 + 1] = leftAnchorY - cableLen;
+        const leftAnchorZ = pos[upperLeftAnchor * 3 + 2];
 
-        // Lock right belt to be exactly 2.4m below right anchor
+        const rightAnchorX = pos[upperRightAnchor * 3];
         const rightAnchorY = pos[upperRightAnchor * 3 + 1];
-        pos[upperRightBelt * 3 + 1] = rightAnchorY - cableLen;
+        const rightAnchorZ = pos[upperRightAnchor * 3 + 2];
+
+        // Lock all upper belt nodes to be directly below anchors
+        for (let i = 0; i < this.beltNodes; i++) {
+            const beltIdx = this.beltNodeIndex(true, i);
+            const t = this.beltNodes > 1 ? i / (this.beltNodes - 1) : 0;
+
+            // Interpolate between left and right anchor positions
+            pos[beltIdx * 3] = leftAnchorX + (rightAnchorX - leftAnchorX) * t;
+            pos[beltIdx * 3 + 1] = leftAnchorY + (rightAnchorY - leftAnchorY) * t - cableLen;
+            pos[beltIdx * 3 + 2] = leftAnchorZ + (rightAnchorZ - leftAnchorZ) * t;
+        }
     }
 
     /** Release upper structure (cables + belt) when aircraft engages by breaking constraints. */

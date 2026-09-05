@@ -258,7 +258,6 @@ export class TerrainEntity implements Entity {
                 depthWrite: true,
                 shaded: false as const,
                 highp: true,
-                waves: true,
             }) as THREE.ShaderMaterial;
             mat.side = THREE.DoubleSide;
             mat.polygonOffset = true;

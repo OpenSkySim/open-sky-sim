@@ -104,18 +104,47 @@ export function buildBarricadeNetNodes(
 
     if (!placement) {
         // At rest: straight belts across the panel with a token sag.
+        console.log('[BARRICADE-NETSHAPE] Building at-rest belt nodes');
         for (const upper of [true, false]) {
             const endL = upper ? aUL : aLL;
             const endR = upper ? aUR : aLR;
-            const lx = layout.beltStationX(0);
-            const rx = layout.beltStationX(n - 1);
+
+            // Upper belt: just 2 points directly below mast anchors (X = mast positions)
+            // Lower belt: full width spanning the panel
+            let lx, rx, lz, rz;
+            if (upper) {
+                // Upper belt: vertical cables from anchors
+                lx = aUL.x;  // Mast position
+                rx = aUR.x;  // Mast position
+                lz = aUL.z;  // Mast position
+                rz = aUR.z;  // Mast position
+            } else {
+                // Lower belt: spans panel width
+                lx = layout.beltStationX(0);
+                rx = layout.beltStationX(n - 1);
+                lz = aLL.z;
+                rz = aLR.z;
+            }
+
+            // Upper belt Y locked at 2.4m below anchors (vertical cables)
+            const upperBeltYLeft = upper ? aUL.y - 2.4 : endL.y;
+            const upperBeltYRight = upper ? aUR.y - 2.4 : endR.y;
+
             for (let i = 0; i < n; i++) {
                 const t = i / (n - 1);
+                const beltY = upper
+                    ? upperBeltYLeft + (upperBeltYRight - upperBeltYLeft) * t
+                    : endL.y + (endR.y - endL.y) * t - IDLE_BELT_SAG_M * Math.sin(Math.PI * t);
+
+                const beltZ = upper
+                    ? lz + (rz - lz) * t
+                    : endL.z + (endR.z - endL.z) * t;
+
                 set(
                     layout.beltNodeIndex(upper, i),
                     lx + (rx - lx) * t,
-                    endL.y + (endR.y - endL.y) * t - IDLE_BELT_SAG_M * Math.sin(Math.PI * t),
-                    endL.z + (endR.z - endL.z) * t,
+                    beltY,
+                    beltZ,
                 );
             }
         }
