@@ -354,7 +354,14 @@ export class Renderer {
             if (renderTarget.type === RenderTargetType.CANVAS) {
                 if (clear) {
                     renderTarget.painter.clear();
-                    renderTarget.target.needsUpdate = true;
+                    // Dev aid: `__debugSkipCanvasUpload = true` from the
+                    // console freezes the HUD's on-screen content but skips
+                    // the full-canvas texture re-upload every frame, to A/B
+                    // how much of the compose pass's GPU time (__gpuStats)
+                    // that upload accounts for.
+                    if (!(globalThis as Record<string, unknown>).__debugSkipCanvasUpload) {
+                        renderTarget.target.needsUpdate = true;
+                    }
                 }
             } else {
                 renderTarget.compositorObj.position.set(

@@ -158,10 +158,15 @@ ${DITHER_PARS_FRAGMENT}
     // hole open punches the ground colour through the brightest point of the
     // sky. Occlusion is exactly the test that tells those two apart.
     coverage *= mix(1.0, occluded, vSkyCap);
-#endif
+    // Only the glare ring ever stipples pixels away - the plain dome's
+    // coverage is always 1 (see above), and 1 + threshold never drops below
+    // 0.5. A discard that can never fire still keeps the compiler from
+    // proving the dome's own program has no discard at all, which can cost
+    // it whatever early-depth optimisation the driver would otherwise apply.
     if (coverage + threshold < 0.5) {
       discard;
     }
+#endif
     vec3 toned = vSkyColor * mix(1.0, uSkyOverbright, vSkyFalloff);
     vec3 banded = floor(toned * uBands + 0.5 + threshold) / uBands;
     gl_FragColor = vec4(clamp(banded, 0.0, 1.0), 1.0);
