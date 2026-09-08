@@ -23,6 +23,7 @@ import { Palette } from '../config/palettes/palette';
 import { CanvasPainter } from '../render/screen/canvasPainter';
 import { updateUniforms } from '../scene/utils';
 import { attachToRenderList } from '../render/renderList';
+import { sphereInFrustum } from './culling';
 import { DemTile, decodePdm } from './demTile';
 import {
     EnuBasis, WGS84_A, ecefToEnu, enuFrameRotation, geodeticToEcef, makeEnuBasis,
@@ -42,7 +43,7 @@ import { OceanPatch, buildOceanPatch, disposeOceanPatch } from './oceanPatch';
 import { PtmTile, decodePtm } from './ptm';
 import { QuadNode, Quadtree } from './quadtree';
 import { TileIndex } from './tileIndex';
-import { TileMeshes, buildTileMeshes, disposeTileMeshes, tileOriginWorld } from './tileMesh';
+import { TileMeshes, buildSmoothLandGeometryFromFaceted, buildTileMeshes, disposeTileMeshes, tileOriginWorld } from './tileMesh';
 import { TileStore } from './tileStore';
 import { TileStreamer, TileWant, predictViewTarget } from './tileStreamer';
 import { TileHeightIndex } from './tileHeightIndex';
@@ -51,8 +52,8 @@ import { enuToGeodeticApprox } from './geodesy';
 import {
     CLASS_TO_TONE, LAND_TONE_BASE, LAND_TONE_COUNT, TONE_COUNT, TerrainTone,
 } from './tones';
-import { TERRAIN_COLOUR_MODE_INDEX, TerrainColours } from '../state/gameDefs';
-import { TerrainColourSetting, TerrainDetailSetting } from '../config/configService';
+import { TERRAIN_COLOUR_MODE_INDEX, TerrainColours, TerrainShading } from '../state/gameDefs';
+import { TerrainColourSetting, TerrainDetailSetting, TerrainShadingSetting } from '../config/configService';
 import { publishTerrainStats, trackTerrainMaterial } from './debug';
 
 const TONE_CATEGORIES: Record<number, PaletteCategory> = {
@@ -102,6 +103,8 @@ export interface TerrainEntityOptions {
     maxZoom?: number;
     /** Live terrain colour mode. Omit and the entity stays on its default. */
     terrainColour?: TerrainColourSetting;
+    /** Live faceted/smooth land shading. Omit and the entity stays FACETED. */
+    terrainShading?: TerrainShadingSetting;
     terrainDetail?: TerrainDetailSetting;
 }
 
@@ -154,6 +157,35 @@ export class TerrainEntity implements Entity {
      */
     setTerrainColour(mode: TerrainColours): void {
         this.landMaterial.uniforms.uTerrainMode.value = TERRAIN_COLOUR_MODE_INDEX[mode];
+    }
+
+    /** Which of a resident tile's two land geometries new uploads start on. */
+    private landShading: TerrainShading = TerrainShading.FACETED;
+
+    /**
+     * Switch between flat per-facet colour and smooth (Gouraud) shading.
+     *
+     * A tile upload only builds the SMOOTH geometry when SMOOTH is already
+     * the active setting (see buildTileMeshes) — the weld-and-average pass is
+     * too expensive to pay on every streamed tile regardless of which mode is
+     * showing. So switching here also builds it lazily, once, for whatever is
+     * resident right now and still missing it; the geometry is then cached on
+     * the tile's meshes like any other, and later switches are a pure
+     * `land.geometry` swap with no rebuild.
+     */
+    setTerrainShading(mode: TerrainShading): void {
+        this.landShading = mode;
+        for (const meshes of this.streamer.values()) {
+            if (mode === TerrainShading.SMOOTH && !meshes.landGeometrySmooth && meshes.landGeometryFaceted) {
+                meshes.landGeometrySmooth = buildSmoothLandGeometryFromFaceted(meshes.landGeometryFaceted);
+            }
+            const geometry = mode === TerrainShading.SMOOTH
+                ? meshes.landGeometrySmooth ?? meshes.landGeometryFaceted
+                : meshes.landGeometryFaceted;
+            if (meshes.land && geometry) {
+                meshes.land.geometry = geometry;
+            }
+        }
     }
 
     private meshIndex: TileIndex | undefined;
@@ -274,6 +306,11 @@ export class TerrainEntity implements Entity {
             opts.terrainColour.addChangeListener(mode => this.setTerrainColour(mode));
         }
 
+        if (opts.terrainShading) {
+            this.landShading = opts.terrainShading.getActive();
+            opts.terrainShading.addChangeListener(mode => this.setTerrainShading(mode));
+        }
+
         if (opts.terrainDetail) {
             this.detailDistanceM = opts.terrainDetail.getActive();
             opts.terrainDetail.addChangeListener(m => { this.detailDistanceM = m; });
@@ -339,7 +376,7 @@ export class TerrainEntity implements Entity {
             store: this.meshStore,
             upload: (id, tile) => buildTileMeshes(
                 tile, this.basis, this.materials, this.riverMaterial,
-                updateUniforms, this.frameFix,
+                updateUniforms, this.frameFix, this.landShading,
             ),
             release: (_id, m) => disposeTileMeshes(m),
         });
@@ -545,11 +582,13 @@ export class TerrainEntity implements Entity {
     ): void {
         // Only the nominated camera drives LOD. Without this gate the target
         // MFD pass corrupts the governor and the traversal every frame.
-        if ((this.lodCamera === undefined || camera === this.lodCamera)
-            && camera instanceof THREE.PerspectiveCamera) {
+        const isLodPass = (this.lodCamera === undefined || camera === this.lodCamera)
+            && camera instanceof THREE.PerspectiveCamera;
+        if (isLodPass) {
             this.viewportHeightPx = targetHeight;
             this.reconcile(camera);
         }
+        this.cullSharedGroupFor(camera, isLodPass);
         const list = lists.get(SceneLayers.Terrain);
         if (list) {
             // Must go through attachToRenderList, not list.add: the renderer
@@ -557,6 +596,43 @@ export class TerrainEntity implements Entity {
             // every child that is not stamped for the current one. A plain add
             // is silently pruned again before anything is drawn.
             attachToRenderList(list, this.group);
+        }
+    }
+
+    private readonly cullFrustum = new THREE.Frustum();
+    private readonly cullProjScreenMatrix = new THREE.Matrix4();
+
+    /**
+     * `this.group` holds the one shared draw list the LOD-nominated camera
+     * computed (see setLodCamera) — a second camera, like the weapons-target
+     * MFD, is passive and gets no LOD/culling pass of its own, so it was
+     * submitting and drawing every tile the main view sees regardless of
+     * whether that tile is even inside its own (usually much narrower)
+     * frustum. Land meshes set `frustumCulled = false` deliberately (the
+     * quadtree already culled them, for the *main* camera), so THREE's own
+     * per-object culling never catches this on a second camera either.
+     *
+     * Hiding here instead of filtering what gets attached to the render list:
+     * `this.group`'s children cannot be reparented per pass without breaking
+     * whichever pass runs next in the same frame (an Object3D has one
+     * parent), but `visible` is a per-pass decision the renderer only reads
+     * at submit time, and gets reset here every pass regardless of order.
+     */
+    private cullSharedGroupFor(camera: THREE.Camera, isLodPass: boolean): void {
+        if (isLodPass || !(camera instanceof THREE.PerspectiveCamera)) {
+            for (const child of this.group.children) {
+                child.visible = true;
+            }
+            return;
+        }
+        camera.updateMatrixWorld();
+        this.cullProjScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        this.cullFrustum.setFromProjectionMatrix(this.cullProjScreenMatrix);
+        for (const node of this.drawList) {
+            const group = this.streamer.get(node.id)?.group ?? this.oceans.get(node.key)?.group;
+            if (group) {
+                group.visible = sphereInFrustum(node.center, node.radius, this.cullFrustum);
+            }
         }
     }
 

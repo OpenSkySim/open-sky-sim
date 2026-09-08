@@ -24,6 +24,7 @@
  */
 
 import * as THREE from 'three';
+import { TerrainShading } from '../state/gameDefs';
 import { EnuBasis, ecefToEnu, geodeticToEcef, sceneFromEnu } from './geodesy';
 import { PtmTile } from './ptm';
 import { TileKey, tileBounds } from './tiling';
@@ -34,6 +35,19 @@ export interface TileMeshes {
     land?: THREE.Mesh;
     water?: THREE.Mesh;
     rivers?: THREE.Mesh;
+    /**
+     * A tile's two possible land geometries, so a shading switch is a
+     * geometry swap on `land` rather than a re-stream or re-mesh. FACETED
+     * keeps the baked per-triangle replication (flat facets) and is always
+     * built. SMOOTH is the same bytes welded into shared vertices with
+     * averaged colour and normal, so the unchanged shader interpolates
+     * instead of resolving one colour per facet — it is only worth the
+     * weld-and-average pass for a tile actually shown in SMOOTH mode, so it
+     * is built at upload time when SMOOTH is already active, or lazily on the
+     * first switch to SMOOTH otherwise (see TerrainEntity.setTerrainShading).
+     */
+    landGeometryFaceted?: THREE.BufferGeometry;
+    landGeometrySmooth?: THREE.BufferGeometry;
     /** Bytes of GPU buffer, for the cache budget. */
     bytes: number;
 }
@@ -68,6 +82,138 @@ function landGeometry(tile: PtmTile): THREE.BufferGeometry | undefined {
     // and coverClass, so there is nothing left to bucket into tone groups.
     g.addGroup(0, vertexCount, LAND_TONE_BASE);
     return g;
+}
+
+/**
+ * The FACETED land geometry welded into shared vertices, with `coverColor`,
+ * `coverClass` and `normal` averaged (colour: mean; class: the plurality
+ * among the triangles sharing the vertex, since it is a category, not a
+ * quantity; normal: mean, renormalized) over every triangle that touches the
+ * vertex.
+ *
+ * Welding is by exact match of the quantised int16 position, which is exact
+ * for two triangles that share a corner in the bake — nothing here does
+ * distance-based merging, so a genuine crack in the bake stays a crack. Only
+ * within one tile: a seam at the tile boundary is not welded and stays
+ * faceted, which is an accepted seam rather than a bug.
+ *
+ * Takes raw arrays rather than a `PtmTile` so it can also run lazily, long
+ * after the tile's decoded value is gone — see `buildSmoothLandGeometryFromFaceted`,
+ * which pulls the same arrays back out of the already-built FACETED geometry.
+ * Expensive (a `Map` keyed on a per-vertex string) and only ever worth paying
+ * for tiles actually shown in SMOOTH mode, which is why callers gate it
+ * instead of it being run unconditionally per tile upload.
+ */
+export function buildSmoothLandGeometry(
+    positions: Int16Array, normals: Int8Array, attrs: Uint8Array,
+): THREE.BufferGeometry | undefined {
+    const vertexCount = positions.length / 3;
+    if (vertexCount === 0) {
+        return undefined;
+    }
+
+    const posKeyToIndex = new Map<string, number>();
+    const uniquePositions: number[] = [];
+    const normalSum: number[] = [];
+    const colorSum: number[] = [];
+    const classVotes: Map<number, number>[] = [];
+    const remap = new Uint32Array(vertexCount);
+
+    for (let i = 0; i < vertexCount; i++) {
+        const px = positions[i * 3];
+        const py = positions[i * 3 + 1];
+        const pz = positions[i * 3 + 2];
+        const key = `${px},${py},${pz}`;
+        let idx = posKeyToIndex.get(key);
+        if (idx === undefined) {
+            idx = uniquePositions.length / 3;
+            posKeyToIndex.set(key, idx);
+            uniquePositions.push(px, py, pz);
+            normalSum.push(0, 0, 0);
+            colorSum.push(0, 0, 0, 0);
+            classVotes.push(new Map());
+        }
+        remap[i] = idx;
+
+        const ni = i * 4;
+        normalSum[idx * 3] += normals[ni];
+        normalSum[idx * 3 + 1] += normals[ni + 1];
+        normalSum[idx * 3 + 2] += normals[ni + 2];
+
+        const ai = i * 4;
+        colorSum[idx * 4] += attrs[ai];
+        colorSum[idx * 4 + 1] += attrs[ai + 1];
+        colorSum[idx * 4 + 2] += attrs[ai + 2];
+        colorSum[idx * 4 + 3] += 1;
+
+        const cls = attrs[ai + 3];
+        const votes = classVotes[idx];
+        votes.set(cls, (votes.get(cls) ?? 0) + 1);
+    }
+
+    const uniqueCount = uniquePositions.length / 3;
+    const outPositions = new Int16Array(uniquePositions);
+    const outNormals = new Int8Array(uniqueCount * 4);
+    const outAttrs = new Uint8Array(uniqueCount * 4);
+    for (let v = 0; v < uniqueCount; v++) {
+        const nx = normalSum[v * 3];
+        const ny = normalSum[v * 3 + 1];
+        const nz = normalSum[v * 3 + 2];
+        const len = Math.hypot(nx, ny, nz) || 1;
+        outNormals[v * 4] = Math.round((nx / len) * 127);
+        outNormals[v * 4 + 1] = Math.round((ny / len) * 127);
+        outNormals[v * 4 + 2] = Math.round((nz / len) * 127);
+        outNormals[v * 4 + 3] = 0;
+
+        const count = colorSum[v * 4 + 3] || 1;
+        outAttrs[v * 4] = Math.round(colorSum[v * 4] / count);
+        outAttrs[v * 4 + 1] = Math.round(colorSum[v * 4 + 1] / count);
+        outAttrs[v * 4 + 2] = Math.round(colorSum[v * 4 + 2] / count);
+
+        let bestClass = 0;
+        let bestVotes = -1;
+        for (const [cls, votes] of classVotes[v]) {
+            if (votes > bestVotes) {
+                bestVotes = votes;
+                bestClass = cls;
+            }
+        }
+        outAttrs[v * 4 + 3] = bestClass;
+    }
+
+    const IndexArray = uniqueCount > 65535 ? Uint32Array : Uint16Array;
+    const indices = new IndexArray(vertexCount);
+    indices.set(remap);
+
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(outPositions, 3));
+    const normalBuffer = new THREE.InterleavedBuffer(outNormals as unknown as Int8Array, 4);
+    g.setAttribute('normal', new THREE.InterleavedBufferAttribute(normalBuffer, 3, 0, true));
+    const attrBuffer = new THREE.InterleavedBuffer(outAttrs, 4);
+    g.setAttribute('coverColor', new THREE.InterleavedBufferAttribute(attrBuffer, 3, 0, true));
+    g.setAttribute('coverClass', new THREE.InterleavedBufferAttribute(attrBuffer, 1, 3, false));
+    g.setIndex(new THREE.BufferAttribute(indices, 1));
+    g.addGroup(0, indices.length, LAND_TONE_BASE);
+    return g;
+}
+
+/**
+ * Build the SMOOTH land geometry on demand from an already-resident FACETED
+ * one, for a tile that was uploaded before SMOOTH became the active setting.
+ *
+ * `landGeometry()` binds its attributes directly to the tile's decoded arrays
+ * (see the file header), so those arrays are still alive here even though the
+ * `PtmTile` itself is long gone — this just reads them back out.
+ */
+export function buildSmoothLandGeometryFromFaceted(faceted: THREE.BufferGeometry): THREE.BufferGeometry | undefined {
+    const position = faceted.getAttribute('position') as THREE.BufferAttribute;
+    const normal = faceted.getAttribute('normal') as THREE.InterleavedBufferAttribute;
+    const coverColor = faceted.getAttribute('coverColor') as THREE.InterleavedBufferAttribute;
+    return buildSmoothLandGeometry(
+        position.array as Int16Array,
+        normal.data.array as Int8Array,
+        coverColor.data.array as Uint8Array,
+    );
 }
 
 function waterGeometry(tile: PtmTile): THREE.BufferGeometry | undefined {
@@ -133,6 +279,8 @@ export function buildTileMeshes(
      * the area the bake was centred on. See `enuFrameRotation`.
      */
     frameFix?: THREE.Quaternion,
+    /** Which land geometry `land` starts on. A later switch swaps geometry, not tiles. */
+    shading: TerrainShading = TerrainShading.FACETED,
 ): TileMeshes {
     const group = new THREE.Group();
     group.name = `tile:${tile.id.z}/${tile.id.x}/${tile.id.y}`;
@@ -149,27 +297,56 @@ export function buildTileMeshes(
     // non-uniform scale would skew the baked world-space normals and wash out
     // the per-facet shading. See PtmTile.quantScale.
     group.scale.setScalar(tile.quantScale);
+    // A tile's position/rotation/scale are set exactly once, right here, and
+    // never change again for its lifetime - only its parent's matrixWorld
+    // moves it, via the camera-relative rebase every frame (see
+    // submitCameraRelative). Composing position+quaternion+scale into a local
+    // matrix is real trig-and-multiply work three.js otherwise redoes for
+    // every resident tile on every single frame for nothing; disabling it
+    // here still leaves matrixWorld tracking the moving parent correctly
+    // (matrixWorldAutoUpdate is untouched), it just stops recomputing the
+    // static local matrix that world matrix is built from.
+    group.updateMatrix();
+    group.matrixAutoUpdate = false;
 
     let bytes = 0;
     const meshes: TileMeshes = { group, bytes: 0 };
 
     const lg = landGeometry(tile);
     if (lg) {
-        const mesh = new THREE.Mesh(lg, materials as THREE.Material[]);
+        // Only pay the weld-and-average pass for tiles that will actually be
+        // drawn in SMOOTH mode. A later switch to SMOOTH builds it lazily for
+        // whatever is resident at the time — see
+        // TerrainEntity.setTerrainShading — rather than every tile upload
+        // paying it up front regardless of the active setting.
+        const smoothLg = shading === TerrainShading.SMOOTH
+            ? buildSmoothLandGeometry(tile.landPositions, tile.landNormals, tile.landAttrs)
+            : undefined;
+        const mesh = new THREE.Mesh(
+            shading === TerrainShading.SMOOTH && smoothLg ? smoothLg : lg,
+            materials as THREE.Material[],
+        );
         mesh.frustumCulled = false;   // the quadtree already culled this tile
+        mesh.matrixAutoUpdate = false; // identity local transform, never moves
         if (onBeforeRender) {
             mesh.onBeforeRender = onBeforeRender;
         }
         group.add(mesh);
         meshes.land = mesh;
+        meshes.landGeometryFaceted = lg;
+        meshes.landGeometrySmooth = smoothLg;
         bytes += tile.landPositions.byteLength + tile.landNormals.byteLength
             + tile.landAttrs.byteLength;
+        if (smoothLg) {
+            bytes += smoothLg.getIndex()?.array.byteLength ?? 0;
+        }
     }
 
     const wg = waterGeometry(tile);
     if (wg) {
         const mesh = new THREE.Mesh(wg, materials as THREE.Material[]);
         mesh.frustumCulled = false;
+        mesh.matrixAutoUpdate = false; // identity local transform, never moves
         if (onBeforeRender) {
             mesh.onBeforeRender = onBeforeRender;
         }
@@ -182,6 +359,7 @@ export function buildTileMeshes(
     if (rg) {
         const mesh = new THREE.Mesh(rg, riverMaterial);
         mesh.frustumCulled = false;
+        mesh.matrixAutoUpdate = false; // identity local transform, never moves
         // After the surface it lies on, always. The stroke is lifted off the
         // ground by the pixel floor rather than sunk into it, so it has to win
         // ties against the terrain it covers rather than lose them.
@@ -200,7 +378,10 @@ export function buildTileMeshes(
 }
 
 export function disposeTileMeshes(m: TileMeshes): void {
-    m.land?.geometry.dispose();
+    // `land.geometry` is only ever one of these two — dispose both directly
+    // rather than through it, or the one not currently mounted would leak.
+    m.landGeometryFaceted?.dispose();
+    m.landGeometrySmooth?.dispose();
     m.water?.geometry.dispose();
     m.rivers?.geometry.dispose();
     m.group.clear();

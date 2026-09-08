@@ -170,6 +170,29 @@ const WEAPONSTARGET_RENDER_TARGET_LO = 'WEAPONSTARGET_RENDER_TARGET_LO';
 const WEAPONSTARGET_RENDER_TARGET_HI = 'WEAPONSTARGET_RENDER_TARGET_HI';
 const WEAPONSTARGET_RENDER_TARGET_HD = 'WEAPONSTARGET_RENDER_TARGET_HD';
 
+/**
+ * Supersampling factor for the HD profile's 3D render targets, resolved for
+ * free by the compose pass's existing linear upscale filter (mipmap-based -
+ * see setUpscaleFilter()). 2x blends a full output pixel's width and reads
+ * clearly as anti-aliasing; that is the quality bar this tapers down from,
+ * never up.
+ *
+ * Fill-rate cost is quadratic in the supersample factor (2x is 4x the
+ * fragments), so a flat factor gets worse exactly where native resolution is
+ * already highest - measured at 17fps (~59ms/frame) at native 4K with a flat
+ * 2x, ~3.5x over the 60fps budget, with draw calls and triangle counts far
+ * too low to explain it (fill rate, not geometry). Tapering to native by 4K
+ * removes that same ~4x, and native pixel density there already suppresses
+ * most of what the supersample exists to fix - the tuned 2x look is kept
+ * intact through 1440p, where the fill-rate budget still affords it.
+ */
+function hdSupersampleScale(width: number, height: number): number {
+    const megapixels = (width * height) / 1e6;
+    if (megapixels <= 2.3) return 2;   // up to ~1440p: full tuned quality
+    if (megapixels <= 4.5) return 1.5; // ~1440p-1800p transition band
+    return 1;                          // 4K and above: native, no supersample
+}
+
 const AIRBASE_RUNWAY = new THREE.Vector3(AIRBASE_RUNWAY_RAW.x, AIRBASE_RUNWAY_RAW.y, AIRBASE_RUNWAY_RAW.z);
 const RUNWAY_SPAWN_INSET_M = 120;
 /** Paved runway strip only — biome patches fill the shoulders beside it. */
@@ -1737,18 +1760,23 @@ export class Game {
 
         this.hdResolutionWidth = width;
         this.hdResolutionHeight = height;
+        // Resolved from the *main* viewport, not each target's own size: the
+        // MFD sub-target is a fraction of the screen, but it should still
+        // taper with it rather than staying at full supersample cost just
+        // because it individually looks small-resolution.
+        const supersampleScale = hdSupersampleScale(width, height);
 
         if (!this.renderer.hasRenderTarget(MAIN_RENDER_TARGET_HD)) {
             const textColors = this.getTextColors();
-            this.renderer.createRenderTarget(MAIN_RENDER_TARGET_HD, RenderTargetType.WEBGL, 0, 0, width, height);
+            this.renderer.createRenderTarget(MAIN_RENDER_TARGET_HD, RenderTargetType.WEBGL, 0, 0, width, height, { textureScale: supersampleScale });
             this.renderer.createRenderTarget(CANVAS_RENDER_TARGET_HD, RenderTargetType.CANVAS, 0, 0, width, height, { textColors });
             const mfdSize = CockpitMFDSize(height, width);
-            this.renderer.createRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, RenderTargetType.WEBGL, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize);
+            this.renderer.createRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, RenderTargetType.WEBGL, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize, { textureScale: supersampleScale });
         } else {
-            this.renderer.resizeRenderTarget(MAIN_RENDER_TARGET_HD, 0, 0, width, height);
+            this.renderer.resizeRenderTarget(MAIN_RENDER_TARGET_HD, 0, 0, width, height, supersampleScale);
             this.renderer.resizeRenderTarget(CANVAS_RENDER_TARGET_HD, 0, 0, width, height);
             const mfdSize = CockpitMFDSize(height, width);
-            this.renderer.resizeRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize);
+            this.renderer.resizeRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize, supersampleScale);
         }
 
         this.renderer.setComposeSize(width, height);
@@ -3233,6 +3261,7 @@ export class Game {
             materials: this.materials,
             enuOrigin: this.playArea.origin,
             terrainColour: this.configService.terrainColour,
+            terrainShading: this.configService.terrainShading,
             terrainDetail: this.configService.terrainDetail,
         });
         await this.planetTerrain.load(DEFAULT_TERRAIN_URL);

@@ -217,6 +217,20 @@ function groundIllumination(sample: AtmosphereSample, sunElevationDeg: number): 
  */
 const WATER_SKY_SHARE = 0.75;
 
+/**
+ * How much of the sunset's hue shift a water surface is allowed to take, versus
+ * darkening on the spot.
+ *
+ * A mirror-flat authored base could take it in full like the horizon does, but
+ * the authored water is a saturated teal, and the sunward glow this gain
+ * carries loses blue far faster than it loses green. Applied whole, a teal
+ * rotates through olive to green instead of deepening towards navy - the sea
+ * never actually does that; the warm glint sits in a small sunward patch while
+ * the rest of the water only dims. Trusting a fraction of the hue keeps the
+ * darkening and enough of the warmth to read as sunset without the rotation.
+ */
+const WATER_HUE_TRUST = 0.35;
+
 function waterIllumination(sample: AtmosphereSample, sunElevationDeg: number): Rgb {
     const horizon = horizonMean(sample);
     const ground = groundIllumination(sample, sunElevationDeg);
@@ -259,7 +273,7 @@ function hazeIllumination(sample: AtmosphereSample, sunElevationDeg: number): Rg
  * makes the horizon stand out from the zenith instead of the two sinking
  * together, which is the thing a uniform tint could never express.
  */
-function gain(now: Rgb, reference: Rgb, common: number, range: [number, number]): Rgb {
+function gain(now: Rgb, reference: Rgb, common: number, range: [number, number], hueTrust = 1): Rgb {
     const raw: Rgb = [0, 0, 0];
     for (let c = 0; c < 3; c++) {
         raw[c] = reference[c] > 1e-12 ? (now[c] / reference[c]) / common : 1;
@@ -270,9 +284,21 @@ function gain(now: Rgb, reference: Rgb, common: number, range: [number, number])
     if (brightness <= 1e-9) {
         return [1, 1, 1];
     }
+    // Blend the colour part towards neutral before it is applied. A near-white
+    // or already-warm authored base (horizon, ground) can take the sunset's hue
+    // in full: multiplying warm onto warm just deepens it. A saturated base like
+    // water cannot - the sunward glow this ratio carries loses blue far faster
+    // than it loses green, and a cyan multiplied by that rotates to green
+    // instead of darkening towards blue, which is not what a sunset sea does.
+    // Trusting only part of the hue keeps the darkening without the rotation.
+    const tinted: Rgb = hueTrust >= 1 ? raw : [
+        brightness + (raw[0] - brightness) * hueTrust,
+        brightness + (raw[1] - brightness) * hueTrust,
+        brightness + (raw[2] - brightness) * hueTrust,
+    ];
     const bounded = Math.min(range[1], Math.max(range[0], brightness));
     const scale = bounded / brightness;
-    return [raw[0] * scale, raw[1] * scale, raw[2] * scale];
+    return [tinted[0] * scale, tinted[1] * scale, tinted[2] * scale];
 }
 
 /** Per-slot linear-RGB gains, plus the night crossover, for one sun position. */
@@ -400,7 +426,7 @@ function build(elevationDeg: number): SkySample {
         ground: settle(gain(groundNow, groundRef, common, GROUND_BRIGHTNESS_RANGE)),
         water: settle(gain(
             waterIllumination(now, elevationDeg), waterIllumination(ref, REFERENCE_SUN_ELEVATION_DEG),
-            common, SKY_BRIGHTNESS_RANGE)),
+            common, SKY_BRIGHTNESS_RANGE, WATER_HUE_TRUST)),
         // Relative to the reference sun, not absolute. Skylight is intensely
         // blue at every hour, so an absolute tint would wash the whole world
         // blue at noon - when the authored palette already *is* what noon

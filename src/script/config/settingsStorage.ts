@@ -1,6 +1,6 @@
 import { KeyboardControlLayoutId } from "../input/devices/keyboardControlDevice";
 import { DEFAULT_SUN_HOURS } from "../scene/materials/shaders/sun";
-import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles, TerrainColours } from "../state/gameDefs";
+import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles, TerrainColours, TerrainShading } from "../state/gameDefs";
 import { TERRAIN_DETAIL_DISTANCE_DEFAULT_M } from "../terrain/lod";
 
 const STORAGE_KEY = 'retroflightsim.settings';
@@ -17,6 +17,8 @@ export interface AppSettings {
     shadowQuality: ShadowQualities;
     /** How baked terrain cover turns into colour on screen. */
     terrainColour: TerrainColours;
+    /** Flat per-facet colour, or smooth (Gouraud) interpolation across it. */
+    terrainShading: TerrainShading;
     /** Last aircraft (+ livery) id chosen in the spawn menu. */
     aircraftId: string;
     /** Last spawn mode used to start a flight. */
@@ -53,6 +55,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     aiPilotModel: AiPilotModels.CLASSIC,
     shadowQuality: ShadowQualities.LOW,
     terrainColour: TerrainColours.HYBRID,
+    terrainShading: TerrainShading.FACETED,
     aircraftId: 'f22',
     spawnMode: 'headon',
     daytime: DEFAULT_SUN_HOURS,
@@ -67,6 +70,7 @@ const KEYBOARD_LAYOUTS = new Set<number>(Object.values(KeyboardControlLayoutId).
 const AI_PILOT_MODELS = new Set<string>(Object.values(AiPilotModels));
 const SHADOW_QUALITIES = new Set<string>(Object.values(ShadowQualities));
 const TERRAIN_COLOURS = new Set<string>(Object.values(TerrainColours));
+const TERRAIN_SHADING_VALUES = new Set<string>(Object.values(TerrainShading));
 const SPAWN_MODES = new Set<SpawnMode>([
     'approach', 'runway', 'headon', 'carrier', 'carrierBarricade', 'carrierTakeoff', 'highAlt', 'space',
 ]);
@@ -86,6 +90,7 @@ export function loadSettings(): AppSettings {
             aiPilotModel: isValidAiPilotModel(parsed.aiPilotModel) ? parsed.aiPilotModel : DEFAULT_SETTINGS.aiPilotModel,
             shadowQuality: isValidShadowQuality(parsed.shadowQuality) ? parsed.shadowQuality : DEFAULT_SETTINGS.shadowQuality,
             terrainColour: isValidTerrainColour(parsed.terrainColour) ? parsed.terrainColour : DEFAULT_SETTINGS.terrainColour,
+            terrainShading: isValidTerrainShading(parsed.terrainShading) ? parsed.terrainShading : DEFAULT_SETTINGS.terrainShading,
             aircraftId: isValidAircraftId(parsed.aircraftId) ? parsed.aircraftId : DEFAULT_SETTINGS.aircraftId,
             spawnMode: isValidSpawnMode(parsed.spawnMode) ? parsed.spawnMode : DEFAULT_SETTINGS.spawnMode,
             daytime: isValidDaytime(parsed.daytime) ? parsed.daytime : DEFAULT_SETTINGS.daytime,
@@ -140,6 +145,10 @@ function isValidShadowQuality(value: unknown): value is ShadowQualities {
 
 function isValidTerrainColour(value: unknown): value is TerrainColours {
     return typeof value === 'string' && TERRAIN_COLOURS.has(value);
+}
+
+function isValidTerrainShading(value: unknown): value is TerrainShading {
+    return typeof value === 'string' && TERRAIN_SHADING_VALUES.has(value);
 }
 
 function isValidAircraftId(value: unknown): value is string {

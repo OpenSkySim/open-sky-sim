@@ -83,6 +83,18 @@ export const TERRAIN_COLOUR_MODE_INDEX: Readonly<Record<TerrainColours, TerrainC
     [TerrainColours.IMAGERY]: TerrainColourMode.Imagery,
 };
 
+/**
+ * How land geometry hands facet colour to the rasteriser. FACETED keeps the
+ * baked per-triangle replication, so every facet is one flat colour and edges
+ * between facets are hard. SMOOTH welds a tile's vertices and averages the
+ * cover colour (and normal) each one carries, so the same shader that resolves
+ * facetColor() per vertex instead interpolates it across a triangle.
+ */
+export enum TerrainShading {
+    FACETED = 'FACETED',
+    SMOOTH = 'SMOOTH',
+}
+
 export enum HUDFocusMode {
     DISABLED,
     PARTIAL,

@@ -104,6 +104,7 @@ export function buildOceanPatch(
 
     const mesh = new THREE.Mesh(geometry, materials as THREE.Material[]);
     mesh.frustumCulled = false;
+    mesh.matrixAutoUpdate = false; // identity local transform, never moves
     if (onBeforeRender) {
         mesh.onBeforeRender = onBeforeRender;
     }
@@ -112,6 +113,10 @@ export function buildOceanPatch(
     group.name = `ocean:${id.z}/${id.x}/${id.y}`;
     group.position.set(origin.e, origin.u, sceneZFromNorth(origin.n));
     group.add(mesh);
+    // Position is set exactly once, right above, for the patch's whole
+    // lifetime — see the matching comment in tileMesh.ts's buildTileMeshes.
+    group.updateMatrix();
+    group.matrixAutoUpdate = false;
 
     return { group, bytes: pos.byteLength + idx.byteLength };
 }

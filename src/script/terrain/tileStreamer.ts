@@ -103,6 +103,11 @@ export class TileStreamer<T, G> {
         return this.gpu.has(tileKeyString(id));
     }
 
+    /** Every uploaded drawable, resident or not currently drawn. */
+    values(): IterableIterator<G> {
+        return this.gpu.values();
+    }
+
     /**
      * Declare the complete set of tiles worth having right now. Anything in
      * flight that is not in the set is aborted.

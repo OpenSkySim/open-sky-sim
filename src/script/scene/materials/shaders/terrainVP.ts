@@ -74,7 +74,7 @@ export const TerrainVertProgram: string = `
   attribute vec3 coverColor;
   attribute float coverClass;
 
-  const float AMBIENT_SKY_FLOOR = 0.65;
+  const float AMBIENT_SKY_FLOOR = 0.4;
   const float RIM_POWER = 3.0;
   const float RIM_STRENGTH = 0.35;
   const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -178,7 +178,7 @@ ${LOG_DEPTH_PARS_VERTEX}
     // only, so the attribute is already the world normal.
     vec3 worldNormal = normalize(normal);
 
-    float ndl = max(dot(worldNormal, uSunDir), 0.0);
+    float ndl = pow(max(dot(worldNormal, uSunDir), 0.0), 1.3);
     float skyView = mix(AMBIENT_SKY_FLOOR, 1.0, 0.5 + 0.5 * worldNormal.y);
 
     vLight = uSunAmbient * skyView + uSunDirect * ndl;

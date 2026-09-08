@@ -69,11 +69,27 @@ export class PerfHudEntity implements Entity {
         const fps = this.frameEmaMs > 0 ? 1000 / this.frameEmaMs : 0;
         lines.push(`${fps.toFixed(0)} FPS (${this.frameEmaMs.toFixed(1)}ms)`);
 
+        const kernelStats = (globalThis as Record<string, unknown>).__kernelStats as { updateMs: number; renderMs: number } | undefined;
+        if (kernelStats) {
+            lines.push(`  logic ${kernelStats.updateMs.toFixed(1)}ms / render ${kernelStats.renderMs.toFixed(1)}ms`);
+        }
+
+        const gpuStats = (globalThis as Record<string, unknown>).__gpuStats as Record<string, number> | undefined;
+        const cpuStats = (globalThis as Record<string, unknown>).__cpuStats as Record<string, number> | undefined;
         const drawStats = (globalThis as Record<string, unknown>).__drawStats as Record<string, DrawStatsEntry> | undefined;
         if (drawStats) {
             for (const [key, entry] of Object.entries(drawStats)) {
-                lines.push(`${key}: ${entry.calls} draws, ${(entry.triangles / 1000).toFixed(1)}k tri`);
+                const gpuMs = gpuStats?.[key];
+                const cpuMs = cpuStats?.[key];
+                const gpuSuffix = gpuMs !== undefined ? `, ${gpuMs.toFixed(2)}ms GPU` : '';
+                const cpuSuffix = cpuMs !== undefined ? `, ${cpuMs.toFixed(2)}ms CPU` : '';
+                lines.push(`${key}: ${entry.calls} draws, ${(entry.triangles / 1000).toFixed(1)}k tri${gpuSuffix}${cpuSuffix}`);
             }
+        }
+        if (gpuStats?.compose !== undefined || cpuStats?.compose !== undefined) {
+            const gpuSuffix = gpuStats?.compose !== undefined ? `, ${gpuStats.compose.toFixed(2)}ms GPU` : '';
+            const cpuSuffix = cpuStats?.compose !== undefined ? `, ${cpuStats.compose.toFixed(2)}ms CPU` : '';
+            lines.push(`compose${gpuSuffix}${cpuSuffix}`);
         }
 
         const terrainStats = (globalThis as Record<string, unknown>).__terrainStats as TerrainStatsShape | undefined;

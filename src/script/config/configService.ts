@@ -1,6 +1,6 @@
 import { FlightModel } from "../physics/model/flightModel";
 import { DEFAULT_SUN_HOURS } from "../scene/materials/shaders/sun";
-import { AiPilotModels, ShadowQualities, TerrainColours, UnitSystems } from "../state/gameDefs";
+import { AiPilotModels, ShadowQualities, TerrainColours, TerrainShading, UnitSystems } from "../state/gameDefs";
 import { assertExpr, assertIsDefined } from "../utils/asserts";
 import {
     TERRAIN_DETAIL_DISTANCE_DEFAULT_M, clampDetailDistanceM,
@@ -13,6 +13,7 @@ export type UnitSystemChangeListener = (unitSystem: UnitSystems) => void;
 export type AiPilotModelChangeListener = (model: AiPilotModels) => void;
 export type ShadowQualityChangeListener = (quality: ShadowQualities) => void;
 export type TerrainColourChangeListener = (mode: TerrainColours) => void;
+export type TerrainShadingChangeListener = (mode: TerrainShading) => void;
 export type DaytimeChangeListener = (hours: number) => void;
 export type TerrainDetailChangeListener = (distanceM: number) => void;
 
@@ -24,6 +25,7 @@ export class ConfigService {
     readonly aiPilotModels: AiPilotModelSetting;
     readonly shadowQuality: ShadowQualitySetting;
     readonly terrainColour: TerrainColourSetting;
+    readonly terrainShading: TerrainShadingSetting;
     readonly terrainDetail: TerrainDetailSetting;
     readonly daytime: DaytimeSetting;
 
@@ -37,6 +39,7 @@ export class ConfigService {
         initialDaytime?: number,
         initialTerrainColour?: TerrainColours,
         initialTerrainDetailM?: number,
+        initialTerrainShading?: TerrainShading,
     ) {
         this.techProfiles = new ConfigSet(profiles, initialTechProfile);
         this.flightModels = new ConfigSet(flightModels, initialFlightModel);
@@ -44,6 +47,7 @@ export class ConfigService {
         this.aiPilotModels = new AiPilotModelSetting(initialAiPilotModel);
         this.shadowQuality = new ShadowQualitySetting(initialShadowQuality);
         this.terrainColour = new TerrainColourSetting(initialTerrainColour);
+        this.terrainShading = new TerrainShadingSetting(initialTerrainShading);
         this.terrainDetail = new TerrainDetailSetting(initialTerrainDetailM);
         this.daytime = new DaytimeSetting(initialDaytime);
     }
@@ -286,6 +290,46 @@ export class TerrainColourSetting {
     }
 
     removeChangeListener(listener: TerrainColourChangeListener) {
+        this.listeners.delete(listener);
+    }
+}
+
+/**
+ * Flat per-facet colour (FACETED) or smooth interpolation across it
+ * (SMOOTH). Unlike terrain colour this is not a uniform write: SMOOTH reads
+ * a differently-built geometry, so the terrain entity swaps the land mesh
+ * per tile on change rather than just updating a shader uniform.
+ */
+export class TerrainShadingSetting {
+    private active: TerrainShading;
+    private listeners: Set<TerrainShadingChangeListener> = new Set();
+
+    constructor(initialActive: TerrainShading = TerrainShading.FACETED) {
+        this.active = initialActive;
+    }
+
+    getActive(): TerrainShading {
+        return this.active;
+    }
+
+    setActive(mode: TerrainShading) {
+        if (mode === this.active) return;
+        this.active = mode;
+        this.notifyActive();
+    }
+
+    /** Push the current value to listeners (used once after they register). */
+    notifyActive() {
+        for (const listener of this.listeners.values()) {
+            listener(this.active);
+        }
+    }
+
+    addChangeListener(listener: TerrainShadingChangeListener) {
+        this.listeners.add(listener);
+    }
+
+    removeChangeListener(listener: TerrainShadingChangeListener) {
         this.listeners.delete(listener);
     }
 }

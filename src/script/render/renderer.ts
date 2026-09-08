@@ -9,6 +9,7 @@ import { CanvasPainter } from './screen/canvasPainter';
 import { TextEffect } from './screen/text';
 import { beginRenderListPass, pruneRenderList } from './renderList';
 import { clearRenderOrigin, setRenderOrigin } from './renderOrigin';
+import { GpuPassTimer } from './gpuPassTimer';
 import { SceneDepthPass } from './sceneDepthPass';
 import { SHADOW_SETTINGS, ShadowVolumePass } from './shadowVolumes';
 import { SUN_STATE } from '../scene/materials/shaders/sun';
@@ -27,6 +28,16 @@ const SHADOW_ROOTS: THREE.Object3D[] = [];
 
 export interface RendererOptions {
     textColors?: string[];
+    /**
+     * Supersampling factor for a WEBGL render target's backing texture. The
+     * compositor quad's geometry/position (and therefore compose-space
+     * layout) stay at the native size passed to createRenderTarget; only the
+     * GPU texture is larger, with a mipmap chain the compose blit's
+     * automatic LOD selection samples for a real box-filtered downsample
+     * (see setUpscaleFilter()). Ignored for CANVAS targets and clamped to 1
+     * on a WebGL1 context. Defaults to 1.
+     */
+    textureScale?: number;
 }
 
 export enum RenderTargetType {
@@ -54,6 +65,8 @@ interface CanvasRenderTarget extends BaseRenderTarget {
 interface WebGLRenderTarget extends BaseRenderTarget {
     type: RenderTargetType.WEBGL;
     target: THREE.WebGLRenderTarget;
+    /** Reapplied to the backing texture size on every resize. */
+    textureScale: number;
 }
 
 export interface RenderLayer {
@@ -124,6 +137,13 @@ export class Renderer {
     /** Palette shadow tone, refreshed per shadowed pass. */
     private readonly shadowColor = new THREE.Color();
     private renderListGeneration = 0;
+    /**
+     * Mipmap-based supersample downsampling needs generateMipmap() on a
+     * non-power-of-two texture, which WebGL1 does not guarantee. Supersample
+     * textureScale is clamped to 1 when this is false.
+     */
+    private readonly isWebGL2: boolean;
+    private readonly gpuTimer: GpuPassTimer;
 
     constructor(private materials: SceneMaterialManager, private composeWidth: number, private composeHeight: number, palette: Palette) {
         const container = document.getElementById('container');
@@ -135,9 +155,12 @@ export class Renderer {
         // Cap DPR so HD on high-DPI displays does not explode fill rate.
         this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
         const gl = this.renderer.getContext();
-        const isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+        this.isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+        // Cast is safe: GpuPassTimer only calls WebGL2-only query methods when
+        // isWebGL2 is true, which is exactly when `gl` really is one.
+        this.gpuTimer = new GpuPassTimer(gl as WebGL2RenderingContext, this.isWebGL2);
         assertExpr(
-            isWebGL2 || this.renderer.extensions.has('ANGLE_instanced_arrays'),
+            this.isWebGL2 || this.renderer.extensions.has('ANGLE_instanced_arrays'),
             'Renderer: instanced rendering requires WebGL2 or the ANGLE_instanced_arrays extension'
         );
         this.renderer.autoClear = false;
@@ -187,7 +210,14 @@ export class Renderer {
             const texture = renderTarget.type === RenderTargetType.WEBGL
                 ? renderTarget.target.texture
                 : renderTarget.target;
-            texture.minFilter = filter;
+            // A supersampled target keeps its mipmap chain here instead of
+            // collapsing to a single bilinear tap: at scale 2 the GPU's
+            // auto-selected mip level 1 IS the box-filtered average of each
+            // 2x2 source block, a real downsample rather than one sample.
+            const mipmapped = renderTarget.type === RenderTargetType.WEBGL && renderTarget.textureScale > 1;
+            texture.minFilter = mipmapped
+                ? (linear ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapNearestFilter)
+                : filter;
             texture.magFilter = filter;
         }
     }
@@ -202,11 +232,25 @@ export class Renderer {
         return [width, height];
     }
 
-    resizeRenderTarget(id: string, x: number, y: number, width: number, height: number) {
+    /**
+     * `newTextureScale`, if given, replaces a WEBGL target's supersample
+     * factor — needed because it can be resolution-dependent (see
+     * hdSupersampleScale in game.ts): the same target keeps living across a
+     * mid-session window/monitor change, so its scale has to be able to
+     * change with it rather than staying pinned to whatever it was created
+     * with. Ignored for CANVAS targets.
+     */
+    resizeRenderTarget(id: string, x: number, y: number, width: number, height: number, newTextureScale?: number) {
         const renderTarget = this.renderTargets.get(id);
         assertIsDefined(renderTarget);
+
+        let scaleChanged = false;
+        if (renderTarget.type === RenderTargetType.WEBGL && newTextureScale !== undefined) {
+            const scale = newTextureScale > 1 && !this.isWebGL2 ? 1 : newTextureScale;
+            scaleChanged = scale !== renderTarget.textureScale;
+        }
         if (renderTarget.width === width && renderTarget.height === height
-            && renderTarget.x === x && renderTarget.y === y) {
+            && renderTarget.x === x && renderTarget.y === y && !scaleChanged) {
             return;
         }
 
@@ -217,7 +261,19 @@ export class Renderer {
         renderTarget.ready = false;
 
         if (renderTarget.type === RenderTargetType.WEBGL) {
-            renderTarget.target.setSize(width, height);
+            if (scaleChanged && newTextureScale !== undefined) {
+                renderTarget.textureScale = newTextureScale > 1 && !this.isWebGL2 ? 1 : newTextureScale;
+                // Mirrors the mipmapped/not choice createRenderTarget makes:
+                // only a supersampled target needs its mipmap chain for the
+                // compose blit's box-filtered downsample (setUpscaleFilter).
+                const mipmapped = renderTarget.textureScale > 1;
+                const texture = renderTarget.target.texture;
+                texture.generateMipmaps = mipmapped;
+                texture.minFilter = mipmapped
+                    ? (this.upscaleLinear ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapNearestFilter)
+                    : (this.upscaleLinear ? THREE.LinearFilter : THREE.NearestFilter);
+            }
+            renderTarget.target.setSize(Math.round(width * renderTarget.textureScale), Math.round(height * renderTarget.textureScale));
         } else {
             const canvas = renderTarget.target.image as HTMLCanvasElement;
             canvas.width = width;
@@ -240,6 +296,14 @@ export class Renderer {
             renderTarget.ready = false;
         }
 
+        // Raw per-pass CPU wall time (not EMA'd, like __drawStats): this is
+        // what a GPU pass timer cannot see - matrix/state updates, buffer
+        // list construction, and three.js's own draw-call submission
+        // overhead, all of which happen on the CPU before the GPU ever sees
+        // a command. Compared against __gpuStats, it says whether a slow
+        // pass is a GPU-fill problem or a CPU-submission one.
+        const cpuStats: Record<string, number> = {};
+
         for (const layer of renderLayers) {
             const palette = layer.palette || this.palette;
             if (palette !== prevPalette) {
@@ -253,11 +317,19 @@ export class Renderer {
                 continue;
             }
 
+            const label = `${layer.target}:${layer.lists.join('+')}`;
+            const cpuStart = performance.now();
             if (renderTarget.type === RenderTargetType.WEBGL) {
+                // 2D (CANVAS) passes submit nothing to the GL timeline, so
+                // timing them would just measure ~0 - only WEBGL passes are
+                // worth the query.
+                this.gpuTimer.begin(label);
                 this.render3D(renderTarget, scene, layer, palette);
+                this.gpuTimer.end();
             } else {
                 this.render2D(renderTarget, scene, layer, palette);
             }
+            cpuStats[label] = performance.now() - cpuStart;
         }
 
         // Compose all
@@ -265,7 +337,13 @@ export class Renderer {
 
         this.renderer.setClearColor('#000000');
         this.renderer.clear();
+        const composeCpuStart = performance.now();
+        this.gpuTimer.begin('compose');
         this.renderer.render(this.composeScene, this.composeCamera);
+        this.gpuTimer.end();
+        cpuStats.compose = performance.now() - composeCpuStart;
+        (globalThis as Record<string, unknown>).__cpuStats = cpuStats;
+        this.gpuTimer.poll();
     }
 
     prepareRenderTarget(target: string, palette: Palette, clear: boolean = true, clearColor?: string): RenderTarget {
@@ -463,9 +541,23 @@ export class Renderer {
 
         const ready = false;
         if (type === RenderTargetType.WEBGL) {
-            const target = new THREE.WebGLRenderTarget(width, height, {
-                minFilter: THREE.LinearFilter,
+            const requestedScale = options?.textureScale ?? 1;
+            // Mipmap regeneration on a non-power-of-two target (any real
+            // viewport size) is not guaranteed on WebGL1 - fall back to no
+            // supersampling there rather than a texture that may fail to
+            // mip and render solid black.
+            const textureScale = requestedScale > 1 && !this.isWebGL2 ? 1 : requestedScale;
+            const textureWidth = Math.round(width * textureScale);
+            const textureHeight = Math.round(height * textureScale);
+            // A supersampled target needs its mipmap chain so the compose
+            // blit's automatic LOD selection lands on a real box-filtered
+            // downsample (mip 1 at scale 2) instead of a single bilinear tap
+            // of the full-resolution texture - see setUpscaleFilter().
+            const mipmapped = textureScale > 1;
+            const target = new THREE.WebGLRenderTarget(textureWidth, textureHeight, {
+                minFilter: mipmapped ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter,
                 magFilter: THREE.NearestFilter,
+                generateMipmaps: mipmapped,
                 format: THREE.RGBFormat,
                 // The shadow volumes count into this; three leaves the stencil
                 // out by default and it cannot be attached afterwards.
@@ -474,14 +566,14 @@ export class Renderer {
                 // pass in this same target can be told what it is covering
                 // (SceneDepthPass). Packed with the stencil, which the shadow
                 // volumes still need - the two share one attachment.
-                depthTexture: sceneDepthTexture(width, height)
+                depthTexture: sceneDepthTexture(textureWidth, textureHeight)
             });
             const compositorObj = new THREE.Mesh(
                 new THREE.PlaneGeometry(width, height),
                 new THREE.MeshBasicMaterial({ map: target.texture, depthWrite: false })
             );
             compositorObj.position.set(x + width / 2 - this.composeWidth / 2, -y - height / 2 + this.composeHeight / 2, 0);
-            const renderTarget: RenderTarget = { type, target, compositorObj, ready, x, y, width, height };
+            const renderTarget: RenderTarget = { type, target, compositorObj, ready, x, y, width, height, textureScale };
             this.renderTargets.set(id, renderTarget);
         } else {
             const { canvas, painter } = this.setupContext2D(width, height, options);

@@ -11,7 +11,7 @@ import { homeArea } from "../terrain/playArea";
 import { JoystickControlDevice } from "../input/devices/joystickControlDevice";
 import { KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts } from "../input/devices/keyboardControlDevice";
 import { formatSunTime } from "../scene/materials/shaders/sun";
-import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles, TerrainColours, UnitSystems } from "../state/gameDefs";
+import { AiPilotModels, FlightModels, ShadowQualities, TechProfiles, TerrainColours, TerrainShading, UnitSystems } from "../state/gameDefs";
 import { assertIsDefined } from "../utils/asserts";
 
 
@@ -23,6 +23,7 @@ export function setupOSD(config: ConfigService, keyboardInput: KeyboardControlDe
     setupTerrainDetail(config);
     setupShadowQuality(config);
     setupTerrainColour(config);
+    setupTerrainShading(config);
     setupArea();
     setupFlightModel(config);
     setupUnitSystem(config);
@@ -282,6 +283,22 @@ function setupTerrainColour(config: ConfigService) {
     }
 }
 
+const TERRAIN_SHADING_RADIO_IDS: Record<TerrainShading, string> = {
+    [TerrainShading.FACETED]: 'terrainshading-faceted',
+    [TerrainShading.SMOOTH]: 'terrainshading-smooth',
+};
+
+function setupTerrainShading(config: ConfigService) {
+    for (const mode of Object.values(TerrainShading)) {
+        const input = document.getElementById(TERRAIN_SHADING_RADIO_IDS[mode]);
+        assertIsDefined(input);
+        input.addEventListener('change', () => {
+            config.terrainShading.setActive(mode);
+            updateSettings({ terrainShading: mode });
+        });
+    }
+}
+
 function setupFlightModel(config: ConfigService) {
     const fm2FlightModel = document.getElementById('flightmodel-fm2');
     assertIsDefined(fm2FlightModel);
@@ -418,6 +435,7 @@ function syncSettingsUI(config: ConfigService, keyboardInput: KeyboardControlDev
     checkRadio(aiPilotModelRadioIds[config.aiPilotModels.getActive()]);
     checkRadio(SHADOW_QUALITY_RADIO_IDS[config.shadowQuality.getActive()]);
     checkRadio(TERRAIN_COLOUR_RADIO_IDS[config.terrainColour.getActive()]);
+    checkRadio(TERRAIN_SHADING_RADIO_IDS[config.terrainShading.getActive()]);
 }
 
 function checkRadio(id: string | undefined) {
