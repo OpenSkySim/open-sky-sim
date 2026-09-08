@@ -106,6 +106,7 @@ ${LOG_DEPTH_PARS_VERTEX}
     for (int i = 1; i < ${TERRAIN_TONE_COUNT}; i++) {
       if (abs(float(i) - index) < 0.5) {
         c = uToneColor[i];
+        break; // indices are unique - nothing later could also match
       }
     }
     return c;
@@ -117,6 +118,7 @@ ${LOG_DEPTH_PARS_VERTEX}
     for (int i = 1; i < ${TERRAIN_CLASS_COUNT}; i++) {
       if (abs(float(i) - cls) < 0.5) {
         t = uClassTone[i];
+        break; // indices are unique - nothing later could also match
       }
     }
     return t;
@@ -141,15 +143,19 @@ ${LOG_DEPTH_PARS_VERTEX}
   }
 
   vec3 facetColor() {
-    vec3 observed = srgbToLinear(coverColor);
+    // srgbToLinear(coverColor) only ever feeds the two branches below - it
+    // used to run unconditionally ahead of every branch instead, which is a
+    // pow(x, 2.4) every one of Hybrid/Swatch-table/Plain mode's vertices paid
+    // for and threw away, uTerrainMode being one uniform for the whole draw
+    // rather than something that could vary in and skip back out per vertex.
     if (uTerrainMode == ${TerrainColourMode.Imagery}) {
-      return observed * uRawLight;
+      return srgbToLinear(coverColor) * uRawLight;
     }
     if (uTerrainMode == ${TerrainColourMode.Swatch}) {
       // With no table baked there is nothing to snap to, and returning the raw
       // colour is a better answer than returning black.
       if (uSwatchCount == 0) {
-        return observed * uRawLight;
+        return srgbToLinear(coverColor) * uRawLight;
       }
       return srgbToLinear(nearestSwatch(coverColor)) * uRawLight;
     }
