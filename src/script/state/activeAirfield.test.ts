@@ -151,6 +151,23 @@ describe('active airfield', () => {
             assert.equal(pickStartRunway(runways, 'EDDB')!.icao, 'GCLP');
         });
 
+        it('honours an unnamed airfield picked by its name', () => {
+            // Most small US strips and unnamed OSM airstrips carry no ICAO —
+            // the picker offers them keyed by name instead (see
+            // airfieldChoices), and the same key has to work coming back in.
+            const unnamed = airfield({
+                icao: '', name: 'Gatow', lat: 28.05, lon: -15.39,
+                plane: { heightMsl: 46, gradient: 0, headingDeg: 77 },
+                runways: [{
+                    ref: '08R/26L', headingDeg: 77, lengthM: 871, widthM: 46,
+                    surface: 'asphalt', lit: false, lat: 28.05, lon: -15.39,
+                    thresholds: [[28.05, -15.4], [28.05, -15.38]],
+                }],
+            });
+            const runways = sceneRunwaysOf([...twoFields, unnamed], BASIS, EPS);
+            assert.equal(pickStartRunway(runways, 'Gatow')!.name, 'Gatow');
+        });
+
         it('would rather start on grass than nowhere', () => {
             const grass = sceneRunwaysOf([airfield({
                 runways: [{ ...airfield().runways[0], surface: 'grass' }],

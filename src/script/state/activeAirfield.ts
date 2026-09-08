@@ -132,8 +132,13 @@ export function pickStartRunway(
         return undefined;
     }
     if (preferIcao) {
-        const named = runways.find(r => r.primary && r.icao === preferIcao)
-            ?? runways.find(r => r.icao === preferIcao);
+        // Keyed the same way the picker offered it: `icao || name`. An airfield
+        // with no ICAO — most of the small US strips and unnamed ones — would
+        // otherwise never match here, since `r.icao` alone is `''` and falls
+        // through to the general ranking silently, ignoring what was chosen.
+        const key = (r: SceneRunway) => r.icao || r.name;
+        const named = runways.find(r => r.primary && key(r) === preferIcao)
+            ?? runways.find(r => key(r) === preferIcao);
         if (named !== undefined) {
             return named;
         }
