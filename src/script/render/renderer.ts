@@ -9,6 +9,7 @@ import { CanvasPainter } from './screen/canvasPainter';
 import { TextEffect } from './screen/text';
 import { beginRenderListPass, pruneRenderList } from './renderList';
 import { clearRenderOrigin, setRenderOrigin } from './renderOrigin';
+import { BlitPass } from './blitPass';
 import { GpuPassTimer } from './gpuPassTimer';
 import { SceneDepthPass } from './sceneDepthPass';
 import { SHADOW_SETTINGS, ShadowVolumePass } from './shadowVolumes';
@@ -134,6 +135,27 @@ export class Renderer {
     private readonly savedCamPos = new THREE.Vector3();
     private readonly shadowPass = new ShadowVolumePass();
     private readonly sceneDepthPass = new SceneDepthPass();
+    private readonly blitPass = new BlitPass();
+    /**
+     * One small offscreen buffer per destination target, the background sky
+     * dome is shaded into at a fraction of its resolution before being
+     * upscaled in - see the BackgroundSky special case in render(). Keyed
+     * per target because the player view and the weapons-target MFD are
+     * different sizes (same reasoning as SceneDepthPass's own per-source map).
+     */
+    private readonly backgroundSkyTargets = new Map<string, THREE.WebGLRenderTarget>();
+    /**
+     * Linear downscale for the background-sky buffer above. The dome is ~16
+     * rings of baked vertex colour - already about as low-frequency as scene
+     * content gets, and it only repaints when the sun moves - so quartering
+     * its resolution (1/16 the fragments) costs nothing visible while cutting
+     * the one shader in this renderer that shades every pixel of a full 4K
+     * frame for no geometric reason (the dome always fully covers the view).
+     * Its output is now a plain gradient rather than a dithered one
+     * (skyDomeModelBuilder.ts) specifically so this upscale has no per-pixel
+     * dither structure to smear into blocks.
+     */
+    private static readonly BACKGROUND_SKY_SCALE = 0.25;
     /** Palette shadow tone, refreshed per shadowed pass. */
     private readonly shadowColor = new THREE.Color();
     private renderListGeneration = 0;
@@ -324,7 +346,11 @@ export class Renderer {
                 // timing them would just measure ~0 - only WEBGL passes are
                 // worth the query.
                 this.gpuTimer.begin(label);
-                this.render3D(renderTarget, scene, layer, palette);
+                if (layer.lists.length === 1 && layer.lists[0] === SceneLayers.BackgroundSky) {
+                    this.renderBackgroundSkyDownscaled(renderTarget, scene, layer, palette);
+                } else {
+                    this.render3D(renderTarget, scene, layer, palette);
+                }
                 this.gpuTimer.end();
             } else {
                 this.render2D(renderTarget, scene, layer, palette);
@@ -415,6 +441,46 @@ export class Renderer {
         }
 
         this.submitCameraRelative(layer, palette);
+    }
+
+    /**
+     * Renders a BackgroundSky-only layer (the sky dome) at a fraction of
+     * `renderTarget`'s resolution and upscales it in, instead of shading the
+     * dome at full resolution only to have the terrain pass draw over most
+     * of it a moment later. Reuses render3D unchanged: THREE sizes the actual
+     * GL viewport from whichever target is bound via setRenderTarget, not
+     * from the `renderTarget` wrapper passed in, so pointing that binding at
+     * a smaller buffer first is enough - the wrapper's width/height still
+     * drive the correct camera aspect and LOD math either way.
+     */
+    private renderBackgroundSkyDownscaled(renderTarget: WebGLRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette): void {
+        const small = this.backgroundSkyTargetFor(layer.target, renderTarget);
+
+        this.renderer.setRenderTarget(small);
+        this.renderer.setClearColor(PaletteColor(palette, PaletteCategory.BACKGROUND));
+        this.renderer.clear();
+        this.render3D(renderTarget, scene, layer, palette);
+
+        this.renderer.setRenderTarget(renderTarget.target);
+        this.blitPass.blit(this.renderer, small.texture, renderTarget.target);
+    }
+
+    private backgroundSkyTargetFor(key: string, renderTarget: WebGLRenderTarget): THREE.WebGLRenderTarget {
+        const width = Math.max(1, Math.round(renderTarget.width * Renderer.BACKGROUND_SKY_SCALE));
+        const height = Math.max(1, Math.round(renderTarget.height * Renderer.BACKGROUND_SKY_SCALE));
+        let small = this.backgroundSkyTargets.get(key);
+        if (small === undefined) {
+            small = new THREE.WebGLRenderTarget(width, height, {
+                minFilter: THREE.LinearFilter,
+                magFilter: THREE.LinearFilter,
+                generateMipmaps: false,
+                format: THREE.RGBFormat,
+            });
+            this.backgroundSkyTargets.set(key, small);
+        } else if (small.width !== width || small.height !== height) {
+            small.setSize(width, height);
+        }
+        return small;
     }
 
     /** Whether this layer's lists came out of the build with anything in them. */

@@ -64,18 +64,6 @@ function verticalBlend(elevationDeg: number): number {
 }
 
 /**
- * Dithered quantisation of the vertex-interpolated colour.
- *
- * A smooth per-vertex gradient would read as modern the moment it landed in a
- * flat-shaded, 320x200 scene. The billboard it replaces was banded, not smooth:
- * its fog term was quantised to twelve or twenty-four steps. This does the same
- * to the dome, and dithers across each step with the same ordered matrix the
- * rest of the renderer stipples with, so the bands break up the way a 90s sky
- * did rather than showing as hard contours.
- */
-const SKY_BANDS = 24.0;
-
-/**
  * Exponent the directional gain is softened by before it is applied.
  *
  * The gains are ratios against the same direction with the sun high, and they
@@ -118,7 +106,6 @@ ${LOG_DEPTH_VERTEX}
 const SKY_FRAGMENT_PROGRAM = `
   precision highp float;
 
-  uniform float uBands;
   uniform float uSkyOverbright;
   varying vec3 vSkyColor;
   varying float vSkyFalloff;
@@ -130,9 +117,8 @@ ${SCENE_DEPTH_PARS_FRAGMENT}
 ${LOG_DEPTH_PARS_FRAGMENT}
 ${DITHER_PARS_FRAGMENT}
   void main() {
-    // Ordered-dither the quantisation so the bands break up instead of
-    // showing as contours. bayerThreshold is the same matrix the shadow and
-    // cloud stipples use, so the sky grains like the rest of the frame.
+    // Only the glare's coverage stipple below still needs this - the colour
+    // band dithering that used to share it is gone (see the fragColor line).
     float threshold = bayerThreshold(gl_FragCoord.xy);
     // Falloff is what the glare fades along, interpolated across the annulus:
     // 1 at the sun's limb, 0 at the far edge. Coverage is stippled rather than
@@ -167,9 +153,15 @@ ${DITHER_PARS_FRAGMENT}
       discard;
     }
 #endif
+    // Smooth, not banded: quantising this into steps was the one thing about
+    // the sky that could not survive being shaded at a fraction of the output
+    // resolution and upscaled in (see Renderer.renderBackgroundSkyDownscaled)
+    // - the dither pattern that broke each band up is exactly as fine as a
+    // native pixel, and upscaling stretches every one of its dots into a
+    // block the size of the downscale factor. A plain gradient has no such
+    // per-pixel structure to begin with, so it upscales cleanly.
     vec3 toned = vSkyColor * mix(1.0, uSkyOverbright, vSkyFalloff);
-    vec3 banded = floor(toned * uBands + 0.5 + threshold) / uBands;
-    gl_FragColor = vec4(clamp(banded, 0.0, 1.0), 1.0);
+    gl_FragColor = vec4(clamp(toned, 0.0, 1.0), 1.0);
 ${LOG_DEPTH_FRAGMENT}
   }
 `;
@@ -213,7 +205,6 @@ export function createSkyMaterial(
         fragmentShader: SKY_FRAGMENT_PROGRAM,
         defines: glare ? { SKY_GLARE: '' } : {},
         uniforms: {
-            uBands: { value: SKY_BANDS },
             uSkyOverbright: { value: overbright },
             // Only read under SKY_GLARE, but declared either way: an unused
             // uniform costs a slot in a map, and branching the object here
