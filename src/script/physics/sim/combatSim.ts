@@ -167,6 +167,10 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     carrierParkLocalValid = false;
     carrierParkLocalX = 0;
     carrierParkLocalZ = 0;
+    /** Ship-local XZ offset for a wreck riding the moving deck (see setCrashed handling). */
+    crashedCarrierLocalValid = false;
+    crashedCarrierLocalX = 0;
+    crashedCarrierLocalZ = 0;
     readonly hookBody = new THREE.Vector3();
     readonly prevHook = new THREE.Vector3();
     hasPrevHook = false;
@@ -257,6 +261,7 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         this.arrestorHeld = false;
         this.carrierDeckSticky = false;
         this.carrierParkLocalValid = false;
+        this.crashedCarrierLocalValid = false;
         this.hasPrevHook = false;
         this.hasPrevPos = false;
         this.model.position = this.tmp.fromArray(spawn.position);
@@ -1014,6 +1019,14 @@ export class CombatSim implements ProjectileSink {
                 a.scrapeFxCooldown = Math.max(0, a.scrapeFxCooldown - delta);
             }
             a.applyInputsToModel();
+            if (a.model.isCrashed()) {
+                // FlightModel.step() no-ops once crashed, which would otherwise
+                // freeze the wreck in world space while the carrier sails on
+                // underneath it. Ride the deck kinematically instead.
+                this.applyCrashedCarrierRide(a);
+                a.resolveFiring();
+                continue;
+            }
             const parked = this.applyKinematicCarrierPark(a);
             if (!parked) {
                 const onCarrierFrame = this.beginCarrierRelativeFrame(a);
@@ -1199,6 +1212,35 @@ export class CombatSim implements ProjectileSink {
         a.model.clearAngularVelocity();
         a.model.snapPhysicsState();
         return true;
+    }
+
+    /**
+     * A wreck goes fully kinematic the moment it's marked crashed (see
+     * FlightModel.step) — fine on static terrain, but on deck the carrier
+     * sails on and leaves it floating over open water. Anchor its ship-local
+     * XZ offset once it settles on deck and keep riding the carrier's pose so
+     * it stays put instead. A wreck that isn't on the deck (open terrain, or
+     * knocked into the sea) is left exactly where it froze, as before.
+     */
+    private applyCrashedCarrierRide(a: SimAircraft): void {
+        if (!this.world || !this.isOnCarrierDeck(a) || !this.world.carrierOrigin(this.carrierOriginScratch)) {
+            a.crashedCarrierLocalValid = false;
+            return;
+        }
+        const origin = this.carrierOriginScratch;
+        const pos = a.model.position;
+        if (!a.crashedCarrierLocalValid) {
+            a.crashedCarrierLocalX = pos.x - origin.x;
+            a.crashedCarrierLocalZ = pos.z - origin.z;
+            a.crashedCarrierLocalValid = true;
+        }
+        pos.x = origin.x + a.crashedCarrierLocalX;
+        pos.z = origin.z + a.crashedCarrierLocalZ;
+        const vel = a.model.velocityVector;
+        vel.x = this.carrierVel.x;
+        vel.y = 0;
+        vel.z = this.carrierVel.z;
+        a.model.snapPhysicsState();
     }
 
     private updateCarrierDeckSticky(a: SimAircraft): void {
