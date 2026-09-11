@@ -75,6 +75,14 @@ export const TerrainVertProgram: string = `
   attribute float coverClass;
 
   const float AMBIENT_SKY_FLOOR = 0.4;
+  /**
+   * Sharpens the light/shadow terminator across slopes: N·L still spans the
+   * same 0..1 range, but a facet only half turned to the sun now reads
+   * noticeably darker instead of a wash of mid-grey. This is what makes
+   * terrain relief legible from slope shading alone, so it runs steeper than
+   * ShadedVertProgram's plain N·L for aircraft and objects.
+   */
+  const float SHADOW_CONTRAST_POWER = 1.69;
   const float RIM_POWER = 3.0;
   const float RIM_STRENGTH = 0.35;
   const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -184,7 +192,7 @@ ${LOG_DEPTH_PARS_VERTEX}
     // only, so the attribute is already the world normal.
     vec3 worldNormal = normalize(normal);
 
-    float ndl = pow(max(dot(worldNormal, uSunDir), 0.0), 1.3);
+    float ndl = pow(max(dot(worldNormal, uSunDir), 0.0), SHADOW_CONTRAST_POWER);
     float skyView = mix(AMBIENT_SKY_FLOOR, 1.0, 0.5 + 0.5 * worldNormal.y);
 
     vLight = uSunAmbient * skyView + uSunDirect * ndl;

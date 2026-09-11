@@ -45,8 +45,9 @@ $ npm run bake:mesh
 server runs the whole bake for that area and streams the progress back. From
 the command line it is the same six stages, sharing one `--bbox`; fetch a DEM
 for that area first — `npm run fetch:dem -- --bbox 7.6,45.9,7.8,46.0 --out
-data/imports/alps.tif` pulls it from the public Copernicus GLO-30 archive and
-writes the GeoTIFF the first command above takes as `--input`. See
+data/imports/alps.tif` pulls it from the public FABDEM archive (Copernicus
+GLO-30 with forest and building height bias removed) and writes the GeoTIFF
+the first command above takes as `--input`. See
 [`tools/README.md`](tools/README.md#height-sources).
 
 The cover stage is what gives terrain its colour: every facet is baked with

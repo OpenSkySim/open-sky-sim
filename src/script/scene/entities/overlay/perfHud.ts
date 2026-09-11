@@ -25,6 +25,7 @@ interface TerrainStatsShape {
     failed?: number;
     uploadMs?: number;
     pendingUploads?: number;
+    triangleBudgetHit?: boolean;
 }
 
 /** Frame-time EMA smoothing factor — same order as the terrain LOD governor's own. */
@@ -94,8 +95,9 @@ export class PerfHudEntity implements Entity {
 
         const terrainStats = (globalThis as Record<string, unknown>).__terrainStats as TerrainStatsShape | undefined;
         if (terrainStats) {
+            const budgetSuffix = terrainStats.triangleBudgetHit ? ' BUDGET' : '';
             lines.push(`Terrain: ${terrainStats.drawn} tiles, ${(terrainStats.triangles / 1000).toFixed(1)}k tri, `
-                + `detail ${terrainStats.detailScale.toFixed(2)}, ema ${terrainStats.frameEmaMs.toFixed(1)}ms`);
+                + `detail ${terrainStats.detailScale.toFixed(2)}, ema ${terrainStats.frameEmaMs.toFixed(1)}ms${budgetSuffix}`);
             // Streaming health. `queued` should drain toward zero in level
             // flight and `cache` should plateau; a climbing cache means
             // eviction is not reclaiming. `tier` must not change as you climb.

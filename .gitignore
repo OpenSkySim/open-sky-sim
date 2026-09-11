@@ -20,3 +20,6 @@ dist
 /tools/osm-cache/
 
 /build/
+
+# Overpass response cache written by the OSM bake tools
+/tools/data/osm-cache/

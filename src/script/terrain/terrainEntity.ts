@@ -34,7 +34,7 @@ import { FlattenPad, padFromRecord, padReachM } from './flattenPad';
 import { HeightField, HeightTier } from './heightField';
 import {
     MESH_CACHE_BYTES, PREFETCH_LOOKAHEAD_S, PREFETCH_MIN_DISTANCE_M, RECONCILE_INTERVAL_MS,
-    TERRAIN_DETAIL_DISTANCE_DEFAULT_M, adjustDetailScale,
+    TERRAIN_DETAIL_DISTANCE_DEFAULT_M, TERRAIN_TRIANGLE_BUDGET, adjustDetailScale,
 } from './lod';
 import {
     TerrainManifest, baseUrlOf, heightIndexUrl, heightTileUrl, meshIndexUrl, meshTileUrl,
@@ -122,6 +122,8 @@ export interface TerrainStats {
     failed: number;
     uploadMs: number;
     pendingUploads: number;
+    /** TERRAIN_TRIANGLE_BUDGET cut this frame's draw list short (see syncGroup). */
+    triangleBudgetHit: boolean;
 }
 
 export class TerrainEntity implements Entity {
@@ -203,6 +205,8 @@ export class TerrainEntity implements Entity {
     private detailDistanceM = TERRAIN_DETAIL_DISTANCE_DEFAULT_M;
     private drawList: QuadNode[] = [];
     private drawnTriangles = 0;
+    /** Set for a frame where TERRAIN_TRIANGLE_BUDGET cut the draw list short. */
+    private triangleBudgetHit = false;
     /**
      * Plan-view triangle indices for the drawn tiles something has asked the
      * surface height of. Built on demand and dropped as soon as the tile stops
@@ -688,7 +692,7 @@ export class TerrainEntity implements Entity {
 
         this.streamer.setWants(r.wants, this.speculativeWants(camera, r.wants));
         this.drawList = r.draw;
-        this.syncGroup();
+        this.syncGroup(camera.position);
         publishTerrainStats({ ...this.stats, altitudeM: camera.position.y });
     }
 
@@ -756,13 +760,31 @@ export class TerrainEntity implements Entity {
     /** Viewport height in px, taken from the render target each pass. */
     private viewportHeightPx = 200;
 
-    private syncGroup(): void {
+    private syncGroup(camPos: THREE.Vector3): void {
         this.group.clear();
         this.drawnTriangles = 0;
+        this.triangleBudgetHit = false;
         this.pruneDrawnHeightIndices();
-        for (const node of this.drawList) {
+        // Nearest first: when the triangle budget below has to cut the list
+        // short, it is always the farthest (already coarsest, least missed)
+        // tiles that go missing, never ones near the camera.
+        const ordered = this.drawList.length > 1
+            ? [...this.drawList].sort((a, b) =>
+                a.center.distanceToSquared(camPos) - b.center.distanceToSquared(camPos))
+            : this.drawList;
+        for (const node of ordered) {
             const meshes = this.streamer.get(node.id);
             if (meshes) {
+                if (this.drawnTriangles >= TERRAIN_TRIANGLE_BUDGET) {
+                    // See TERRAIN_TRIANGLE_BUDGET: the SSE governor bounds
+                    // error, not triangle count, and can still leave a
+                    // pathologically large draw list over complex terrain.
+                    // Everything from here on is farther than everything
+                    // already added, so stopping rather than skipping keeps
+                    // the gap this creates confined to the view's far edge.
+                    this.triangleBudgetHit = true;
+                    break;
+                }
                 // A sea patch built while this tile was still in flight has
                 // done its job; drop it rather than hold its buffers for a
                 // node that now has real geometry.
@@ -833,6 +855,7 @@ export class TerrainEntity implements Entity {
             failed: s.failed,
             uploadMs: this.streamer.stats.uploadMs,
             pendingUploads: this.streamer.pendingUploads,
+            triangleBudgetHit: this.triangleBudgetHit,
         };
     }
 }

@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { domeShade } from '../../atmosphere/skyModel';
 import { Palette, PaletteCategory, PaletteColor } from '../../../config/palettes/palette';
 import { SceneMaterialManager } from "../../materials/materials";
-import { DITHER_PARS_FRAGMENT } from '../../materials/shaders/dither';
 import { LOG_DEPTH_FRAGMENT, LOG_DEPTH_PARS_FRAGMENT, LOG_DEPTH_PARS_VERTEX, LOG_DEPTH_VERTEX } from '../../materials/shaders/logDepth';
 import {
     SCENE_DEPTH_PARS_FRAGMENT, SCENE_DEPTH_SKY_CUT, SCENE_DEPTH_UNIFORMS,
@@ -115,26 +114,17 @@ const SKY_FRAGMENT_PROGRAM = `
 ${SCENE_DEPTH_PARS_FRAGMENT}
 #endif
 ${LOG_DEPTH_PARS_FRAGMENT}
-${DITHER_PARS_FRAGMENT}
   void main() {
-    // Only the glare's coverage stipple below still needs this - the colour
-    // band dithering that used to share it is gone (see the fragColor line).
-    float threshold = bayerThreshold(gl_FragCoord.xy);
     // Falloff is what the glare fades along, interpolated across the annulus:
-    // 1 at the sun's limb, 0 at the far edge. Coverage is stippled rather than
-    // blended, this pipeline having no alpha, and the dome passes 1 here and
-    // keeps every pixel.
+    // 1 at the sun's limb, 0 at the far edge. The dome passes 1 here and
+    // keeps every pixel opaque.
     float coverage = vSkyFalloff;
 #ifdef SKY_GLARE
     // An aureole is sunlight scattered by the air *in front of* whatever the
     // pixel shows, so how much of it there is depends on how much air that is.
     // Against open sky it is the whole column and the glare is at full
     // strength; against a ridge a few km out it is almost nothing, and the
-    // ridge has to stay a ridge rather than being stippled away.
-    //
-    // Coverage is the only alpha there is here, so the veil scales that and
-    // leaves the tone below alone: glare seen through haze comes out as sparse
-    // dots at the sky's own brightness, not as a dimmed wash.
+    // ridge has to stay a ridge rather than being veiled away.
     float sceneDist = sceneDistance(gl_FragCoord.xy);
     float occluded = step(sceneDist, uSceneFar * float(${SCENE_DEPTH_SKY_CUT}));
     coverage *= mix(1.0, 1.0 - exp2(-uVeilDensity * sceneDist), occluded);
@@ -144,24 +134,30 @@ ${DITHER_PARS_FRAGMENT}
     // hole open punches the ground colour through the brightest point of the
     // sky. Occlusion is exactly the test that tells those two apart.
     coverage *= mix(1.0, occluded, vSkyCap);
-    // Only the glare ring ever stipples pixels away - the plain dome's
-    // coverage is always 1 (see above), and 1 + threshold never drops below
-    // 0.5. A discard that can never fire still keeps the compiler from
-    // proving the dome's own program has no discard at all, which can cost
-    // it whatever early-depth optimisation the driver would otherwise apply.
-    if (coverage + threshold < 0.5) {
+    if (coverage <= 0.0) {
       discard;
     }
 #endif
     // Smooth, not banded: quantising this into steps was the one thing about
     // the sky that could not survive being shaded at a fraction of the output
     // resolution and upscaled in (see Renderer.renderBackgroundSkyDownscaled)
-    // - the dither pattern that broke each band up is exactly as fine as a
-    // native pixel, and upscaling stretches every one of its dots into a
-    // block the size of the downscale factor. A plain gradient has no such
-    // per-pixel structure to begin with, so it upscales cleanly.
+    // - a per-pixel dither pattern is exactly as fine as a native pixel, and
+    // upscaling stretches every one of its dots into a block the size of the
+    // downscale factor. A plain gradient has no such per-pixel structure to
+    // begin with, so it upscales cleanly.
+    //
+    // The glare used to fake its falloff with the same kind of per-pixel
+    // stipple, coverage picking a discard threshold instead of a blend weight
+    // - because this pipeline otherwise has no alpha. That has the identical
+    // upscaling problem the dome's old banding did, and additionally reads as
+    // a visible ring wherever the stipple ratio changes quickly (right around
+    // the disc, where the falloff is steepest). Real alpha is what the
+    // falloff actually is - a coverage fraction - and the glare is the only
+    // thing in this pipeline that ever draws last, over an already-finished
+    // frame, with depth testing off: nothing behind it still needs to sort
+    // against it, so blending it costs nothing a discard doesn't already.
     vec3 toned = vSkyColor * mix(1.0, uSkyOverbright, vSkyFalloff);
-    gl_FragColor = vec4(clamp(toned, 0.0, 1.0), 1.0);
+    gl_FragColor = vec4(clamp(toned, 0.0, 1.0), coverage);
 ${LOG_DEPTH_FRAGMENT}
   }
 `;
@@ -216,6 +212,13 @@ export function createSkyMaterial(
         },
         side,
         depthWrite: false,
+        // The glare is the last thing drawn into the frame, over an already-
+        // resolved scene, with depth testing off - nothing behind it still
+        // needs to sort against it, so real alpha blending is safe here even
+        // though the rest of this renderer avoids translucency for sorting
+        // reasons. The dome itself always writes alpha 1, so this is a no-op
+        // for it.
+        transparent: glare,
         // Its colours are vertex data, not palette uniforms, so the material
         // manager has nothing to do here and never sees it.
         userData: {},

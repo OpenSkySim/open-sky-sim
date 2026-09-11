@@ -4,8 +4,10 @@ import * as THREE from 'three';
 import { SceneMaterialManager } from '../scene/materials/materials';
 import { SceneLayers } from '../scene/scene';
 import { beginRenderListPass, pruneRenderList } from '../render/renderList';
+import { TERRAIN_TRIANGLE_BUDGET } from './lod';
 import { TerrainManifest } from './manifest';
 import { TerrainEntity } from './terrainEntity';
+import { TileMeshes } from './tileMesh';
 
 /** Enough of the material manager to construct the entity. */
 const materials = {
@@ -256,5 +258,74 @@ describe('a sea stand-in must not count as a loaded tile (regression)', () => {
             'the sea stand-in made the tile look resident, so its fetch is cancelled '
             + 'and the land never loads',
         );
+    });
+});
+
+describe('terrain triangle budget (safety valve)', () => {
+    /** A fake resident tile with an exact, controllable triangle count. */
+    function fakeMeshes(triangles: number, name: string): TileMeshes {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(triangles * 3 * 3), 3));
+        const land = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+        const group = new THREE.Group();
+        group.name = name;
+        return { group, land };
+    }
+
+    /** Stages `count` synthetic resident tiles at increasing distance, each with `trianglesEach`. */
+    function stage(entity: TerrainEntity, count: number, trianglesEach: number): void {
+        const streamer = (entity as unknown as {
+            streamer: { get: (id: unknown) => TileMeshes | undefined };
+        }).streamer;
+        const tiles = new Map<string, TileMeshes>();
+        const drawList = [];
+        for (let i = 0; i < count; i++) {
+            const id = { z: 5, x: i, y: 0 };
+            const key = `5/${i}/0`;
+            tiles.set(key, fakeMeshes(trianglesEach, key));
+            drawList.push({
+                id, key,
+                center: new THREE.Vector3((i + 1) * 1000, 0, 0),
+                radius: 1,
+            });
+        }
+        streamer.get = (wantedId: unknown) => {
+            const { z, x, y } = wantedId as { z: number; x: number; y: number };
+            return tiles.get(`${z}/${x}/${y}`);
+        };
+        (entity as unknown as { drawList: unknown[] }).drawList = drawList;
+    }
+
+    function syncGroup(entity: TerrainEntity, camPos: THREE.Vector3): void {
+        (entity as unknown as { syncGroup: (p: THREE.Vector3) => void }).syncGroup(camPos);
+    }
+
+    it('leaves an ordinary draw list untouched', () => {
+        const entity = makeEntity();
+        stage(entity, 5, 1000); // 5,000 triangles total, nowhere near the budget
+        syncGroup(entity, new THREE.Vector3());
+
+        assert.equal(entity.stats.triangles, 5000);
+        assert.equal(entity.stats.triangleBudgetHit, false);
+        const group = (entity as unknown as { group: THREE.Group }).group;
+        assert.equal(group.children.length, 5, 'every tile was drawn');
+    });
+
+    it('keeps the nearest tiles and drops the farthest once over budget', () => {
+        const entity = makeEntity();
+        const each = 200_000;
+        stage(entity, 5, each); // 1,000,000 total, well over TERRAIN_TRIANGLE_BUDGET
+        syncGroup(entity, new THREE.Vector3());
+
+        assert.equal(entity.stats.triangleBudgetHit, true);
+        assert.ok(
+            entity.stats.triangles <= TERRAIN_TRIANGLE_BUDGET,
+            `drew ${entity.stats.triangles}, over the ${TERRAIN_TRIANGLE_BUDGET} budget`,
+        );
+        const group = (entity as unknown as { group: THREE.Group }).group;
+        const kept = group.children.map(c => c.name).sort();
+        // Nearest-first: with a 600k budget and 200k/tile, exactly the 3
+        // nearest (x = 1000, 2000, 3000) fit; the two farthest are dropped.
+        assert.deepEqual(kept, ['5/0/0', '5/1/0', '5/2/0']);
     });
 });

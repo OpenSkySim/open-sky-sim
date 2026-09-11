@@ -105,6 +105,25 @@ export const DETAIL_SCALE_MIN = 1;
 export const DETAIL_SCALE_MAX = 4;
 
 /**
+ * Hard ceiling on triangles actually added to the terrain draw group, applied
+ * in the camera's own draw order (nearest first) after the SSE/detailScale
+ * governor has already run.
+ *
+ * The governor bounds screen-space error, not total triangle count: over
+ * sufficiently complex baked terrain (a mountainous coastline, say) even
+ * DETAIL_SCALE_MAX backoff can still leave the draw list at a triangle count
+ * no frame budget survives, because backing off the *error target* only
+ * shrinks that terrain's tile count by a few dozen percent, not the order of
+ * magnitude a pathological view needs. This is the safety valve underneath
+ * it: once spent, the (already farthest, already least-refined) remainder of
+ * the draw list for this frame is simply not added, trading a gap at the
+ * view's far edge for keeping the frame anywhere near playable. Sized well
+ * above what any ordinary flight profile draws (a few hundred K triangles),
+ * so it is not expected to engage outside that kind of pathological case.
+ */
+export const TERRAIN_TRIANGLE_BUDGET = 600_000;
+
+/**
  * Per-frame GPU upload budget. Tile sizes vary far too much for a fixed count
  * to mean anything, so the streamer paces by time instead.
  */

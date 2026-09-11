@@ -211,7 +211,13 @@ function buildHazeTierGeometry(lobes: CloudPuffLobe[], tier: HazeTier, tierIndex
             // clear of it with room to spare.
             const puffY = Math.max(l.y + dirY * dist, minY + puffR * 1.6);
 
-            const g = new THREE.IcosahedronGeometry(puffR, 1);
+            // Detail 0 (20 tri) rather than 1 (80 tri): these puffs are
+            // stippled/alpha-discarded and never inspected up close (see
+            // SceneryField's clouds lodBias), so the coarser facets are lost
+            // in the dither while the 4x triangle cut matters a lot — a
+            // nearby large cloud's haze alone can otherwise run into the tens
+            // of thousands of triangles (see cloud/cirrus __fieldStats).
+            const g = new THREE.IcosahedronGeometry(puffR, 0);
             g.translate(l.x + dirX * dist, puffY, l.z + dirZ * dist);
             puffs.push(g);
         }
