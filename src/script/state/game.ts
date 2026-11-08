@@ -559,7 +559,7 @@ const CARRIER_GROOVE_SETUP: Partial<Record<SimFlightModelKind, CarrierGrooveSetu
 /** On-deck takeoff: take-off position 1 (port, ~116 m from the lip), facing up its lane. */
 const CARRIER_TAKEOFF_POSITION = TAKEOFF_POSITIONS[0];
 /** The jet starts this far (m) up its lane from the painted start position. */
-const CARRIER_TAKEOFF_AHEAD_OF_START_M = 7;
+const CARRIER_TAKEOFF_AHEAD_OF_START_M = 5.3;
 const CARRIER_TAKEOFF_LANE_DX = CARRIER_TAKEOFF_POSITION.lane[1].x - CARRIER_TAKEOFF_POSITION.start.x;
 const CARRIER_TAKEOFF_LANE_DZ = CARRIER_TAKEOFF_POSITION.lane[1].z - CARRIER_TAKEOFF_POSITION.start.z;
 const CARRIER_TAKEOFF_LANE_LEN = Math.hypot(CARRIER_TAKEOFF_LANE_DX, CARRIER_TAKEOFF_LANE_DZ);
