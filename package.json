@@ -42,7 +42,9 @@
         "deploy:pages": "node tools/deploy-pages.mjs",
         "preserve": "npm run build",
         "serve": "tsx tools/modserver.ts",
-        "test": "node --import tsx --test src/script/config/**/*.test.ts src/script/physics/**/*.test.ts src/script/ai/**/*.test.ts src/script/mission/**/*.test.ts src/script/weapons/**/*.test.ts src/script/state/**/*.test.ts src/script/render/**/*.test.ts src/script/scene/**/*.test.ts src/script/planet/**/*.test.ts src/script/terrain/**/*.test.ts src/script/ui/**/*.test.ts tools/bake/**/*.test.ts tools/satellite/**/*.test.ts tools/*.test.ts"
+        "pretest": "npm run lint:sg",
+        "test": "node --import tsx --test src/script/config/**/*.test.ts src/script/physics/**/*.test.ts src/script/ai/**/*.test.ts src/script/mission/**/*.test.ts src/script/weapons/**/*.test.ts src/script/state/**/*.test.ts src/script/render/**/*.test.ts src/script/scene/**/*.test.ts src/script/planet/**/*.test.ts src/script/terrain/**/*.test.ts src/script/ui/**/*.test.ts tools/bake/**/*.test.ts tools/satellite/**/*.test.ts tools/*.test.ts",
+        "lint:sg": "ast-grep scan"
     },
     "author": "Ruben Moreno Montoliu <ruben3d@gmail.com>",
     "license": "MIT",
@@ -63,6 +65,7 @@
     },
     "devDependencies": {
         "@angular/compiler-cli": "~22.1.6",
+        "@ast-grep/cli": "^0.51.1",
         "@babel/core": "^8.0.5",
         "@ngtools/webpack": "~22.1.8",
         "@tailwindcss/postcss": "~4.3.3",

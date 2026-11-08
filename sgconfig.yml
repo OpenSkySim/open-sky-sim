@@ -1,0 +1,4 @@
+# ast-grep project config: `npm run lint:sg` (or `ast-grep scan`) runs every rule below.
+# Ad-hoc structural search: ast-grep run --lang ts -p '<pattern>' src/script
+ruleDirs:
+  - ast-grep/rules

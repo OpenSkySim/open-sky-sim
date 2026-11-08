@@ -1,0 +1,13 @@
+id: no-process-env-in-game
+language: TypeScript
+severity: error
+message: process.env in game code; the browser bundle has no process, so this throws at load.
+note: |
+  A module-level process.env read in railBed.ts once crashed the game (the :8020 watcher
+  ships it within seconds). Read env vars in tools/ or *.test.ts, or pass the value in.
+files:
+  - src/script/**/*.ts
+ignores:
+  - src/script/**/*.test.ts
+rule:
+  pattern: process.env
