@@ -65,6 +65,7 @@ import { buildRoadExclusion } from './roadExclusion';
 import { buildAirfieldExclusion, AirfieldExclusion } from './airfieldExclusion';
 import { coverInPtmTile } from './finestCover';
 import { Airfield } from './airfields';
+import { clipWaterToBoxes } from './fillWaterClip';
 import { OceanPatch, buildOceanPatch, disposeOceanPatch, mergeOceanPatches } from './oceanPatch';
 import { PtmTile } from './ptm';
 import { QuadNode, Quadtree } from './quadtree';
@@ -2750,6 +2751,8 @@ export class TerrainEntity implements Entity {
      * covers it, but the fill's water still won over it in blocks where the
      * ramp has run out. Water inside an area, a coast or a lake by the edge,
      * stays.
+     * Triangles across an area's edge are clipped to it, not kept or dropped
+     * whole: see fillWaterClip.ts.
      */
     private clipFillWater(id: TileKey, meshes: TileMeshes): void {
         const water = meshes.water;
@@ -2780,30 +2783,24 @@ export class TerrainEntity implements Entity {
         const centreLon = (b.west + b.east) / 2;
         const degLat = 1 / 111_320;
         const degLon = degLat / Math.cos(centreLat * Math.PI / 180);
-        const src = index.array;
-        const kept: number[] = [];
-        for (let t = 0; t < src.length; t += 3) {
-            v.set(0, 0, 0);
-            for (let k = 0; k < 3; k++) {
-                v.x += pos.getX(src[t + k]) / 3;
-                v.y += pos.getY(src[t + k]) / 3;
-                v.z += pos.getZ(src[t + k]) / 3;
-            }
-            v.multiplyScalar(scale).applyQuaternion(turn);
-            const lon = centreLon + v.x * degLon;
-            const lat = centreLat - v.z * degLat;
-            if (areas.some(a => lon >= a.west && lon <= a.east && lat >= a.south && lat <= a.north)) {
-                kept.push(src[t], src[t + 1], src[t + 2]);
-            }
-        }
-        if (kept.length === src.length) {
+        const tone = geometry.getAttribute('secondTone');
+        const clipped = clipWaterToBoxes(
+            pos.array, tone.array, index.array,
+            (x, y, z) => {
+                v.set(x, y, z).multiplyScalar(scale).applyQuaternion(turn);
+                return [centreLon + v.x * degLon, centreLat - v.z * degLat];
+            },
+            areas,
+        );
+        if (!clipped) {
             return;
         }
-        const ArrayType = src.constructor as new (values: number[]) => THREE.TypedArray;
-        geometry.setIndex(new THREE.BufferAttribute(new ArrayType(kept), 1));
+        geometry.setAttribute('position', new THREE.BufferAttribute(clipped.positions, 3));
+        geometry.setAttribute('secondTone', new THREE.BufferAttribute(clipped.tones, 1));
+        geometry.setIndex(new THREE.BufferAttribute(clipped.index, 1));
         geometry.clearGroups();
-        geometry.addGroup(0, kept.length, TerrainTone.Water);
-        water.visible = kept.length > 0;
+        geometry.addGroup(0, clipped.index.length, TerrainTone.Water);
+        water.visible = clipped.index.length > 0;
     }
 
     /** Whether a tile overlaps a baked area without lying wholly inside one. */
