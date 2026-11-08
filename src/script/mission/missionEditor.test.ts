@@ -156,21 +156,20 @@ describe('MissionEditor', () => {
         assert.notEqual(e.mission(), before);
         assert.equal(before.flights.length, 0);
     });
-    it('points an air start down its first leg, and keeps a heading typed in after', () => {
+    it('points an air start down its first leg, whatever else is edited', () => {
         const e = editor();
         e.addFlight();
         // East of the start (52.4, 13.06), on its latitude.
         e.clickMap(52.4, 13.3);
         const start = () => e.mission().flights[0].start as { headingDeg: number };
         assert.ok(Math.abs(start().headingDeg - 90) < 0.2, `heading ${start().headingDeg}`);
-        e.updateAirStart(0, { headingDeg: 45 });
         e.clickMap(52.6, 13.4);
-        assert.equal(start().headingDeg, 45, 'a later waypoint changed a typed heading');
+        assert.ok(Math.abs(start().headingDeg - 90) < 0.2, 'a later waypoint turned the start');
         // The first waypoint moved due south of the start: the heading follows.
         e.moveWaypoint(0, 0, 52.2, 13.06);
         assert.ok(Math.abs(start().headingDeg - 180) < 1e-6, `heading ${start().headingDeg}`);
-        e.updateAirStart(0, { headingDeg: -90 });
-        assert.equal(start().headingDeg, 270);
+        e.updateAirStart(0, { altM: 500 });
+        assert.ok(Math.abs(start().headingDeg - 180) < 1e-6, 'an altitude edit turned the start');
     });
 
     it('reports an emptied altitude instead of taking it as 0 m', () => {

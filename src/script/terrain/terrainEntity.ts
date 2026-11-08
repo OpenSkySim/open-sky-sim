@@ -692,7 +692,10 @@ export class TerrainEntity implements Entity {
             const entries = [...this.streamer.values()]
                 .filter(m => m.treesRequested && !m.disposed && m.treeSource !== undefined);
             for (let i = 0; i < entries.length; i += TILES_PER_BURST) {
+                // Re-check: a tile evicted during an earlier burst's await has
+                // been disposed and lost its scatter source since the filter.
                 const burst = entries.slice(i, i + TILES_PER_BURST)
+                    .filter(m => !m.disposed && m.treeSource !== undefined)
                     .map(meshes => this.attachTrees(meshes.treeSource!, meshes, materials));
                 await Promise.all(burst);
                 await new Promise(r => setTimeout(r, YIELD_MS));

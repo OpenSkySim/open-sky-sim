@@ -127,6 +127,12 @@ export class SceneDepthPass {
         SCENE_DEPTH_UNIFORMS.uSceneFar.value = far;
     }
 
+    /** Free the copy made for `source`, a target that is being disposed. */
+    release(source: THREE.WebGLRenderTarget): void {
+        this.copies.get(source)?.dispose();
+        this.copies.delete(source);
+    }
+
     private copyFor(source: THREE.WebGLRenderTarget): THREE.WebGLRenderTarget {
         let copy = this.copies.get(source);
         if (copy === undefined) {

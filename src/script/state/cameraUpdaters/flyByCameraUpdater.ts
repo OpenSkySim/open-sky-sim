@@ -14,15 +14,14 @@ const SIDE_M = 35;
 const ABOVE_M = 8;
 /** Clearance kept over the ground at the drop point. */
 const GROUND_CLEARANCE_M = 4;
-/** The aircraft this far past the camera (behind it, along the flight path) re-drops it. */
-const REDROP_M = 400;
 /** Half the subject size the zoom frames; smaller zooms in further. */
 const FRAME_HALF_M = 25;
 const MIN_FOV = 8;
 
 /**
- * Flanker's F3: the camera is left hanging in the air ahead of the aircraft,
- * watches it go by, and is dropped ahead again once it is well past.
+ * Flanker's F3: the camera is left hanging in the air ahead of the aircraft
+ * and watches it go by, zooming to keep it framed. It stays there until the
+ * next F3 drops it ahead again.
  */
 export class FlyByCameraUpdater extends CameraUpdater {
 
@@ -52,7 +51,7 @@ export class FlyByCameraUpdater extends CameraUpdater {
     update(delta: number): void {
         const pos = this.actor.getDisplayPosition();
         const vel = this.actor.getDisplayVelocity();
-        if (!this.placed || this.isWellPast(pos, vel)) {
+        if (!this.placed) {
             this.drop(pos, vel);
         }
         this.camera.position.copy(this.anchor);
@@ -65,16 +64,6 @@ export class FlyByCameraUpdater extends CameraUpdater {
             this.camera.fov = fov;
             this.camera.updateProjectionMatrix();
         }
-    }
-
-    private isWellPast(pos: THREE.Vector3, vel: THREE.Vector3): boolean {
-        this._v.subVectors(pos, this.anchor);
-        const speed = vel.length();
-        if (speed < 1) {
-            // Parked or nearly so: only when it has wandered off.
-            return this._v.length() > LEAD_MAX_M * 2;
-        }
-        return this._v.dot(vel) / speed > REDROP_M;
     }
 
     private drop(pos: THREE.Vector3, vel: THREE.Vector3): void {

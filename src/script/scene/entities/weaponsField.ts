@@ -38,12 +38,23 @@ export class WeaponsField implements Entity {
         // Nothing: projectile state is owned by the combat sim worker.
     }
 
+    /**
+     * Flight replay: draw these recorded rounds (position + orientation per
+     * round, PROJ_STRIDE floats) instead of the sim's. Undefined: live again.
+     */
+    private replayRounds: { buffer: Float32Array; count: number } | undefined;
+
+    setReplayRounds(rounds: { buffer: Float32Array; count: number } | undefined): void {
+        this.replayRounds = rounds;
+    }
+
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
         if (!lists.has(SceneLayers.EntityVolumes) && !lists.has(SceneLayers.EntityFlats)) {
             return;
         }
-        const buf = this.combatSim.getProjectileBuffer();
-        const n = Math.min(this.combatSim.getProjectileCount(), this.tracers.length);
+        const replay = this.replayRounds;
+        const buf = replay ? replay.buffer : this.combatSim.getProjectileBuffer();
+        const n = Math.min(replay ? replay.count : this.combatSim.getProjectileCount(), this.tracers.length);
         for (let i = 0; i < n; i++) {
             const base = i * PROJ_STRIDE;
             this.pos.set(buf[base], buf[base + 1], buf[base + 2]);

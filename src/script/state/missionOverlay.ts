@@ -218,7 +218,7 @@ export class MissionOverlay {
                 + `<circle r="9" fill="${picked ? colour : '#0d1a26'}" stroke="${colour}" stroke-width="2"/>`
                 + `<text text-anchor="middle" dy="4" fill="${picked ? '#0d1a26' : colour}">${j + 2}</text>`
                 + (selected ? `<text x="13" dy="4" class="${LABEL}" fill="${colour}">`
-                    + `${Math.round(w.altM / alt.si / altStep) * altStep} ${alt.label} · `
+                    + `${Math.round(w.altM / alt.si / altStep) * altStep} ${alt.label} ${w.altRef === 'agl' ? 'AGL' : 'MSL'} · `
                     + `${Math.round(w.speedMps / spd.si)} ${spd.label}</text>` : '')
                 + '</g>';
         });

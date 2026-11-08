@@ -60,9 +60,51 @@ export class Kernel {
         this.prevTime = performance.now() - DEFAULT_FRAME_DURATION;
     }
 
+    /**
+     * Offline frame capture (video export): every frame advances exactly
+     * `step` seconds whatever the wall clock did, and the next one waits
+     * until `frame()` settles. `frame()` runs in the same task as the render,
+     * so it can still read the canvas. It answers whether the frame was
+     * taken: false re-renders the same moment with no time passing (terrain
+     * still streaming in), true moves on by `step`.
+     */
+    private capture: { step: number; frame: () => Promise<boolean>; busy: boolean; advance: boolean } | undefined;
+
+    setCaptureMode(step: number, frame: () => Promise<boolean>): void {
+        // The first frame shows the moment capture starts at.
+        this.capture = { step, frame, busy: false, advance: false };
+    }
+
+    clearCaptureMode(): void {
+        this.capture = undefined;
+        this.prevTime = performance.now() - DEFAULT_FRAME_DURATION;
+        this.targetFPSprogress = 0;
+    }
+
+    private runCapture(c: NonNullable<Kernel['capture']>): void {
+        if (c.busy) {
+            return;
+        }
+        this.runUpdates(c.advance ? c.step : 0);
+        this.runRenders();
+        c.busy = true;
+        c.frame().then(taken => {
+            c.advance = taken;
+        }, () => {
+            c.advance = true;
+        }).finally(() => {
+            c.busy = false;
+        });
+    }
+
     private runTasks() {
         const deltaMs = this.updateDeltas();
         window.requestAnimationFrame(this.runTasksFn);
+
+        if (this.capture) {
+            this.runCapture(this.capture);
+            return;
+        }
 
         if (this.targetFPS) {
             this.targetFPSprogress += deltaMs;

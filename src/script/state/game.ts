@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { AudioSystem } from '../audio/audioSystem';
-import { ConfigService } from '../config/configService';
+import { ConfigService, Foveation } from '../config/configService';
 import { isOverlayKeyEvent } from '../input/overlayKeys';
 import { daytimePalette } from '../config/palettes/daytimePalette';
 import { Palette, PaletteCategory, PaletteColor } from '../config/palettes/palette';
@@ -8,7 +8,7 @@ import { ShowcasePalette } from '../config/palettes/showcase';
 import { HDMidnightPalette } from '../config/palettes/hd-midnight';
 import { HDNoonPalette } from '../config/palettes/hd-noon';
 import { loadSettings, SpawnMode, updateSettings } from '../config/settingsStorage';
-import { KernelRenderTask, KernelUpdateTask } from '../core/kernel';
+import { Kernel, KernelRenderTask, KernelUpdateTask } from '../core/kernel';
 import { fm2GroundRestHeight } from '../physics/fm2/fm2AircraftConfig';
 import { AIRBASE_RUNWAY as AIRBASE_RUNWAY_RAW, APPROACH_ALTITUDE_M, APPROACH_SPEED_MPS, COCKPIT_FAR, COCKPIT_FOV, HIGH_ALTITUDE_M, H_RES, PLANE_DISTANCE_TO_GROUND, RUNWAY_HALF_LENGTH_M, SPACE_ALTITUDE_M, V_RES } from '../defs';
 import {
@@ -134,7 +134,7 @@ import { flightConfigWithArrestorHook } from '../scene/entities/arrestorCables';
 import { Obstacle, Runway } from '../ai/worldQuery';
 import { AiFlightPhase, AiPilotOptions, AiRoute, AiSkillLevel, FORMATION_SLOT } from '../ai/aiPilot';
 import { AiAircraftEntity, AiAircraftSpawn } from '../scene/entities/aiAircraft';
-import { Flight, FlightEndpoint, MAX_FLIGHTS, Mission } from '../mission/flightPlan';
+import { AltitudeRef, Flight, FlightEndpoint, MAX_FLIGHTS, Mission } from '../mission/flightPlan';
 import { MissionEditor, RunwayEnd } from '../mission/missionEditor';
 import { loadMission } from '../mission/missionStore';
 import { MissionOverlay } from './missionOverlay';
@@ -153,11 +153,14 @@ import { SkiJumpModelLibBuilder } from '../scene/models/lib/skiJumpModelBuilder'
 import { HeightFieldSender, MirrorFocus, SerializedHeightField } from '../terrain/heightMirror';
 import { rebaseMeshCollider, rebaseRunway, rebaseSkiJump, rebaseSurfacePad } from './worldRebase';
 import { FlightRecorder, ReplayPlayer, newReplayPose } from './flightRecorder';
+import { downloadBlob, Mp4VideoWriter, videoExportSupported } from './videoWriter';
+import { ActorState, newActorState, WorldRecorder } from './worldRecorder';
+import { copyEffectEvent, EffectEvent, EffectEventLog } from './effectEventLog';
 import { SimAircraftSpawn, SimFlightModelKind, SimGunConfig, SimHitEvent } from '../physics/sim/simTypes';
 import { PLAYER_SIM_ID, WINGMAN_SIM_ID, aiSimId } from '../physics/sim/simIds';
 import { AiPilotModels, TerrainShading } from './gameDefs';
 import {
-    SPACE_SKY_ALTITUDE_M, TerrainEntity, cameraFarForAltitudeM,
+    DEFAULT_TERRAIN_URL, SPACE_SKY_ALTITUDE_M, TerrainEntity, cameraFarForAltitudeM,
     isTerrainWireframe, loadTerrainManifest, setTerrainWireframe, terrainManifestUrl,
 } from '../terrain';
 import {
@@ -215,6 +218,78 @@ const SHELL_SKY_GAIN_END_M = 80_000;
  */
 const GLOBE_MAP_FADE_START_M = 35_000;
 const GLOBE_MAP_FADE_END_M = 60_000;
+/** A replay's effects start over this far before where it jumps to (see Game.resimulateReplayEffects). */
+const REPLAY_EFFECT_LOOKBACK_S = 90;
+/** Step a replay's effects catch up in after a jump. */
+const REPLAY_EFFECT_RESIM_STEP_S = 1 / 15;
+/** A replay moving on further than this in one frame is a jump: its effects start over. */
+const REPLAY_EFFECT_MAX_STEP_S = 1;
+
+/** One wired set of effect fields; see Game.buildEffectFields. */
+interface EffectFields {
+    debris: DebrisField;
+    marks: ImpactMarks;
+    wrecks: WreckField;
+    smoke: DamageSmokeField;
+}
+
+/** In the order the scene adds and updates them. */
+function effectFieldList(fx: EffectFields): Entity[] {
+    return [fx.debris, fx.marks, fx.wrecks, fx.smoke];
+}
+
+function clearEffectFields(fx: EffectFields): void {
+    fx.debris.clear();
+    fx.marks.clear();
+    fx.wrecks.clear();
+    fx.smoke.reset();
+}
+
+/** Frame rate of an exported replay video. */
+const VIDEO_EXPORT_FPS = 60;
+/** Longest one exported frame waits for terrain to stream in before it is taken anyway. */
+const VIDEO_FRAME_STREAM_WAIT_MS = 4000;
+/** The first frame may wait longer: a fresh camera position can need a whole view of tiles. */
+const VIDEO_FIRST_FRAME_STREAM_WAIT_MS = 20000;
+/** Seconds of flight the camera takes to glide from one view to the next. */
+const CAMERA_BLEND_S = 2;
+/**
+ * Closer than this to what it watches, a gliding camera stops aiming at it
+ * and just turns from the old view's heading to the new one: aiming at the
+ * centre of gravity from the pilot's seat a few metres ahead means looking
+ * backwards through the seat. Ramps over to aiming by AIM_FAR_M.
+ */
+const CAMERA_BLEND_AIM_NEAR_M = 8;
+const CAMERA_BLEND_AIM_FAR_M = 20;
+/** Within this of the pilot's eye a glide into or out of the cockpit already shows the cockpit, not the airframe around it. */
+const CAMERA_BLEND_COCKPIT_M = 3;
+/** A glide into or out of the cockpit arcs this high over the airframe halfway, clear of the fins. */
+const CAMERA_BLEND_COCKPIT_ARC_M = 8;
+const _blendLift = new THREE.Vector3();
+/** How far past the nose a glide into or out of the cockpit aims. */
+const CAMERA_BLEND_COCKPIT_LOOK_M = 60;
+const _blendFocus = new THREE.Vector3();
+const _blendFrom = new THREE.Vector3();
+const _blendTo = new THREE.Vector3();
+const _blendPlainQ = new THREE.Quaternion();
+const _blendFromQ = new THREE.Quaternion();
+const _blendInvQ = new THREE.Quaternion();
+const _blendToQ = new THREE.Quaternion();
+const _blendLook = new THREE.Matrix4();
+/** How a camera at `eye` is turned to look straight at `focus` (world up kept up). */
+function lookRotation(eye: THREE.Vector3, focus: THREE.Vector3, out: THREE.Quaternion): THREE.Quaternion {
+    return out.setFromRotationMatrix(_blendLook.lookAt(eye, focus, UP));
+}
+
+/**
+ * Frames in an export of `span` recorder seconds at `speed`. The last one
+ * stays inside the span: a frame exactly at its end would read as the
+ * replay looping back to the start.
+ */
+function videoExportFrames(span: number, speed: number): number {
+    return Math.max(1, Math.floor(span * VIDEO_EXPORT_FPS / speed - 1e-6) + 1);
+}
+
 /** How long the terrain backlog must stay empty before the boot blur lifts; see Game.holdUntilStreamed. */
 const STREAM_SETTLE_MS = 600;
 /** The boot blur lifts after this even if streaming never goes quiet (a failing tile, a slow link). */
@@ -707,6 +782,8 @@ export class Game {
         entity !== this.cloudField && entity !== this.cirrusField && entity !== this.atmosphereShell;
     /** F9-toggled live FPS / draw-call / terrain-LOD readout. */
     private perfHud: PerfHudEntity | undefined;
+    /** The cockpit HUD, whose corner readout a clean video export hides. */
+    private hud: HUDEntity | undefined;
 
     /** Baked area this session flies in; decides the ENU origin and the scenery. */
     private playArea!: ActivePlayArea;
@@ -797,6 +874,7 @@ export class Game {
     /** Render scale the HD targets were last sized with (see updateHdResolution). */
     private hdRenderScale = 0;
     private hdSupersampling = false;
+    private hdFoveation?: Foveation;
     /** Real pixels per viewport pixel of the main view, as last sized. */
     private hdMainScale = 1;
 
@@ -878,6 +956,27 @@ export class Game {
     private readonly exteriorLockVisited = new Set<AiAircraftEntity>();
     /** The aircraft the F2 view follows; undefined is the player (see cycleExteriorSubject). */
     private exteriorSubject: AiAircraftEntity | undefined;
+    /**
+     * A view change in progress: where the camera was, in the aircraft's own
+     * frame (so the glide travels with it), and how far into the glide.
+     */
+    private cameraBlend: {
+        relPos: THREE.Vector3; relQuat: THREE.Quaternion; elapsed: number;
+        /** The old view's turn away from looking straight at the focus, fixed on the first blended frame. */
+        offFrom: THREE.Quaternion | undefined;
+        /** The start is kept in world axes, not the aircraft's: a tumbling wreck would swing it around. */
+        world: boolean;
+        /** Which end of the glide is the cockpit, if either: the cockpit is drawn only near the pilot's eye. */
+        cockpit: 'from' | 'to' | undefined;
+    } | undefined;
+    /** A clean video export is running: views must not switch the SPD / ALT overlay back on. */
+    private exportHidesOverlays = false;
+    /** Where the aircraft was shown when the next glide starts, if not where it is shown now (leaving the showcase). */
+    private blendReference: { position: THREE.Vector3; quaternion: THREE.Quaternion } | undefined;
+    /** F3 presses so far: a recording replays each fresh fly-by drop, not only the change into it. */
+    private flyByDrops = 0;
+    /** The fly-by drop the replay last put on (see flyByDrops). */
+    private followedFlyBy = -1;
     private cockpitPadlock = false;
     /** The left/right MFD overlay, for the keys that flip its pages. */
     private cockpit: CockpitEntity | undefined;
@@ -891,6 +990,39 @@ export class Game {
     private readonly replayPlayer = new ReplayPlayer(this.recorder);
     private readonly replayPose = newReplayPose();
     private replaying = false;
+    /** The replay watches through the recorded camera until the user picks a view. */
+    private replayFollowCamera = true;
+    /** Rec camera: the views picked while the replay plays are written into the recording. */
+    private replayRecordCamera = false;
+    /** Replay time the camera was last written up to (NaN: start at the next frame). */
+    private recordCameraFrom = NaN;
+    private readonly recordCameraScratch = { view: -1, subject: -1, yaw: 0, pitch: 0, zoom: 1 };
+    /** Replay time the recorded camera was last applied at (NaN: not yet). */
+    private followedAt = NaN;
+    /** The orbit last set from the recording: any other value means the user turned it. */
+    private followedOrbit: { yaw: number; pitch: number; zoom: number } | undefined;
+    /** The view the flight had when the replay began, put back when it ends. */
+    private replayLiveView: { view: PlayerViewState; subject: AiAircraftEntity | undefined; yaw: number; pitch: number; zoom: number } | undefined;
+    /** The rest of the world for the replay: other aircraft, gun rounds, the carrier. */
+    private readonly worldRecorder = new WorldRecorder();
+    /** Recording id per AI aircraft, stable for the entity's life. */
+    private readonly replayActorIds = new Map<AiAircraftEntity, number>();
+    /** Per-AI scratch for recording, and the state each one is drawn at in a replay. */
+    private readonly replayActorScratch: ActorState[] = [];
+    private readonly replayActorStates = new Map<AiAircraftEntity, ActorState>();
+    private replayRounds = { buffer: new Float32Array(0), count: 0 };
+    /** What set off the fight's effects, and when; a replay sets them off again. */
+    private readonly effectLog = new EffectEventLog();
+    /** The replay's own effect fields (the live ones keep their state for after it). */
+    private replayEffects: EffectFields | undefined;
+    /** Replay time the replay's effects have been run up to; undefined to start them over. */
+    private replayEffectsAt: number | undefined;
+    /** What the replay moved or hid, as it was live, to put back on exit. */
+    private replayLive: {
+        carrier?: { position: THREE.Vector3; quaternion: THREE.Quaternion };
+        effects: { entity: Entity; enabled: boolean }[];
+    } | undefined;
+
     /** The whole game holds still under the blurred overlay while terrain streams in; see holdUntilStreamed. */
     private streamHeld = false;
     /** Bumped per hold, so a spawn during an older hold's wait takes it over. */
@@ -987,6 +1119,7 @@ export class Game {
         });
         this.configService.renderScale.addChangeListener(() => this.updateHdResolution());
         this.configService.supersampling.addChangeListener(() => this.updateHdResolution());
+        this.configService.foveation.addChangeListener(() => this.updateHdResolution());
         this.configService.daytime.addChangeListener(hours => {
             // Moves the sun for the shaded ramp and the planform silhouettes, then
             // rebuilds the sky/terrain palette that goes with it.
@@ -2261,10 +2394,13 @@ export class Game {
 
     private updateHdResolution() {
         const [width, height] = this.renderer.getMaxViewportResolution();
-        const renderScale = this.configService.renderScale.getActive();
+        // A video export draws everything at full quality: no render scale cut.
+        const renderScale = this.videoExport ? 1 : this.configService.renderScale.getActive();
         const supersampling = this.configService.supersampling.getActive();
+        const foveation = this.configService.foveation.getActive();
         if (width === this.hdResolutionWidth && height === this.hdResolutionHeight
-            && renderScale === this.hdRenderScale && supersampling === this.hdSupersampling) {
+            && renderScale === this.hdRenderScale && supersampling === this.hdSupersampling
+            && foveation === this.hdFoveation) {
             return;
         }
 
@@ -2272,6 +2408,7 @@ export class Game {
         this.hdResolutionHeight = height;
         this.hdRenderScale = renderScale;
         this.hdSupersampling = supersampling;
+        this.hdFoveation = foveation;
         // Resolved from the *main* viewport, not each target's own size: the
         // MFD sub-target is a fraction of the screen, but it should still
         // taper with it rather than staying at full supersample cost just
@@ -2283,10 +2420,16 @@ export class Game {
         // linear magnification stretches the smaller texture to the screen;
         // the HUD canvas and the weapons display keep their full size and
         // composite on top of it.
-        const mainScale = renderScale < 1 ? renderScale : supersampleScale;
-        this.hdMainScale = mainScale;
+        // Foveated, only the middle of the screen keeps the supersample (an
+        // inset target over the main one, Renderer.setFovea) and the rest
+        // drops to the outer scale. Only where that is a drop, and not on
+        // top of a render scale, which already cuts the whole view.
+        const foveated = !this.videoExport && renderScale >= 1 && foveation.outerScale > 0 && foveation.outerScale < supersampleScale;
+        const mainScale = renderScale < 1 ? renderScale : foveated ? foveation.outerScale : supersampleScale;
+        // Terrain detail follows the sharpest pixels on screen: the fovea's.
+        this.hdMainScale = foveated ? supersampleScale : mainScale;
         // Optional: the first sizing can come before the terrain is built.
-        this.planetTerrain?.setRenderScale(mainScale);
+        this.planetTerrain?.setRenderScale(this.hdMainScale);
 
         if (!this.renderer.hasRenderTarget(MAIN_RENDER_TARGET_HD)) {
             const textColors = this.getTextColors();
@@ -2300,6 +2443,7 @@ export class Game {
             const mfdSize = CockpitMFDSize(height, width);
             this.renderer.resizeRenderTarget(WEAPONSTARGET_RENDER_TARGET_HD, CockpitMFD2X(width, height, mfdSize), CockpitMFD2Y(width, height, mfdSize), mfdSize, mfdSize, supersampleScale * MFD_RENDER_SCALE);
         }
+        this.renderer.setFovea(MAIN_RENDER_TARGET_HD, foveated ? foveation.size : 0, supersampleScale);
 
         this.renderer.setComposeSize(width, height);
         this.setHdCameraAspect(width, height);
@@ -2389,9 +2533,19 @@ export class Game {
             return;
         }
         advanceFxClock(delta);
+        if (this.cameraBlend) {
+            this.cameraBlend.elapsed += delta;
+        }
         if (this.replaying) {
             // The world holds still; only the recorded aircraft moves.
-            this.replayPlayer.advance(delta);
+            const ex = this.videoExport;
+            if (ex) {
+                // Exporting: frame n shows exactly start + n frames of flight
+                // time, whatever the kernel's step did to get here.
+                this.replayPlayer.time = Math.min(ex.start + ex.index * ex.speed / VIDEO_EXPORT_FPS, this.recorder.endTime);
+            } else {
+                this.replayPlayer.advance(delta);
+            }
             if (this.view === PlayerViewState.FIXED) {
                 this.moveFixedCamera(delta);
             } else {
@@ -2399,7 +2553,15 @@ export class Game {
             }
             this.recorder.sample(this.replayPlayer.time, this.replayPose);
             this.player.setReplayPose(this.replayPose);
-            this.updateReplayHud();
+            this.applyWorldReplay(this.replayPlayer.time);
+            if (this.replayRecordCamera) {
+                this.recordReplayCamera();
+            } else if (this.replayFollowCamera) {
+                this.followRecordedCamera();
+            }
+            if (!ex) {
+                this.updateReplayHud();
+            }
             return;
         }
         if (this.state === GameState.PLAYER) {
@@ -2471,7 +2633,234 @@ export class Game {
         pose.quaternion.copy(this.player.quaternion);
         pose.velocity.copy(this.player.velocityVector);
         pose.devices.throttle = this.player.throttleUnit;
-        this.recorder.record(delta, pose);
+        pose.crashed = this.player.isCrashed;
+        pose.alive = this.player.isAlive();
+        this.player.captureSurfaceInputs(pose.surfaces);
+        pose.camera.view = this.view;
+        pose.camera.subject = this.recordedCameraSubject();
+        pose.camera.yaw = this.viewYaw;
+        pose.camera.pitch = this.viewPitch;
+        pose.camera.zoom = this.viewZoom;
+        if (this.recorder.record(delta, pose)) {
+            this.recordWorldFrame();
+        }
+    }
+
+    /** Every aircraft that is not the player, once each. */
+    private otherAircraft(): Set<AiAircraftEntity> {
+        const all = new Set<AiAircraftEntity>(this.aiOpponents);
+        if (this.aiOpponent) all.add(this.aiOpponent);
+        if (this.wingman) all.add(this.wingman);
+        for (const ai of this.missionAircraft) all.add(ai);
+        return all;
+    }
+
+    /** The world around the player, on the sample the player recorder just kept. */
+    private recordWorldFrame(): void {
+        const actors: { id: number; state: ActorState }[] = [];
+        for (const ai of this.otherAircraft()) {
+            const state = this.replayActorScratch[actors.length] ??= newActorState();
+            if (!ai.captureReplayState(state)) continue;
+            let id = this.replayActorIds.get(ai);
+            if (id === undefined) {
+                id = this.replayActorIds.size;
+                this.replayActorIds.set(ai, id);
+            }
+            actors.push({ id, state });
+        }
+        const kuz = this.kuz?.enabled ? this.kuz : undefined;
+        this.worldRecorder.record(this.recorder.endTime, {
+            actors,
+            rounds: { buffer: this.combatSim.getProjectileBuffer(), count: this.combatSim.getProjectileCount() },
+            carrier: kuz ? { position: kuz.position, quaternion: kuz.quaternion } : undefined,
+        });
+        this.worldRecorder.trimBefore(this.recorder.startTime);
+        this.effectLog.trimBefore(this.recorder.startTime - REPLAY_EFFECT_LOOKBACK_S);
+    }
+
+    /**
+     * Put the world where it was at replay time `t`: the other aircraft
+     * (hidden when they were not flying then), the rounds in the air, the
+     * ship, and the wrecks only once something has crashed.
+     */
+    private applyWorldReplay(t: number): void {
+        if (!this.replayLive) {
+            const kuz = this.kuz;
+            this.replayLive = {
+                carrier: kuz ? { position: kuz.position.clone(), quaternion: kuz.quaternion.clone() } : undefined,
+                effects: [this.wreckField, this.damageSmoke, this.debrisField, this.impactMarks]
+                    .filter((e): e is NonNullable<typeof e> => e !== undefined)
+                    .map(entity => ({ entity, enabled: entity.enabled })),
+            };
+            // The live effects keep their state for after the replay; it runs its own.
+            for (const { entity } of this.replayLive.effects) {
+                entity.enabled = false;
+            }
+            this.replayEffectsAt = undefined;
+        }
+        this.poseWorldAt(t);
+        this.worldRecorder.sampleRounds(t, this.replayRounds);
+        this.weaponsField?.setReplayRounds(this.replayRounds);
+        this.driveReplayEffects(t);
+    }
+
+    /** The other aircraft and the ship where they were at `t`. */
+    private poseWorldAt(t: number): void {
+        for (const [ai, id] of this.replayActorIds) {
+            let state = this.replayActorStates.get(ai);
+            if (!state) {
+                state = newActorState();
+                this.replayActorStates.set(ai, state);
+            }
+            ai.setReplayState(this.worldRecorder.sampleActor(id, t, state) ? state : null);
+        }
+        if (this.kuz && this.worldRecorder.sampleCarrier(t, this.kuz.position, this.kuz.quaternion)) {
+            this.placeCarrierMeshes(this.kuz.position);
+        }
+    }
+
+    /**
+     * Run the replay's effects up to `t`: forward from where they are, setting
+     * off the recorded triggers on the way, or, after a jump back or a long
+     * skip, started over a little before `t` and caught up in coarse steps.
+     */
+    private driveReplayEffects(t: number): void {
+        const fx = this.replayEffects ??= this.buildReplayEffects();
+        // Dragging the seek bar would start them over on every move: hide
+        // them until it is let go.
+        const show = !this.replayScrubbing;
+        for (const field of effectFieldList(fx)) {
+            field.enabled = show;
+        }
+        if (!show) {
+            this.replayEffectsAt = undefined;
+            return;
+        }
+        const at = this.replayEffectsAt;
+        if (at === undefined || t < at - 1e-6 || t - at > REPLAY_EFFECT_MAX_STEP_S) {
+            this.resimulateReplayEffects(fx, t);
+        } else {
+            this.stepReplayEffects(fx, at, t);
+        }
+    }
+
+    private buildReplayEffects(): EffectFields {
+        const fx = this.buildEffectFields();
+        for (const field of effectFieldList(fx)) {
+            field.enabled = false;
+            this.scene.add(field);
+        }
+        return fx;
+    }
+
+    private resimulateReplayEffects(fx: EffectFields, t: number): void {
+        clearEffectFields(fx);
+        const first = this.effectLog.firstTime;
+        // Effects started more than the look-back ago are left out: most have
+        // burnt out by then, and catching up costs a step per 1/15 s.
+        let cur = Math.max(t - REPLAY_EFFECT_LOOKBACK_S, (first ?? t) - 1e-3);
+        this.replayEffectsAt = t;
+        if (cur >= t) {
+            return;
+        }
+        const began = performance.now();
+        let steps = 0;
+        while (cur < t) {
+            const next = Math.min(t, cur + REPLAY_EFFECT_RESIM_STEP_S);
+            // Smoke rides on the aircraft: put them where they were then.
+            this.recorder.sample(next, this.replayPose);
+            this.player.setReplayPose(this.replayPose);
+            this.poseWorldAt(next);
+            this.stepReplayEffects(fx, cur, next);
+            cur = next;
+            steps++;
+        }
+        this.recorder.sample(t, this.replayPose);
+        this.player.setReplayPose(this.replayPose);
+        this.poseWorldAt(t);
+        console.info(`[replay] effects caught up over ${steps} steps in ${Math.round(performance.now() - began)} ms`);
+    }
+
+    private stepReplayEffects(fx: EffectFields, from: number, to: number): void {
+        this.effectLog.forEachBetween(from, to, e => this.fireReplayEffect(fx, e));
+        const dt = to - from;
+        if (dt > 0) {
+            for (const field of effectFieldList(fx)) {
+                field.update(dt);
+            }
+        }
+        this.replayEffectsAt = to;
+    }
+
+    /** One recorded trigger into the replay's effects, the way the live flight handled it. */
+    private fireReplayEffect(fx: EffectFields, e: EffectEvent): void {
+        switch (e.kind) {
+            case 'hits': {
+                const gunHits = e.hits.filter(h => h.source !== 'scrape');
+                const scrapes = e.hits.filter(h => h.source === 'scrape');
+                if (gunHits.length > 0) {
+                    fx.debris.spawnFromHits(gunHits);
+                    fx.smoke.spawnFromHits(gunHits);
+                }
+                if (scrapes.length > 0) {
+                    fx.smoke.spawnGroundScrapes(scrapes);
+                    fx.debris.spawnGroundScrapes(
+                        scrapes.filter(h => this.surfaceKindAt(h.position[0], h.position[2]) !== 'water'));
+                }
+                break;
+            }
+            case 'wreck': {
+                // A fresh copy: the break-up may keep and move what it is given.
+                const copy = copyEffectEvent(e);
+                if (copy.kind === 'wreck') fx.wrecks.spawn(copy.src);
+                break;
+            }
+            case 'crashPlume':
+                fx.smoke.ensureCrashPlume(e.targetId);
+                break;
+        }
+    }
+
+    /** Keep an effect trigger for the replay, while the flight is being recorded. */
+    private logEffect(e: EffectEvent): void {
+        if (this.state !== GameState.PLAYER || this.replaying) return;
+        if (this.player.isCrashed && this.postCrashRecorded > Game.REPLAY_POST_CRASH_S) return;
+        this.effectLog.push(this.recorder.now, e);
+    }
+
+    /** Back to the live world after a replay. */
+    private restoreWorldFromReplay(): void {
+        const live = this.replayLive;
+        if (!live) return;
+        this.replayLive = undefined;
+        for (const ai of this.replayActorIds.keys()) {
+            ai.setReplayState(undefined);
+        }
+        this.weaponsField?.setReplayRounds(undefined);
+        if (this.kuz && live.carrier) {
+            this.kuz.position.copy(live.carrier.position);
+            this.kuz.quaternion.copy(live.carrier.quaternion);
+            this.placeCarrierMeshes(this.kuz.position);
+        }
+        for (const { entity, enabled } of live.effects) {
+            entity.enabled = enabled;
+        }
+        if (this.replayEffects) {
+            clearEffectFields(this.replayEffects);
+            for (const field of effectFieldList(this.replayEffects)) {
+                field.enabled = false;
+            }
+        }
+        this.replayEffectsAt = undefined;
+    }
+
+    /** The deck colliders under the drawn ship (the sim keeps its own copy, untouched). */
+    private placeCarrierMeshes(p: THREE.Vector3): void {
+        for (const m of this.carrierMeshes) {
+            m.originX = p.x;
+            m.originY = p.y;
+            m.originZ = p.z;
+        }
     }
 
     /** Shift+F4: watch the flight so far (up to the last ten minutes) from the replay camera. */
@@ -2491,11 +2880,22 @@ export class Game {
         this.replaying = true;
         this.replayWasPaused = !this.player.controlsEnabled;
         this.player.setSimulationPaused(true);
+        this.replayLiveView = {
+            view: this.view, subject: this.exteriorSubject,
+            yaw: this.viewYaw, pitch: this.viewPitch, zoom: this.viewZoom,
+        };
+        this.replayFollowCamera = true;
+        this.replayRecordCamera = false;
+        this.followedAt = NaN;
+        this.followedFlyBy = -1;
+        this.followedOrbit = undefined;
         this.resetOrbit();
         this.replayPlayer.start();
         if (this.view === PlayerViewState.COCKPIT_FRONT) {
             this.setReplayView(PlayerViewState.EXTERIOR_BEHIND);
         }
+        // That was not the user picking a view: keep following the recording.
+        this.replayFollowCamera = true;
     }
 
     private replayWasPaused = false;
@@ -2504,11 +2904,28 @@ export class Game {
         if (!this.replaying) {
             return;
         }
+        if (this.videoExport) {
+            void this.endVideoExport('cancel');
+        }
+        this.closeVideoExportDialog();
+        this.restoreWorldFromReplay();
         this.replaying = false;
         this.heldFixedCameraKeys.clear();
         this.fixedCameraRates = zeroFixedCameraRates();
         this.player.setReplayPose(undefined);
         this.player.setSimulationPaused(this.replayWasPaused);
+        const live = this.replayLiveView;
+        this.replayLiveView = undefined;
+        if (live && (live.view !== this.view || live.subject !== this.exteriorSubject)) {
+            this.applyRecordedView(live.view, live.subject);
+        }
+        if (live) {
+            this.viewYaw = live.yaw;
+            this.viewPitch = live.pitch;
+            this.viewZoom = live.zoom;
+        }
+        // The aircraft jumps back to where it really is: no glide across that.
+        this.endCameraBlend();
         if (this.replayUi) {
             this.replayUi.root.style.display = 'none';
         }
@@ -2516,6 +2933,17 @@ export class Game {
 
     /** Replay keys: space pauses, arrows seek/speed (move the camera in the free view), Esc leaves. True if used. */
     private handleReplayKey(event: KeyboardEvent): boolean {
+        if (this.videoExport) {
+            // Nothing may move the replay under an export; Esc cancels it.
+            if (event.code === 'Escape') {
+                this.videoExport.cancelled = true;
+            }
+            return true;
+        }
+        if (this.videoDialog && event.code === 'Escape') {
+            this.closeVideoExportDialog();
+            return true;
+        }
         switch (event.code) {
             case 'Space': this.replayPlayer.paused = !this.replayPlayer.paused; break;
             case 'Comma': this.replayPlayer.seek(-5); break;
@@ -2551,6 +2979,8 @@ export class Game {
     private replayUi: {
         root: HTMLDivElement; play: HTMLButtonElement; seek: HTMLInputElement;
         time: HTMLSpanElement; speed: HTMLButtonElement; views: Map<PlayerViewState, HTMLButtonElement>;
+        follow: HTMLButtonElement;
+        rec: HTMLButtonElement;
     } | undefined;
     private replayScrubbing = false;
 
@@ -2603,6 +3033,16 @@ export class Game {
             play,
             button('+5s', 'Forward 5 s (Right or .)', () => this.replayPlayer.seek(5)),
             time, speed, spacer);
+        const follow = button('Recorded camera', 'Watch through the views used in flight (picking a view turns this off)', () => {
+            this.replayFollowCamera = !this.replayFollowCamera;
+            this.followedAt = NaN;
+            this.followedFlyBy = -1;
+            this.followedOrbit = undefined;
+        });
+        const rec = button('Rec camera', 'While on, the views you pick as the replay plays are recorded into it, for later replays and the video', () => {
+            this.setReplayRecordCamera(!this.replayRecordCamera);
+        });
+        row.append(follow, rec);
         const views = new Map<PlayerViewState, HTMLButtonElement>();
         const addView = (label: string, v: PlayerViewState, title: string) => {
             const b = button(label, title, () => this.setReplayView(v));
@@ -2619,13 +3059,15 @@ export class Game {
         addView('Chase', PlayerViewState.CHASE, 'Close chase, rolling with the aircraft (F4)');
         addView('Tower', PlayerViewState.TOWER, 'From the nearest tower or the carrier (F7)');
         addView('Carrier', PlayerViewState.CARRIER_OVER_STERN, 'Over-the-stern view (F9)');
+        row.append(button('Export video', 'Render this replay to a smooth 60 fps MP4', () => this.openVideoExportDialog()));
         row.append(button('Exit', 'Leave replay (Shift+F4 / Esc)', () => this.stopReplay()));
         root.append(seek, row);
         document.body.appendChild(root);
-        return { root, play, seek, time, speed, views };
+        return { root, play, seek, time, speed, views, follow, rec };
     }
 
     private setReplayView(v: PlayerViewState): void {
+        this.replayFollowCamera = false;
         this.resetOrbit();
         this.heldFixedCameraKeys.clear();
         this.fixedCameraRates = zeroFixedCameraRates();
@@ -2647,6 +3089,7 @@ export class Game {
         }
         if (v === PlayerViewState.FLY_BY) {
             this.flyByCameraUpdater.reset();
+            this.flyByDrops++;
         }
         restoreMainCameraParameters(this.playerCamera.main);
         this.setExteriorView(v);
@@ -2667,6 +3110,341 @@ export class Game {
         for (const [v, b] of ui.views) {
             b.style.background = v === this.view ? 'rgba(80,160,255,0.6)' : 'rgba(255,255,255,0.12)';
         }
+        ui.follow.style.background = this.replayFollowCamera && !this.replayRecordCamera ? 'rgba(80,160,255,0.6)' : 'rgba(255,255,255,0.12)';
+        ui.rec.style.background = this.replayRecordCamera ? 'rgba(220,40,40,0.8)' : 'rgba(255,255,255,0.12)';
+        ui.rec.textContent = this.replayRecordCamera ? '\u25CF Rec camera' : 'Rec camera';
+    }
+
+    // --- Video export: the replay rendered offline, one exact frame at a time ---
+
+    private kernel: Kernel | undefined;
+
+    /** index.ts hands the kernel over once it exists; a video export drives it frame by frame. */
+    setKernel(kernel: Kernel): void {
+        this.kernel = kernel;
+    }
+
+    private videoExport: {
+        writer: Mp4VideoWriter;
+        /** Recorder time of frame 0, and recorder seconds per video second. */
+        start: number;
+        speed: number;
+        frames: number;
+        /** Frames written so far; also the frame now on screen. */
+        index: number;
+        /** When the current frame began waiting for terrain. */
+        holdSince: number | undefined;
+        cancelled: boolean;
+        startedAt: number;
+        fileName: string;
+        /** Overlay switches as they were before the export hid them. */
+        overlays: { perfHud: boolean; exterior: boolean[] };
+        ui: { root: HTMLDivElement; text: HTMLDivElement; bar: HTMLDivElement };
+    } | undefined;
+    private videoDialog: HTMLDivElement | undefined;
+
+    private closeVideoExportDialog(): void {
+        this.videoDialog?.remove();
+        this.videoDialog = undefined;
+    }
+
+    /** The replay bar's Export video button: range, speed and size, then go. */
+    private openVideoExportDialog(): void {
+        if (this.videoExport || this.videoDialog) {
+            return;
+        }
+        this.replayPlayer.paused = true;
+        const rec = this.recorder;
+        let start = rec.startTime;
+        let end = rec.endTime;
+        const fmt = (s: number) => {
+            const t = Math.max(0, s - rec.startTime);
+            return `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+        };
+
+        const root = document.createElement('div');
+        root.style.cssText = 'position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:51;'
+            + 'background:rgba(20,24,32,0.95);color:#fff;font:13px sans-serif;border:1px solid rgba(255,255,255,0.25);'
+            + 'border-radius:8px;padding:14px 18px;display:flex;flex-direction:column;gap:10px;'
+            + 'min-width:min(360px,calc(100vw - 32px));max-width:calc(100vw - 32px);box-sizing:border-box;user-select:none';
+        const btnCss = 'background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.3);'
+            + 'border-radius:4px;padding:4px 10px;cursor:pointer;font:inherit';
+        const button = (label: string, onClick: () => void, primary = false): HTMLButtonElement => {
+            const b = document.createElement('button');
+            b.textContent = label;
+            b.style.cssText = btnCss + (primary ? ';background:rgba(80,160,255,0.75);border-color:rgba(120,190,255,0.9)' : '');
+            b.addEventListener('mousedown', e => e.preventDefault());
+            b.addEventListener('click', onClick);
+            return b;
+        };
+        const line = (label: string, ...content: HTMLElement[]): HTMLDivElement => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+            const l = document.createElement('span');
+            l.textContent = label;
+            l.style.cssText = 'width:52px;opacity:0.75';
+            row.append(l, ...content);
+            return row;
+        };
+        const select = (options: [string, string][], value: string): HTMLSelectElement => {
+            const s = document.createElement('select');
+            s.style.cssText = btnCss + ';background:#2a3140';
+            for (const [v, label] of options) {
+                const o = document.createElement('option');
+                o.value = v;
+                o.textContent = label;
+                s.append(o);
+            }
+            s.value = value;
+            // Keys go to the game otherwise (Space would pause the replay).
+            s.addEventListener('keydown', e => e.stopPropagation());
+            return s;
+        };
+        const timeLabel = (): HTMLSpanElement => {
+            const t = document.createElement('span');
+            t.style.cssText = 'font-family:monospace;min-width:64px';
+            return t;
+        };
+
+        const title = document.createElement('div');
+        title.textContent = 'Export video (MP4)';
+        title.style.cssText = 'font-weight:bold;font-size:14px';
+        const startText = timeLabel();
+        const endText = timeLabel();
+        // Frames per second of flight: the file always plays at 60, so 120 and 240
+        // come out as half- and quarter-speed slow motion.
+        const speed = select([['1', '60 fps (real time)'], ['0.5', '120 fps (slow motion, 0.5x)'], ['0.25', '240 fps (slow motion, 0.25x)']], '1');
+        const size = select([
+            ['1280x720', '720p (1280 x 720)'],
+            ['1920x1080', '1080p (1920 x 1080)'],
+            ['2560x1440', '1440p (2560 x 1440)'],
+            ['3840x2160', '4K (3840 x 2160)'],
+        ], '1920x1080');
+        const info = document.createElement('div');
+        info.style.cssText = 'opacity:0.75;font-size:12px;line-height:1.4;max-width:420px';
+        const supported = videoExportSupported();
+        const go = button('Export', () => {
+            if (!(end > start) || !supported) return;
+            const [w, h] = size.value.split('x').map(Number);
+            void this.startVideoExport(start, end, Number(speed.value), w, h, overlays.checked, info);
+        }, true);
+        const refresh = () => {
+            startText.textContent = fmt(start);
+            endText.textContent = fmt(end);
+            const seconds = Math.max(0, end - start) / Number(speed.value);
+            info.textContent = !supported
+                ? 'This browser cannot encode video (no WebCodecs). Chrome or Edge can.'
+                : end > start
+                    ? `${seconds.toFixed(1)} s of video, ${videoExportFrames(end - start, Number(speed.value))} frames. `
+                        + 'Scrub the bar below to pick start and end. Keep this tab visible while it renders.'
+                    : 'The end must come after the start.';
+            go.disabled = !(end > start) || !supported;
+            go.style.opacity = go.disabled ? '0.4' : '1';
+        };
+        speed.addEventListener('change', refresh);
+        const overlays = document.createElement('input');
+        overlays.type = 'checkbox';
+        overlays.checked = false;
+        const overlaysLabel = document.createElement('label');
+        overlaysLabel.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer';
+        overlaysLabel.append(overlays, 'Show flight data and the F9 stats');
+
+        const startRow = line('Start', startText,
+            button('Set to playhead', () => { start = this.replayPlayer.time; refresh(); }),
+            button('Beginning', () => { start = rec.startTime; refresh(); }));
+        const endRow = line('End', endText,
+            button('Set to playhead', () => { end = this.replayPlayer.time; refresh(); }),
+            button('End', () => { end = rec.endTime; refresh(); }));
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px';
+        actions.append(button('Cancel', () => this.closeVideoExportDialog()), go);
+        root.append(title, startRow, endRow, line('FPS', speed), line('Size', size), line('Overlays', overlaysLabel), info, actions);
+        document.body.appendChild(root);
+        this.videoDialog = root;
+        refresh();
+    }
+
+    private async startVideoExport(
+        start: number, end: number, speed: number, width: number, height: number, showOverlays: boolean, info: HTMLElement,
+    ): Promise<void> {
+        const kernel = this.kernel;
+        if (!kernel || this.videoExport || !this.replaying) {
+            return;
+        }
+        if (this.replayRecordCamera) {
+            // The video plays back the camera just recorded.
+            this.setReplayRecordCamera(false);
+        }
+        let writer: Mp4VideoWriter;
+        try {
+            writer = await Mp4VideoWriter.create(width, height, VIDEO_EXPORT_FPS);
+        } catch (e) {
+            info.textContent = e instanceof Error ? e.message : String(e);
+            return;
+        }
+        if (this.videoExport || !this.replaying) {
+            writer.cancel();
+            return;
+        }
+        this.closeVideoExportDialog();
+        if (this.replayUi) {
+            this.replayUi.root.style.display = 'none';
+        }
+        const ui = this.buildVideoExportProgress();
+        const stamp = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        this.videoExport = {
+            writer, start, speed,
+            frames: videoExportFrames(end - start, speed),
+            index: 0,
+            holdSince: undefined,
+            cancelled: false,
+            startedAt: performance.now(),
+            fileName: `flight-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}`
+                + `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`
+                + `${speed !== 1 ? `-${Math.round(VIDEO_EXPORT_FPS / speed)}fps` : ''}.mp4`,
+            ui,
+            overlays: { perfHud: this.perfHud?.enabled ?? false, exterior: this.exteriorEntities.map(e => e.enabled) },
+        };
+        if (!showOverlays) {
+            // A clean picture: no frame-rate readout, no SPD / ALT line.
+            if (this.perfHud) this.perfHud.enabled = false;
+            if (this.hud) this.hud.showPerfStats = false;
+            this.exportHidesOverlays = true;
+            for (const e of this.exteriorEntities) e.enabled = false;
+        }
+        this.heldFixedCameraKeys.clear();
+        this.fixedCameraRates = zeroFixedCameraRates();
+        this.replayPlayer.paused = false;
+        this.renderer.setExportSize([width, height]);
+        this.hdResolutionWidth = -1; // re-size the HD targets even if the window matches
+        this.updateHdResolution();
+        // Camera smoothing and effects run in flight time: a half-speed
+        // export steps them half a frame per frame, like the aircraft.
+        kernel.setCaptureMode(speed / VIDEO_EXPORT_FPS, () => this.captureVideoFrame());
+    }
+
+    private buildVideoExportProgress(): NonNullable<Game['videoExport']>['ui'] {
+        const root = document.createElement('div');
+        root.style.cssText = 'position:fixed;left:50%;top:24px;transform:translateX(-50%);z-index:52;'
+            + 'background:rgba(20,24,32,0.92);color:#fff;font:13px sans-serif;border:1px solid rgba(255,255,255,0.25);'
+            + 'border-radius:8px;padding:12px 16px;display:flex;flex-direction:column;gap:8px;'
+            + 'width:min(420px,calc(100vw - 32px));box-sizing:border-box;user-select:none';
+        const text = document.createElement('div');
+        text.textContent = 'Exporting video...';
+        const track = document.createElement('div');
+        track.style.cssText = 'height:6px;background:rgba(255,255,255,0.15);border-radius:3px;overflow:hidden';
+        const bar = document.createElement('div');
+        bar.style.cssText = 'height:100%;width:0;background:rgb(80,160,255)';
+        track.append(bar);
+        const cancel = document.createElement('button');
+        cancel.textContent = 'Cancel (Esc)';
+        cancel.style.cssText = 'align-self:flex-end;background:rgba(255,255,255,0.12);color:#fff;'
+            + 'border:1px solid rgba(255,255,255,0.3);border-radius:4px;padding:4px 10px;cursor:pointer;font:inherit';
+        cancel.addEventListener('mousedown', e => e.preventDefault());
+        cancel.addEventListener('click', () => {
+            if (this.videoExport) this.videoExport.cancelled = true;
+            else root.remove();
+        });
+        root.append(text, track, cancel);
+        document.body.appendChild(root);
+        return { root, text, bar };
+    }
+
+    /**
+     * The kernel's capture hook, run right after each render: hold the frame
+     * while the terrain it needs is still streaming in (false: render the
+     * same moment again), otherwise write it and move on.
+     */
+    private async captureVideoFrame(): Promise<boolean> {
+        const ex = this.videoExport;
+        if (!ex) {
+            return true;
+        }
+        if (ex.cancelled || !this.replaying) {
+            void this.endVideoExport('cancel');
+            return true;
+        }
+        if (this.menuPaused || this.streamHeld) {
+            return false;
+        }
+        const now = performance.now();
+        if (this.planetTerrain.streamingBacklog > 0) {
+            ex.holdSince ??= now;
+            const limit = ex.index === 0 ? VIDEO_FIRST_FRAME_STREAM_WAIT_MS : VIDEO_FRAME_STREAM_WAIT_MS;
+            if (now - ex.holdSince < limit) {
+                this.showVideoExportProgress(ex, true);
+                return false;
+            }
+        }
+        ex.holdSince = undefined;
+        try {
+            // Grabs the canvas before its first await: still this render's task.
+            await ex.writer.addFrame(this.renderer.canvas);
+        } catch (e) {
+            void this.endVideoExport(e instanceof Error ? e : new Error(String(e)));
+            return true;
+        }
+        if (this.videoExport !== ex) {
+            return true;
+        }
+        ex.index++;
+        this.showVideoExportProgress(ex, false);
+        if (ex.index >= ex.frames) {
+            void this.endVideoExport('done');
+        }
+        return true;
+    }
+
+    private showVideoExportProgress(ex: NonNullable<Game['videoExport']>, streaming: boolean): void {
+        const fraction = ex.index / ex.frames;
+        const elapsed = (performance.now() - ex.startedAt) / 1000;
+        const left = ex.index > 10 ? elapsed / ex.index * (ex.frames - ex.index) : NaN;
+        const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+        ex.ui.text.textContent = `Exporting video: frame ${ex.index} / ${ex.frames} (${Math.floor(fraction * 100)}%)`
+            + (Number.isFinite(left) ? `, about ${mmss(left)} left` : '')
+            + (streaming ? ' - loading terrain...' : '');
+        ex.ui.bar.style.width = `${(fraction * 100).toFixed(1)}%`;
+    }
+
+    private async endVideoExport(outcome: 'done' | 'cancel' | Error): Promise<void> {
+        const ex = this.videoExport;
+        if (!ex) {
+            return;
+        }
+        this.videoExport = undefined;
+        this.kernel?.clearCaptureMode();
+        if (this.perfHud) this.perfHud.enabled = ex.overlays.perfHud;
+        if (this.hud) this.hud.showPerfStats = true;
+        this.exportHidesOverlays = false;
+        this.exteriorEntities.forEach((e, i) => { e.enabled = ex.overlays.exterior[i] ?? e.enabled; });
+        this.renderer.setExportSize(undefined);
+        this.hdResolutionWidth = -1;
+        this.updateHdResolution();
+        this.replayPlayer.paused = true;
+        const close = (ms: number) => setTimeout(() => ex.ui.root.remove(), ms);
+        if (outcome === 'cancel') {
+            ex.writer.cancel();
+            ex.ui.root.remove();
+            return;
+        }
+        if (outcome instanceof Error) {
+            ex.writer.cancel();
+            ex.ui.text.textContent = `Video export failed: ${outcome.message}`;
+            close(8000);
+            return;
+        }
+        ex.ui.text.textContent = 'Finishing video...';
+        try {
+            const blob = await ex.writer.finish();
+            downloadBlob(blob, ex.fileName);
+            ex.ui.text.textContent = `Saved ${ex.fileName} (${(blob.size / 1e6).toFixed(1)} MB, `
+                + `${ex.frames} frames at ${VIDEO_EXPORT_FPS} fps).`;
+            ex.ui.bar.style.width = '100%';
+        } catch (e) {
+            ex.ui.text.textContent = `Video export failed: ${e instanceof Error ? e.message : String(e)}`;
+        }
+        close(6000);
     }
 
     private readonly carrierAheadProbe = new THREE.Vector3();
@@ -3021,6 +3799,7 @@ export class Game {
                 && (this.viewYaw !== 0 || this.viewPitch !== 0 || this.viewZoom !== 1)) {
                 this.orbitCameraAroundAircraft();
             }
+            this.applyCameraBlend();
             this.playerCamera.update();
             this.applyAltitudeCameraFar();
             if (this.mapView) {
@@ -3451,27 +4230,175 @@ export class Game {
         this.damageSmoke?.spawnDebugLeak(this.aiOpponent.simId);
     }
 
+    /**
+     * One wired set of the fight's after-effects: debris, scorch marks, wrecks
+     * and smoke and fire, each feeding the others (a wreck's break-up sets off
+     * fireballs, fires, splashes and marks). The live flight has one; a replay
+     * builds a second to run the recorded triggers through.
+     */
+    private buildEffectFields(): EffectFields {
+        const debris = new DebrisField(this.materials);
+        const marks = new ImpactMarks(this.materials);
+        marks.setMovingSurface(this.carrierSurface);
+        const wrecks = new WreckField();
+        wrecks.setMovingSurface(this.carrierSurface);
+        // The sea: open water that is neither land nor the carrier's deck nor a pad standing in it.
+        const isOpenWater = (x: number, z: number): boolean =>
+            !this.planetTerrain.isLandAtWorld(x, z)
+            && !Number.isFinite(sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes))
+            && this.surfacePads.sampleYMax(x, z) === -Infinity;
+        // The sea's own height, not the ground height (which includes the carrier's hull and deck).
+        wrecks.setWaterTest(
+            isOpenWater,
+            (x, z) => this.planetTerrain.drawnHeightAtWorld(x, z) ?? this.planetTerrain.heightAtWorld(x, z));
+        wrecks.onSplash = (position, _velocity, strength) => {
+            smoke.spawnSplash(position, strength);
+        };
+        wrecks.onFoam = (position, radius, count) => {
+            smoke.spawnFoam(position, radius, count);
+        };
+        wrecks.onMark = (position, normal, dirX, dirZ, length, width, strength) => {
+            marks.add(position, normal, dirX, dirZ, length, width, strength);
+        };
+        wrecks.setGroundHeightAt((x, z) => this.drawnGroundHeightAt(x, z));
+        wrecks.onBreakup = (e) => {
+            // A burst per fireball-sized chunk of the hit: harder impacts throw more.
+            const bursts = 1 + Math.round(e.severity * 3);
+            for (let i = 0; i < bursts; i++) {
+                this._debugDebrisPos.copy(e.position);
+                this._debugDebrisPos.x += (Math.random() - 0.5) * 6;
+                this._debugDebrisPos.z += (Math.random() - 0.5) * 6;
+                this._debugDebrisPos.y += Math.random() * 3;
+                debris.spawnDebugBurst(this._debugDebrisPos, e.velocity);
+            }
+            // The fireball at the moment of impact, and the lake of burning fuel it leaves.
+            smoke.spawnFireball(e.position, e.velocity, e.severity);
+            const field = wrecks;
+            // The lake is made of the fuel that falls out of the aircraft, from the crash on.
+            // (On the sea there is no ground for it to spread over: the fuel just splashes.)
+            if (!e.water) {
+                smoke.addFirePool(e.position, e.velocity, e.severity);
+            }
+            // Dust cloud where it hit, bigger and wider for a harder hit.
+            if (e.water) {
+                // Into the sea: a big splash and a mist, not dust.
+                smoke.spawnSplash(e.position, e.severity * 1.3);
+            } else {
+                smoke.spawnDust(e.position, e.velocity, Math.round(25 + 45 * e.severity), e.severity);
+            }
+            // Fires ride on the pieces: big at the fuselage, smaller at the wing roots.
+            for (const fire of e.fires) {
+                const fuselage = fire.kind === 'fuselage';
+                if (fire.kind === 'brand') {
+                    // A burning shard flung clear: a short, fierce fire that rides on it.
+                    smoke.addAnchoredFire(
+                        e.id, (out) => field?.fireWorld(fire, out) ?? false,
+                        { rate: 26, life: 8 + Math.random() * 14, trickle: 14, small: true, drips: 0 });
+                    continue;
+                }
+                smoke.addAnchoredFire(
+                    e.id, (out) => field?.fireWorld(fire, out) ?? false,
+                    {
+                        rate: fuselage ? 44 : 15,
+                        life: fuselage ? FUSELAGE_FIRE_LIFE_S : WING_ROOT_FIRE_LIFE_S,
+                        trickle: fuselage ? FUSELAGE_SMOULDER_S : WING_ROOT_SMOULDER_S,
+                        small: !fuselage,
+                        // Burning fuel runs off the fuselage and the wing roots and falls into the lake.
+                        drips: fuselage ? 9 : 3,
+                    });
+            }
+        };
+        // Fuel fires start as soon as the airframe is bent or torn, riding on the aircraft.
+        wrecks.onDamage = (e) => {
+            const entity = e.id === PLAYER_SIM_ID
+                ? this.player
+                : this.aiBySimId(e.id);
+            if (!entity) {
+                return;
+            }
+            for (const fire of e.fires) {
+                const fuselage = fire.kind === 'fuselage';
+                smoke.addAnchoredFire(
+                    // Not the aircraft's own id: that would stand in for the wreck's fires at a crash.
+                    e.id + ':damage',
+                    (out) => entity.damagePointWorld(fire.local, out),
+                    {
+                        rate: fuselage ? 44 : 15,
+                        life: fuselage ? FUSELAGE_FIRE_LIFE_S : WING_ROOT_FIRE_LIFE_S,
+                        trickle: fuselage ? FUSELAGE_SMOULDER_S : WING_ROOT_SMOULDER_S,
+                        small: !fuselage,
+                        // The fuel runs out of the break and falls: the lake builds under it.
+                        drips: fuselage ? 9 : 3,
+                    });
+            }
+        };
+        wrecks.onBurn = (position, life, intensity) => {
+            smoke.addBurnSpot(position, life, intensity);
+        };
+        wrecks.onSplit = (position, velocity, strength) => {
+            // A piece shattering on the ground: a spray of chips and a puff of dust.
+            debris.spawnDebugBurst(position, velocity);
+            smoke.spawnDust(position, velocity, Math.round(10 + 15 * strength), strength * 0.8);
+        };
+        wrecks.onDust = (position, velocity, count, strength) => {
+            smoke.spawnDust(position, velocity, count, strength * 0.6);
+        };
+        const smoke = new DamageSmokeField(this.materials);
+        smoke.setGroundHeightAt((x, z) => this.drawnGroundHeightAt(x, z));
+        smoke.setMovingSurface(this.carrierSurface);
+        smoke.setWaterTest((x, z) =>
+            !this.planetTerrain.isLandAtWorld(x, z)
+            && !Number.isFinite(sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes))
+            && this.surfacePads.sampleYMax(x, z) === -Infinity);
+        // The ground under the lake of fire is scorched as it spreads along the fuselage path.
+        smoke.onPoolMark = (position, dirX, dirZ, length, width) => {
+            const ground = (x: number, z: number) => this.drawnGroundHeightAt(x, z);
+            const h = 2;
+            const normal = new THREE.Vector3(
+                -(ground(position.x + h, position.z) - ground(position.x - h, position.z)) / (2 * h),
+                1,
+                -(ground(position.x, position.z + h) - ground(position.x, position.z - h)) / (2 * h),
+            ).normalize();
+            marks.add(position, normal, dirX, dirZ, length, width, 0.7);
+        };
+        // Burn marks appear under the fires and darken over time.
+        smoke.onBurnMark = (position, radius, strength, growSeconds) => {
+            const heading = Math.random() * Math.PI * 2;
+            const size = radius * 2;
+            marks.addBurn(
+                position, this.groundNormalAt(position.x, position.z),
+                Math.sin(heading), Math.cos(heading), size * (0.8 + 0.5 * Math.random()), size, strength, growSeconds);
+        };
+        // The dust a contact throws up is the colour of what it touches.
+        smoke.surfaceAt = (x, z) => this.surfaceKindAt(x, z);
+        smoke.setPoseProvider((targetId) => this.getDamageSmokePose(targetId));
+        return { debris, marks, wrecks, smoke };
+    }
+
     private getDamageSmokePose(targetId: string): { position: THREE.Vector3; quaternion: THREE.Quaternion; velocity: THREE.Vector3; isAlive: boolean; isCrashed: boolean } | undefined {
         if (targetId === PLAYER_SIM_ID) {
+            const crashed = this.replaying ? this.replayPose.crashed : this.player.isCrashed;
             return {
                 position: this.player.getDisplayPosition(),
                 quaternion: this.player.getDisplayQuaternion(),
                 velocity: this.player.getDisplayVelocity(),
-                isAlive: this.player.isAlive(),
-                isCrashed: this.player.isCrashed,
+                isAlive: this.replaying ? this.replayPose.alive : this.player.isAlive(),
+                isCrashed: crashed,
             };
         }
-        for (let i = 0; i < this.aiOpponents.length; i++) {
-            const ai = this.aiOpponents[i];
-            if (ai.simId === targetId && ai.enabled) {
-                return this.aiDamageSmokePose(ai);
+        for (const ai of this.otherAircraft()) {
+            if (ai.simId !== targetId) continue;
+            const replay = ai.replay;
+            if (replay === null) return undefined;
+            if (replay) {
+                return {
+                    position: replay.position, quaternion: replay.quaternion, velocity: replay.velocity,
+                    isAlive: replay.alive, isCrashed: replay.crashed,
+                };
             }
+            return ai.enabled ? this.aiDamageSmokePose(ai) : undefined;
         }
-        if (this.wingman && this.wingman.simId === targetId && this.wingman.enabled) {
-            return this.aiDamageSmokePose(this.wingman);
-        }
-        const mission = this.missionAircraft.find(a => a.simId === targetId && a.enabled);
-        return mission ? this.aiDamageSmokePose(mission) : undefined;
+        return undefined;
     }
 
     private aiDamageSmokePose(ai: AiAircraftEntity): { position: THREE.Vector3; quaternion: THREE.Quaternion; velocity: THREE.Vector3; isAlive: boolean; isCrashed: boolean } {
@@ -3589,6 +4516,10 @@ export class Game {
                 event.stopPropagation();
                 this.spawnPanel.show();
                 return;
+            }
+            if (this.replaying && /^F[1-9]$/.test(event.key)) {
+                // Picking a view by hand takes the camera off the recording.
+                this.replayFollowCamera = false;
             }
             switch (event.key) {
                 case 'F1': {
@@ -4234,7 +5165,7 @@ export class Game {
     ): Promise<AiAircraftSpawn | undefined> {
         const basis = this.planetTerrain.basis;
         if (e.kind === 'air') {
-            const p = geodeticToWorld(basis, e.lat, e.lon, e.altM);
+            const p = geodeticToWorld(basis, e.lat, e.lon, this.missionMslM(e));
             // A compass bearing, clockwise from north; scene heading PI is north.
             const heading = Math.PI - THREE.MathUtils.degToRad(e.headingDeg);
             return {
@@ -4277,12 +5208,25 @@ export class Game {
         }
         return {
             points: f.waypoints.map(w => {
-                const p = geodeticToWorld(basis, w.lat, w.lon, w.altM);
+                const p = geodeticToWorld(basis, w.lat, w.lon, this.missionMslM(w));
                 return { x: p.x, y: p.y, z: p.z, speed: w.speedMps };
             }),
             next: 0,
             land,
         };
+    }
+
+    /**
+     * A mission point's altitude above sea level. AGL is taken over the DEM
+     * at the point itself (sea counts as 0) - the leg is flown level at the
+     * MSL that makes, not terrain-following.
+     */
+    private missionMslM(p: { lat: number; lon: number; altM: number; altRef?: AltitudeRef }): number {
+        if (p.altRef !== 'agl') {
+            return p.altM;
+        }
+        const g = geodeticToWorld(this.planetTerrain.basis, p.lat, p.lon, 0);
+        return Math.max(0, this.planetTerrain.heights.geodeticHeightAtWorld(g.x, g.z)) + p.altM;
     }
 
     private missionRunway(e: FlightEndpoint & { kind: 'runway' }): SceneRunway | undefined {
@@ -4443,6 +5387,7 @@ export class Game {
     }
 
     private enterShowcaseView() {
+        this.beginCameraBlend(PlayerViewState.SHOWCASE);
         this.viewBeforeShowcase = this.view;
         this.resetOrbit();
         restoreMainCameraParameters(this.playerCamera.main);
@@ -4454,6 +5399,11 @@ export class Game {
     }
 
     private exitShowcaseView() {
+        // The glide starts around the showcase stand, where the camera is.
+        this.blendReference = {
+            position: this.player.getDisplayPosition().clone(),
+            quaternion: this.player.getDisplayQuaternion().clone(),
+        };
         this.player.setShowcaseMode(false);
         this.player.setSimulationPaused(false);
         this.scene.setRenderFilter(undefined);
@@ -4463,6 +5413,7 @@ export class Game {
         restoreMainCameraParameters(this.playerCamera.main);
         this.clearShowcasePickingState();
         this.restoreView(previous);
+        this.blendReference = undefined;
     }
 
     private setShowcaseView() {
@@ -4514,6 +5465,7 @@ export class Game {
                 }
                 break;
             case PlayerViewState.CRASHED:
+                this.beginCameraBlend(view);
                 this.leaveShowcaseIfActive();
                 restoreMainCameraParameters(this.playerCamera.main);
                 this.view = view;
@@ -4539,18 +5491,31 @@ export class Game {
     }
 
     private setCockpitFrontView() {
+        this.beginCameraBlend(PlayerViewState.COCKPIT_FRONT);
         this.leaveShowcaseIfActive();
         restoreMainCameraParameters(this.playerCamera.main);
         this.view = PlayerViewState.COCKPIT_FRONT;
-        this.player.exteriorView = false;
         this.cameraUpdater = this.getCameraUpdater(this.view);
         // Entering cockpit always starts unlocked; toggle padlock with F1 / Numpad Enter.
         this.setCockpitPadlock(false);
+        // Gliding in, the airframe stays drawn until the camera reaches the seat.
+        this.applyViewLayers(this.cameraBlend?.cockpit !== 'to');
+    }
+
+    /**
+     * Draw the flight as seen from the cockpit (cockpit layers, no airframe)
+     * or from outside (airframe and the exterior overlay, which the showcase,
+     * the crash and a clean video export keep off).
+     */
+    private applyViewLayers(cockpit: boolean) {
+        this.player.exteriorView = !cockpit;
+        const exterior = !cockpit && !this.exportHidesOverlays
+            && this.view !== PlayerViewState.SHOWCASE && this.view !== PlayerViewState.CRASHED;
         for (let i = 0; i < this.cockpitEntities.length; i++) {
-            this.cockpitEntities[i].enabled = true;
+            this.cockpitEntities[i].enabled = cockpit;
         }
         for (let i = 0; i < this.exteriorEntities.length; i++) {
-            this.exteriorEntities[i].enabled = false;
+            this.exteriorEntities[i].enabled = exterior;
         }
     }
 
@@ -4609,6 +5574,7 @@ export class Game {
         restoreMainCameraParameters(this.playerCamera.main);
         // Every F3 drops a fresh camera ahead, as Flanker's does.
         this.flyByCameraUpdater.reset();
+        this.flyByDrops++;
         this.setExteriorView(PlayerViewState.FLY_BY);
     }
 
@@ -4692,6 +5658,7 @@ export class Game {
 
 
     private setExteriorView(view: PlayerViewState) {
+        this.beginCameraBlend(view);
         this.leaveShowcaseIfActive();
         if (view !== PlayerViewState.EXTERIOR_BEHIND && view !== PlayerViewState.EXTERIOR_FRONT) {
             this.clearExteriorEnemyLock();
@@ -4704,20 +5671,247 @@ export class Game {
         // only lookAt would inherit that roll.
         this.playerCamera.main.up.copy(UP);
         this.view = view;
-        this.player.exteriorView = true;
         this.cameraUpdater = this.getCameraUpdater(this.view);
-        for (let i = 0; i < this.cockpitEntities.length; i++) {
-            this.cockpitEntities[i].enabled = false;
-        }
-        for (let i = 0; i < this.exteriorEntities.length; i++) {
-            this.exteriorEntities[i].enabled = true;
-        }
+        this.applyViewLayers(false);
     }
 
     private getCameraUpdater(view: PlayerViewState): CameraUpdater {
         const updater = this.cameraUpdaters.get(view);
         assertIsDefined(updater);
         return updater;
+    }
+
+    /**
+     * Views the camera glides into and out of: all of the flight's. The free
+     * camera (URL camera and the F12 map) is not one: it is not watching the
+     * aircraft, and coming back from it is a jump across the world.
+     */
+    private blendsCamera(view: PlayerViewState): boolean {
+        return view !== PlayerViewState.FIXED;
+    }
+
+    /** Start a glide from where the camera is now to wherever `to`, the view about to be set, puts it. */
+    private beginCameraBlend(to: PlayerViewState): void {
+        // Spawning or in the menu the aircraft is being moved, not watched.
+        if (this.state !== GameState.PLAYER || !this.blendsCamera(this.view) || !this.blendsCamera(to)) {
+            return;
+        }
+        const fromCockpit = this.view === PlayerViewState.COCKPIT_FRONT;
+        const toCockpit = to === PlayerViewState.COCKPIT_FRONT;
+        if (fromCockpit && toCockpit) {
+            return;
+        }
+        const cam = this.playerCamera.main;
+        const ref = this.blendReference;
+        this.blendReference = undefined;
+        const pos = ref?.position ?? this.player.getDisplayPosition();
+        const world = to === PlayerViewState.CRASHED || this.player.isCrashed;
+        if (world) {
+            _blendInvQ.identity();
+        } else {
+            _blendInvQ.copy(ref?.quaternion ?? this.player.getDisplayQuaternion()).invert();
+        }
+        const b = this.cameraBlend ??= {
+            relPos: new THREE.Vector3(), relQuat: new THREE.Quaternion(), elapsed: 0,
+            offFrom: undefined, world: false, cockpit: undefined,
+        };
+        b.relPos.copy(cam.position).sub(pos).applyQuaternion(_blendInvQ);
+        b.relQuat.copy(_blendInvQ).multiply(cam.quaternion);
+        b.elapsed = 0;
+        b.offFrom = undefined;
+        b.world = world;
+        b.cockpit = fromCockpit ? 'from' : toCockpit ? 'to' : undefined;
+    }
+
+    /** Stop any glide; the layers it held back for the cockpit go to what the view wants. */
+    private endCameraBlend(): void {
+        const b = this.cameraBlend;
+        this.cameraBlend = undefined;
+        if (b?.cockpit && !this.player.isCrashed) {
+            this.applyViewLayers(this.view === PlayerViewState.COCKPIT_FRONT);
+        }
+    }
+
+    /** Ease the camera from the old view's pose to the one the current view just set. */
+    private applyCameraBlend(): void {
+        const b = this.cameraBlend;
+        if (!b) {
+            return;
+        }
+        if (b.elapsed >= CAMERA_BLEND_S || !this.blendsCamera(this.view)) {
+            this.endCameraBlend();
+            return;
+        }
+        const x = b.elapsed / CAMERA_BLEND_S;
+        const k = x * x * (3 - 2 * x);
+        const cam = this.playerCamera.main;
+        if (b.world) {
+            _blendFrom.copy(b.relPos).add(this.player.getDisplayPosition());
+            _blendFromQ.copy(b.relQuat);
+        } else {
+            const q = this.player.getDisplayQuaternion();
+            _blendFrom.copy(b.relPos).applyQuaternion(q).add(this.player.getDisplayPosition());
+            _blendFromQ.copy(q).multiply(b.relQuat);
+        }
+        _blendTo.copy(cam.position);
+        _blendPlainQ.copy(_blendFromQ).slerp(cam.quaternion, k);
+        // Aim at the aircraft all the way, so it stays framed while the
+        // camera travels: each view's pose is split into "look straight at
+        // the focus" and its own turn away from that, and only the turn is
+        // blended. Both ends land exactly on the two views' own poses. The
+        // cockpit looks ahead, not at the aircraft: a glide to or from it aims
+        // at a point out past the nose instead, so it ends up looking forward.
+        const focus = b.cockpit
+            ? _blendFocus.copy(FORWARD).applyQuaternion(this.player.getDisplayQuaternion())
+                .multiplyScalar(CAMERA_BLEND_COCKPIT_LOOK_M).add(this.player.getDisplayPosition())
+            : this.cameraFocus();
+        if (!b.offFrom) {
+            b.offFrom = lookRotation(_blendFrom, focus, new THREE.Quaternion()).invert().multiply(_blendFromQ);
+        }
+        lookRotation(_blendTo, focus, _blendToQ).invert().multiply(cam.quaternion); // the new view's turn
+        cam.position.lerpVectors(_blendFrom, _blendTo, k);
+        if (b.cockpit) {
+            // Over the canopy and the fins rather than through them.
+            _blendLift.copy(UP);
+            if (!b.world) {
+                _blendLift.applyQuaternion(this.player.getDisplayQuaternion());
+            }
+            cam.position.addScaledVector(_blendLift, 4 * k * (1 - k) * CAMERA_BLEND_COCKPIT_ARC_M);
+        }
+        _blendFromQ.copy(b.offFrom).slerp(_blendToQ, k);
+        lookRotation(cam.position, focus, cam.quaternion).multiply(_blendFromQ);
+        // Right beside the focus (the cockpit) aiming at it is ill-posed: turn
+        // plainly instead. Both ways land on the two views' poses at the ends.
+        const aim = THREE.MathUtils.clamp(
+            (cam.position.distanceTo(focus) - CAMERA_BLEND_AIM_NEAR_M) / (CAMERA_BLEND_AIM_FAR_M - CAMERA_BLEND_AIM_NEAR_M), 0, 1);
+        if (aim < 1) {
+            cam.quaternion.copy(_blendPlainQ.slerp(cam.quaternion, aim));
+        }
+        if (b.cockpit && !this.player.isCrashed) {
+            const eye = b.cockpit === 'from' ? _blendFrom : _blendTo;
+            this.applyViewLayers(cam.position.distanceToSquared(eye) < CAMERA_BLEND_COCKPIT_M ** 2);
+        }
+        cam.updateMatrixWorld();
+    }
+
+    /** What the current view is watching: the F2 subject, the AI in the AI chase, else the player. */
+    private cameraFocus(): THREE.Vector3 {
+        if (this.view === PlayerViewState.AI_CHASE && this.aiOpponent?.enabled) {
+            return this.aiOpponent.getDisplayPosition();
+        }
+        const subject = this.exteriorSubjectFollowed();
+        if (subject && (this.view === PlayerViewState.EXTERIOR_BEHIND || this.view === PlayerViewState.EXTERIOR_FRONT)) {
+            return subject.getDisplayPosition();
+        }
+        return this.player.getDisplayPosition();
+    }
+
+    /** The aircraft a recording id stands for, if it is still in the world. */
+    private replayActorById(id: number): AiAircraftEntity | undefined {
+        if (id < 0) return undefined;
+        for (const [ai, i] of this.replayActorIds) {
+            if (i === id) return ai;
+        }
+        return undefined;
+    }
+
+    /** Put on a view as it was recorded (or as it was before a replay). */
+    private applyRecordedView(view: PlayerViewState, subject: AiAircraftEntity | undefined): void {
+        switch (view) {
+            case PlayerViewState.FIXED:
+            case PlayerViewState.SHOWCASE:
+                return; // not presets: the camera stays where it is
+            case PlayerViewState.COCKPIT_FRONT:
+                this.setCockpitFrontView();
+                return;
+            case PlayerViewState.FLY_BY:
+                restoreMainCameraParameters(this.playerCamera.main);
+                this.flyByCameraUpdater.reset();
+                this.setExteriorView(view);
+                return;
+            case PlayerViewState.EXTERIOR_BEHIND:
+            case PlayerViewState.EXTERIOR_FRONT:
+                restoreMainCameraParameters(this.playerCamera.main);
+                this.setExteriorView(view);
+                this.setExteriorSubject(subject);
+                return;
+            default:
+                this.restoreView(view);
+        }
+    }
+
+    /**
+     * Rec camera on: from now on, whatever view is picked is written into the
+     * recording as the replay plays through it. Off: play the recording back.
+     */
+    private setReplayRecordCamera(on: boolean): void {
+        this.replayRecordCamera = on;
+        this.recordCameraFrom = NaN;
+        this.followedAt = NaN;
+        this.followedFlyBy = -1;
+        this.followedOrbit = undefined;
+        // Recording takes over from following; stopping it plays the result back.
+        this.replayFollowCamera = !on;
+    }
+
+    /** Write the camera in use over the samples played since the last frame. */
+    private recordReplayCamera(): void {
+        const t = this.replayPlayer.time;
+        const from = Number.isNaN(this.recordCameraFrom) ? t - 1e-6 : this.recordCameraFrom;
+        this.recordCameraFrom = t;
+        // Only what is played through forwards; a seek or scrub writes nothing.
+        if (!(t > from && t - from <= 1)) {
+            return;
+        }
+        const c = this.recordCameraScratch;
+        c.view = this.view;
+        c.subject = this.recordedCameraSubject();
+        c.yaw = this.viewYaw;
+        c.pitch = this.viewPitch;
+        c.zoom = this.viewZoom;
+        this.recorder.writeCamera(from, t, c);
+    }
+
+    /** The camera record's subject: the F2 aircraft's id, or in the fly-by which drop it is. */
+    private recordedCameraSubject(): number {
+        if (this.view === PlayerViewState.FLY_BY) {
+            return this.flyByDrops;
+        }
+        return this.exteriorSubject ? this.replayActorIds.get(this.exteriorSubject) ?? -1 : -1;
+    }
+
+    /** Replay: watch through the camera the flight was watched through. */
+    private followRecordedCamera(): void {
+        const c = this.replayPose.camera;
+        if (c.view < 0) {
+            return;
+        }
+        // Turned by hand since the last frame: the user has the camera now.
+        const o = this.followedOrbit;
+        if (o && (o.yaw !== this.viewYaw || o.pitch !== this.viewPitch || o.zoom !== this.viewZoom)) {
+            this.replayFollowCamera = false;
+            return;
+        }
+        const t = this.replayPlayer.time;
+        const jumped = !(Math.abs(t - this.followedAt) <= 1);
+        this.followedAt = t;
+        const view = c.view as PlayerViewState;
+        const flyBy = view === PlayerViewState.FLY_BY;
+        const subject = flyBy ? undefined : this.replayActorById(c.subject);
+        const f2 = view === PlayerViewState.EXTERIOR_BEHIND || view === PlayerViewState.EXTERIOR_FRONT;
+        if (view !== this.view || (f2 && subject !== this.exteriorSubject)
+            || (flyBy && c.subject !== this.followedFlyBy)) {
+            this.followedFlyBy = flyBy ? c.subject : -1;
+            this.applyRecordedView(view, subject);
+            if (jumped) {
+                // A seek lands on the view straight away; only played-through changes glide.
+                this.endCameraBlend();
+            }
+        }
+        this.viewYaw = c.yaw;
+        this.viewPitch = c.pitch;
+        this.viewZoom = c.zoom;
+        this.followedOrbit = { yaw: c.yaw, pitch: c.pitch, zoom: c.zoom };
     }
 
     /** Views that keep running after a crash rather than cutting to the crash camera. */
@@ -4818,6 +6012,7 @@ export class Game {
         }
         this.crashTransitionDone = true;
         this.damageSmoke?.ensureCrashPlume(PLAYER_SIM_ID);
+        this.logEffect({ kind: 'crashPlume', targetId: PLAYER_SIM_ID });
         this.leaveShowcaseIfActive();
         // A flight view carries on through the crash with the same angles and
         // distance (the camera follows the cockpit piece, see the player's
@@ -4830,6 +6025,7 @@ export class Game {
             restoreMainCameraParameters(this.playerCamera.main);
         }
         if (!keepView) {
+            this.beginCameraBlend(PlayerViewState.CRASHED);
             this.view = PlayerViewState.CRASHED;
             this.cameraUpdater = this.getCameraUpdater(this.view);
         }
@@ -5013,6 +6209,8 @@ export class Game {
         this.stopReplay();
         this.clearExteriorEnemyLock();
         this.recorder.clear();
+        this.worldRecorder.clear();
+        this.effectLog.clear();
         const seedMode: SpawnMode = at !== undefined ? 'approach' : spawn;
         const center = at !== undefined ? this.locationSpawnPosition(at) : this.spawnCenterEnu(spawn);
         // Respawning where the last flight was finds the whole pinned ring
@@ -5127,6 +6325,8 @@ export class Game {
             this.spawnWingman(closeWing, at === undefined && spawn === 'runway');
             this.setCockpitFrontView();
         }
+        // A new flight starts in its view, not gliding from the last one's.
+        this.endCameraBlend();
         if (this.aiOpponent?.enabled) {
             this.player.setWeaponsTarget(this.aiOpponent);
         }
@@ -5231,149 +6431,22 @@ export class Game {
         this.weaponsField = new WeaponsField(this.models, this.combatSim);
         this.scene.add(this.weaponsField);
 
-        this.debrisField = new DebrisField(this.materials);
-        this.scene.add(this.debrisField);
-        this.impactMarks = new ImpactMarks(this.materials);
-        this.impactMarks.setMovingSurface(this.carrierSurface);
-        this.scene.add(this.impactMarks);
-        this.wreckField = new WreckField();
-        this.wreckField.setMovingSurface(this.carrierSurface);
-        // The sea: open water that is neither land nor the carrier's deck nor a pad standing in it.
-        const isOpenWater = (x: number, z: number): boolean =>
-            !this.planetTerrain.isLandAtWorld(x, z)
-            && !Number.isFinite(sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes))
-            && this.surfacePads.sampleYMax(x, z) === -Infinity;
-        // The sea's own height, not the ground height (which includes the carrier's hull and deck).
-        this.wreckField.setWaterTest(
-            isOpenWater,
-            (x, z) => this.planetTerrain.drawnHeightAtWorld(x, z) ?? this.planetTerrain.heightAtWorld(x, z));
-        this.wreckField.onSplash = (position, _velocity, strength) => {
-            this.damageSmoke?.spawnSplash(position, strength);
-        };
-        this.wreckField.onFoam = (position, radius, count) => {
-            this.damageSmoke?.spawnFoam(position, radius, count);
-        };
-        this.wreckField.onMark = (position, normal, dirX, dirZ, length, width, strength) => {
-            this.impactMarks?.add(position, normal, dirX, dirZ, length, width, strength);
-        };
-        this.wreckField.setGroundHeightAt((x, z) => this.drawnGroundHeightAt(x, z));
-        this.wreckField.onBreakup = (e) => {
-            // A burst per fireball-sized chunk of the hit: harder impacts throw more.
-            const bursts = 1 + Math.round(e.severity * 3);
-            for (let i = 0; i < bursts; i++) {
-                this._debugDebrisPos.copy(e.position);
-                this._debugDebrisPos.x += (Math.random() - 0.5) * 6;
-                this._debugDebrisPos.z += (Math.random() - 0.5) * 6;
-                this._debugDebrisPos.y += Math.random() * 3;
-                this.debrisField?.spawnDebugBurst(this._debugDebrisPos, e.velocity);
-            }
-            // The fireball at the moment of impact, and the lake of burning fuel it leaves.
-            this.damageSmoke?.spawnFireball(e.position, e.velocity, e.severity);
-            const field = this.wreckField;
-            // The lake is made of the fuel that falls out of the aircraft, from the crash on.
-            // (On the sea there is no ground for it to spread over: the fuel just splashes.)
-            if (!e.water) {
-                this.damageSmoke?.addFirePool(e.position, e.velocity, e.severity);
-            }
-            // Dust cloud where it hit, bigger and wider for a harder hit.
-            if (e.water) {
-                // Into the sea: a big splash and a mist, not dust.
-                this.damageSmoke?.spawnSplash(e.position, e.severity * 1.3);
-            } else {
-                this.damageSmoke?.spawnDust(e.position, e.velocity, Math.round(25 + 45 * e.severity), e.severity);
-            }
-            // Fires ride on the pieces: big at the fuselage, smaller at the wing roots.
-            for (const fire of e.fires) {
-                const fuselage = fire.kind === 'fuselage';
-                if (fire.kind === 'brand') {
-                    // A burning shard flung clear: a short, fierce fire that rides on it.
-                    this.damageSmoke?.addAnchoredFire(
-                        e.id, (out) => field?.fireWorld(fire, out) ?? false,
-                        { rate: 26, life: 8 + Math.random() * 14, trickle: 14, small: true, drips: 0 });
-                    continue;
-                }
-                this.damageSmoke?.addAnchoredFire(
-                    e.id, (out) => field?.fireWorld(fire, out) ?? false,
-                    {
-                        rate: fuselage ? 44 : 15,
-                        life: fuselage ? FUSELAGE_FIRE_LIFE_S : WING_ROOT_FIRE_LIFE_S,
-                        trickle: fuselage ? FUSELAGE_SMOULDER_S : WING_ROOT_SMOULDER_S,
-                        small: !fuselage,
-                        // Burning fuel runs off the fuselage and the wing roots and falls into the lake.
-                        drips: fuselage ? 9 : 3,
-                    });
-            }
-        };
-        // Fuel fires start as soon as the airframe is bent or torn, riding on the aircraft.
-        this.wreckField.onDamage = (e) => {
-            const entity = e.id === PLAYER_SIM_ID
-                ? this.player
-                : this.aiBySimId(e.id);
-            if (!entity) {
-                return;
-            }
-            for (const fire of e.fires) {
-                const fuselage = fire.kind === 'fuselage';
-                this.damageSmoke?.addAnchoredFire(
-                    // Not the aircraft's own id: that would stand in for the wreck's fires at a crash.
-                    e.id + ':damage',
-                    (out) => entity.damagePointWorld(fire.local, out),
-                    {
-                        rate: fuselage ? 44 : 15,
-                        life: fuselage ? FUSELAGE_FIRE_LIFE_S : WING_ROOT_FIRE_LIFE_S,
-                        trickle: fuselage ? FUSELAGE_SMOULDER_S : WING_ROOT_SMOULDER_S,
-                        small: !fuselage,
-                        // The fuel runs out of the break and falls: the lake builds under it.
-                        drips: fuselage ? 9 : 3,
-                    });
-            }
-        };
-        this.wreckField.onBurn = (position, life, intensity) => {
-            this.damageSmoke?.addBurnSpot(position, life, intensity);
-        };
-        this.wreckField.onSplit = (position, velocity, strength) => {
-            // A piece shattering on the ground: a spray of chips and a puff of dust.
-            this.debrisField?.spawnDebugBurst(position, velocity);
-            this.damageSmoke?.spawnDust(position, velocity, Math.round(10 + 15 * strength), strength * 0.8);
-        };
-        this.wreckField.onDust = (position, velocity, count, strength) => {
-            this.damageSmoke?.spawnDust(position, velocity, count, strength * 0.6);
-        };
-        this.scene.add(this.wreckField);
+        const effects = this.buildEffectFields();
+        this.debrisField = effects.debris;
+        this.impactMarks = effects.marks;
+        this.wreckField = effects.wrecks;
+        this.damageSmoke = effects.smoke;
+        for (const field of effectFieldList(effects)) {
+            this.scene.add(field);
+        }
         this.player.setWreckField(this.wreckField);
-        this.damageSmoke = new DamageSmokeField(this.materials);
-        this.damageSmoke.setGroundHeightAt((x, z) => this.drawnGroundHeightAt(x, z));
-        this.damageSmoke.setMovingSurface(this.carrierSurface);
-        this.damageSmoke.setWaterTest((x, z) =>
-            !this.planetTerrain.isLandAtWorld(x, z)
-            && !Number.isFinite(sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes))
-            && this.surfacePads.sampleYMax(x, z) === -Infinity);
-        // The ground under the lake of fire is scorched as it spreads along the fuselage path.
-        this.damageSmoke.onPoolMark = (position, dirX, dirZ, length, width) => {
-            const ground = (x: number, z: number) => this.drawnGroundHeightAt(x, z);
-            const h = 2;
-            const normal = new THREE.Vector3(
-                -(ground(position.x + h, position.z) - ground(position.x - h, position.z)) / (2 * h),
-                1,
-                -(ground(position.x, position.z + h) - ground(position.x, position.z - h)) / (2 * h),
-            ).normalize();
-            this.impactMarks?.add(position, normal, dirX, dirZ, length, width, 0.7);
-        };
-        // Burn marks appear under the fires and darken over time.
-        this.damageSmoke.onBurnMark = (position, radius, strength, growSeconds) => {
-            const heading = Math.random() * Math.PI * 2;
-            const size = radius * 2;
-            this.impactMarks?.addBurn(
-                position, this.groundNormalAt(position.x, position.z),
-                Math.sin(heading), Math.cos(heading), size * (0.8 + 0.5 * Math.random()), size, strength, growSeconds);
-        };
-        // The dust a contact throws up is the colour of what it touches.
-        this.damageSmoke.surfaceAt = (x, z) => this.surfaceKindAt(x, z);
-        this.damageSmoke.setPoseProvider((targetId) => this.getDamageSmokePose(targetId));
-        this.scene.add(this.damageSmoke);
+        this.wreckField.onSpawn = (src) => this.logEffect({ kind: 'wreck', src });
         this.combatSim.onHits = (hits) => {
             const gunHits = hits.filter(h => h.source !== 'scrape');
             const scrapes = hits.filter(h => h.source === 'scrape');
+            if (hits.length > 0) {
+                this.logEffect({ kind: 'hits', hits });
+            }
             if (gunHits.length > 0) {
                 this.debrisField?.spawnFromHits(gunHits);
                 this.damageSmoke?.spawnFromHits(gunHits);
@@ -5795,8 +6868,24 @@ export class Game {
     }
 
     private async setupScene(spawn: SpawnMode) {
-        const terrainUrl = terrainManifestUrl(loadSettings().terrainTree);
-        const manifest = await loadTerrainManifest(terrainUrl, setBootProgress);
+        let terrainUrl = terrainManifestUrl(loadSettings().terrainTree);
+        let manifest = await loadTerrainManifest(terrainUrl, setBootProgress);
+        // A camera link outside every area of the picked tree (Settings left on
+        // a one-area extract) flies the default tree for this session instead
+        // of a bare Blue Marble; the saved pick is left alone.
+        if (this.cameraRoute && terrainUrl !== DEFAULT_TERRAIN_URL
+            && !homeArea(terrainAreas(manifest), { ...this.cameraRoute, height: 0 })) {
+            try {
+                const fallback = await loadTerrainManifest(DEFAULT_TERRAIN_URL, setBootProgress);
+                if (homeArea(terrainAreas(fallback), { ...this.cameraRoute, height: 0 })) {
+                    console.log(`camera route is outside ${terrainUrl}; flying the default tree`);
+                    terrainUrl = DEFAULT_TERRAIN_URL;
+                    manifest = fallback;
+                }
+            } catch (e) {
+                console.warn('default terrain tree unavailable for the camera route', e);
+            }
+        }
         // Which baked area this session flies in, and therefore where the ENU
         // origin sits. Home keeps PLAY_ORIGIN exactly and gets the authored
         // scenery; anywhere else is terrain only, rebased onto its own centre
@@ -5963,6 +7052,7 @@ export class Game {
         this.setupCombat();
 
         const hud = new HUDEntity(this.player, this.configService);
+        this.hud = hud;
         this.cockpitEntities.push(hud);
         this.scene.add(hud);
 
@@ -6224,6 +7314,8 @@ export class Game {
         // Aircraft, trails, particles, scenery, airfields, clouds.
         this.scene.rebase(shift);
         this.recorder.rebase(shift);
+        this.worldRecorder.rebase(shift);
+        this.effectLog.rebase(shift);
         this.fixedCameraUpdater.rebase(shift);
         this.flyByCameraUpdater.rebase(shift);
 

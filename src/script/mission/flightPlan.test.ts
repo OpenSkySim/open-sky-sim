@@ -62,6 +62,18 @@ describe('validateMission', () => {
         ]);
     });
 
+    it('takes an MSL or AGL altitude reference, and nothing else', () => {
+        const at = (altRef: unknown) => flight({
+            start: { kind: 'air', lat: 28, lon: -15, altM: 300, altRef, speedMps: 200, headingDeg: 90 } as Flight['start'],
+            waypoints: [{ lat: 28.1, lon: -15.5, altM: 150, altRef, speedMps: 220 } as Flight['waypoints'][0]],
+        });
+        assert.deepEqual(validateMission(mission([at('agl'), at('msl'), at(undefined)])), []);
+        assert.deepEqual(validateMission(mission([at('feet')])), [
+            'flights[0].start.altRef: msl or agl',
+            'flights[0].waypoints[0].altRef: msl or agl',
+        ]);
+    });
+
     it('refuses a newer version, junk and an unknown endpoint kind', () => {
         assert.match(validateMission({ ...mission(), version: 2 })[0], /^version/);
         assert.deepEqual(validateMission(null), ['not a mission object']);

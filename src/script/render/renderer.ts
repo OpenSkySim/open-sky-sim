@@ -64,6 +64,40 @@ interface WebGLRenderTarget extends BaseRenderTarget {
     target: THREE.WebGLRenderTarget;
     /** Reapplied to the backing texture size on every resize. */
     textureScale: number;
+    /** Id of the sharper inset drawn over this target's centre (setFovea). */
+    fovea?: string;
+}
+
+/**
+ * Fraction of the fovea's width (and height) over which each of its edges
+ * fades into the coarser view beneath it.
+ */
+const FOVEA_FEATHER = 0.3;
+
+/**
+ * Alpha mask for the fovea's compositor quad: opaque in the middle, easing to
+ * nothing at every edge. A product of the two axes, so the corners round off
+ * rather than showing the rectangle the inset is drawn in.
+ */
+function foveaFeatherMask(): THREE.DataTexture {
+    const size = 128;
+    const data = new Uint8Array(size * size * 4);
+    const ramp = (t: number): number => {
+        const edge = Math.min(t, 1 - t) / (FOVEA_FEATHER / 2);
+        const x = Math.min(1, Math.max(0, edge));
+        return x * x * (3 - 2 * x);
+    };
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const a = Math.round(255 * ramp((x + 0.5) / size) * ramp((y + 0.5) / size));
+            data.fill(a, (y * size + x) * 4, (y * size + x) * 4 + 4);
+        }
+    }
+    const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+    return texture;
 }
 
 export interface RenderLayer {
@@ -262,7 +296,7 @@ export class Renderer {
         });
         this.reversedDepth = this.renderer.capabilities.reversedDepthBuffer;
         // Cap DPR so HD on high-DPI displays does not explode fill rate.
-        this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
+        this.renderer.setPixelRatio(this.screenPixelRatio());
         const gl = this.renderer.getContext();
         this.isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
         // Cast is safe: GpuPassTimer only calls WebGL2-only query methods when
@@ -296,6 +330,31 @@ export class Renderer {
 
     setTextEffect(effect: TextEffect) {
         this.textEffect = effect;
+    }
+
+    private screenPixelRatio(): number {
+        return Math.min(1.5, window.devicePixelRatio || 1);
+    }
+
+    /**
+     * Video export: draw at exactly `size` device pixels whatever the window
+     * is, the page showing it letterboxed at the window's size. Undefined
+     * goes back to following the window.
+     */
+    private exportSize: [number, number] | undefined;
+
+    setExportSize(size: [number, number] | undefined): void {
+        this.exportSize = size;
+        const canvas = this.renderer.domElement;
+        canvas.style.objectFit = size ? 'contain' : '';
+        canvas.style.background = size ? '#000' : '';
+        this.renderer.setPixelRatio(size ? 1 : this.screenPixelRatio());
+        this.updateViewportSize();
+    }
+
+    /** The page's WebGL canvas, the one a frame grab reads. */
+    get canvas(): HTMLCanvasElement {
+        return this.renderer.domElement;
     }
 
     setComposeSize(width: number, height: number) {
@@ -332,6 +391,9 @@ export class Renderer {
      * Viewport size in device pixels for HD render targets.
      */
     getMaxViewportResolution(): [number, number] {
+        if (this.exportSize) {
+            return [this.exportSize[0], this.exportSize[1]];
+        }
         const pixelRatio = this.renderer.getPixelRatio();
         const width = Math.max(1, Math.floor(this.container.clientWidth * pixelRatio));
         const height = Math.max(1, Math.floor(this.container.clientHeight * pixelRatio));
@@ -387,6 +449,14 @@ export class Renderer {
             canvas.height = height;
             renderTarget.painter.clear();
             renderTarget.dirt.resize(width, height);
+            // three.js only reallocates a texture's (immutable) storage when
+            // its parameters change, never its size: without letting go of
+            // the GPU copies, the larger canvas would be written into storage
+            // still sized for the old one (a scrambled HUD and MFDs in a
+            // video export, or after the window grows). Both reallocate on
+            // their next use.
+            renderTarget.target.dispose();
+            renderTarget.source.dispose();
             renderTarget.target.needsUpdate = true;
         }
 
@@ -444,6 +514,9 @@ export class Renderer {
             // deferred sky lands on every pixel nothing else covers.
             const skyFirst = layer.lists.length === 1 && layer.lists[0] === SceneLayers.BackgroundSky;
             const renderTarget = this.prepareRenderTarget(layer.target, palette, !skipRefresh, layer.clearColor, !skyFirst);
+            const fovea = renderTarget.type === RenderTargetType.WEBGL && renderTarget.fovea !== undefined
+                ? this.prepareRenderTarget(renderTarget.fovea, palette, !skipRefresh, layer.clearColor, !skyFirst) as WebGLRenderTarget
+                : undefined;
             if (skipRefresh) {
                 continue;
             }
@@ -456,12 +529,21 @@ export class Renderer {
                 // timing them would just measure ~0 - only WEBGL passes are
                 // worth the query.
                 this.gpuTimer.begin(label);
-                if (layer.lists.length === 1 && layer.lists[0] === SceneLayers.BackgroundSky) {
+                // Bound here, not left to prepareRenderTarget: a fovea's
+                // pass in between leaves its own target bound.
+                this.renderer.setRenderTarget(renderTarget.target);
+                if (skyFirst) {
                     this.renderBackgroundSkyDownscaled(renderTarget, scene, layer, palette);
                 } else {
                     this.render3D(renderTarget, scene, layer, palette);
                 }
                 this.gpuTimer.end();
+                if (fovea !== undefined) {
+                    drawnTargets.add(fovea);
+                    this.gpuTimer.begin(`${renderTarget.fovea}:${layer.lists.join('+')}`);
+                    this.renderFovea(renderTarget, fovea, scene, layer, palette, skyFirst);
+                    this.gpuTimer.end();
+                }
             } else {
                 this.render2D(renderTarget, scene, layer, palette);
                 this.refreshCanvas(renderTarget);
@@ -527,7 +609,46 @@ export class Renderer {
         return renderTarget;
     }
 
-    render3D(renderTarget: WebGLRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette) {
+    /**
+     * `key` names the target for the deferred sky, when it is not the
+     * layer's own (a fovea). `reuseLists` submits the lists the last pass
+     * built instead of building them again: a fovea draws what its parent
+     * just did, through a narrower window of the same camera.
+     */
+    render3D(renderTarget: WebGLRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette, key = layer.target, reuseLists = false) {
+        if (!reuseLists) {
+            this.buildLists(renderTarget, scene, layer, palette);
+        }
+
+        // Before the submit, not after: the layer's own materials sample this.
+        // Skipped when the layer drew up empty, which for the glare is every
+        // frame between sunset and sunrise - a full-screen resolve per view is
+        // not worth paying for a pass with nothing in it.
+        if (layer.sceneDepthFrom !== undefined && this.hasAnythingInView(layer)) {
+            this.sceneDepthPass.resolve(this.renderer, renderTarget.target, layer.sceneDepthFrom);
+        }
+
+        const sky = this.pendingSky.get(key);
+        if (sky === undefined || !this.hasAnythingToDraw(layer)) {
+            this.submitCameraRelative(layer, palette);
+            return;
+        }
+        this.pendingSky.delete(key);
+        const list = this.current3DRenderLists.get(layer.lists[0]);
+        assertIsDefined(list);
+        const quad = this.blitPass.deferredMesh(sky.texture);
+        list.add(quad);
+        this.renderer.sortObjects = true;
+        this.opaqueSort.beginPass();
+        try {
+            this.submitCameraRelative(layer, palette);
+        } finally {
+            this.renderer.sortObjects = false;
+            list.remove(quad);
+        }
+    }
+
+    private buildLists(renderTarget: WebGLRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette): void {
         if ((layer.camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
             const camera = layer.camera as THREE.PerspectiveCamera;
             const aspect = renderTarget.width / renderTarget.height;
@@ -552,32 +673,29 @@ export class Renderer {
             assertIsDefined(list);
             pruneRenderList(list);
         }
+    }
 
-        // Before the submit, not after: the layer's own materials sample this.
-        // Skipped when the layer drew up empty, which for the glare is every
-        // frame between sunset and sunrise - a full-screen resolve per view is
-        // not worth paying for a pass with nothing in it.
-        if (layer.sceneDepthFrom !== undefined && this.hasAnythingInView(layer)) {
-            this.sceneDepthPass.resolve(this.renderer, renderTarget.target, layer.sceneDepthFrom);
-        }
-
-        const sky = this.pendingSky.get(layer.target);
-        if (sky === undefined || !this.hasAnythingToDraw(layer)) {
-            this.submitCameraRelative(layer, palette);
-            return;
-        }
-        this.pendingSky.delete(layer.target);
-        const list = this.current3DRenderLists.get(layer.lists[0]);
-        assertIsDefined(list);
-        const quad = this.blitPass.deferredMesh(sky.texture);
-        list.add(quad);
-        this.renderer.sortObjects = true;
-        this.opaqueSort.beginPass();
+    /**
+     * The layer once more into `parent`'s fovea, straight after `parent`'s
+     * own pass: the same lists, through a view offset that narrows the
+     * camera to the fovea's part of the frame. The camera keeps its aspect
+     * and its pixel scale, so LOD and everything sized in pixels agree with
+     * the coarser view the fovea fades into.
+     */
+    private renderFovea(parent: WebGLRenderTarget, fovea: WebGLRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette, sky: boolean): void {
+        const camera = layer.camera as THREE.PerspectiveCamera | THREE.OrthographicCamera;
+        const key = parent.fovea;
+        assertIsDefined(key);
+        camera.setViewOffset(parent.width, parent.height, fovea.x - parent.x, fovea.y - parent.y, fovea.width, fovea.height);
         try {
-            this.submitCameraRelative(layer, palette);
+            this.renderer.setRenderTarget(fovea.target);
+            if (sky) {
+                this.renderBackgroundSkyDownscaled(fovea, scene, layer, palette, key, true);
+            } else {
+                this.render3D(fovea, scene, layer, palette, key, true);
+            }
         } finally {
-            this.renderer.sortObjects = false;
-            list.remove(quad);
+            camera.clearViewOffset();
         }
     }
 
@@ -605,18 +723,18 @@ export class Renderer {
      * a smaller buffer first is enough - the wrapper's width/height still
      * drive the correct camera aspect and LOD math either way.
      */
-    private renderBackgroundSkyDownscaled(renderTarget: WebGLRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette): void {
-        const small = this.backgroundSkyTargetFor(layer.target, renderTarget);
+    private renderBackgroundSkyDownscaled(renderTarget: WebGLRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette, key = layer.target, reuseLists = false): void {
+        const small = this.backgroundSkyTargetFor(key, renderTarget);
 
         this.renderer.setRenderTarget(small);
         // The layer's own clear colour, or above the air the blit paints the
         // palette's sky blue over the black the target was just cleared to.
         this.renderer.setClearColor(layer.clearColor ?? PaletteColor(palette, PaletteCategory.BACKGROUND));
         this.renderer.clear();
-        this.render3D(renderTarget, scene, layer, palette);
+        this.render3D(renderTarget, scene, layer, palette, key, reuseLists);
 
         this.renderer.setRenderTarget(renderTarget.target);
-        this.pendingSky.set(layer.target, { texture: small.texture, target: renderTarget.target });
+        this.pendingSky.set(key, { texture: small.texture, target: renderTarget.target });
     }
 
     /**
@@ -880,6 +998,67 @@ export class Renderer {
         }
     }
 
+    /**
+     * Draw the middle `size` (fraction of width and height) of WEBGL target
+     * `id` again into an inset of its own at `textureScale`, faded over the
+     * target at the compose: a sharp, supersampled centre over a coarser
+     * rest of the view. `size` 0 removes the inset. Call after every resize
+     * of `id`; the inset follows its size.
+     */
+    setFovea(id: string, size: number, textureScale: number): void {
+        const parent = this.renderTargets.get(id);
+        assertIsDefined(parent);
+        assertExpr(parent.type === RenderTargetType.WEBGL, `Render target "${id}" cannot have a fovea`);
+        const foveaId = `${id}:fovea`;
+        if (size <= 0) {
+            const fovea = this.renderTargets.get(foveaId);
+            if (fovea !== undefined && fovea.type === RenderTargetType.WEBGL) {
+                // The glare pass's depth copy is keyed by this target: a new
+                // fovea is a new target, so the old copy would never be reused.
+                this.sceneDepthPass.release(fovea.target);
+                fovea.target.depthTexture?.dispose();
+                fovea.target.dispose();
+                fovea.compositorObj.geometry.dispose();
+                (fovea.compositorObj.material as THREE.Material).dispose();
+                this.renderTargets.delete(foveaId);
+                this.backgroundSkyTargets.get(foveaId)?.dispose();
+                this.backgroundSkyTargets.delete(foveaId);
+            }
+            parent.fovea = undefined;
+            return;
+        }
+        // Even sizes, so the inset sits on whole pixels of its parent.
+        const width = Math.max(2, 2 * Math.round(parent.width * size / 2));
+        const height = Math.max(2, 2 * Math.round(parent.height * size / 2));
+        const x = parent.x + Math.round((parent.width - width) / 2);
+        const y = parent.y + Math.round((parent.height - height) / 2);
+        if (this.renderTargets.has(foveaId)) {
+            this.resizeRenderTarget(foveaId, x, y, width, height, textureScale);
+        } else {
+            this.createRenderTarget(foveaId, RenderTargetType.WEBGL, x, y, width, height, { textureScale });
+            const fovea = this.renderTargets.get(foveaId) as WebGLRenderTarget;
+            const texture = fovea.target.texture;
+            texture.magFilter = this.upscaleLinear ? THREE.LinearFilter : THREE.NearestFilter;
+            (fovea.compositorObj.material as THREE.Material).dispose();
+            // Blended, but kept in the opaque list (transparent false), so it
+            // composes in the order it was added: over its parent, under the
+            // cockpit displays and the HUD. The page's canvas keeps an alpha
+            // channel, so the blend leaves the frame's alpha alone: a feather
+            // written there lets the page show through as a bright halo.
+            this.foveaMask ??= foveaFeatherMask();
+            fovea.compositorObj.material = new THREE.MeshBasicMaterial({
+                map: texture,
+                alphaMap: this.foveaMask,
+                blending: THREE.CustomBlending,
+                blendSrcAlpha: THREE.ZeroFactor,
+                blendDstAlpha: THREE.OneFactor,
+                depthWrite: false,
+            });
+        }
+        parent.fovea = foveaId;
+    }
+    private foveaMask?: THREE.DataTexture;
+
     hasRenderTarget(id: string) {
         return this.renderTargets.has(id);
     }
@@ -899,8 +1078,8 @@ export class Renderer {
     }
 
     private updateViewportSize() {
-        const viewportWidth = this.container.clientWidth || 1;
-        const viewportHeight = this.container.clientHeight || 1;
+        const viewportWidth = this.exportSize?.[0] ?? (this.container.clientWidth || 1);
+        const viewportHeight = this.exportSize?.[1] ?? (this.container.clientHeight || 1);
         const viewportAspect = viewportWidth / viewportHeight;
         const aspect = this.composeWidth / this.composeHeight;
         if (viewportAspect > aspect) {
@@ -917,6 +1096,11 @@ export class Renderer {
             this.composeCamera.right = this.composeWidth / 2;
         }
         this.composeCamera.updateProjectionMatrix();
-        this.renderer.setSize(viewportWidth, viewportHeight);
+        if (this.exportSize) {
+            // The drawing buffer only: the canvas keeps its on-page size.
+            this.renderer.setSize(viewportWidth, viewportHeight, false);
+        } else {
+            this.renderer.setSize(viewportWidth, viewportHeight);
+        }
     }
 }

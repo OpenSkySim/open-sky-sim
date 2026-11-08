@@ -70,6 +70,9 @@ const FCS_MODE_LABELS: Record<number, string> = {
 
 export class HUDEntity implements Entity {
 
+    /** The FPS / triangle readout in the top-right corner (off in a clean video export). */
+    showPerfStats = true;
+
     private displayUnits: DisplayUnits;
     private readonly onUnitSystemChange = (system: UnitSystems) => {
         this.displayUnits.setSystem(system);
@@ -301,7 +304,9 @@ export class HUDEntity implements Entity {
             this.renderVerticalVelocityIndicator(layout, tickStep, altitudeX, altitudeY, painter, hudColor, hudWarnColor);
         }
 
-        this.renderPerfStats(targetWidth, layoutScale, dx, dy, painter, hudSecondaryColor, fontSmall);
+        if (this.showPerfStats) {
+            this.renderPerfStats(targetWidth, layoutScale, dx, dy, painter, hudSecondaryColor, fontSmall);
+        }
     }
 
     /**

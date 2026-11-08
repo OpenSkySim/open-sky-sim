@@ -1,7 +1,7 @@
 import { computed, signal } from '@angular/core';
 import {
-    Flight, FlightEndpoint, MAX_ALT_M, MAX_FLIGHTS, MAX_SPEED_MPS, MISSION_VERSION, Mission, Waypoint,
-    initialBearingDeg, normalizeHeadingDeg, validateMission,
+    AltitudeRef, Flight, FlightEndpoint, MAX_ALT_M, MAX_FLIGHTS, MAX_SPEED_MPS, MISSION_VERSION, Mission, Waypoint,
+    initialBearingDeg, validateMission,
 } from './flightPlan';
 import * as store from './missionStore';
 import { missionUrl } from '../state/appRoute';
@@ -107,10 +107,9 @@ export class MissionEditor {
 
     /** Replace the mission with `fn` applied to a copy, so every change is a new value for the signals. */
     private edit(fn: (m: Mission) => void): void {
-        const before = this.mission();
-        const m = structuredClone(before);
+        const m = structuredClone(this.mission());
         fn(m);
-        headAlongFirstLegs(before, m);
+        headAlongFirstLegs(m);
         this.mission.set(m);
     }
 
@@ -175,17 +174,12 @@ export class MissionEditor {
         }
     }
 
-    /** Patch the selected flight's airborne start (its altitude, speed or heading). */
-    updateAirStart(i: number, patch: Partial<Extract<FlightEndpoint, { kind: 'air' }>>): void {
+    /** Patch the selected flight's airborne start (its altitude, its reference or its speed; the heading follows the first leg). */
+    updateAirStart(i: number, patch: Partial<Pick<Extract<FlightEndpoint, { kind: 'air' }>, 'altM' | 'altRef' | 'speedMps'>>): void {
         this.edit(m => {
             const s = m.flights[i].start;
             if (s.kind === 'air') {
-                const p = clampFlight(patch);
-                // Not a number at all is left alone for validation to report.
-                if (p.headingDeg !== undefined && Number.isFinite(p.headingDeg)) {
-                    p.headingDeg = normalizeHeadingDeg(p.headingDeg);
-                }
-                Object.assign(s, p);
+                Object.assign(s, clampFlight(patch));
             }
         });
     }
@@ -261,7 +255,7 @@ export class MissionEditor {
         const like = 'altM' in a ? a : f.waypoints[k - 1];
         const j = k;
         this.edit(m => m.flights[i].waypoints.splice(j, 0, {
-            ...at, altM: like?.altM ?? this.defaultAltM, speedMps: like?.speedMps ?? this.defaultSpeedMps,
+            ...at, altM: like?.altM ?? this.defaultAltM, ...refOf(like), speedMps: like?.speedMps ?? this.defaultSpeedMps,
         }));
         this.selectPoint(i, j);
     }
@@ -289,7 +283,7 @@ export class MissionEditor {
             const at = sel === 'start' ? 0 : sel === 'land' || sel === undefined ? f.waypoints.length : sel + 1;
             const prev = f.waypoints[at - 1] ?? (f.start.kind === 'air' ? f.start : undefined);
             this.edit(m => m.flights[i].waypoints.splice(at, 0, {
-                lat, lon, altM: prev?.altM ?? this.defaultAltM, speedMps: prev?.speedMps ?? this.defaultSpeedMps,
+                lat, lon, altM: prev?.altM ?? this.defaultAltM, ...refOf(prev), speedMps: prev?.speedMps ?? this.defaultSpeedMps,
             }));
             this.selectedPoint.set(at);
             return;
@@ -302,7 +296,7 @@ export class MissionEditor {
             } else if (mode === 'start') {
                 const old = flight.start.kind === 'air' ? flight.start : undefined;
                 flight.start = {
-                    kind: 'air', lat, lon, altM: old?.altM ?? this.defaultAltM,
+                    kind: 'air', lat, lon, altM: old?.altM ?? this.defaultAltM, ...refOf(old),
                     speedMps: old?.speedMps ?? this.defaultSpeedMps, headingDeg: old?.headingDeg ?? 0,
                 };
             }
@@ -337,7 +331,7 @@ export class MissionEditor {
             const f = m.flights[i];
             const old = f.start.kind === 'air' ? f.start : undefined;
             f.start = end ? { kind: 'runway', ...end } : {
-                kind: 'air', lat, lon, altM: old?.altM ?? this.defaultAltM,
+                kind: 'air', lat, lon, altM: old?.altM ?? this.defaultAltM, ...refOf(old),
                 speedMps: old?.speedMps ?? this.defaultSpeedMps, headingDeg: old?.headingDeg ?? 0,
             };
         });
@@ -401,37 +395,29 @@ export class MissionEditor {
 }
 
 /**
- * An air start faces down its first leg. Whenever an edit changes a flight's
- * first leg (its start or first waypoint placed, moved, added or removed),
- * its heading becomes the bearing from the start to the first waypoint; a
- * heading typed in afterwards stands until the leg changes again. Edits that
- * add or remove a flight shift the others' indices and change no leg, so
- * they are left alone.
+ * An air start faces down its first leg: its heading is the bearing from the
+ * start to the first waypoint, set after every edit, and not typed in - the
+ * waypoints say where it goes. With no first waypoint (or one on top of the
+ * start) the heading it had stands.
  */
-export function headAlongFirstLegs(before: Mission, after: Mission): void {
-    if (before.flights.length !== after.flights.length) {
-        return;
-    }
-    const same = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) =>
-        a.lat === b.lat && a.lon === b.lon;
-    after.flights.forEach((f, i) => {
+export function headAlongFirstLegs(m: Mission): void {
+    for (const f of m.flights) {
         const s = f.start;
         const w = f.waypoints[0];
-        if (s.kind !== 'air' || !w || same(s, w)) {
-            return;
+        if (s.kind === 'air' && w && !(s.lat === w.lat && s.lon === w.lon)) {
+            s.headingDeg = initialBearingDeg(s, w);
         }
-        const old = before.flights[i];
-        const oldW = old?.waypoints[0];
-        if (old && old.start.kind === 'air' && oldW && same(old.start, s) && same(oldW, w)) {
-            return;
-        }
-        s.headingDeg = initialBearingDeg(s, w);
-    });
+    }
 }
 
 /** A number field's text as a number: NaN when empty or not a number (Number('') would be 0), for validation to report. */
 export function parseTypedNumber(text: string): number {
     return text.trim() === '' ? NaN : Number(text);
+}
+
+/** A neighbour's altitude reference to copy onto a new point; MSL is left implicit. */
+function refOf(p: { altRef?: AltitudeRef } | undefined): { altRef?: AltitudeRef } {
+    return p?.altRef === 'agl' ? { altRef: 'agl' } : {};
 }
 
 /** Altitude and speed held to what {@link validateMission} accepts, so a typed value cannot make the mission unsaveable. */

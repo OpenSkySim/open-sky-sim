@@ -268,6 +268,14 @@ export class DebrisField implements Entity {
         //
     }
 
+    /** Every chip and spark gone at once (a replay starting its effects over). */
+    clear(): void {
+        this.system.reset();
+        this.sparkSystem.reset();
+        this.syncDebrisMeshes();
+        this.syncSparkMeshes();
+    }
+
     update(delta: number): void {
         this.system.update(delta);
         this.sparkSystem.update(delta);

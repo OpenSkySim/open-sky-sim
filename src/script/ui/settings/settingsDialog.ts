@@ -17,7 +17,9 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { map } from 'rxjs';
 import { SpawnMode, TouchControlsMode } from '../../config/settingsStorage';
 import { AudioSystem } from '../../audio/audioSystem';
-import { ConfigService, RENDER_SCALES } from '../../config/configService';
+import {
+    ConfigService, FOVEA_SIZE_MAX, FOVEA_SIZE_MIN, FOVEATION_OUTER_SCALES, RENDER_SCALES,
+} from '../../config/configService';
 import { loadSettings, updateSettings } from '../../config/settingsStorage';
 import { JoystickControlDevice } from '../../input/devices/joystickControlDevice';
 import { TouchControlDevice } from '../../input/devices/touchControlDevice';
@@ -647,6 +649,35 @@ function sliderValue(event: Event): number {
                                     (change)="setSupersampling($event)">
                                     Supersampling (SSAA) at 100%
                                 </mat-slide-toggle>
+                            </div>
+                        </section>
+
+                        <section>
+                            <h3 class="m-0 mb-1 text-base font-medium">Foveated rendering</h3>
+                            <p class="m-0 mb-2 text-sm opacity-70">
+                                Keeps the middle of the screen at full resolution, supersampled if that
+                                is on, and draws the rest at a lower one, the two fading into each other.
+                                Where you look stays sharp for less fill rate. Only at 3D resolution
+                                100%, and only where the outside is lower than the middle.
+                            </p>
+                            <div class="flex flex-wrap items-center gap-6">
+                                <mat-form-field class="w-48" subscriptSizing="dynamic">
+                                    <mat-label>Outside resolution</mat-label>
+                                    <mat-select [value]="foveationOuter()" [disabled]="renderScale() < 1"
+                                        (selectionChange)="setFoveationOuter($event.value)">
+                                        @for (option of foveationOuterScales; track option.value) {
+                                            <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                                        }
+                                    </mat-select>
+                                </mat-form-field>
+                                <div class="flex min-w-60 flex-1 items-center gap-4">
+                                    <span class="text-sm">Centre size</span>
+                                    <mat-slider class="flex-1" [min]="foveaSizeMin" [max]="foveaSizeMax" [step]="5"
+                                        [disabled]="renderScale() < 1 || foveationOuter() === 0">
+                                        <input matSliderThumb [value]="foveaSize()" (input)="setFoveaSize($event)">
+                                    </mat-slider>
+                                    <output class="w-12 text-right tabular-nums">{{ foveaSize() }}%</output>
+                                </div>
                             </div>
                         </section>
 
@@ -1354,6 +1385,15 @@ export class SettingsDialog {
     }));
     readonly renderScale = signal(this.config.renderScale.getActive());
     readonly supersampling = signal(this.config.supersampling.getActive());
+    readonly foveationOuterScales: Option<number>[] = FOVEATION_OUTER_SCALES.map(scale => ({
+        value: scale,
+        label: scale === 0 ? 'Off' : `${Math.round(scale * 100)}%`,
+    }));
+    readonly foveationOuter = signal(this.config.foveation.getActive().outerScale);
+    readonly foveaSizeMin = Math.round(FOVEA_SIZE_MIN * 100);
+    readonly foveaSizeMax = Math.round(FOVEA_SIZE_MAX * 100);
+    /** Centre size in percent of the screen's width and height. */
+    readonly foveaSize = signal(Math.round(this.config.foveation.getActive().size * 100));
     readonly aircraftSmoothShading = signal(this.config.aircraftSmoothShading.getActive());
     readonly triangleBudgetK = computed(() => this.triangleBudget() / 1000);
     readonly triangleBudgetLabel = computed(() => {
@@ -1492,6 +1532,19 @@ export class SettingsDialog {
         this.config.supersampling.setActive(event.checked);
         updateSettings({ supersampling: event.checked });
         this.supersampling.set(event.checked);
+    }
+
+    setFoveationOuter(outerScale: number) {
+        this.config.foveation.setActive({ ...this.config.foveation.getActive(), outerScale });
+        updateSettings({ foveation: this.config.foveation.getActive() });
+        this.foveationOuter.set(outerScale);
+    }
+
+    setFoveaSize(event: Event) {
+        const percent = Math.round(sliderValue(event));
+        this.config.foveation.setActive({ ...this.config.foveation.getActive(), size: percent / 100 });
+        updateSettings({ foveation: this.config.foveation.getActive() });
+        this.foveaSize.set(percent);
     }
 
     setAircraftSmoothShading(event: MatSlideToggleChange) {

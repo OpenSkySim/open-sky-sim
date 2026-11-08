@@ -12,7 +12,7 @@ import {
 } from "../terrain/lod";
 import { LANDUSE_BLEND_DEFAULT } from "../terrain/tones";
 import { TREE_DENSITY_MULTIPLIER_DEFAULT, TREE_DENSITY_MULTIPLIER_MAX, TREE_DENSITY_MULTIPLIER_MIN } from "../terrain/treeBillboards";
-import { RENDER_SCALES } from "./configService";
+import { DEFAULT_FOVEATION, Foveation, RENDER_SCALES, sanitizeFoveation } from "./configService";
 import { DEFAULT_VIEW_RANGES, ViewRanges, sanitizeViewRanges } from "./viewRanges";
 
 const STORAGE_KEY = 'retroflightsim.settings';
@@ -110,6 +110,8 @@ export interface AppSettings {
     renderScale: number;
     /** Supersample (SSAA) the 3D view where the resolution affords it. */
     supersampling: boolean;
+    /** Sharp centre over a coarser rest of the 3D view; outerScale 0 is off. */
+    foveation: Foveation;
     /** Where the far textures and the Blue Marble take over, and how far roads, buildings, airfields and trees reach. */
     viewRanges: ViewRanges;
     /** Gouraud-shade aircraft (smoothed vertex normals) instead of flat faces. */
@@ -148,6 +150,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     roads: RoadsMode.ALL,
     renderScale: 1,
     supersampling: false,
+    foveation: DEFAULT_FOVEATION,
     viewRanges: DEFAULT_VIEW_RANGES,
     aircraftSmoothShading: false,
     volume: 0.7,
@@ -217,6 +220,7 @@ export function loadSettings(): AppSettings {
             renderScale: isValidRenderScale(parsed.renderScale) ? parsed.renderScale : DEFAULT_SETTINGS.renderScale,
             supersampling: typeof parsed.supersampling === 'boolean'
                 ? parsed.supersampling : DEFAULT_SETTINGS.supersampling,
+            foveation: sanitizeFoveation(parsed.foveation),
             viewRanges: sanitizeViewRanges(parsed.viewRanges),
             aircraftSmoothShading: typeof parsed.aircraftSmoothShading === 'boolean'
                 ? parsed.aircraftSmoothShading : DEFAULT_SETTINGS.aircraftSmoothShading,

@@ -74,6 +74,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         settings.opponentsScramble,
         settings.aircraftSmoothShading,
         settings.aiPersonality,
+        settings.foveation,
         settings.viewRanges,
     );
     config.flightModels.getActive().activate();
@@ -156,6 +157,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
     kernel.addUpdateTask(touchInput);
     kernel.addUpdateTask(new GameUpdateTask(game));
     kernel.addRenderTask(new GameRenderTask(game));
+    game.setKernel(kernel);
 
     config.techProfiles.addChangeListener(profile => kernel.setTargetFPS(targetFpsFor(profile)));
 

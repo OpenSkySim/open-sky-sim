@@ -40,35 +40,31 @@ import {
     latchedHookTipWorld,
 } from './arrestorCables';
 import { LAND_WIRE_ID_BASE, LandArrestorWire } from './landArrestorWires';
+import { copySurfaceInputs, newSurfaceInputs, slatDeployment, SurfaceInputs, surfaceValue } from './surfaceInputs';
 
 const ENGINE_LOWEST_VOLUME = 0.05; // [0,1]
 
 const LANDING_GEAR_ANIM_DURATION = 3; // Seconds
 
 const FLAPS_ANIM_DURATION = 2; // Seconds
-const FLAPS_EXTENDED_ANGLE = Math.PI / 5; // Radians
 const AIRBRAKE_ANIM_DURATION = 1.5; // Seconds
 const TAILHOOK_ANIM_DURATION = 1.5; // Seconds
 const WING_FOLD_SECONDS = 8; // Full fold or spread (R key)
 
-/**
- * Visible roll-deflection gains (fraction of a surface's hinge range at full
- * roll). Roll is tail-dominant (~80% differential stabilator / ~20% aileron),
- * so the stabilator shows the large, clearly visible roll deflection and the
- * flaperon only its small aileron share. Visual only — the physics split lives
- * in the FM2 config (taileronRollFraction / aileron max deflection).
- */
-const ROLL_VIS_TAILERON = 0.6;
-const ROLL_VIS_AILERON = 0.15;
 /** Horizontal radius (m) around Kuz origin to treat as on-deck for display ride. */
 const CARRIER_DISPLAY_RIDE_RADIUS_M = 200;
 /** Max ship-relative groundspeed (m/s) before frozen display glue engages. */
 const CARRIER_DISPLAY_PARK_REL_SPEED_MPS = 2.0;
 
-/** Slats begin deploying above this absolute AoA (rad). */
-const SLAT_AOA_ONSET_RAD = 10 * Math.PI / 180;
-/** Slats reach full extension at this absolute AoA (rad). */
-const SLAT_AOA_FULL_RAD = 18 * Math.PI / 180;
+/** A recorded pose the aircraft is drawn at in a replay (see setReplayPose). */
+interface PlayerReplayPose {
+    position: THREE.Vector3;
+    quaternion: THREE.Quaternion;
+    velocity: THREE.Vector3;
+    crashed?: boolean;
+    /** The surfaces as they were; live ones when absent. */
+    surfaces?: SurfaceInputs;
+}
 
 interface ControlSurfaceDescriptor {
     model: LODHelper;
@@ -261,7 +257,9 @@ export class PlayerEntity implements Entity {
     private simulationPaused = false;
     private _exteriorView: boolean = false;
     private _showcaseMode = false;
-    private replayPose: { position: THREE.Vector3; quaternion: THREE.Quaternion; velocity: THREE.Vector3 } | undefined;
+    private replayPose: PlayerReplayPose | undefined;
+    /** This frame's surface inputs: live, or the replay's. */
+    private readonly surfaceInputs = newSurfaceInputs();
     private showcasePosition = new THREE.Vector3(0, PLANE_DISTANCE_TO_GROUND, 0);
     private showcaseQuaternion = new THREE.Quaternion();
     private showcasePickLists: Map<string, THREE.Scene> = new Map([
@@ -350,14 +348,14 @@ export class PlayerEntity implements Entity {
                 model: new LODHelper(surfaceModel),
                 pivot: new THREE.Vector3().fromArray(s.pivot),
                 axis: new THREE.Vector3().fromArray(s.axis),
-                value: () => this.surfaceValue(s.control, s.sign),
+                value: () => surfaceValue(this.surfaceInputs, s.control, s.sign),
                 range: s.rangeRad,
                 parentIndex: s.sweepParent ? def.surfaces.findIndex(o => o.role === s.sweepParent) : -1,
                 deflection: 0,
             };
         });
         this.swingWings = def.swingWings;
-        this.fx.setWingSweepSource(() => this.wingSweepUnit);
+        this.fx.setWingSweepSource(() => this.replayPose?.surfaces?.sweep ?? this.wingSweepUnit);
     }
 
     private trackAircraftModel(model: Model): void {
@@ -405,62 +403,33 @@ export class PlayerEntity implements Entity {
         this.fx.ensureBound(this.modelBody.model);
     }
 
-    /** Normalized [0, 1] slat deployment from flaps and high angle of attack. */
-    private slatDeploymentUnit(): number {
-        const flapDeploy = this.flapsProgressUnit;
-        const aoa = Math.abs(this.flightModel.getAngleOfAttack());
-        const aoaDeploy = aoa <= SLAT_AOA_ONSET_RAD
-            ? 0
-            : clamp((aoa - SLAT_AOA_ONSET_RAD) / (SLAT_AOA_FULL_RAD - SLAT_AOA_ONSET_RAD), 0, 1);
-        return Math.max(flapDeploy, aoaDeploy);
-    }
-
-    /** Map a surface's control binding to a normalized deflection value. */
-    private surfaceValue(control: ControlAxis, sign: number): number {
-        // FCS-mediated axes are driven by the FCS-commanded (limited) deflection —
-        // NOT raw stick — so fly-by-wire shaping (AoA limiter, roll/yaw laws) is
-        // visible on the model. The commanded values are exposed in the same
-        // polarity/scale as the raw stick, so the existing per-surface sign/range
-        // still render correctly. Flaps/slats are not FCS-mediated (kept as-is).
-        //
-        // Roll is a special case: the rate-command loop relaxes the aileron
-        // command back toward neutral once the commanded roll rate is reached, so
-        // in a SUSTAINED roll the surfaces would barely deflect even at full
-        // stick. To keep the roll visible on the model we blend in the pilot's
-        // roll demand and take the larger magnitude (both share +right polarity).
+    /**
+     * What the moving surfaces are posed from right now; a replay records it.
+     *
+     * FCS-mediated axes are driven by the FCS-commanded (limited) deflection —
+     * NOT raw stick — so fly-by-wire shaping (AoA limiter, roll/yaw laws) is
+     * visible on the model. The commanded values are exposed in the same
+     * polarity/scale as the raw stick, so the per-surface sign/range still
+     * render correctly. Flaps/slats are not FCS-mediated.
+     *
+     * Roll is a special case: the rate-command loop relaxes the aileron
+     * command back toward neutral once the commanded roll rate is reached, so
+     * in a SUSTAINED roll the surfaces would barely deflect even at full
+     * stick. To keep the roll visible on the model the pilot's roll demand is
+     * blended in, taking the larger magnitude (both share +right polarity).
+     */
+    captureSurfaceInputs(out: SurfaceInputs): SurfaceInputs {
         const rollCmd = this.flightModel.getCommandedAileron();
         const rollDemand = this.rollInput;
-        const roll = Math.abs(rollDemand) > Math.abs(rollCmd) ? rollDemand : rollCmd;
-        const pitch = this.flightModel.getCommandedElevator();
-        switch (control) {
-            case 'pitch': return sign * pitch;
-            case 'roll': return sign * roll;
-            case 'yaw': return sign * this.flightModel.getCommandedRudder();
-            case 'flaps': return sign * this.flapsProgressUnit;
-            case 'slats': return sign * this.slatDeploymentUnit();
-            case 'airbrake': return sign * this.airbrakesProgressUnit;
-            case 'sweep': return sign * this.wingSweepUnit;
-            // Smoothstep so the panels ease off and settle like hydraulics.
-            case 'fold': return sign * this.wingFoldUnit * this.wingFoldUnit * (3 - 2 * this.wingFoldUnit);
-            // Flaperons: flap camber blended with the ailerons' SHARE of the roll.
-            // Roll is tail-dominant (~20% aileron), so the flaperon shows only a
-            // small roll deflection.
-            case 'flaperonLeft':
-                return this.flapsProgressUnit * -FLAPS_EXTENDED_ANGLE
-                    - (1.0 - this.flapsProgressUnit * 0.5) * ROLL_VIS_AILERON * roll;
-            case 'flaperonRight':
-                return this.flapsProgressUnit * FLAPS_EXTENDED_ANGLE
-                    - (1.0 - this.flapsProgressUnit * 0.5) * ROLL_VIS_AILERON * roll;
-            // All-moving stabilator: pitch plus the DOMINANT differential
-            // (taileron) roll deflection, so the tail-driven roll is clearly
-            // visible. Left/right take opposite roll signs; a right roll raises
-            // the right stabilator trailing edge (same sense as the right aileron).
-            case 'stabilatorLeft':
-                return sign * (pitch - ROLL_VIS_TAILERON * roll);
-            case 'stabilatorRight':
-                return sign * (pitch + ROLL_VIS_TAILERON * roll);
-            default: return 0;
-        }
+        out.pitch = this.flightModel.getCommandedElevator();
+        out.roll = Math.abs(rollDemand) > Math.abs(rollCmd) ? rollDemand : rollCmd;
+        out.yaw = this.flightModel.getCommandedRudder();
+        out.flaps = this.flapsProgressUnit;
+        out.slats = slatDeployment(this.flapsProgressUnit, this.flightModel.getAngleOfAttack());
+        out.airbrake = this.airbrakesProgressUnit;
+        out.sweep = this.wingSweepUnit;
+        out.fold = this.wingFoldUnit;
+        return out;
     }
 
     /** Cockpit eye offset in the body frame (m). */
@@ -954,10 +923,17 @@ export class PlayerEntity implements Entity {
             return;
         }
 
-        this.updateWreck();
+        // A replay shows the airframe whole until the moment it broke up,
+        // whatever became of it since; the replay's own wreck field has the pieces.
+        const replay = this.replayPose;
+        const crashed = replay ? replay.crashed === true : this.isCrashed;
+        const wrecked = replay ? replay.crashed === true : this.wreck.shown;
+        if (!replay) {
+            this.updateWreck();
+        }
 
         // No planform silhouette once the sun is too low to cast one.
-        if (!this.isCrashed && !this._showcaseMode && SUN_STATE.shadowStrength > 0) {
+        if (!crashed && !this._showcaseMode && SUN_STATE.shadowStrength > 0) {
             setAircraftShadowPose(
                 this.displayPosition, this.displayQuaternion, this.groundHeightAt,
                 0.5 * this.modelShadow.model.maxSize,
@@ -969,7 +945,7 @@ export class PlayerEntity implements Entity {
                 SceneLayers.EntityFX, SceneLayers.EntityFX, lists);
         }
 
-        if (this._exteriorView && !this.wreck.shown) {
+        if (this._exteriorView && !wrecked) {
             this.updateDisplayTransform();
             this.fx.update(
                 this.throttleUnit,
@@ -1039,7 +1015,12 @@ export class PlayerEntity implements Entity {
                     this.renderTailhook(targetWidth, camera, palette, lists);
                 }
 
-                const still = this._showcaseMode || this.isCrashed;
+                const still = this._showcaseMode || crashed;
+                if (replay?.surfaces) {
+                    copySurfaceInputs(replay.surfaces, this.surfaceInputs);
+                } else {
+                    this.captureSurfaceInputs(this.surfaceInputs);
+                }
                 for (const d of this.controlSurfaceDescriptors) {
                     d.deflection = still ? 0 : d.value() * d.range;
                 }
@@ -1272,7 +1253,7 @@ export class PlayerEntity implements Entity {
      * Show the aircraft at a recorded pose instead of the sim's (flight replay);
      * `undefined` returns to the live one. The caller keeps the sim paused.
      */
-    setReplayPose(pose: { position: THREE.Vector3; quaternion: THREE.Quaternion; velocity: THREE.Vector3 } | undefined): void {
+    setReplayPose(pose: PlayerReplayPose | undefined): void {
         this.replayPose = pose;
         this.updateDisplayTransform();
     }

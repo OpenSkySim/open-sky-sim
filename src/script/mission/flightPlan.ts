@@ -7,7 +7,8 @@
  * browser before it sends one.
  *
  * Stored geodetically, because scene metres move with the play area. Altitude
- * is metres above sea level, speed true airspeed in m/s; the editor shows feet
+ * is metres above sea level, or above the ground at the point when its
+ * `altRef` is 'agl'; speed true airspeed in m/s; the editor shows feet
  * and knots.
  */
 
@@ -24,11 +25,19 @@ const MAX_NAME = 80;
 
 export type FlightControl = 'ai' | 'player';
 
+/**
+ * What an altitude is measured from: mean sea level, or the ground under the
+ * point. Omitted means MSL (missions saved before there was a choice).
+ */
+export type AltitudeRef = 'msl' | 'agl';
+
 export interface Waypoint {
     lat: number;
     lon: number;
     /** Held on the leg to this waypoint. */
     altM: number;
+    /** AGL: `altM` above the terrain at this waypoint, held as the MSL that makes there. */
+    altRef?: AltitudeRef;
     speedMps: number;
 }
 
@@ -40,7 +49,7 @@ export interface Waypoint {
  */
 export type FlightEndpoint =
     | { kind: 'runway'; airfield: string; designator: string; lat: number; lon: number }
-    | { kind: 'air'; lat: number; lon: number; altM: number; speedMps: number; headingDeg: number };
+    | { kind: 'air'; lat: number; lon: number; altM: number; altRef?: AltitudeRef; speedMps: number; headingDeg: number };
 
 export interface Flight {
     name: string;
@@ -194,6 +203,9 @@ function checkPoint(p: Record<string, unknown>, at: string, fail: Fail): void {
 function checkFlight(p: Record<string, unknown>, at: string, fail: Fail): void {
     if (!inRange(p.altM, 0, MAX_ALT_M)) {
         fail(`${at}.altM`, `0-${MAX_ALT_M} m`);
+    }
+    if (p.altRef !== undefined && p.altRef !== 'msl' && p.altRef !== 'agl') {
+        fail(`${at}.altRef`, 'msl or agl');
     }
     if (!inRange(p.speedMps, 1, MAX_SPEED_MPS)) {
         fail(`${at}.speedMps`, `1-${MAX_SPEED_MPS} m/s`);

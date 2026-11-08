@@ -4,7 +4,8 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { FlightControl, FlightEndpoint, MAX_ALT_M, MAX_FLIGHTS, MAX_SPEED_MPS } from '../../mission/flightPlan';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { AltitudeRef, FlightControl, FlightEndpoint, MAX_ALT_M, MAX_FLIGHTS, MAX_SPEED_MPS } from '../../mission/flightPlan';
 import { MissionEditor, RunwayEnd, SELECTED_COLOUR, altitudeUnit, parseTypedNumber, speedUnit } from '../../mission/missionEditor';
 
 /**
@@ -16,7 +17,7 @@ import { MissionEditor, RunwayEnd, SELECTED_COLOUR, altitudeUnit, parseTypedNumb
 @Component({
     selector: 'rfs-mission-panel',
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [MatButtonModule, MatButtonToggleModule, MatFormFieldModule, MatInputModule, MatSelectModule],
+    imports: [MatButtonModule, MatButtonToggleModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatTooltipModule],
     // Fills the map's left pane (mapView.ts --map-split), scrolling on its own.
     host: { class: 'fixed inset-y-0 left-0 block w-[var(--map-split)] overflow-y-auto text-white/90' },
     template: `
@@ -148,16 +149,15 @@ import { MissionEditor, RunwayEnd, SELECTED_COLOUR, altitudeUnit, parseTypedNumb
                             <mat-label>Alt {{ alt().label }}</mat-label>
                             <input matInput type="number" [value]="toAlt(f.start.altM)"
                                 (change)="e.updateAirStart(i, { altM: num($event) * alt().si })">
+                            <button matSuffix mat-button type="button" class="!min-w-0 !px-1 font-mono"
+                                [matTooltip]="refTooltip(f.start.altRef)" matTooltipShowDelay="300"
+                                [attr.aria-label]="refTooltip(f.start.altRef)"
+                                (click)="e.updateAirStart(i, { altRef: otherRef(f.start.altRef) })">{{ refLabel(f.start.altRef) }}</button>
                         </mat-form-field>
                         <mat-form-field subscriptSizing="dynamic">
                             <mat-label>Speed {{ spd().label }}</mat-label>
                             <input matInput type="number" [value]="toSpd(f.start.speedMps)"
                                 (change)="e.updateAirStart(i, { speedMps: num($event) * spd().si })">
-                        </mat-form-field>
-                        <mat-form-field subscriptSizing="dynamic">
-                            <mat-label>Heading °</mat-label>
-                            <input matInput type="number" min="0" max="359" [value]="round(f.start.headingDeg)"
-                                (change)="e.updateAirStart(i, { headingDeg: num($event) })">
                         </mat-form-field>
                     </div>
                 }
@@ -184,6 +184,10 @@ import { MissionEditor, RunwayEnd, SELECTED_COLOUR, altitudeUnit, parseTypedNumb
                             <mat-label>Alt {{ alt().label }}</mat-label>
                             <input matInput type="number" [value]="toAlt(w.altM)"
                                 (change)="e.updateWaypoint(i, j, { altM: num($event) * alt().si })">
+                            <button matSuffix mat-button type="button" class="!min-w-0 !px-1 font-mono"
+                                [matTooltip]="refTooltip(w.altRef)" matTooltipShowDelay="300"
+                                [attr.aria-label]="refTooltip(w.altRef)"
+                                (click)="e.updateWaypoint(i, j, { altRef: otherRef(w.altRef) })">{{ refLabel(w.altRef) }}</button>
                         </mat-form-field>
                         <mat-form-field subscriptSizing="dynamic">
                             <mat-label>Speed {{ spd().label }}</mat-label>
@@ -333,6 +337,20 @@ export class MissionPanel {
             : `in the air, ${p.lat.toFixed(3)}, ${p.lon.toFixed(3)}`;
     }
 
+    refLabel(ref: AltitudeRef | undefined): string {
+        return ref === 'agl' ? 'AGL' : 'MSL';
+    }
+
+    otherRef(ref: AltitudeRef | undefined): AltitudeRef {
+        return ref === 'agl' ? 'msl' : 'agl';
+    }
+
+    refTooltip(ref: AltitudeRef | undefined): string {
+        return ref === 'agl'
+            ? 'AGL: above ground level, measured from the terrain under this point. Click for MSL.'
+            : 'MSL: above mean sea level. Click for AGL (above the terrain under this point).';
+    }
+
     toAlt(m: number): number {
         return Math.round(m / this.alt().si);
     }
@@ -343,10 +361,6 @@ export class MissionPanel {
 
     value(e: Event): string {
         return (e.target as HTMLInputElement).value;
-    }
-
-    round(v: number): number {
-        return Math.round(v);
     }
 
     /** The typed number; NaN for an empty or invalid field, which validation then reports. */

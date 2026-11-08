@@ -571,7 +571,11 @@ export class WreckField implements Entity {
      * Take the aircraft apart. Returns false when there is nothing drawable to
      * break up (model not loaded), in which case the caller keeps drawing it.
      */
+    /** Told of every break-up asked for, before it happens (the flight recorder keeps them). */
+    onSpawn?: (src: WreckSource) => void;
+
     spawn(src: WreckSource): boolean {
+        this.onSpawn?.(src);
         this.lastScrapTriangles = 0;
         let bodyChunks = this.sliceBody(src);
         if (bodyChunks === undefined) {

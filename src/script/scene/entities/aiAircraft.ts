@@ -23,6 +23,8 @@ import { flightConfigWithArrestorHook } from './arrestorCables';
 import { WreckField, WreckPart, WreckTracker } from './wreckField';
 import { AirframeDamage } from './airframeDamage';
 import { attachToRenderList } from '../../render/renderList';
+import { ActorState } from '../../state/worldRecorder';
+import { newSurfaceInputs, slatDeployment, SurfaceInputs, surfaceValue } from './surfaceInputs';
 
 /** Same hit sphere as the player — shared airframe, different input only. */
 const DEFAULT_HIT_RADIUS = 10;
@@ -31,13 +33,6 @@ const LANDING_GEAR_ANIM_DURATION = 3; // Seconds — match PlayerEntity
 // Enemy aircraft are centred on their own origin when framed by the target camera.
 const AI_TARGET_LOCAL_CENTER = new THREE.Vector3(0, 0, 0);
 
-// Visual control-surface animation constants — mirror PlayerEntity so the AI
-// aircraft's flaperons / stabilators / rudders deflect identically.
-const FLAPS_EXTENDED_ANGLE = Math.PI / 5;
-const ROLL_VIS_TAILERON = 0.6;
-const ROLL_VIS_AILERON = 0.15;
-const SLAT_AOA_ONSET_RAD = 10 * Math.PI / 180;
-const SLAT_AOA_FULL_RAD = 18 * Math.PI / 180;
 
 /** A hinge-pivoted control surface rendered and animated on top of the body. */
 interface AiControlSurface {
@@ -232,7 +227,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             deflection: 0,
         }));
         this.swingWings = def.swingWings;
-        this.fx.setWingSweepSource(() => this.wingSweepUnit);
+        this.fx.setWingSweepSource(() => this.replayState?.surfaces.sweep ?? this.wingSweepUnit);
     }
 
     /** Snap or play the gear clip to match deployed/retracted (F-22: t=1 extended). */
@@ -352,6 +347,8 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
 
     /** Visual wing sweep [0,1], scheduled against airspeed. */
     private wingSweepUnit = 0;
+    /** Scratch for this frame's live surface inputs. */
+    private readonly surfaceInputs = newSurfaceInputs();
 
     private get flapsProgressUnit(): number {
         return this.flapsExtended ? 1 : 0;
@@ -361,39 +358,17 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         return this.airbrakesExtended ? 1 : 0;
     }
 
-    private slatDeploymentUnit(): number {
-        const flapDeploy = this.flapsProgressUnit;
-        const aoa = Math.abs(this.flightModel.getAngleOfAttack());
-        const aoaDeploy = aoa <= SLAT_AOA_ONSET_RAD
-            ? 0
-            : clamp((aoa - SLAT_AOA_ONSET_RAD) / (SLAT_AOA_FULL_RAD - SLAT_AOA_ONSET_RAD), 0, 1);
-        return Math.max(flapDeploy, aoaDeploy);
-    }
-
-    /** Map a surface's control binding to a normalized deflection value (see PlayerEntity). */
-    private surfaceValue(control: ControlAxis, sign: number): number {
-        const roll = this.flightModel.getCommandedAileron();
-        const pitch = this.flightModel.getCommandedElevator();
-        switch (control) {
-            case 'pitch': return sign * pitch;
-            case 'roll': return sign * roll;
-            case 'yaw': return sign * this.flightModel.getCommandedRudder();
-            case 'flaps': return sign * this.flapsProgressUnit;
-            case 'slats': return sign * this.slatDeploymentUnit();
-            case 'airbrake': return sign * this.airbrakesProgressUnit;
-            case 'sweep': return sign * this.wingSweepUnit;
-            case 'flaperonLeft':
-                return this.flapsProgressUnit * -FLAPS_EXTENDED_ANGLE
-                    - (1.0 - this.flapsProgressUnit * 0.5) * ROLL_VIS_AILERON * roll;
-            case 'flaperonRight':
-                return this.flapsProgressUnit * FLAPS_EXTENDED_ANGLE
-                    - (1.0 - this.flapsProgressUnit * 0.5) * ROLL_VIS_AILERON * roll;
-            case 'stabilatorLeft':
-                return sign * (pitch - ROLL_VIS_TAILERON * roll);
-            case 'stabilatorRight':
-                return sign * (pitch + ROLL_VIS_TAILERON * roll);
-            default: return 0;
-        }
+    /** What the moving surfaces are posed from right now (see PlayerEntity.captureSurfaceInputs). */
+    captureSurfaceInputs(out: SurfaceInputs): SurfaceInputs {
+        out.pitch = this.flightModel.getCommandedElevator();
+        out.roll = this.flightModel.getCommandedAileron();
+        out.yaw = this.flightModel.getCommandedRudder();
+        out.flaps = this.flapsProgressUnit;
+        out.slats = slatDeployment(this.flapsProgressUnit, this.flightModel.getAngleOfAttack());
+        out.airbrake = this.airbrakesProgressUnit;
+        out.sweep = this.wingSweepUnit;
+        out.fold = 0;
+        return out;
     }
 
     // --- WeaponsTarget: designation from the player's target MFD --------------
@@ -453,14 +428,62 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
 
     // --- Render transform (for chase cameras) --------------------------------
 
-    /** Interpolated render-space position, freshly sampled from the flight model. */
+    /** Interpolated render-space position, freshly sampled from the flight model (or the replay's). */
     getDisplayPosition(): THREE.Vector3 {
+        if (this.replayState) {
+            return this.displayPosition.copy(this.replayState.position);
+        }
         return this.flightModel.getRenderPosition(this.displayPosition);
     }
 
-    /** Interpolated render-space orientation, freshly sampled from the flight model. */
+    /** Interpolated render-space orientation, freshly sampled from the flight model (or the replay's). */
     getDisplayQuaternion(): THREE.Quaternion {
+        if (this.replayState) {
+            return this.displayQuaternion.copy(this.replayState.quaternion);
+        }
         return this.flightModel.getRenderQuaternion(this.displayQuaternion);
+    }
+
+    // --- Flight replay ---------------------------------------------------------
+
+    /**
+     * While a replay shows this aircraft: the recorded state it is drawn at,
+     * or null when it was not in the air at that moment (drawn not at all).
+     * Undefined: live, from the sim.
+     */
+    private replayState: ActorState | null | undefined;
+
+    /** This aircraft's state now, for the flight recorder; false when it is not in the world. */
+    captureReplayState(out: ActorState): boolean {
+        if (!this.enabled) {
+            return false;
+        }
+        // The sim's own state, not the render-interpolated one: the player is
+        // recorded the same way, so a formation stays a formation.
+        out.position.copy(this.flightModel.position);
+        out.quaternion.copy(this.flightModel.quaternion);
+        out.velocity.copy(this.flightModel.velocityVector);
+        out.throttle = this.flightModel.getSimThrottleLever();
+        out.gear = this.gearDeployed;
+        out.crashed = this.isCrashed() || this.wreck.shown;
+        out.alive = this.isAlive();
+        this.captureSurfaceInputs(out.surfaces);
+        return true;
+    }
+
+    /** The recorded state it is drawn at in a replay (null: absent then); undefined when live. */
+    get replay(): ActorState | null | undefined {
+        return this.replayState;
+    }
+
+    /** Draw at a recorded state (see {@link replayState}); undefined goes back to the live sim. */
+    setReplayState(state: ActorState | null | undefined): void {
+        const gear = state ? state.gear : state === undefined ? this.flightModel.getSimGearDeployed() : null;
+        if (gear !== null && gear !== this.gearDeployed) {
+            this.gearDeployed = gear;
+            this.syncGearVisual(gear, false);
+        }
+        this.replayState = state;
     }
 
     // --- Rendering -----------------------------------------------------------
@@ -469,24 +492,38 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         if (!drawsEntityLayers(lists)) {
             return;
         }
-        this.flightModel.getRenderPosition(this.displayPosition);
-        this.flightModel.getRenderQuaternion(this.displayQuaternion);
-        this.flightModel.getRenderVelocity(this.displayVelocity);
+        const replay = this.replayState;
+        if (replay === null || replay?.crashed) {
+            // Not there yet, or already in pieces (the wreck field shows those).
+            return;
+        }
+        if (replay) {
+            this.displayPosition.copy(replay.position);
+            this.displayQuaternion.copy(replay.quaternion);
+            this.displayVelocity.copy(replay.velocity);
+        } else {
+            this.flightModel.getRenderPosition(this.displayPosition);
+            this.flightModel.getRenderQuaternion(this.displayQuaternion);
+            this.flightModel.getRenderVelocity(this.displayVelocity);
+        }
         this.fx.update(
-            this.flightModel.getSimThrottleLever(),
+            replay ? replay.throttle : this.flightModel.getSimThrottleLever(),
             this.flightModel.useAfterburnerThrottleDetents(),
             this.displayPosition,
             this.displayQuaternion,
             this.displayVelocity,
         );
 
-        this.updateWreck();
-        if (this.wreck.shown) {
-            return;
+        if (!replay) {
+            this.updateWreck();
+            if (this.wreck.shown) {
+                return;
+            }
         }
+        const crashed = !replay && this.isCrashed();
 
         // No planform silhouette once the sun is too low to cast one.
-        if (!this.isCrashed() && SUN_STATE.shadowStrength > 0) {
+        if (!crashed && SUN_STATE.shadowStrength > 0) {
             setAircraftShadowPose(
                 this.displayPosition, this.displayQuaternion, this.groundHeightAt,
                 0.5 * this.modelShadow.model.maxSize,
@@ -538,9 +575,9 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
                     SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
             }
 
-            const crashed = this.isCrashed();
+            const inputs = replay ? replay.surfaces : this.captureSurfaceInputs(this.surfaceInputs);
             for (const d of this.controlSurfaces) {
-                d.deflection = crashed ? 0 : this.surfaceValue(d.control, d.sign) * d.range;
+                d.deflection = crashed ? 0 : surfaceValue(inputs, d.control, d.sign) * d.range;
             }
             for (let i = 0; i < this.controlSurfaces.length; i++) {
                 const d = this.controlSurfaces[i];

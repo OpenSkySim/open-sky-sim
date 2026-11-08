@@ -36,6 +36,7 @@ export type BuildingsChangeListener = (enabled: boolean) => void;
 export type RoadsChangeListener = (mode: RoadsMode) => void;
 export type RenderScaleChangeListener = (scale: number) => void;
 export type SupersamplingChangeListener = (enabled: boolean) => void;
+export type FoveationChangeListener = (foveation: Foveation) => void;
 export type AircraftSmoothShadingChangeListener = (enabled: boolean) => void;
 
 /**
@@ -46,6 +47,36 @@ export type AircraftSmoothShadingChangeListener = (enabled: boolean) => void;
  * full size.
  */
 export const RENDER_SCALES: readonly number[] = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
+
+/**
+ * Selectable resolutions for the outside of a foveated view, as fractions of
+ * the screen; 0 is off. The centre keeps the full supersample.
+ */
+export const FOVEATION_OUTER_SCALES: readonly number[] = [0, 1, 0.75, 0.5];
+/** Fraction of the screen's width and height the sharp centre covers. */
+export const FOVEA_SIZE_MIN = 0.3;
+export const FOVEA_SIZE_MAX = 0.8;
+export const FOVEA_SIZE_DEFAULT = 0.5;
+
+/** Foveated rendering: a sharp centre over a coarser rest of the view. */
+export interface Foveation {
+    /** One of {@link FOVEATION_OUTER_SCALES}; 0 is off. */
+    outerScale: number;
+    /** Centre size, {@link FOVEA_SIZE_MIN} to {@link FOVEA_SIZE_MAX}. */
+    size: number;
+}
+
+export const DEFAULT_FOVEATION: Foveation = { outerScale: 0, size: FOVEA_SIZE_DEFAULT };
+
+/** A valid Foveation from anything, falling back field by field. */
+export function sanitizeFoveation(value: unknown): Foveation {
+    const v = (typeof value === 'object' && value !== null ? value : {}) as Partial<Foveation>;
+    const outerScale = typeof v.outerScale === 'number' && FOVEATION_OUTER_SCALES.includes(v.outerScale)
+        ? v.outerScale : DEFAULT_FOVEATION.outerScale;
+    const size = typeof v.size === 'number' && Number.isFinite(v.size)
+        ? Math.min(FOVEA_SIZE_MAX, Math.max(FOVEA_SIZE_MIN, v.size)) : DEFAULT_FOVEATION.size;
+    return { outerScale, size };
+}
 
 export class ConfigService {
 
@@ -69,6 +100,7 @@ export class ConfigService {
     readonly roads: RoadsSetting;
     readonly renderScale: RenderScaleSetting;
     readonly supersampling: SupersamplingSetting;
+    readonly foveation: FoveationSetting;
     readonly viewRanges: ViewRangesSetting;
     readonly aircraftSmoothShading: AircraftSmoothShadingSetting;
     readonly daytime: DaytimeSetting;
@@ -99,6 +131,7 @@ export class ConfigService {
         initialOpponentsScramble?: boolean,
         initialAircraftSmoothShading?: boolean,
         initialAiPersonality?: AiPersonality,
+        initialFoveation?: Foveation,
         initialViewRanges?: ViewRanges,
     ) {
         this.techProfiles = new ConfigSet(profiles, initialTechProfile);
@@ -120,6 +153,7 @@ export class ConfigService {
         this.roads = new RoadsSetting(initialRoads);
         this.renderScale = new RenderScaleSetting(initialRenderScale);
         this.supersampling = new SupersamplingSetting(initialSupersampling);
+        this.foveation = new FoveationSetting(initialFoveation);
         this.viewRanges = new ViewRangesSetting(initialViewRanges);
         this.aircraftSmoothShading = new AircraftSmoothShadingSetting(initialAircraftSmoothShading);
         this.treeDensity = new TreeDensitySetting(initialTreeDensity);
@@ -544,6 +578,46 @@ export class SupersamplingSetting {
     }
 
     removeChangeListener(listener: SupersamplingChangeListener) {
+        this.listeners.delete(listener);
+    }
+}
+
+/**
+ * Foveated rendering: the middle of the 3D view keeps its supersample while
+ * the rest is drawn at {@link Foveation.outerScale}, the two faded into each
+ * other (Renderer.setFovea). Moot while the render scale is below 1, and
+ * wherever the outer scale is not below the centre's.
+ */
+export class FoveationSetting {
+    private active: Foveation;
+    private listeners: Set<FoveationChangeListener> = new Set();
+
+    constructor(initial: Foveation = DEFAULT_FOVEATION) {
+        this.active = sanitizeFoveation(initial);
+    }
+
+    getActive(): Foveation {
+        return this.active;
+    }
+
+    setActive(foveation: Foveation) {
+        const next = sanitizeFoveation(foveation);
+        if (next.outerScale === this.active.outerScale && next.size === this.active.size) return;
+        this.active = next;
+        this.notifyActive();
+    }
+
+    notifyActive() {
+        for (const listener of this.listeners.values()) {
+            listener(this.active);
+        }
+    }
+
+    addChangeListener(listener: FoveationChangeListener) {
+        this.listeners.add(listener);
+    }
+
+    removeChangeListener(listener: FoveationChangeListener) {
         this.listeners.delete(listener);
     }
 }
