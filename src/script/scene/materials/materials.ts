@@ -233,6 +233,12 @@ type SceneMaterialMeshProperties = {
              */
             maxFootprintM?: number;
             /**
+             * With maxFootprintM: judge the footprint across the line of sight
+             * only, for paint with no texture under it (a grazing view would
+             * otherwise drop it within a few hundred metres).
+             */
+            footprintAcross?: boolean;
+            /**
              * Blended over what is under it at this opacity, 0..1 (runway
              * paint lets a little of the pavement through). 1 or undefined =
              * opaque, as everything else is.
@@ -711,7 +717,7 @@ export class SceneMaterialManager implements KernelTask {
                 },
                 uMaxFootprint: {
                     value: properties.type === SceneMaterialPrimitiveType.MESH && !properties.shaded
-                        ? (properties.maxFootprintM ?? 0)
+                        ? (properties.maxFootprintM ?? 0) * (properties.footprintAcross ? -1 : 1)
                         : 0,
                 },
                 // Shared by reference: moving the sun (time of day) rewrites

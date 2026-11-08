@@ -220,9 +220,14 @@ ${DITHER_PARS_FRAGMENT}
     // than it can be drawn cleanly at. The larger of the two ground axes, so
     // a grazing view - where the paint is foreshortened to nothing along the
     // line of sight - hands over first.
-    if (uMaxFootprint > 0.0) {
+    // Negative: no texture takes over, so judge by the axis across the line
+    // of sight only (the paint stays while it is still wide on screen).
+    if (uMaxFootprint != 0.0) {
       vec2 footprint = fwidth(vPosition.xz);
-      if (max(footprint.x, footprint.y) > uMaxFootprint) {
+      float span = uMaxFootprint > 0.0
+        ? max(footprint.x, footprint.y)
+        : min(footprint.x, footprint.y);
+      if (span > abs(uMaxFootprint)) {
         discard;
       }
     }

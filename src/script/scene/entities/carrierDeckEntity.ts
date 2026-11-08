@@ -23,7 +23,7 @@ import { buildCarrierLights } from './carrierLights';
 
 /** Paint above the deck plane (m), as runway paint above pavement. */
 const PAINT_LIFT_M = 0.04;
-/** Line paint is dropped where a pixel spans more than this (m): beyond ~2 km. */
+/** Line paint is dropped where a pixel spans more than this (m) across the view: beyond ~2 km. */
 const PAINT_MAX_FOOTPRINT_M = 2;
 /** Beyond this the whole deck set is not drawn (the lights fade out sooner on their own). */
 const DRAW_RANGE_M = 25000;
@@ -64,6 +64,7 @@ export class CarrierDeckEntity implements Entity {
                 shaded: false,
                 depthWrite: false,
                 maxFootprintM: style.far ? undefined : PAINT_MAX_FOOTPRINT_M,
+                footprintAcross: true,
             });
             (material as THREE.ShaderMaterial).side = THREE.DoubleSide;
             const mesh = new THREE.Mesh(geometry, material);
