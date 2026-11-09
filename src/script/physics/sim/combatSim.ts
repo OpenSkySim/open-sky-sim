@@ -59,6 +59,7 @@ import {
     segmentHitsSphere,
     SolidWorldContact,
     TerrainContactSample,
+    withExtremeContactPoints,
 } from './aircraftCollision';
 import {
     SimAircraftDesc, SimAircraftSpawn, SimControlInputs,
@@ -149,6 +150,8 @@ const SUPPORT_TORQUE_FACTOR = 3;
  * friction coefficient of 0.4 overall (a ~600 m slide from landing speed).
  */
 const BELLY_FRICTION_DECEL_MPS2 = 12;
+/** Sliding friction of a net-held airframe's skin (a nose, a wingtip) on the steel deck. */
+const NET_SKIN_DECK_FRICTION = 0.4;
 /** Extra separation after resolving penetration (m). */
 const SOLID_SLOP_M = 0.05;
 /**
@@ -1025,7 +1028,7 @@ export class CombatSim implements ProjectileSink {
         let hull = this.barricadeDeckHulls.get(af);
         if (!hull) {
             const b = af.box;
-            hull = { triangles: Array.from(af.collider.bvh.tri), aabb: { min: [b[0], b[1], b[2]], max: [b[3], b[4], b[5]] } };
+            hull = withExtremeContactPoints({ triangles: Array.from(af.collider.bvh.tri), aabb: { min: [b[0], b[1], b[2]], max: [b[3], b[4], b[5]] } });
             this.barricadeDeckHulls.set(af, hull);
         }
         return hull;
@@ -2037,11 +2040,12 @@ export class CombatSim implements ProjectileSink {
         const quat = a.model.quaternion;
         const gearDown = a.isGearDeployed();
         const groundAt = (x: number, z: number) => this.world!.groundHeightAt(x, z);
-        // In the net, an aircraft with no collision mesh still has its drawn airframe: a wing the
-        // webbing rolls down meets the deck with it, as a real one does, not just the CG's belly point.
-        const netHull = a.collision ? undefined : this.barricadeDeckHull(a);
+        // In the net the airframe meets the deck with its own skin (its gear left out: the gear
+        // springs hold it up), a wing the webbing rolls down or a nose it pitches down. Not with
+        // the type's hitbox: that is tested with the gear's 0.8 m margin, and a wing sank 1.3 m in.
+        const netHull = this.barricadeDeckHull(a);
         this.contactOnNetHull = netHull !== undefined;
-        const mesh = a.collision ?? netHull;
+        const mesh = netHull ?? a.collision;
 
         if (mesh) {
             const terrainMargin = netHull ? BARRICADE_HULL_DECK_MARGIN_M : gearDown ? GEAR_TERRAIN_MARGIN_M : BELLY_TERRAIN_MARGIN_M;
@@ -2123,8 +2127,10 @@ export class CombatSim implements ProjectileSink {
             return;
         }
 
-        // Heightfield penetration is vertical depth — lift in Y only.
-        pos.y += contact.penetration + SOLID_SLOP_M;
+        // Heightfield penetration is vertical depth — lift in Y only. (Not the slop for a net-held
+        // airframe's skin: its tyres compress only 1-3 cm under it, and a 5 cm hop every frame its
+        // nose or a wingtip touched took its whole weight off them, and with it their side grip.)
+        pos.y += contact.penetration + (this.contactOnNetHull ? 0 : SOLID_SLOP_M);
 
         // Mild drag at the hit point (linear + torque). No bounce / no velocity dump.
         const rigid = samples > 0 && n.y > 0.5 && !a.isGearDeployed();
@@ -2147,6 +2153,9 @@ export class CombatSim implements ProjectileSink {
         if (!rigid && into < 0) {
             vel.addScaledVector(n, -into);
             a.model.snapPhysicsState();
+        }
+        if (this.contactOnNetHull && n.y > 0.5) {
+            this.scrapeOnDeck(a, contact.point, contact.penetration, n, Math.max(0, -into), delta);
         }
         // Gear up, it slides on its belly: sliding friction brings it to a halt (a ~1 km slide from
         // landing speed) instead of skating on at nearly the speed it arrived with.
@@ -2213,6 +2222,33 @@ export class CombatSim implements ProjectileSink {
         } else if (contact.penetration > 0.15) {
             this.emitScrapeFx(a, contact.point, false, impactSpeed);
         }
+    }
+
+    /**
+     * A net-held airframe's nose or wingtip on the deck: metal on steel, Coulomb friction at the
+     * contact point against its sliding over the deck (the deck's own motion taken out), through
+     * the body's mass and inertia. Its normal load is at most the weight plus what the contact
+     * stopped this step. Without it the webbing pitched the jet onto its nose or rolled it onto a
+     * wingtip, its wheels came off the deck, and with nothing gripping it slewed 30 degrees and
+     * skidded sideways at up to 13 m/s.
+     */
+    private scrapeOnDeck(a: SimAircraft, point: THREE.Vector3, lift: number, n: THREE.Vector3, stoppedMps: number, delta: number): void {
+        const model = a.model;
+        const p = this.rigidPoint.set(point.x, point.y + lift, point.z);
+        model.pointVelocity(p, this.rigidVel);
+        this.rigidVel.sub(this.carrierVel);
+        this.rigidTangent.copy(this.rigidVel).addScaledVector(n, -this.rigidVel.dot(n));
+        const slide = this.rigidTangent.length();
+        if (slide < 1e-4) return;
+        this.rigidTangent.multiplyScalar(1 / slide);
+        const normalImpulse = model.getMassKg() * (9.80665 * delta + stoppedMps);
+        const stop = slide / model.invEffectiveMass(p, this.rigidTangent);
+        const j = Math.min(NET_SKIN_DECK_FRICTION * normalImpulse, stop);
+        this.rigidImpulse.copy(this.rigidTangent).multiplyScalar(-j);
+        this.rigidArm.subVectors(p, model.position);
+        this.rigidAngular.crossVectors(this.rigidArm, this.rigidImpulse);
+        model.applyExternalWrench(this.rigidImpulse, this.rigidAngular);
+        model.snapPhysicsState();
     }
 
     /**

@@ -325,6 +325,45 @@ function collisionContactPoints(mesh: AircraftCollisionMesh): ContactSamples {
     return samples;
 }
 
+/** Directions a hull's outermost vertices are found along (withExtremeContactPoints). */
+const EXTREME_DIRECTIONS = 64;
+
+/**
+ * Adds to the mesh's contact points its outermost vertex along each of
+ * EXTREME_DIRECTIONS directions round the sphere: the wingtips, nose and tail,
+ * whatever the attitude. The grid's lowest vertex per cell misses them on a
+ * detailed airframe (an F-22 wingtip shares its 1.7 m cell with lower inboard
+ * vertices), and a jet the barricade rolls onto a wing sank that tip 1.3 m
+ * into the deck. Returns the mesh.
+ */
+export function withExtremeContactPoints(mesh: AircraftCollisionMesh): AircraftCollisionMesh {
+    const base = collisionContactPoints(mesh);
+    const t = mesh.triangles;
+    const picked = new Set<number>();
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    for (let d = 0; d < EXTREME_DIRECTIONS; d++) {
+        const y = 1 - 2 * (d + 0.5) / EXTREME_DIRECTIONS;
+        const r = Math.sqrt(1 - y * y);
+        const dx = Math.cos(golden * d) * r, dz = Math.sin(golden * d) * r;
+        let best = -1, bestDot = -Infinity;
+        for (let i = 0; i + 2 < t.length; i += 3) {
+            const dot = t[i] * dx + t[i + 1] * y + t[i + 2] * dz;
+            if (dot > bestDot) { bestDot = dot; best = i; }
+        }
+        if (best >= 0) picked.add(best);
+    }
+    const extra: number[] = [];
+    for (const i of picked) extra.push(t[i], t[i + 1], t[i + 2]);
+    const lower = new Float32Array(base.lower.length + extra.length);
+    lower.set(base.lower);
+    lower.set(extra, base.lower.length);
+    const all = new Float32Array(base.all.length + extra.length);
+    all.set(base.all);
+    all.set(extra, base.all.length);
+    contactCache.set(mesh, { lower, all });
+    return mesh;
+}
+
 /** Sample body-frame contact points (and the origin) in world space. */
 function forEachContactWorldSample(
     position: THREE.Vector3,

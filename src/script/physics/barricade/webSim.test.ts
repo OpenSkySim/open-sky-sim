@@ -18,6 +18,7 @@ import { serializeWorld } from '../sim/serializedWorld';
 import { loadWebAirframe, WebFixture } from './webFixtures.testkit.test';
 import { buildRiggedWeb } from './webLayout';
 import { WebSolver } from './webSolver';
+import { withoutGear } from './webCollider';
 import { deckAndPayoutFails, DECK_TOLERANCE_M } from './webHarness.testkit.test';
 
 const DT = 1 / 60;
@@ -276,6 +277,52 @@ describe('barricade webbing holds what it stopped', () => {
                     }
                 });
             }
+        }
+    }
+});
+
+/**
+ * The game gives every aircraft its type's hitbox as well (setCollision). The
+ * net-held airframe must still meet the deck with its own skin: a wing the
+ * webbing rolls down, the nose it pitches down, never under the deck. With
+ * the hitbox it used to be tested on the hitbox with the gear's 0.8 m margin
+ * (a wing sank most of a metre into the deck before anything held it).
+ */
+describe('barricade webbing keeps the airframe on the deck', () => {
+    /** How far a skin point may sit in the deck (m): the hull contact's margin and a frame's sink. */
+    const MAX_SKIN_DEPTH_M = 0.1;
+    for (const fixture of ['f22', 'f16xl'] as const) {
+        for (const x of [0, 3]) {
+            it(`${fixture} at 60 m/s, ${x === 0 ? 'centred' : `${x} m off`}, with its hitbox set`, () => {
+                const sim = rolling(fixture, 60, x);
+                const a = (sim as unknown as { aircraft: Map<string, Ac & { model: { quaternion: THREE.Quaternion } }> }).aircraft.get(ID)!;
+                const rest = fm2GroundRestHeight(defaultFm2Config);
+                const af = loadWebAirframe(fixture);
+                const drawn = Float32Array.from(af.triangles);
+                for (let k = 1; k < drawn.length; k += 3) drawn[k] += -rest - af.bounds[1];
+                const tris = Array.from(drawn);
+                const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+                for (let i = 0; i < tris.length; i++) { lo[i % 3] = Math.min(lo[i % 3], tris[i]); hi[i % 3] = Math.max(hi[i % 3], tris[i]); }
+                sim.setCollision(ID, { triangles: tris, aabb: { min: lo as [number, number, number], max: hi as [number, number, number] } });
+                const skin = withoutGear(drawn);
+                const p = new THREE.Vector3();
+                let deepest = 0, at = '', heldAt = -1;
+                for (let f = 0; f < 60 * 30 && (heldAt < 0 || f - heldAt < 60 * 3); f++) {
+                    const braking = a.barricadeState !== BarricadeEngagement.NONE && a.model.velocityVector.length() < BRAKE_BELOW_MPS;
+                    sim.step(DT, { [ID]: { ...INPUT, wheelBrakesApplied: braking } });
+                    if (heldAt < 0 && a.barricadeState === BarricadeEngagement.HELD) heldAt = f;
+                    if (a.barricadeState === BarricadeEngagement.NONE) continue;
+                    for (let i = 0; i < skin.length; i += 3) {
+                        p.set(skin[i], skin[i + 1], skin[i + 2]).applyQuaternion(a.model.quaternion).add(a.model.position);
+                        const depth = BARRICADE_DECK_Y - p.y;
+                        if (depth > deepest) { deepest = depth; at = `f${f} body ${skin[i].toFixed(1)}, ${skin[i + 1].toFixed(1)}, ${skin[i + 2].toFixed(1)}`; }
+                    }
+                }
+                const line = `${fixture} 60 m/s x ${x} hitbox: ${JSON.stringify({ state: a.barricadeState, deepest: +deepest.toFixed(3), at })}`;
+                console.log(line);
+                assert.equal(a.barricadeState, BarricadeEngagement.HELD, line);
+                assert.ok(deepest <= MAX_SKIN_DEPTH_M, line);
+            });
         }
     }
 });

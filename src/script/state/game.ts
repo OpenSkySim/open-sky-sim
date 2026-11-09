@@ -131,6 +131,9 @@ import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def, groupAircraftByModel } from './aircraftRegistry';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 import { flightConfigWithArrestorHook } from '../scene/entities/arrestorCables';
+import { defaultFm2Config } from '../physics/fm2/fm2AircraftConfig';
+import { fitTypeGear } from '../physics/fm2/gearFit';
+import { LODHelper } from '../render/helpers';
 import { Obstacle, Runway } from '../ai/worldQuery';
 import { AiFlightPhase, AiPilotOptions, AiRoute, AiSkillLevel, FORMATION_SLOT } from '../ai/aiPilot';
 import { AiAircraftEntity, AiAircraftSpawn } from '../scene/entities/aiAircraft';
@@ -1349,6 +1352,35 @@ export class Game {
             ...def.surfaces.map(s => s.model),
         ];
         await Promise.all(urls.map(url => this.models.waitForModel(url)));
+        this.fitAircraftGear(def);
+    }
+
+    /**
+     * Fit the type's legs to its drawn wheels (once per type, its gear model
+     * loaded), and hand them to the aircraft that already fly it: the player
+     * and its AI start out on the start-up def, before any gear is in.
+     */
+    private fitAircraftGear(def: FlyableAircraftDef): void {
+        const gear = def.gear;
+        if (!gear) return;
+        const changed = fitTypeGear(def.id, () => {
+            const model = this.models.getModel(gear);
+            // An animated gear's model rests in whatever pose it was saved in (the
+            // F-22's half up); pose a copy gear down, as the aircraft draw it.
+            if ((def.gearAnimated ?? true) && model.animations.length > 0) {
+                const pose = new LODHelper(model);
+                pose.setPlaybackDuration(1);
+                pose.setPlaybackPosition(1);
+            }
+            return bakeCollisionMeshFromModel(model, undefined, 1)?.triangles;
+        }, (def.flight ?? defaultFm2Config).gear);
+        if (!changed || def.id !== this.currentDef.id) return;
+        this.configService.flightModels.getActive().setAircraft(flightConfigWithArrestorHook(this.currentDef));
+        this.pushAircraftMeshes(PLAYER_SIM_ID, this.currentDef);
+        for (const ai of [...this.aiOpponents, ...(this.wingman ? [this.wingman] : [])]) {
+            ai.loadAircraft(this.currentDef);
+            this.pushAircraftMeshes(ai.simId, this.currentDef);
+        }
     }
 
     private selectAircraftModel(modelIndex: number, liveryIndex = 0): void {

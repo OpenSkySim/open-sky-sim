@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { Fm2AircraftConfig, defaultFm2Config } from '../../physics/fm2/fm2AircraftConfig';
+import { fittedGearPoints } from '../../physics/fm2/gearFit';
 import { DEFAULT_ENGINE_NOZZLES } from './afterburnerCones';
 import {
     ANGLED_DECK_AXIS,
@@ -150,8 +151,12 @@ export function arrestorHookPlacementForAircraft(def: {
     return { tip, hinge: arrestorHookHingeFromTip(tip) };
 }
 
-/** FM2 config with hook tip forced to this airframe's aft fuselage end. */
+/**
+ * FM2 config with hook tip forced to this airframe's aft fuselage end, and
+ * the legs fitted to its drawn wheels once its gear model is in (fitTypeGear).
+ */
 export function flightConfigWithArrestorHook(def: {
+    id?: string;
     flight?: Fm2AircraftConfig;
     collisionMesh?: { aabb: { min: [number, number, number] } };
     surfaces?: { pivot: [number, number, number] }[];
@@ -159,7 +164,8 @@ export function flightConfigWithArrestorHook(def: {
 }): Fm2AircraftConfig {
     const base = def.flight ?? defaultFm2Config;
     const { tip } = arrestorHookPlacementForAircraft(def);
-    return { ...base, hook: tip };
+    const legs = def.id !== undefined ? fittedGearPoints(def.id) : undefined;
+    return legs ? { ...base, hook: tip, gear: { ...base.gear, points: legs } } : { ...base, hook: tip };
 }
 
 import { CARRIER_ORIGIN } from '../../state/worldLayout';
