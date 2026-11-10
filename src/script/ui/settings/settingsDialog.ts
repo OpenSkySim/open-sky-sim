@@ -267,7 +267,16 @@ const DATA_SOURCES: DataSourceGroup[] = [
             },
             {
                 name: 'Sentinel-2 L2A true colour', scope: 'Imagery and Hybrid terrain colours; roof colours of larger buildings outside the orthophoto areas',
-                credit: 'Contains modified Copernicus Sentinel data', licence: 'Copernicus Sentinel data terms',
+                credit: 'Contains modified Copernicus Sentinel data (2021–2025)', licence: 'Copernicus Sentinel data terms',
+            },
+            {
+                name: 'ESA WorldCover 2021 Sentinel-2 RGBNIR composite', scope: 'Year-median imagery; fills gaps in the seasonal Sentinel-2 and Landsat blend',
+                credit: '© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium',
+                licence: 'CC BY 4.0',
+            },
+            {
+                name: 'Landsat 8/9 Collection 2 Level-2', scope: 'Imagery, blended with Sentinel-2 into the seasonal terrain colours',
+                credit: 'Landsat imagery courtesy of the U.S. Geological Survey', licence: 'Public domain',
             },
             {
                 name: 'Blue Marble Next Generation', scope: 'The whole planet seen from orbit, 1.85 km',
