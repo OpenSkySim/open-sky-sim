@@ -18,6 +18,14 @@ Forked from [Ruben3d RetroFlightSim](https://github.com/ruben3d/retroflightsim/)
 
 
 
+## Repositories
+
+- **open-sky-sim-fe** (this repo, public): the browser game - `src/`, `assets/`, webpack.
+- **open-sky-sim-be** (private): the terrain/OSM bake pipeline, mod import and the dev server, mounted here as the `tools/` submodule.
+
+Without access to the bake tools, `npm ci && npm run build` builds the game into `dist/`; serve that folder with any static web server.
+With access, clone with `git clone --recurse-submodules` and use `npm start` as before.
+
 ## Keyboard (default Arrows layout)
 
 ### Plane

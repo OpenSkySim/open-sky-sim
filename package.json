@@ -7,8 +7,8 @@
     },
     "scripts": {
         "pack-mods": "node tools/run-python.mjs tools/pack_aircraft_mods.py",
-        "build": "webpack --mode=development && npm run pack-mods",
-        "build:prod": "webpack --mode=production && npm run pack-mods",
+        "build": "webpack --mode=development && node scripts/if-tools.mjs pack-mods",
+        "build:prod": "webpack --mode=production && node scripts/if-tools.mjs pack-mods",
         "start": "node tools/dev.mjs",
         "watch": "node tools/watch.mjs",
         "bake:airports": "node tools/run-python.mjs tools/bake_osm_airports.py",
@@ -43,8 +43,9 @@
         "preserve": "npm run build",
         "serve": "tsx tools/modserver.ts",
         "pretest": "npm run lint:sg",
-        "test": "node --import tsx --test src/script/config/**/*.test.ts src/script/physics/**/*.test.ts src/script/ai/**/*.test.ts src/script/mission/**/*.test.ts src/script/weapons/**/*.test.ts src/script/state/**/*.test.ts src/script/render/**/*.test.ts src/script/scene/**/*.test.ts src/script/planet/**/*.test.ts src/script/terrain/**/*.test.ts src/script/ui/**/*.test.ts tools/bake/**/*.test.ts tools/satellite/**/*.test.ts tools/*.test.ts",
-        "lint:sg": "ast-grep scan"
+        "test": "node --import tsx --test src/script/config/**/*.test.ts src/script/physics/**/*.test.ts src/script/ai/**/*.test.ts src/script/mission/**/*.test.ts src/script/weapons/**/*.test.ts src/script/state/**/*.test.ts src/script/render/**/*.test.ts src/script/scene/**/*.test.ts src/script/planet/**/*.test.ts src/script/terrain/**/*.test.ts src/script/ui/**/*.test.ts",
+        "lint:sg": "ast-grep scan",
+        "test:tools": "node --import tsx --test tools/bake/**/*.test.ts tools/satellite/**/*.test.ts tools/*.test.ts"
     },
     "author": "Ruben Moreno Montoliu <ruben3d@gmail.com>",
     "license": "MIT",
