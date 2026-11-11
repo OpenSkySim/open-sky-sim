@@ -102,8 +102,14 @@ export class SceneDepthPass {
      * Leaves the bound render target as it found it: layers after the first on
      * a target never rebind it themselves, so anything that borrows the binding
      * mid-frame has to give it back.
+     *
+     * `rect` (NDC x0, y0, x1, y1), when given, is all the reader can cover,
+     * and only that much is resolved. The glare spans 16 degrees, a few % of
+     * the screen; the whole-screen resolve was 1.3 ms at 3440x1300 on an
+     * integrated GPU. Outside it the copy keeps stale depth nobody samples.
      */
-    resolve(renderer: THREE.WebGLRenderer, source: THREE.WebGLRenderTarget, camera: THREE.PerspectiveCamera): void {
+    resolve(renderer: THREE.WebGLRenderer, source: THREE.WebGLRenderTarget, camera: THREE.PerspectiveCamera,
+        rect?: THREE.Vector4): void {
         const { near, far } = camera;
         const depth = source.depthTexture;
         if (!depth) {
@@ -116,6 +122,21 @@ export class SceneDepthPass {
         this.material.uniforms.uNear.value = near;
         this.material.uniforms.uFar.value = far;
         this.material.uniforms.uInvFar.value = 1 / far;
+
+        const w = copy.width, h = copy.height;
+        copy.scissorTest = false;
+        if (rect) {
+            // A couple of texels of margin each side, for the reader's own rounding.
+            const x0 = Math.max(0, Math.floor((rect.x * 0.5 + 0.5) * w) - 2);
+            const y0 = Math.max(0, Math.floor((rect.y * 0.5 + 0.5) * h) - 2);
+            const x1 = Math.min(w, Math.ceil((rect.z * 0.5 + 0.5) * w) + 2);
+            const y1 = Math.min(h, Math.ceil((rect.w * 0.5 + 0.5) * h) + 2);
+            if (x1 <= x0 || y1 <= y0) {
+                return;
+            }
+            copy.scissor.set(x0, y0, x1 - x0, y1 - y0);
+            copy.scissorTest = x0 > 0 || y0 > 0 || x1 < w || y1 < h;
+        }
 
         const previous = renderer.getRenderTarget();
         renderer.setRenderTarget(copy);

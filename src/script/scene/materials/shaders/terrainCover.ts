@@ -83,28 +83,22 @@ ${COLOUR_ADJUST_PARS}
     return mix(hi, lo, step(c, vec3(0.04045)));
   }
 
-  /** uToneColor[i] without dynamic indexing. */
+  /**
+   * uToneColor[index], or [0] for an index outside the table. Indexed
+   * directly: three compiles every program as GLSL ES 3.00, where a uniform
+   * array takes any index. The compare loops this replaces ran per texel,
+   * four texels a fragment on a magnified far tile - 4 ms of a 3440x1300
+   * terrain pass on an integrated GPU.
+   */
   vec3 toneColor(float index) {
-    vec3 c = uToneColor[0];
-    for (int i = 1; i < ${TERRAIN_TONE_COUNT}; i++) {
-      if (abs(float(i) - index) < 0.5) {
-        c = uToneColor[i];
-        break; // indices are unique - nothing later could also match
-      }
-    }
-    return c;
+    highp int i = int(floor(index + 0.5));
+    return uToneColor[(i < 0 || i >= ${TERRAIN_TONE_COUNT}) ? 0 : i];
   }
 
-  /** uClassTone[i] without dynamic indexing. */
+  /** uClassTone[cls], or [0] for a class outside the table. */
   float toneOfClass(float cls) {
-    float t = uClassTone[0];
-    for (int i = 1; i < ${TERRAIN_CLASS_COUNT}; i++) {
-      if (abs(float(i) - cls) < 0.5) {
-        t = uClassTone[i];
-        break; // indices are unique - nothing later could also match
-      }
-    }
-    return t;
+    highp int i = int(floor(cls + 0.5));
+    return uClassTone[(i < 0 || i >= ${TERRAIN_CLASS_COUNT}) ? 0 : i];
   }
 
   /** Nearest table colour, in plain RGB distance. */

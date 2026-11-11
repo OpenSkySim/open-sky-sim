@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { ArrayUniformCache } from './arrayUniformCache';
+import { ShaderWarmup } from './shaderWarmup';
 import { Palette, PaletteCategory, PaletteColor } from '../config/palettes/palette';
 import { SceneMaterialManager } from '../scene/materials/materials';
 import { Scene, SceneLayers } from '../scene/scene';
@@ -283,6 +285,10 @@ export class Renderer {
     private readonly gpuTimer: GpuPassTimer;
     /** A reversed float depth buffer rather than a logarithmic one (useReversedDepth). */
     private readonly reversedDepth: boolean;
+    /** First-time shader links happen off the frame (shaderWarmup.ts). */
+    private readonly warmup: ShaderWarmup;
+    /** Unchanged colour tables are not re-sent per draw (arrayUniformCache.ts). */
+    private readonly arrayUniforms: ArrayUniformCache;
 
     constructor(private materials: SceneMaterialManager, private composeWidth: number, private composeHeight: number, palette: Palette) {
         const container = document.getElementById('container');
@@ -295,6 +301,9 @@ export class Renderer {
             antialias: false, reversedDepthBuffer: reversed, logarithmicDepthBuffer: !reversed,
         });
         this.reversedDepth = this.renderer.capabilities.reversedDepthBuffer;
+        this.warmup = new ShaderWarmup(this.renderer);
+        this.arrayUniforms = new ArrayUniformCache(this.renderer);
+        (globalThis as Record<string, unknown>).__shaderWarmup = this.warmup;
         // Cap DPR so HD on high-DPI displays does not explode fill rate.
         this.renderer.setPixelRatio(this.screenPixelRatio());
         const gl = this.renderer.getContext();
@@ -624,8 +633,8 @@ export class Renderer {
         // Skipped when the layer drew up empty, which for the glare is every
         // frame between sunset and sunrise - a full-screen resolve per view is
         // not worth paying for a pass with nothing in it.
-        if (layer.sceneDepthFrom !== undefined && this.hasAnythingInView(layer)) {
-            this.sceneDepthPass.resolve(this.renderer, renderTarget.target, layer.sceneDepthFrom);
+        if (layer.sceneDepthFrom !== undefined && this.hasAnythingInView(layer, Renderer._viewRect)) {
+            this.sceneDepthPass.resolve(this.renderer, renderTarget.target, layer.sceneDepthFrom, Renderer._viewRect);
         }
 
         const sky = this.pendingSky.get(key);
@@ -781,7 +790,7 @@ export class Renderer {
      * supersample. Same test three.js culls with, a frame early: a mesh whose
      * bounds miss the frustum is not drawn, so its pass needs no depth.
      */
-    private hasAnythingInView(layer: RenderLayer): boolean {
+    private hasAnythingInView(layer: RenderLayer, rect?: THREE.Vector4): boolean {
         if (!this.hasAnythingToDraw(layer)) {
             return false;
         }
@@ -789,22 +798,30 @@ export class Renderer {
         camera.updateMatrixWorld();
         Renderer._viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
         Renderer._frustum.setFromProjectionMatrix(Renderer._viewProjection, THREE.WebGLCoordinateSystem, camera.reversedDepth);
+        // The screen rectangle (NDC x0, y0, x1, y1) all of it can land in,
+        // grown per object; the whole view once anything is unbounded.
+        rect?.set(Infinity, Infinity, -Infinity, -Infinity);
         let inView = false;
+        let whole = false;
         for (const listId of layer.lists) {
             this.current3DRenderLists.get(listId)?.traverseVisible(object => {
-                if (inView) {
+                if (whole || (inView && !rect)) {
                     return;
                 }
                 const mesh = object as THREE.Mesh;
                 if (!mesh.isMesh) {
                     // Lines, points and sprites: not worth bounding, assume seen.
-                    inView = (object as THREE.Line).isLine || (object as THREE.Points).isPoints
-                        || (object as THREE.Sprite).isSprite;
+                    if ((object as THREE.Line).isLine || (object as THREE.Points).isPoints
+                        || (object as THREE.Sprite).isSprite) {
+                        inView = true;
+                        whole = true;
+                    }
                     return;
                 }
                 // An instanced mesh's geometry bounds only one instance.
                 if (!mesh.frustumCulled || (mesh as THREE.InstancedMesh).isInstancedMesh) {
                     inView = true;
+                    whole = true;
                     return;
                 }
                 if (mesh.geometry.boundingSphere === null) {
@@ -812,17 +829,55 @@ export class Renderer {
                 }
                 mesh.updateWorldMatrix(true, false);
                 Renderer._sphere.copy(mesh.geometry.boundingSphere!).applyMatrix4(mesh.matrixWorld);
-                inView = Renderer._frustum.intersectsSphere(Renderer._sphere);
+                if (!Renderer._frustum.intersectsSphere(Renderer._sphere)) {
+                    return;
+                }
+                inView = true;
+                if (rect && !Renderer.growRect(rect, Renderer._sphere, camera)) {
+                    whole = true;
+                }
             });
-            if (inView) {
-                return true;
+            if (whole || (inView && !rect)) {
+                break;
             }
         }
-        return false;
+        if (rect && whole) {
+            rect.set(-1, -1, 1, 1);
+        }
+        return inView;
+    }
+
+    /**
+     * Grows `rect` (NDC x0, y0, x1, y1) by where `sphere` can project: the
+     * x/z and y/z extremes over the box round it, which bound the outline of
+     * the sphere itself. False when that does not hold - a sphere reaching
+     * the camera plane, a camera that is not a perspective one.
+     */
+    private static growRect(rect: THREE.Vector4, sphere: THREE.Sphere, camera: THREE.Camera): boolean {
+        if (!(camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
+            return false;
+        }
+        const c = Renderer._viewCentre.copy(sphere.center).applyMatrix4(camera.matrixWorldInverse);
+        const r = sphere.radius;
+        const near = -c.z - r;
+        if (near <= (camera as THREE.PerspectiveCamera).near) {
+            return false;
+        }
+        const far = -c.z + r;
+        const p = camera.projectionMatrix.elements;
+        // Column-major: x_ndc = p[0] x / d - p[8] with d = -z (and likewise y).
+        const x0 = Math.min((c.x - r) / near, (c.x - r) / far) * p[0] - p[8];
+        const x1 = Math.max((c.x + r) / near, (c.x + r) / far) * p[0] - p[8];
+        const y0 = Math.min((c.y - r) / near, (c.y - r) / far) * p[5] - p[9];
+        const y1 = Math.max((c.y + r) / near, (c.y + r) / far) * p[5] - p[9];
+        rect.set(Math.min(rect.x, x0), Math.min(rect.y, y0), Math.max(rect.z, x1), Math.max(rect.w, y1));
+        return true;
     }
     private static readonly _viewProjection = new THREE.Matrix4();
     private static readonly _frustum = new THREE.Frustum();
     private static readonly _sphere = new THREE.Sphere();
+    private static readonly _viewCentre = new THREE.Vector3();
+    private static readonly _viewRect = new THREE.Vector4();
 
     /** Whether this layer's lists came out of the build with anything in them. */
     private hasAnythingToDraw(layer: RenderLayer): boolean {
@@ -872,7 +927,7 @@ export class Renderer {
                 assertIsDefined(list);
                 this.relativeRoot.add(list);
             }
-            this.renderer.render(this.mergedListScene, cam);
+            this.renderScene(this.mergedListScene, cam);
             this.recordDrawStats(layer);
             while (this.relativeRoot.children.length > 0) {
                 this.relativeRoot.remove(this.relativeRoot.children[0]);
@@ -890,7 +945,7 @@ export class Renderer {
                 assertIsDefined(list);
                 this.mergedListScene.add(list);
             }
-            this.renderer.render(this.mergedListScene, cam);
+            this.renderScene(this.mergedListScene, cam);
             while (this.mergedListScene.children.length > 0) {
                 this.mergedListScene.remove(this.mergedListScene.children[0]);
             }
@@ -899,7 +954,17 @@ export class Renderer {
 
         const only = this.current3DRenderLists.get(layer.lists[0]);
         assertIsDefined(only);
-        this.renderer.render(only, cam);
+        this.renderScene(only, cam);
+    }
+
+    private renderScene(scene: THREE.Object3D, cam: THREE.Camera): void {
+        this.arrayUniforms.sync();
+        this.warmup.begin(scene, cam);
+        try {
+            this.renderer.render(scene, cam);
+        } finally {
+            this.warmup.end();
+        }
     }
 
     /**

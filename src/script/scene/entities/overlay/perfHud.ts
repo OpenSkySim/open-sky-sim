@@ -38,6 +38,8 @@ interface TerrainStatsShape {
 
 /** Frame-time EMA smoothing factor — same order as the terrain LOD governor's own. */
 const FRAME_EMA_ALPHA = 0.1;
+/** How often the readout's numbers change on screen. */
+const PERF_HUD_REFRESH_MS = 250;
 
 /**
  * F9-toggled on-screen readout of the live perf diagnostics already wired up
@@ -48,6 +50,8 @@ const FRAME_EMA_ALPHA = 0.1;
 export class PerfHudEntity implements Entity {
 
     private frameEmaMs: number = 1000 / 60;
+    private lines: string[] = [];
+    private linesAtMs = -Infinity;
 
     readonly tags: string[] = [];
 
@@ -66,14 +70,8 @@ export class PerfHudEntity implements Entity {
         // Nothing
     }
 
-    render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
-        if (!lists.has(SceneLayers.Overlay)) return;
-
-        const layoutScale = getOverlayLayout(targetWidth, targetHeight).layoutScale;
-        const font = layoutScale > 1 ? Font.HUD_MEDIUM : Font.HUD_SMALL;
-        const hudColor = PaletteColor(palette, PaletteCategory.HUD_TEXT);
-        const lineHeight = font.charHeight + 2;
-
+    /** The readout's text; rebuilt a few times a second, not every frame. */
+    private buildLines(): string[] {
         const lines: string[] = [];
         const fps = this.frameEmaMs > 0 ? 1000 / this.frameEmaMs : 0;
         lines.push(`${fps.toFixed(0)} FPS ${this.frameEmaMs.toFixed(1)}ms`);
@@ -115,6 +113,26 @@ export class PerfHudEntity implements Entity {
                 ? ` BL${terrainStats.buildingTiles}/${((terrainStats.buildingShownTriangles ?? 0) / 1000).toFixed(1)}K` : '';
             lines.push(`Q${terrainStats.queued ?? 0} ${mb.toFixed(0)}MB ${terrainStats.heightTier ?? '?'}${failSuffix}${texSuffix}${roadSuffix}${bridgeSuffix}${buildingSuffix}`);
         }
+
+        return lines;
+    }
+
+    render2D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Set<string>, painter: CanvasPainter, palette: Palette): void {
+        if (!lists.has(SceneLayers.Overlay)) return;
+
+        const layoutScale = getOverlayLayout(targetWidth, targetHeight).layoutScale;
+        const font = layoutScale > 1 ? Font.HUD_MEDIUM : Font.HUD_SMALL;
+        const hudColor = PaletteColor(palette, PaletteCategory.HUD_TEXT);
+        const lineHeight = font.charHeight + 2;
+
+        // Re-made every frame, the changing digits missed the text run cache
+        // and re-dirtied the HUD canvas each frame.
+        const now = performance.now();
+        if (now - this.linesAtMs >= PERF_HUD_REFRESH_MS) {
+            this.lines = this.buildLines();
+            this.linesAtMs = now;
+        }
+        const lines = this.lines;
 
         // Top-right, on a black box so it stays legible over bright sky/terrain.
         const pad = 2;

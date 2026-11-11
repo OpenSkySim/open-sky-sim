@@ -1090,6 +1090,7 @@ export class DamageSmokeField implements Entity {
     }
 
     update(delta: number): void {
+        this.tonesFresh = false;
         if (this.poseProvider) {
             for (let i = 0; i < this.leaks.length; i++) {
                 const leak = this.leaks[i];
@@ -1860,7 +1861,12 @@ export class DamageSmokeField implements Entity {
     }
 
     private syncPuffs(camera: THREE.Camera, palette: Palette): void {
-        this.cachePaletteColors(palette);
+        // Tones and dither levels hang on the particles alone, so a second pass
+        // in the same frame (the weapons-target view) only re-faces the puffs.
+        const tonesFresh = this.tonesFresh && this.tonesPalette === palette;
+        if (!tonesFresh) {
+            this.cachePaletteColors(palette);
+        }
         const matrices = this.puffs.instanceMatrix.array as Float32Array;
         let live = 0;
         for (let i = 0; i < this.system.particles.length && i < DAMAGE_SMOKE_PARTICLE_COUNT; i++) {
@@ -1876,9 +1882,15 @@ export class DamageSmokeField implements Entity {
                     + (1 - FIRE_SIZE_GROWTH)
                     * ((progress - FIRE_PHASE_END) / (1 - FIRE_PHASE_END));
             const size = p.sizeStart + (p.sizeEnd - p.sizeStart) * sizeT;
+            const flag = this.dustFlags[i];
+            if (tonesFresh) {
+                writePuffMatrix(matrices, live * 16, p.position, camera.position, size,
+                    p.rotationStart + (p.rotationEnd - p.rotationStart) * progress, flag === 6);
+                live++;
+                continue;
+            }
 
             // Yellow → red over the fire phase, then gray smoke for the rest.
-            const flag = this.dustFlags[i];
             const isDust = flag === 1;
             if (flag === 6) {
                 this.tmpColor.copy(this.foamA);
@@ -1929,11 +1941,19 @@ export class DamageSmokeField implements Entity {
         this.puffs.visible = live > 0;
         if (live > 0) {
             this.puffs.instanceMatrix.needsUpdate = true;
-            this.puffLevel.needsUpdate = true;
-            this.puffToneA.needsUpdate = true;
-            this.puffToneB.needsUpdate = true;
+            if (!tonesFresh) {
+                this.puffLevel.needsUpdate = true;
+                this.puffToneA.needsUpdate = true;
+                this.puffToneB.needsUpdate = true;
+            }
         }
+        this.tonesFresh = true;
+        this.tonesPalette = palette;
     }
+
+    /** Set by syncPuffs, cleared by update(): render passes run after it, all in one task. */
+    private tonesFresh = false;
+    private tonesPalette: Palette | undefined;
 
     render3D(_targetWidth: number, _targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
         // Only for a pass that draws the puffs: the sky and glare passes come

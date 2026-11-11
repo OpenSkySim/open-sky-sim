@@ -7,6 +7,9 @@ import {
 } from './haze';
 import { defaultColourTweak } from './colourAdjust';
 
+/** Element `i` of a flat rgb uniform array. */
+const v3 = (a: Float32Array, i: number) => new THREE.Vector3().fromArray(a, i * 3);
+
 /** Warm towards the sun, cool away from it, like a late-afternoon dome. */
 function domeFor(sun: THREE.Vector3) {
     return (x: number, _y: number, z: number, out: [number, number, number]) => {
@@ -34,9 +37,9 @@ describe('aerial perspective', () => {
             const b = bearing0 + i / (HAZE_HORIZON_SAMPLES - 1) * Math.PI;
             dir.set(Math.sin(b), 0, Math.cos(b));
             saturatedHorizon(dir, u.uScatterSun.value,
-                u.uScatterSunT.value[0].toArray() as Rgb, u.uScatterMs.value[0].toArray() as Rgb, phys);
-            const shown = u.uScatterGain.value[i].clone().multiply(new THREE.Vector3(...phys));
-            const want = u.uHazeHorizon.value[i];
+                v3(u.uScatterSunT.value, 0).toArray() as Rgb, v3(u.uScatterMs.value, 0).toArray() as Rgb, phys);
+            const shown = v3(u.uScatterGain.value, i).clone().multiply(new THREE.Vector3(...phys));
+            const want = v3(u.uHazeHorizon.value, i);
             for (const c of ['x', 'y', 'z'] as const) {
                 assert.ok(Math.abs(shown[c] / want[c] - 1) < 0.05, `bearing ${i} ${c}: ${shown[c]} vs ${want[c]}`);
             }
@@ -50,10 +53,11 @@ describe('aerial perspective', () => {
             const r = 61 * Math.PI / 180;
             const noon = new THREE.Vector3(Math.cos(r), Math.sin(r), 0);
             setScatterSun(domeFor(noon), noon, 0);
-            return u.uScatterGain.value[8].clone();
+            return v3(u.uScatterGain.value, 8).clone();
         })();
         setScatterSun(domeFor(dusk), dusk, 0.3);
-        for (const g of u.uScatterGain.value) {
+        for (let i = 0; i < HAZE_HORIZON_SAMPLES; i++) {
+            const g = v3(u.uScatterGain.value, i);
             assert.ok(Number.isFinite(g.x) && g.x < 1000 * noonGain.x);
         }
         setScatterSun(domeFor(sun), sun, 0);
@@ -63,16 +67,16 @@ describe('aerial perspective', () => {
         const dir = new THREE.Vector3(sun.x, 0, sun.z).normalize();
         const toward: Rgb = [0, 0, 0];
         const away: Rgb = [0, 0, 0];
-        const sunT = u.uScatterSunT.value[0].toArray() as Rgb;
-        const sky = u.uScatterMs.value[0].toArray() as Rgb;
+        const sunT = v3(u.uScatterSunT.value, 0).toArray() as Rgb;
+        const sky = v3(u.uScatterMs.value, 0).toArray() as Rgb;
         saturatedHorizon(dir, u.uScatterSun.value, sunT, sky, toward);
         saturatedHorizon(dir.negate(), u.uScatterSun.value, sunT, sky, away);
         assert.ok(toward[1] > 3 * away[1]);
     });
 
     it('reddens a low sun more at sea level than higher up', () => {
-        const low = u.uScatterSunT.value[0];
-        const high = u.uScatterSunT.value[SCATTER_ALTITUDE_BINS - 1];
+        const low = v3(u.uScatterSunT.value, 0);
+        const high = v3(u.uScatterSunT.value, SCATTER_ALTITUDE_BINS - 1);
         assert.ok(low.z / low.x < high.z / high.x);
         assert.ok(low.x < high.x);
     });

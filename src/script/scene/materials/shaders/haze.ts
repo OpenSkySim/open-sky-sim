@@ -73,7 +73,11 @@ function altitudeOfBin(k: number): number {
     return SCATTER_ALTITUDE_BASE_M * (Math.pow(2, k) - 1);
 }
 
-const vec3s = (n: number) => Array.from({ length: n }, () => new THREE.Vector3());
+/**
+ * Flat rgb triples, not Vector3[]: three re-flattens a Vector3[] uniform on
+ * every draw (toArray per element), and these ride on every hazed material.
+ */
+const vec3s = (n: number) => new Float32Array(n * 3);
 
 /**
  * Shared by reference with every material that hazes, as SUN_UNIFORMS are.
@@ -303,9 +307,9 @@ export function setScatterSun(
     for (let k = 0; k < SCATTER_ALTITUDE_BINS; k++) {
         const h = altitudeOfBin(k);
         const t = sunTransmittance(ATMOSPHERE, [0, ATMOSPHERE.groundRadius + h, 0], sun);
-        u.uScatterSunT.value[k].set(t[0], t[1], t[2]);
+        u.uScatterSunT.value.set(t, k * 3);
         multipleScatteringAt(ms, ATMOSPHERE, h, scratch);
-        u.uScatterMs.value[k].set(scratch[0], scratch[1], scratch[2]);
+        u.uScatterMs.value.set(scratch, k * 3);
     }
 
     const sunBearing = Math.atan2(sun[0], sun[2]);
@@ -340,14 +344,14 @@ function refreshHorizon(): void {
     const u = HAZE_UNIFORMS;
     for (let i = 0; i < HAZE_HORIZON_SAMPLES; i++) {
         adjustColourInPlace(adjusted.copy(rawHorizon[i]), skyTweak);
-        const target = u.uHazeHorizon.value[i].set(
-            THREE.MathUtils.clamp(adjusted.r, 0, 1),
-            THREE.MathUtils.clamp(adjusted.g, 0, 1),
-            THREE.MathUtils.clamp(adjusted.b, 0, 1));
+        const horizon = u.uHazeHorizon.value;
+        const gain = u.uScatterGain.value;
+        horizon[i * 3] = THREE.MathUtils.clamp(adjusted.r, 0, 1);
+        horizon[i * 3 + 1] = THREE.MathUtils.clamp(adjusted.g, 0, 1);
+        horizon[i * 3 + 2] = THREE.MathUtils.clamp(adjusted.b, 0, 1);
         const p = physicalHorizon[i];
-        u.uScatterGain.value[i].set(
-            p[0] > MIN_PHYSICAL ? target.x / p[0] : 0,
-            p[1] > MIN_PHYSICAL ? target.y / p[1] : 0,
-            p[2] > MIN_PHYSICAL ? target.z / p[2] : 0);
+        for (let c = 0; c < 3; c++) {
+            gain[i * 3 + c] = p[c] > MIN_PHYSICAL ? horizon[i * 3 + c] / p[c] : 0;
+        }
     }
 }

@@ -662,12 +662,12 @@ export function buildTreeMesh(
 
     const slot = shuffledSlots(count);
 
-    const mesh = new THREE.InstancedMesh(geometry, material, count);
+    const matrices = new Float32Array(count * 16);
+    const mesh = instancedMeshOver(geometry, material, matrices);
     const shade = new Float32Array(count * 4);
     const speciesAttr = new Float32Array(count);
     const normalAttr = new Float32Array(count * 3);
     const hashAttr = new Float32Array(count);
-    const m = new THREE.Matrix4();
     let i = 0;
     for (const group of groups) {
         for (let k = 0; k < group.points.length; k++, i++) {
@@ -676,10 +676,8 @@ export function buildTreeMesh(
             // needing separate per-species geometry.
             const scale = (0.85 + hash01(i * 5.113 + group.species * 13.1 + 1) * 0.3)
                 * (group.species === Species.SHRUB ? SHRUB_SCALE : group.species === Species.BUSH ? BUSH_SCALE : 1);
-            m.makeScale(scale, scale, scale);
-            m.setPosition(p.x, p.y, p.z);
             const s = slot[i];
-            mesh.setMatrixAt(s, m);
+            writeScaleTranslate(matrices, s, scale, p.x, p.y, p.z);
             hashAttr[s] = (s + 0.5) / count;
             speciesAttr[s] = group.species;
             normalAttr[s * 3] = group.normals[k * 3];
@@ -707,4 +705,31 @@ export function buildTreeMesh(
     mesh.userData.treeTotal = count;
     mesh.userData.treeSpacingM = spacingM;
     return mesh;
+}
+
+/**
+ * An InstancedMesh over `matrices` (16 floats per instance). Three's own
+ * constructor writes an identity matrix per instance with setMatrixAt, which
+ * the caller then overwrites: for a tile's tens of thousands of trees and
+ * rocks that doubled the main-thread cost of attaching them.
+ */
+export function instancedMeshOver(
+    geometry: THREE.BufferGeometry, material: THREE.Material, matrices: Float32Array,
+): THREE.InstancedMesh {
+    const mesh = new THREE.InstancedMesh(geometry, material, 0);
+    mesh.instanceMatrix = new THREE.InstancedBufferAttribute(matrices, 16);
+    mesh.count = matrices.length / 16;
+    return mesh;
+}
+
+/** Instance `s` of a zero-filled matrix array: uniform `scale`, then moved to (x, y, z). */
+export function writeScaleTranslate(out: Float32Array, s: number, scale: number, x: number, y: number, z: number): void {
+    const o = s * 16;
+    out[o] = scale;
+    out[o + 5] = scale;
+    out[o + 10] = scale;
+    out[o + 12] = x;
+    out[o + 13] = y;
+    out[o + 14] = z;
+    out[o + 15] = 1;
 }

@@ -33,7 +33,6 @@ const TRAIL_LIFETIME_S = 3;
  */
 const SEGMENT_COUNT = Math.ceil(TRAIL_LIFETIME_S / SAMPLE_SPACING_SPEED_FACTOR) + 2;
 const POSITION_COUNT = SEGMENT_COUNT + 1;
-const _basis = new THREE.Matrix4();
 
 /** Dither level a segment of this age may reach at most: full when fresh, 0 at TRAIL_LIFETIME_S. */
 function ageDither(ageS: number): number {
@@ -62,7 +61,6 @@ class WingTrailSide {
      */
     private readonly mesh: THREE.InstancedMesh;
     private readonly levels: THREE.InstancedBufferAttribute;
-    private readonly segment = new THREE.Object3D();
     private readonly root = new THREE.Object3D();
     private readonly lastSample = new THREE.Vector3();
     private hasLastSample = false;
@@ -125,7 +123,7 @@ class WingTrailSide {
 
         const segmentLimit = Math.min(SEGMENT_COUNT, this.count);
         camera.getWorldPosition(this._cameraPos);
-        const mesh = this.segment;
+        const matrices = this.mesh.instanceMatrix.array as Float32Array;
         let drawn = 0;
 
         for (let i = 0; i < SEGMENT_COUNT; i++) {
@@ -172,12 +170,27 @@ class WingTrailSide {
             this._right.normalize();
             this._up.crossVectors(this._right, this._dir).normalize();
 
-            _basis.makeBasis(this._right, this._dir, this._up);
-            mesh.position.copy(this._mid);
-            mesh.quaternion.setFromRotationMatrix(_basis);
-            mesh.scale.set(SEGMENT_WIDTH * 2, length, 1);
-            mesh.updateMatrix();
-            this.mesh.setMatrixAt(drawn, mesh.matrix);
+            // Basis columns scaled (width, length, 1), then the midpoint: what
+            // position/quaternion/scale + updateMatrix composed, without the
+            // quaternion round trip per segment.
+            const o = drawn * 16;
+            const w = SEGMENT_WIDTH * 2;
+            matrices[o] = this._right.x * w;
+            matrices[o + 1] = this._right.y * w;
+            matrices[o + 2] = this._right.z * w;
+            matrices[o + 3] = 0;
+            matrices[o + 4] = this._dir.x * length;
+            matrices[o + 5] = this._dir.y * length;
+            matrices[o + 6] = this._dir.z * length;
+            matrices[o + 7] = 0;
+            matrices[o + 8] = this._up.x;
+            matrices[o + 9] = this._up.y;
+            matrices[o + 10] = this._up.z;
+            matrices[o + 11] = 0;
+            matrices[o + 12] = this._mid.x;
+            matrices[o + 13] = this._mid.y;
+            matrices[o + 14] = this._mid.z;
+            matrices[o + 15] = 1;
             this.levels.array[drawn] = level;
             drawn++;
         }

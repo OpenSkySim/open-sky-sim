@@ -34,7 +34,9 @@ import { PaletteCategory } from '../config/palettes/palette';
 import { SceneMaterialManager, SceneMaterialPrimitiveType } from '../scene/materials/materials';
 import { Species, TREE_SPECIES_COUNT } from '../scene/vegetation/treeSprites';
 import { ROCK_SHAPE_COUNT, RockShape } from '../scene/vegetation/stoneSprites';
-import { SpeciesGroup, grownSizeM, shuffledSlots, splitIntoCells } from './treeBillboards';
+import {
+    SpeciesGroup, grownSizeM, instancedMeshOver, shuffledSlots, splitIntoCells, writeScaleTranslate,
+} from './treeBillboards';
 import { PtmTile } from './ptm';
 
 // TerrainClass values spelled out: it is a `const enum`, and the tsx test
@@ -393,12 +395,12 @@ export function buildStoneMesh(
     material.uniforms.uTreeSpacingM = { value: spacingM };
 
     const slot = shuffledSlots(count);
-    const mesh = new THREE.InstancedMesh(geometry, material, count);
+    const matrices = new Float32Array(count * 16);
+    const mesh = instancedMeshOver(geometry, material, matrices);
     const shade = new Float32Array(count * 4);
     const shapeAttr = new Float32Array(count);
     const normalAttr = new Float32Array(count * 3);
     const hashAttr = new Float32Array(count);
-    const m = new THREE.Matrix4();
     let i = 0;
     for (const group of groups) {
         for (let k = 0; k < group.points.length; k++, i++) {
@@ -409,10 +411,8 @@ export function buildStoneMesh(
             // rotation, so there is nothing to gain from rotating it here -
             // see treeBillboardVP.ts).
             const scale = STONE_SCALE_MIN + hash01(i * 5.113 + group.shape * 13.1 + 1) * STONE_SCALE_JITTER;
-            m.makeScale(scale, scale, scale);
-            m.setPosition(p.x, p.y, p.z);
             const s = slot[i];
-            mesh.setMatrixAt(s, m);
+            writeScaleTranslate(matrices, s, scale, p.x, p.y, p.z);
             hashAttr[s] = (s + 0.5) / count;
             shapeAttr[s] = group.shape;
             normalAttr[s * 3] = group.normals[k * 3];
