@@ -97,7 +97,11 @@ export class SceneryField implements Entity {
         models: ModelManager,
         private area: THREE.Box2,
         private options: SceneryFieldSettings,
-        private heightAt: (x: number, z: number) => number = () => 0,
+        /**
+         * Base height of a cell's item: (x, z) in the field's own, re-base-stable
+         * coordinates, (sceneX, sceneZ) where it lands in the current scene.
+         */
+        private heightAt: (x: number, z: number, sceneX: number, sceneZ: number) => number = () => 0,
     ) {
         this.tiles = Array(options.tilesInField * options.tilesInField);
         this.tileMinIndex = Math.ceil(-options.tilesInField / 2);
@@ -153,7 +157,7 @@ export class SceneryField implements Entity {
                     // 20 km out the two differ by 31 m, and that much would
                     // jump at every re-base.
                     const drop = (wx * wx + wz * wz) / (2 * WGS84_A);
-                    item.entity.position.set(wx, this.heightAt(fx, fz) - drop, wz);
+                    item.entity.position.set(wx, this.heightAt(fx, fz, wx, wz) - drop, wz);
                     this.tmpVector2.set(fx, fz);
                     if (!this.area.containsPoint(this.tmpVector2)) continue;
                     this.tmpSphere.center.copy(item.entity.position);

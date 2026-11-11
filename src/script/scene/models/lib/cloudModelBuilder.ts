@@ -139,6 +139,18 @@ export interface CloudPuffLobe {
 }
 
 /**
+ * How much bigger the drawn clouds are than {@link CLOUD_PUFF_SHAPES} as
+ * written. The cloud field spaces its cells by the same factor, so a bigger
+ * cloud means a coarser deck, not a denser overcast.
+ */
+export const CLOUD_SCALE = 5;
+
+/** A lobe cluster uniformly scaled about its local origin (the base centre). */
+export function scaleCloudLobes(lobes: CloudPuffLobe[], scale: number): CloudPuffLobe[] {
+    return lobes.map(l => ({ x: l.x * scale, y: l.y * scale, z: l.z * scale, r: l.r * scale }));
+}
+
+/**
  * Hand-placed lobe clusters, low-poly icosahedrons merged into one mesh —
  * the same "clump of overlapping blobs" trick used for tree canopies
  * (see vegetationModelBuilder.ts), just scaled up and flattened out for

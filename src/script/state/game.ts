@@ -91,6 +91,7 @@ import {
 import { SurfacePadCollider, SurfacePadIndex, sampleSurfacePadY } from '../scene/entities/surfacePad';
 import { buildSurfaceExclusion } from '../terrain/surfaceExclusion';
 import { SceneryField, SceneryFieldSettings } from '../scene/entities/sceneryField';
+import { CLOUD_SCALE } from '../scene/models/lib/cloudModelBuilder';
 import { SimpleEntity } from '../scene/entities/simpleEntity';
 import { StaticSceneryEntity } from '../scene/entities/staticScenery';
 import { ENTITY_TAGS, Entity } from '../scene/entity';
@@ -314,6 +315,16 @@ const SUN_FACING = new THREE.Quaternion();
 
 const CLOUD_BASE_ALTITUDE_M = 1400;
 const CLOUD_ALTITUDE_VARIATION_M = 500;
+/** A cloud's flat base never comes closer than this to the highest ground under it. */
+const CLOUD_GROUND_CLEARANCE_M = 400;
+/**
+ * Rings sampled for the ground under a cloud: the scaled clouds reach ~3 km
+ * out from their centre, so a centre-only probe let ridges pierce them.
+ */
+const CLOUD_GROUND_PROBE_RADII_M = [0, 0.5, 1.0].map(f => f * 600 * CLOUD_SCALE);
+const CLOUD_GROUND_PROBE_DIRECTIONS = 8;
+/** Terrain streams in finer over time; re-probe a cell's ground this often. */
+const CLOUD_GROUND_REFRESH_MS = 5000;
 /** High-altitude cirrus streak layer, just under HIGH_ALTITUDE_M — a separate, higher band above the cumulus deck. */
 const CIRRUS_BASE_ALTITUDE_M = 9200;
 const CIRRUS_ALTITUDE_VARIATION_M = 400;
@@ -6984,7 +6995,8 @@ export class Game {
         const cloudFieldOptions: SceneryFieldSettings = {
             tilesInField: 9,
             cellsInTile: 2,
-            tileLength: 6000,
+            // Spaced with the cloud size so coverage stays a broken deck.
+            tileLength: 6000 * CLOUD_SCALE,
             cellVariations: [
                 // Lower (negative) LOD bias than the default: clouds are huge,
                 // numerous and never inspected up close like a vehicle, so
@@ -6998,8 +7010,39 @@ export class Game {
             ],
             statsKey: 'cloud',
         };
-        const cloudAltitudeAt = (x: number, z: number) =>
-            CLOUD_BASE_ALTITUDE_M + Math.sin(x * 0.00021) * Math.cos(z * 0.00017) * CLOUD_ALTITUDE_VARIATION_M;
+        // The deck is a sea-level altitude, so over high ground (the Alps run
+        // past 4 km) the clouds sat in the hills. Lift each one clear of the
+        // highest terrain under its footprint. Keyed by field coordinates,
+        // which a floating-origin re-base leaves alone (the height itself is
+        // re-probed after one).
+        const cloudGround = new Map<string, { y: number; at: number; sx: number; sz: number }>();
+        const cloudGroundAt = (fx: number, fz: number, sx: number, sz: number): number => {
+            const terrain = this.planetTerrain as TerrainEntity | undefined;
+            if (!terrain) return -Infinity;
+            const key = `${fx}|${fz}`;
+            const now = performance.now();
+            const hit = cloudGround.get(key);
+            // A re-base moves the scene frame under the cell, and the height is in that frame.
+            if (hit && now - hit.at < CLOUD_GROUND_REFRESH_MS && hit.sx === sx && hit.sz === sz) return hit.y;
+            let y = -Infinity;
+            for (const r of CLOUD_GROUND_PROBE_RADII_M) {
+                const n = r === 0 ? 1 : CLOUD_GROUND_PROBE_DIRECTIONS;
+                for (let i = 0; i < n; i++) {
+                    const a = (i / n) * Math.PI * 2;
+                    y = Math.max(y, terrain.heightAtWorld(sx + Math.cos(a) * r, sz + Math.sin(a) * r));
+                }
+            }
+            // Scene Y already curves down with the earth; the field subtracts
+            // that drop again, so hand it back a height above the tangent plane.
+            y += (sx * sx + sz * sz) / (2 * WGS84_A);
+            if (cloudGround.size > 4096) cloudGround.clear();
+            cloudGround.set(key, { y, at: now, sx, sz });
+            return y;
+        };
+        const cloudAltitudeAt = (x: number, z: number, sx: number, sz: number) => Math.max(
+            CLOUD_BASE_ALTITUDE_M + Math.sin(x * 0.00021) * Math.cos(z * 0.00017) * CLOUD_ALTITUDE_VARIATION_M,
+            cloudGroundAt(x, z, sx, sz) + CLOUD_GROUND_CLEARANCE_M,
+        );
         this.cloudField = new SceneryField(
             this.models,
             new THREE.Box2(new THREE.Vector2(-1e7, -1e7), new THREE.Vector2(1e7, 1e7)),

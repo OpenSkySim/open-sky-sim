@@ -22,7 +22,7 @@ import { ColourAdjust, setColourAdjustUniforms } from './scene/materials/shaders
 import { setHazeSkyTweak } from './scene/materials/shaders/haze';
 import { setSunTime } from './scene/materials/shaders/sun';
 import { CIRRUS_STREAK_SHAPES, CirrusModelLibBuilder } from './scene/models/lib/cirrusModelBuilder';
-import { CLOUD_PUFF_SHAPES, CloudModelLibBuilder } from './scene/models/lib/cloudModelBuilder';
+import { CLOUD_PUFF_SHAPES, CLOUD_SCALE, CloudModelLibBuilder, scaleCloudLobes } from './scene/models/lib/cloudModelBuilder';
 import { FieldModelLibBuilder, FieldModelType } from './scene/models/lib/fieldModelBuilder';
 import { HILL_MODEL_BASE_RADIUS, HILL_MODEL_HEIGHT, MOUNTAIN_MODEL_BASE_RADIUS, MOUNTAIN_MODEL_HEIGHT, MountainModelLibBuilder } from './scene/models/lib/mountainModelBuilder';
 import { ArrestorCablesModelLibBuilder } from './scene/models/lib/arrestorCablesModelBuilder';
@@ -95,9 +95,9 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
         new AtmosphereShellModelLibBuilder('atmosphereShell'),
         new SunModelLibBuilder('sun'),
         new CloudModelLibBuilder('cloudNone', []),
-        new CloudModelLibBuilder('cloudSmall', CLOUD_PUFF_SHAPES.small),
-        new CloudModelLibBuilder('cloudMedium', CLOUD_PUFF_SHAPES.medium),
-        new CloudModelLibBuilder('cloudLarge', CLOUD_PUFF_SHAPES.large),
+        new CloudModelLibBuilder('cloudSmall', scaleCloudLobes(CLOUD_PUFF_SHAPES.small, CLOUD_SCALE)),
+        new CloudModelLibBuilder('cloudMedium', scaleCloudLobes(CLOUD_PUFF_SHAPES.medium, CLOUD_SCALE)),
+        new CloudModelLibBuilder('cloudLarge', scaleCloudLobes(CLOUD_PUFF_SHAPES.large, CLOUD_SCALE)),
         new CirrusModelLibBuilder('cirrusNone', []),
         new CirrusModelLibBuilder('cirrusThin', CIRRUS_STREAK_SHAPES.thin),
         new CirrusModelLibBuilder('cirrusWide', CIRRUS_STREAK_SHAPES.wide),
