@@ -232,6 +232,9 @@
   .w-20 {
     width: calc(var(--spacing) * 20);
   }
+  .w-28 {
+    width: calc(var(--spacing) * 28);
+  }
   .w-32 {
     width: calc(var(--spacing) * 32);
   }
@@ -715,6 +718,9 @@
   }
   .text-\[\#8aa0b2\] {
     color: #8aa0b2;
+  }
+  .text-\[\#8fd3ff\] {
+    color: #8fd3ff;
   }
   .text-\[\#94ddff\] {
     color: #94ddff;
