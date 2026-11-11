@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { missionUrl, parseAppRoute, splitAppUrl } from './appRoute';
+import { missionUrl, parseAppRoute, searchWithoutMission, splitAppUrl } from './appRoute';
 import { parseCameraRoute } from './cameraRoute';
 
 describe('parseAppRoute', () => {
@@ -26,5 +26,14 @@ describe('parseAppRoute', () => {
     it('round-trips a mission id through its URL', () => {
         const id = 'Rhein run #2';
         assert.equal(parseAppRoute(missionUrl(id).slice('index.html'.length)).mission, id);
+    });
+});
+
+describe('searchWithoutMission', () => {
+    it('drops the mission and keeps the rest untouched', () => {
+        assert.equal(searchWithoutMission('?mission=new-mission'), '');
+        assert.equal(searchWithoutMission('?@35.95,-112.17,2052a,7h,90t=&mission=abc'), '?@35.95,-112.17,2052a,7h,90t=');
+        assert.equal(searchWithoutMission('?map=1'), '?map=1');
+        assert.equal(searchWithoutMission(''), '');
     });
 });

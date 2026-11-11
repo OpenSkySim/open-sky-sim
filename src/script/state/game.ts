@@ -123,7 +123,7 @@ import {
     FixedCameraRates, FixedCameraTuning, fixedCameraInput, stepFixedCameraRates, zeroFixedCameraRates,
 } from './cameraUpdaters/fixedCameraControl';
 import { CameraRoute, cameraRouteFromLocation, clearCameraRouteFromLocation, parseCameraRoute, writeCameraRouteToLocation } from './cameraRoute';
-import { missionUrl, parseAppRoute, splitAppUrl } from './appRoute';
+import { clearMissionFromLocation, missionUrl, parseAppRoute, splitAppUrl } from './appRoute';
 import { AppNavigator, startAppRouter } from '../ui/appRouter';
 import { SpawnDestination, airfieldEntryOf, savePendingDestination, takePendingDestination } from './spawnSearch';
 import type { TerrainArea } from '../terrain/manifest';
@@ -7831,6 +7831,7 @@ export class Game {
             savePendingDestination(destination);
             updateSettings({ terrainArea: destination.area });
             clearCameraRouteFromLocation();
+            clearMissionFromLocation();
             window.location.reload();
             return;
         }
