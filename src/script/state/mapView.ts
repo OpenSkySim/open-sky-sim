@@ -18,13 +18,15 @@
  */
 
 import * as THREE from 'three';
+import { WGS84_A } from '../terrain/geodesy';
 
 /** Vertical field of view of the map camera, degrees. */
 export const MAP_FOV_DEG = 6;
 /** Terrain triangles a map frame may draw; see the call in Game.enterMapView. */
 export const MAP_TRIANGLE_BUDGET = 2_000_000;
 const MIN_MPP = 0.1;
-const MAX_MPP = 3000;
+/** Far enough out that the whole globe fits the view with room to spare. */
+const MAX_MPP = 30_000;
 const DEFAULT_MPP = 4;
 /** One wheel notch (100 px of deltaY) zooms by this. */
 const WHEEL_ZOOM_PER_100PX = Math.exp(0.15);
@@ -294,11 +296,28 @@ export class MapView {
      */
     pageOf(lat: number, lon: number, heightM = 0): { x: number; y: number } | undefined {
         const c = this.host.container;
-        const p = this.host.worldOf(lat, lon, heightM).project(this.host.camera);
+        const w = this.host.worldOf(lat, lon, heightM);
+        // Zoomed out to a globe, the far side projects onto the near one: a
+        // point counts only while it faces the camera over the horizon.
+        const toCamera = _toCamera.copy(this.host.camera.position).sub(w);
+        if (toCamera.dot(_up.copy(w).sub(this.earthCentre())) <= 0) {
+            return undefined;
+        }
+        const p = w.project(this.host.camera);
         if (p.z > 1) {
             return undefined;
         }
         return { x: c.offsetLeft + (p.x * 0.5 + 0.5) * c.clientWidth, y: (-p.y * 0.5 + 0.5) * c.clientHeight };
+    }
+
+    /**
+     * The earth's centre in scene metres. The normal at 0N 0E runs through
+     * it exactly (as at every point on the equator), an equatorial radius in.
+     */
+    private earthCentre(): THREE.Vector3 {
+        const surface = this.host.worldOf(0, 0, 0);
+        const down = this.host.worldOf(0, 0, -1).sub(surface).normalize();
+        return surface.addScaledVector(down, WGS84_A);
     }
 
     /** The ground under a page position, or undefined above the horizon. */
@@ -418,6 +437,9 @@ export class MapView {
         this.cursor.textContent = `${formatDeg(g.lat, 'N', 'S')}  ${formatDeg(g.lon, 'E', 'W')}`;
     }
 }
+
+const _toCamera = new THREE.Vector3();
+const _up = new THREE.Vector3();
 
 function clampMpp(v: number): number {
     return Math.max(MIN_MPP, Math.min(MAX_MPP, v));
