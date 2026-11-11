@@ -31,6 +31,30 @@
             <div id="boot-progress-track" class="h-2 w-full overflow-hidden border border-[#8a8a8a] bg-[#3a3a3a]">
                 <div id="boot-progress-fill" class="h-full w-0 bg-white transition-[width] duration-200 ease-linear"></div>
             </div>
+            <!-- Key cheat sheet while loading. The four stick/throttle rows follow the
+                 saved keyboard layout (osd/bootProgress.ts fills data-action cells). -->
+            <div id="boot-keys" class="mt-4 border-t border-[#5a5a5a] pt-3 text-left text-[0.8rem] font-normal pointer-coarse:hidden
+                    [&_kbd]:inline-block [&_kbd]:min-w-[1.4em] [&_kbd]:border [&_kbd]:border-[#8a8a8a] [&_kbd]:bg-[#2a2a2a] [&_kbd]:px-1
+                    [&_kbd]:text-center [&_kbd]:font-[monospace] [&_kbd]:text-[0.75rem] [&_kbd]:text-white">
+                <div class="mb-2 text-center text-[0.75rem] uppercase tracking-widest text-[#8a8a8a]">Controls</div>
+                <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 sm:grid-cols-[auto_1fr_auto_1fr] sm:gap-x-4">
+                    <span data-action="pitch"><kbd>↑</kbd> <kbd>↓</kbd></span><span>Pitch</span>
+                    <span><kbd>Space</kbd></span><span>Fire</span>
+                    <span data-action="roll"><kbd>←</kbd> <kbd>→</kbd></span><span>Roll</span>
+                    <span><kbd>G</kbd></span><span>Gear</span>
+                    <span data-action="yaw"><kbd>Y</kbd> <kbd>X</kbd></span><span>Rudder</span>
+                    <span><kbd>F</kbd></span><span>Flaps</span>
+                    <span data-action="throttle"><kbd>Num+</kbd> <kbd>Num-</kbd></span><span>Throttle</span>
+                    <span><kbd>B</kbd></span><span>Airbrake</span>
+                    <span><kbd>W</kbd></span><span>Wheel brakes (hold)</span>
+                    <span><kbd>H</kbd></span><span>Tailhook</span>
+                    <span><kbd>P</kbd></span><span>Autopilot</span>
+                    <span><kbd>T</kbd></span><span>Next target</span>
+                    <span><kbd>F1</kbd> <kbd>F2</kbd></span><span>Cockpit / outside</span>
+                    <span><kbd>Esc</kbd></span><span>Menu &amp; settings</span>
+                    <span><kbd>F10</kbd></span><span>Map &amp; mission editor</span>
+                </div>
+            </div>
         </div>
     </div>
     <div id="countdown" class="hidden pointer-events-none fixed top-1/2 left-1/2 z-4 -translate-1/2 text-[8rem] font-bold text-white text-shadow-[0_0_0.5rem_black,0_0_1.5rem_black] [&.tick]:animate-countdown-tick in-[.map-view]:hidden"></div>

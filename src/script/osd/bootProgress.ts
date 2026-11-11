@@ -1,5 +1,30 @@
 /** Full-screen boot progress overlay (#boot-progress). */
 
+import {
+    KeyboardControlAction, KeyboardControlLayoutId, formatControlKey, getKeyboardLayout,
+} from '../input/keyboardLayouts';
+
+const CHEAT_SHEET_ROWS: Record<string, [KeyboardControlAction, KeyboardControlAction]> = {
+    pitch: [KeyboardControlAction.PITCH_NEG, KeyboardControlAction.PITCH_POS],
+    roll: [KeyboardControlAction.ROLL_NEG, KeyboardControlAction.ROLL_POS],
+    yaw: [KeyboardControlAction.YAW_NEG, KeyboardControlAction.YAW_POS],
+    throttle: [KeyboardControlAction.THROTTLE_POS, KeyboardControlAction.THROTTLE_NEG],
+};
+
+/** Relabel the stick/throttle keys of the loading cheat sheet (#boot-keys) for a layout. */
+export function setBootCheatSheetLayout(layoutId: KeyboardControlLayoutId): void {
+    const layout = getKeyboardLayout(layoutId);
+    for (const [action, keys] of Object.entries(CHEAT_SHEET_ROWS)) {
+        const kbds = document.querySelectorAll(`#boot-keys [data-action="${action}"] kbd`);
+        keys.forEach((key, i) => {
+            const kbd = kbds[i];
+            if (kbd) {
+                kbd.textContent = formatControlKey(layout[key]);
+            }
+        });
+    }
+}
+
 export function setBootProgress(percent: number, label: string): void {
     const root = document.getElementById('boot-progress');
     const fill = document.getElementById('boot-progress-fill');

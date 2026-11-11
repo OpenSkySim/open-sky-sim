@@ -11,7 +11,7 @@ import { JoystickControlDevice } from './input/devices/joystickControlDevice';
 import { KeyboardControlDevice } from './input/devices/keyboardControlDevice';
 import { TouchControlDevice } from './input/devices/touchControlDevice';
 import { TouchStartGate } from './input/touchStartGate';
-import { setBootProgress, setBootStreaming } from './osd/bootProgress';
+import { setBootCheatSheetLayout, setBootProgress, setBootStreaming } from './osd/bootProgress';
 import { setupOSD } from './osd/osdPanel';
 import { CombatSimClient } from './physics/sim/combatSimClient';
 import { SimProxyFlightModel } from './physics/model/simProxyFlightModel';
@@ -166,6 +166,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
 
 window.addEventListener("load", () => {
     setBootProgress(0, 'Loading...');
+    setBootCheatSheetLayout(loadSettings().keyboardLayout);
     void setup().then(([kernel, config, keyboardInput, joystickInput, touchInput, game, audio]) => {
         kernel.start();
         setupOSD(config, keyboardInput, joystickInput, touchInput, audio);

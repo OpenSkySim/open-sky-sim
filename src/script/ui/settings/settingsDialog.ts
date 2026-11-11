@@ -27,6 +27,8 @@ import {
     KeyboardControlAction, KeyboardControlDevice, KeyboardControlLayoutId, KeyboardControlLayouts,
     KeyboardPitchStickMode,
 } from '../../input/devices/keyboardControlDevice';
+import { formatControlKey } from '../../input/keyboardLayouts';
+import { setBootCheatSheetLayout } from '../../osd/bootProgress';
 import type { SpawnPanel } from '../../osd/spawnPanel';
 import type { SpawnDestination } from '../../state/spawnSearch';
 import {
@@ -320,18 +322,6 @@ const DATA_SOURCES: DataSourceGroup[] = [
         ],
     },
 ];
-
-function formatControlKey(key: string): string {
-    switch (key) {
-        case 'arrowup': return '↑';
-        case 'arrowdown': return '↓';
-        case 'arrowleft': return '←';
-        case 'arrowright': return '→';
-        case 'numpadadd': return 'Num+';
-        case 'numpadsubtract': return 'Num-';
-        default: return key.toUpperCase();
-    }
-}
 
 /** "Logitech Extreme 3D (Vendor: 046d Product: c215)" reads as "Logitech Extreme 3D". */
 function joystickName(id: string): string {
@@ -1677,6 +1667,7 @@ export class SettingsDialog {
         this.data.keyboardInput.setKeyboardLayout(layout);
         updateSettings({ keyboardLayout: layout });
         this.keyboardLayout.set(layout);
+        setBootCheatSheetLayout(layout);
     }
 
     setPitchStickMode(mode: KeyboardPitchStickMode) {

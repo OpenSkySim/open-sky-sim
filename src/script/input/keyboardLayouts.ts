@@ -88,6 +88,19 @@ export function getKeyboardLayout(layoutId: KeyboardControlLayoutId): KeyboardCo
     return KeyboardControlLayouts.get(layoutId) ?? QwertyKeyboardControlLayout;
 }
 
+/** How a layout key is printed in help text: arrows as glyphs, letters upper-case. */
+export function formatControlKey(key: string): string {
+    switch (key) {
+        case 'arrowup': return '↑';
+        case 'arrowdown': return '↓';
+        case 'arrowleft': return '←';
+        case 'arrowright': return '→';
+        case 'numpadadd': return 'Num+';
+        case 'numpadsubtract': return 'Num-';
+        default: return key.toUpperCase();
+    }
+}
+
 /**
  * Toggles the autopilot. Kept off every layout's flight keys: the worker
  * runs the layout keys and the action keys on the same press, so an
