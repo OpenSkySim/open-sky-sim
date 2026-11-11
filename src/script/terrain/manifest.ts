@@ -196,6 +196,8 @@ export interface TerrainArea extends LonLatBounds {
     name: string;
     /** Finest zoom baked here when short of `mesh.maxZoom`; see leafZoom.ts. */
     leafZoom?: number;
+    /** A merged area's baked boxes, each with its own `leafZoom`. */
+    parts?: Array<LonLatBounds & { leafZoom?: number }>;
 }
 
 export interface TerrainManifest {

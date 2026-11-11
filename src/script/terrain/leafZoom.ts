@@ -15,6 +15,19 @@ import { LonLatBounds } from './tiling';
  */
 export interface LeafZoomArea extends LonLatBounds {
     leafZoom?: number;
+    /**
+     * The boxes of a merged area, each with the cap it was baked to. A capped
+     * part wins over an uncapped one it overlaps: the bake skipped the finer
+     * tiles under it while it was its own area.
+     */
+    parts?: ReadonlyArray<LonLatBounds & { leafZoom?: number }>;
+}
+
+/** Every baked box with its cap: a merged area's parts, else the area itself. */
+export function leafZoomBoxes(areas: readonly LeafZoomArea[] | undefined): Array<LonLatBounds & { leafZoom?: number }> {
+    return (areas ?? []).flatMap((a): Array<LonLatBounds & { leafZoom?: number }> => (a.parts?.length
+        ? a.parts.map(p => ({ ...p, leafZoom: p.leafZoom ?? a.leafZoom }))
+        : [a]));
 }
 
 export interface TileId {
@@ -30,7 +43,7 @@ export function leafZoomOf(
     areas: readonly LeafZoomArea[] | undefined,
     maxZoom: number,
 ): LeafZoomOf {
-    const capped = (areas ?? []).filter(a => a.leafZoom !== undefined && a.leafZoom < maxZoom);
+    const capped = leafZoomBoxes(areas).filter(a => a.leafZoom !== undefined && a.leafZoom < maxZoom);
     if (capped.length === 0) {
         return () => maxZoom;
     }
