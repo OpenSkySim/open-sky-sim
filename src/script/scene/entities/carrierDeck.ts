@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { AircraftCollisionMesh } from './aircraftDef';
 import { Model } from '../models/models';
+import { GROUND_PROBE } from '../../terrain/groundProbe';
 
 const EPS = 1e-8;
 
@@ -32,6 +33,12 @@ export interface CarrierMeshCollider {
     /** Local-frame triangle soup (same layout as {@link AircraftCollisionMesh}). */
     triangles: number[];
     aabb: { min: [number, number, number]; max: [number, number, number] };
+    /**
+     * Not solid all the way down: counts only for a ground query asked from
+     * no lower than this far under the bottom of its box (see groundProbe.ts).
+     * Pavement on a floating island; absent means solid to the bottom.
+     */
+    floorDepth?: number;
 }
 
 export function createCarrierMeshCollider(
@@ -296,7 +303,9 @@ export class MeshColliderIndex {
             return maxY;
         }
         for (let n = 0; n < cell.length; n++) {
-            const y = sampleCarrierMeshSurfaceY(worldX, worldZ, this.list[cell[n]]);
+            const c = this.list[cell[n]];
+            if (c.floorDepth !== undefined && GROUND_PROBE.y < c.originY + c.aabb.min[1] - c.floorDepth) continue;
+            const y = sampleCarrierMeshSurfaceY(worldX, worldZ, c);
             if (y > maxY) {
                 maxY = y;
             }

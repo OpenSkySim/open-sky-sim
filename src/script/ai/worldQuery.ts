@@ -1,3 +1,4 @@
+import { SkyIsleField } from '../terrain/skyIsles';
 import * as THREE from 'three';
 import { CarrierMeshCollider, MeshColliderIndex, sampleCarrierMeshSurfaceYMax } from '../scene/entities/carrierDeck';
 import { HillCollider, sampleHillSurfaceY } from '../scene/entities/hillCollider';
@@ -83,6 +84,8 @@ export class SceneWorldQuery implements WorldQuery {
         surfacePads: readonly SurfacePadCollider[] = [],
         /** Static scenery collision soups (hangars, towers, depots...). */
         sceneryMeshes: readonly CarrierMeshCollider[] = [],
+        /** Floating islands: ground only for whoever is above their undersides. */
+        private readonly skyIsles?: SkyIsleField,
     ) {
         this.padIndex = new SurfacePadIndex(surfacePads);
         this.sceneryIndex = new MeshColliderIndex(sceneryMeshes);
@@ -130,6 +133,7 @@ export class SceneWorldQuery implements WorldQuery {
             this.padIndex.sampleYMax(x, z),
             this.sceneryIndex.sampleYMax(x, z),
             this.carrierHeightAt(x, z),
+            this.skyIsles ? this.skyIsles.surfaceYAt(x, z) : -Infinity,
         );
     }
 

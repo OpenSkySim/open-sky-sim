@@ -1,3 +1,4 @@
+import { SerializedSkyIsles, SkyIsleField } from '../../terrain/skyIsles';
 import * as THREE from 'three';
 import { Obstacle, Runway, SceneWorldQuery } from '../../ai/worldQuery';
 import { CarrierMeshCollider } from '../../scene/entities/carrierDeck';
@@ -62,6 +63,7 @@ interface SerializedCarrierMesh {
     originZ: number;
     triangles: number[];
     aabb: { min: [number, number, number]; max: [number, number, number] };
+    floorDepth?: number;
 }
 
 /** Structured-clone-safe arrestor cable field (one carrier). */
@@ -117,6 +119,8 @@ export interface SerializedWorld {
     surfacePads?: SurfacePadCollider[];
     /** Static scenery collision soups — hangars, towers, depots (same layout as carrier meshes). */
     sceneryMeshes?: SerializedCarrierMesh[];
+    /** The Sky Isles in this scene frame, where the play area has them. */
+    skyIsles?: SerializedSkyIsles;
 }
 
 export function serializeWorld(
@@ -128,6 +132,7 @@ export function serializeWorld(
     arrestorCables: readonly ArrestorCableField[] = [],
     surfacePads: readonly SurfacePadCollider[] = [],
     sceneryMeshes: readonly CarrierMeshCollider[] = [],
+    skyIsles?: SkyIsleField,
 ): SerializedWorld {
     return {
         hills: hills.map(h => ({
@@ -175,7 +180,9 @@ export function serializeWorld(
             originZ: c.originZ,
             triangles: c.triangles,
             aabb: c.aabb,
+            floorDepth: c.floorDepth,
         })),
+        skyIsles: skyIsles?.serialize(),
     };
 }
 
@@ -227,10 +234,12 @@ export function deserializeWorldQuery(
         originZ: c.originZ,
         triangles: c.triangles,
         aabb: c.aabb,
+        floorDepth: c.floorDepth,
     }));
     return new SceneWorldQuery(
         hills, () => true, obstacles, runways, skiJumps, carrierMeshes, baseHeightAt,
         world.surfacePads ?? [], sceneryMeshes,
+        world.skyIsles ? SkyIsleField.deserialize(world.skyIsles) : undefined,
     );
 }
 
@@ -260,7 +269,7 @@ export function serializeStaticColliders(
     return {
         sceneryMeshes: sceneryMeshes.map(c => ({
             originX: c.originX, originY: c.originY, originZ: c.originZ,
-            triangles: c.triangles, aabb: c.aabb,
+            triangles: c.triangles, aabb: c.aabb, floorDepth: c.floorDepth,
         })),
         surfacePads: surfacePads.map(p => ({ ...p })),
         obstacles: obstacles.map(o => ({

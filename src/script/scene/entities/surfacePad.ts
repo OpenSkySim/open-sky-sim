@@ -5,6 +5,8 @@
  * instead of the terrain below it.
  */
 
+import { GROUND_PROBE } from '../../terrain/groundProbe';
+
 /** Solid surface: an oriented rectangle, optionally sloping along its axis. */
 export interface SurfacePadCollider {
     /** World XZ of the pad centre. */
@@ -48,6 +50,13 @@ export interface SurfacePadCollider {
      * re-base, which tilts and shifts the line, leaves them as they are.
      */
     profile?: number[];
+    /**
+     * Not solid all the way down: the pad counts only for a ground query
+     * asked from no lower than this far under its surface (see
+     * groundProbe.ts). A runway or roof on a floating island; absent means
+     * solid to the bottom, which is everything on the ground.
+     */
+    floorDepth?: number;
 }
 
 /**
@@ -178,6 +187,7 @@ export class SurfacePadIndex {
         }
         for (let n = 0; n < cell.length; n++) {
             const pad = this.list[cell[n]];
+            if (pad.floorDepth !== undefined && GROUND_PROBE.y < pad.surfaceY - pad.floorDepth) continue;
             const y = padY(worldX, worldZ, pad, skirt ? pad.feather : 0);
             if (y > maxY) maxY = y;
         }
