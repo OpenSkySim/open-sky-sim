@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { geodeticToWorld, makeEnuBasis } from './geodesy';
 import {
@@ -8,14 +8,17 @@ import {
 } from './skyIsles';
 import { sceneRunwayOf } from '../state/activeAirfield';
 
-const file = JSON.parse(readFileSync('assets/skyisles/islands.json', 'utf-8')) as SkyIslesFile;
+/** Baked by tools/bake_sky_isles.py and not committed (98 MB): a fresh checkout skips these tests. */
+const DATA = 'assets/skyisles/islands.json';
+const missing = existsSync(DATA) ? false : `${DATA} not baked (tools/bake_sky_isles.py)`;
+const file = (missing ? { islands: [] } : JSON.parse(readFileSync(DATA, 'utf-8'))) as SkyIslesFile;
 const shapes = file.islands.map(decodeSkyIsleShape);
 const isles = generateSkyIsles(shapes);
 const centre = { lat: (SKY_ISLES_AREA.south + SKY_ISLES_AREA.north) / 2, lon: (SKY_ISLES_AREA.west + SKY_ISLES_AREA.east) / 2 };
 const basis = makeEnuBasis(centre.lat, centre.lon, 0);
 const field = SkyIsleField.forBasis(isles, basis);
 
-describe('Sky Isles', () => {
+describe('Sky Isles', { skip: missing }, () => {
     it('floats every baked island inside the 300 km box, the same way every time', () => {
         assert.equal(isles.length, shapes.length);
         assert.deepEqual(generateSkyIsles(shapes).map(i => i.lat), isles.map(i => i.lat));
