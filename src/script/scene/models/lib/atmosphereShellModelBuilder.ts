@@ -124,10 +124,18 @@ const FRAGMENT_PROGRAM = `
   // area's edge instead of ending in sea. Fogged like the terrain as the air
   // fades out (the scene's fog is scaled by 1 - uWeight the same way).
   uniform float uLowFill;
+  // The palette's light factor for imagery (Palette.light), which the baked
+  // terrain's own imagery is multiplied by: low down the fill stands in for
+  // that terrain, so it has to go dark at night with it, not stay map-lit.
+  uniform vec3 uFillLight;
   // The player's Blue Marble range (m): past it the map is painted over
   // whatever the scene drew, at any height, faded in over its last tenth.
   // Negative is off.
   uniform float uMapFromM;
+  // Ground nearer the camera than this (m) is deep inside a baked area and
+  // short of the Blue Marble range: nothing for the shell to paint there,
+  // known before any of the per-pixel area tests (see bakedInsideRadiusM).
+  uniform float uInsideM;
   // The fill's ground is flat at sea level past a ramp of uRampM from each
   // area's edge, never higher than uRampTopM on it: anything above that is
   // not ground (a cloud, an aircraft) and keeps its own colour.
@@ -285,6 +293,9 @@ ${EARTH_MAP_PARS_FRAGMENT}
     float sceneW = sceneDistance(gl_FragCoord.xy);
     bool terrain = sceneW < uSceneFar * float(${SCENE_DEPTH_SKY_CUT});
     float terrainT = sceneW / max(1e-4, -viewDir.z);
+    if (uWeight <= 0.0 && terrain && terrainT < uInsideM) {
+      discard;
+    }
 
     // Below the shell only the map's land over the fill is drawn: nothing
     // else to do for the sky or for baked terrain.
@@ -458,7 +469,9 @@ ${EARTH_MAP_PARS_FRAGMENT}
       mapWater = water;
       // Low down there is no march to bring the sky's light in, so the
       // ambient term stands in for it, and the terrain's fog for the air.
-      float ambient = mix(0.25, 0.02, uWeight);
+      // Scaled by the terrain's own light, or the fill glows at a quarter of
+      // daylight beside terrain that went black at night.
+      vec3 ambient = mix(0.25 * uFillLight, vec3(0.02), uWeight);
       vec3 lit = (transmittance * (surface * (sunT * direct * 3.0 + ambient) + sunT * glint * water * step(0.0, mu)));
       globeColour = vec4(1.0 - exp(-(emission + lit) * uExposure), 1.0);
       // Low down the fill outside the areas is drawn as land, so the map's
@@ -529,13 +542,50 @@ export const ATMOSPHERE_SHELL_UNIFORMS = {
     uMapMode: { value: 0 },
     uMapWater: { value: new THREE.Color() },
     uLowFill: { value: 0 },
+    uFillLight: { value: new THREE.Vector3(1, 1, 1) },
     uMapFromM: { value: -1 },
+    uInsideM: { value: 0 },
     uRampM: { value: 1 },
     uRampTopM: { value: 0 },
     uAreas: { value: Array.from({ length: SHELL_MAX_AREAS }, () => new THREE.Vector4()) },
     uAreaCount: { value: 0 },
 };
 
+
+/**
+ * How far (m) round a camera at `latRad`, `lonRad` every point of the ground
+ * is sure to be fully inside one of `areas` (west, south, east, north in
+ * radians), by the shell's own bakedAreaDepth: its distance in from the
+ * nearest edge, less the feather, with the meridians' convergence and a
+ * tenth to spare taken off. 0 when the camera is not well inside any.
+ *
+ * The shell runs over every pixel below the air too (it paints the land past
+ * an area's edge), and spent most of a 1.2 ms pass at 3440x1300 working out
+ * that near ground is baked ground.
+ */
+export function bakedInsideRadiusM(latRad: number, lonRad: number, areas: readonly THREE.Vector4[], count: number): number {
+    const feather = AREA_FEATHER_DEG * Math.PI / 180;
+    const cosLat = Math.cos(latRad);
+    let best = 0;
+    for (let i = 0; i < Math.min(count, areas.length); i++) {
+        const r = areas[i];
+        const ewRad = Math.min(lonRad - r.x, r.z - lonRad);
+        const ns = Math.min(latRad - r.y, r.w - latRad);
+        if (ewRad <= 0 || ns <= 0) {
+            continue;
+        }
+        // The feather is largest where the meridians are widest apart.
+        const f = Math.min(feather, AREA_FEATHER_SHARE * Math.min(r.z - r.x, r.w - r.y));
+        let d = Math.max(0, Math.min(ns, ewRad * cosLat) - f);
+        for (let k = 0; k < 2; k++) {
+            // A point d off can be that much nearer the pole, where a degree of longitude is shorter.
+            const shrink = Math.max(0, Math.cos(Math.abs(latRad) + d)) / Math.max(1e-6, cosLat);
+            d = Math.max(0, Math.min(ns, ewRad * cosLat * shrink) - f);
+        }
+        best = Math.max(best, d * WGS84_A * 0.9);
+    }
+    return best;
+}
 
 const _rotation = new THREE.Matrix4();
 
