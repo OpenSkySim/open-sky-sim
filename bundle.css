@@ -22,6 +22,7 @@
     --font-weight-normal: 400;
     --font-weight-medium: 500;
     --font-weight-bold: 700;
+    --tracking-widest: 0.1em;
     --leading-tight: 1.25;
     --radius-sm: 0.25rem;
     --default-transition-duration: 150ms;
@@ -131,6 +132,9 @@
   }
   .mt-2 {
     margin-top: calc(var(--spacing) * 2);
+  }
+  .mt-4 {
+    margin-top: calc(var(--spacing) * 4);
   }
   .mb-1 {
     margin-bottom: var(--spacing);
@@ -331,6 +335,9 @@
   .grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .grid-cols-\[auto_1fr\] {
+    grid-template-columns: auto 1fr;
+  }
   .grid-cols-\[minmax\(7rem\,auto\)_1fr\] {
     grid-template-columns: minmax(7rem,auto) 1fr;
   }
@@ -366,6 +373,9 @@
   }
   .gap-6 {
     gap: calc(var(--spacing) * 6);
+  }
+  .gap-x-3 {
+    column-gap: calc(var(--spacing) * 3);
   }
   .gap-x-4 {
     column-gap: calc(var(--spacing) * 4);
@@ -428,12 +438,19 @@
     border-style: var(--tw-border-style);
     border-width: 2px;
   }
+  .border-t {
+    border-top-style: var(--tw-border-style);
+    border-top-width: 1px;
+  }
   .border-t-0 {
     border-top-style: var(--tw-border-style);
     border-top-width: 0px;
   }
   .border-\[\#3c5468\] {
     border-color: #3c5468;
+  }
+  .border-\[\#5a5a5a\] {
+    border-color: #5a5a5a;
   }
   .border-\[\#8a8a8a\] {
     border-color: #8a8a8a;
@@ -594,6 +611,9 @@
   .pt-1 {
     padding-top: var(--spacing);
   }
+  .pt-3 {
+    padding-top: calc(var(--spacing) * 3);
+  }
   .pt-4 {
     padding-top: calc(var(--spacing) * 4);
   }
@@ -639,8 +659,14 @@
     font-size: var(--text-xs);
     line-height: var(--tw-leading, var(--text-xs--line-height));
   }
+  .text-\[0\.8rem\] {
+    font-size: 0.8rem;
+  }
   .text-\[0\.9rem\] {
     font-size: 0.9rem;
+  }
+  .text-\[0\.75rem\] {
+    font-size: 0.75rem;
   }
   .text-\[0\.85rem\] {
     font-size: 0.85rem;
@@ -674,11 +700,18 @@
     --tw-font-weight: var(--font-weight-normal);
     font-weight: var(--font-weight-normal);
   }
+  .tracking-widest {
+    --tw-tracking: var(--tracking-widest);
+    letter-spacing: var(--tracking-widest);
+  }
   .wrap-anywhere {
     overflow-wrap: anywhere;
   }
   .whitespace-pre-wrap {
     white-space: pre-wrap;
+  }
+  .text-\[\#8a8a8a\] {
+    color: #8a8a8a;
   }
   .text-\[\#8aa0b2\] {
     color: #8aa0b2;
@@ -712,6 +745,9 @@
     @supports (color: color-mix(in lab, red, red)) {
       color: color-mix(in oklab, var(--color-white) 90%, transparent);
     }
+  }
+  .uppercase {
+    text-transform: uppercase;
   }
   .tabular-nums {
     --tw-numeric-spacing: tabular-nums;
@@ -899,6 +935,48 @@
     .sm\:grid-cols-4 {
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
+    .sm\:grid-cols-\[auto_1fr_auto_1fr\] {
+      grid-template-columns: auto 1fr auto 1fr;
+    }
+    .sm\:gap-x-4 {
+      column-gap: calc(var(--spacing) * 4);
+    }
+  }
+  @media (pointer: coarse) {
+    .pointer-coarse\:hidden {
+      display: none;
+    }
+  }
+  .\[\&_kbd\]\:inline-block kbd {
+    display: inline-block;
+  }
+  .\[\&_kbd\]\:min-w-\[1\.4em\] kbd {
+    min-width: 1.4em;
+  }
+  .\[\&_kbd\]\:border kbd {
+    border-style: var(--tw-border-style);
+    border-width: 1px;
+  }
+  .\[\&_kbd\]\:border-\[\#8a8a8a\] kbd {
+    border-color: #8a8a8a;
+  }
+  .\[\&_kbd\]\:bg-\[\#2a2a2a\] kbd {
+    background-color: #2a2a2a;
+  }
+  .\[\&_kbd\]\:px-1 kbd {
+    padding-inline: var(--spacing);
+  }
+  .\[\&_kbd\]\:text-center kbd {
+    text-align: center;
+  }
+  .\[\&_kbd\]\:font-\[monospace\] kbd {
+    font-family: monospace;
+  }
+  .\[\&_kbd\]\:text-\[0\.75rem\] kbd {
+    font-size: 0.75rem;
+  }
+  .\[\&_kbd\]\:text-white kbd {
+    color: var(--color-white);
   }
   .\[\&\.active\]\:bg-black.active {
     background-color: var(--color-black);
@@ -1185,6 +1263,10 @@ html {
   syntax: "*";
   inherits: false;
 }
+@property --tw-tracking {
+  syntax: "*";
+  inherits: false;
+}
 @property --tw-ordinal {
   syntax: "*";
   inherits: false;
@@ -1410,6 +1492,7 @@ html {
       --tw-border-style: solid;
       --tw-leading: initial;
       --tw-font-weight: initial;
+      --tw-tracking: initial;
       --tw-ordinal: initial;
       --tw-slashed-zero: initial;
       --tw-numeric-figure: initial;
