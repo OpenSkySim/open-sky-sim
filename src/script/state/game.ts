@@ -4822,12 +4822,18 @@ export class Game {
         const map = this.mapViewKept ??= new MapView({
             container: document.getElementById('container')!,
             camera: this.playerCamera.main,
+            // In the centre's own east/north, which is how the camera looks
+            // at it: the scene's axes lean away from those far from the
+            // frame's origin, and the ground slid off the cursor.
             pan: (dx, dz) => {
                 const c = this.mapCentre;
-                const w = geodeticToWorld(basis(), c.lat, c.lon, 0);
-                const g = geodeticOnSurfaceAtEnu(basis(), w.x + dx, -(w.z + dz));
+                const g = geodeticOnSurfaceAtEnu(makeEnuBasis(c.lat, c.lon, 0), dx, -dz);
                 c.lat = g.lat;
                 c.lon = g.lon;
+            },
+            setCentre: (lat, lon) => {
+                this.mapCentre.lat = lat;
+                this.mapCentre.lon = lon;
             },
             centre: () => geodeticToWorld(basis(), this.mapCentre.lat, this.mapCentre.lon, 0),
             worldOf: (lat, lon, heightM = 0) => geodeticToWorld(basis(), lat, lon, heightM),
@@ -7332,7 +7338,13 @@ export class Game {
         const p = this.state === GameState.FIXED_CAMERA
             ? this.fixedCameraUpdater.getPosition(this._fixedCameraPos)
             : this.player.position;
-        if (Math.hypot(p.x, p.z) < REBASE_DISTANCE_M || !this.combatSim.isIdle()) {
+        // Zoomed far out, the map moves further than that with every mouse
+        // move: a re-base a frame dragged the map. The view only needs the
+        // origin within its own height.
+        const reach = this.mapView
+            ? Math.max(REBASE_DISTANCE_M, this.mapView.cameraHeightAboveGround())
+            : REBASE_DISTANCE_M;
+        if (Math.hypot(p.x, p.z) < reach || !this.combatSim.isIdle()) {
             return;
         }
         const under = worldToGeodetic(this.planetTerrain.basis, p.x, p.y, p.z);

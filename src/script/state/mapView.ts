@@ -83,8 +83,9 @@ export interface MapViewHost {
     /** The element the scene is drawn into; input is read off it. */
     container: HTMLElement;
     camera: THREE.PerspectiveCamera;
-    /** Move the view centre by scene metres (x east, z south). */
+    /** Move the view centre by metres along its own ground (x east, z south). */
     pan(dx: number, dz: number): void;
+    setCentre(lat: number, lon: number): void;
     /** The view centre, in scene metres. */
     centre(): THREE.Vector3;
     /** Scene position of a geodetic point, `heightM` above the ellipsoid (0 when not given). */
@@ -234,9 +235,7 @@ export class MapView {
         if (!this.aircraft) {
             return;
         }
-        const a = this.host.worldOf(this.aircraft.lat, this.aircraft.lon);
-        const c = this.host.centre();
-        this.host.pan(a.x - c.x, a.z - c.z);
+        this.host.setCentre(this.aircraft.lat, this.aircraft.lon);
         this.scheduleUrl();
     }
 
