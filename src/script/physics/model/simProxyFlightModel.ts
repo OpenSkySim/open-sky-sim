@@ -10,6 +10,7 @@ import { CombatSimClient, SimAircraftProxy } from '../sim/combatSimClient';
 import { SimControlInputs, SimFlightModelKind } from '../sim/simTypes';
 import { AC } from '../sim/simSnapshotCodec';
 import { ForceVectorSample } from './flightModel';
+import { FrameShift } from '../../terrain/geodesy';
 
 /**
  * Render-side proxy for one aircraft simulated inside the shared combat sim
@@ -122,14 +123,31 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
             buf[base + AC.hookZ] ?? 0,
         );
 
-        // @ts-ignore - private on the base, written for render interpolation.
-        this.prevPosition.set(buf[base + AC.ppX], buf[base + AC.ppY], buf[base + AC.ppZ]);
-        // @ts-ignore
-        this.prevQuaternion.set(buf[base + AC.pqx], buf[base + AC.pqy], buf[base + AC.pqz], buf[base + AC.pqw]);
-        // @ts-ignore
-        this.prevVelocity.set(buf[base + AC.pvX], buf[base + AC.pvY], buf[base + AC.pvZ]);
-        // @ts-ignore
-        this.deltaRemainder = buf[base + AC.deltaRemainder];
+        // The state is the model's last 120 Hz step, which ends `deltaRemainder`
+        // before the snapshot's time. (Its previous step is left out: a parked
+        // or crashed aircraft is moved without stepping, and keeps a stale one.)
+        this.poses.push(this.client.getSnapshotTime() - buf[base + AC.deltaRemainder],
+            this.obj.position, this.obj.quaternion, this.velocity);
+    }
+
+    /** Timestamped worker states the render pose is interpolated from. */
+    private readonly poses = new PoseHistory();
+
+    getRenderPosition(target: THREE.Vector3): THREE.Vector3 {
+        return this.poses.position(this.client.getPlayoutTime(), target) ? target : target.copy(this.obj.position);
+    }
+
+    getRenderQuaternion(target: THREE.Quaternion): THREE.Quaternion {
+        return this.poses.quaternion(this.client.getPlayoutTime(), target) ? target : target.copy(this.obj.quaternion);
+    }
+
+    getRenderVelocity(target: THREE.Vector3): THREE.Vector3 {
+        return this.poses.velocity(this.client.getPlayoutTime(), target) ? target : target.copy(this.velocity);
+    }
+
+    rebase(shift: FrameShift): void {
+        super.rebase(shift);
+        this.poses.rebase(shift);
     }
 
     getSimFiring(): boolean {
@@ -226,6 +244,7 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
 
     reset(): void {
         super.reset();
+        this.poses.clear();
         this.client.resetAircraft(
             this.simId, this.obj.position, this.obj.quaternion, this.velocity,
             this.landed, this.throttle, this.modelKind);
@@ -242,11 +261,13 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
 
     snapPhysicsState(): void {
         super.snapPhysicsState();
+        this.poses.clear();
         this.client.snapPhysicsState(this.simId);
     }
 
     set position(p: THREE.Vector3) {
         super.position = p;
+        this.poses.clear();
         this.client.setPosition(this.simId, p);
     }
 
@@ -256,6 +277,7 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
 
     set quaternion(q: THREE.Quaternion) {
         super.quaternion = q;
+        this.poses.clear();
         this.client.setQuaternion(this.simId, q);
     }
 
@@ -319,5 +341,170 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     getEngineNozzleColor(): string {
         if (!this.isAfterburner()) return super.getEngineNozzleColor();
         return getF16EngineNozzleColor(this.effectiveThrottle);
+    }
+}
+
+/** Samples kept: a few frames' worth, enough to bracket the playout time through a missed frame. */
+const POSE_HISTORY = 6;
+/** Furthest past the newest sample a pose is extrapolated (a worker stall freezes there). */
+const MAX_EXTRAPOLATE_S = 0.05;
+/** A sample this far off where the one before it was heading is a teleport: start over from it. */
+const TELEPORT_M = 50;
+
+interface PoseSample {
+    t: number;
+    readonly position: THREE.Vector3;
+    readonly quaternion: THREE.Quaternion;
+    readonly velocity: THREE.Vector3;
+}
+
+const _dq = new THREE.Quaternion();
+const _guess = new THREE.Vector3();
+
+/**
+ * Worker states with the sim time each shows, oldest first, and the pose at
+ * any time between them (or a little past the newest, on its velocity and
+ * turn rate). Drawn at the client's playout clock, motion on screen follows
+ * the frame clock instead of when snapshots happened to land.
+ */
+export class PoseHistory {
+    private readonly samples: PoseSample[] = [];
+    private count = 0;
+
+    clear(): void {
+        this.count = 0;
+    }
+
+    push(t: number, position: THREE.Vector3, quaternion: THREE.Quaternion, velocity: THREE.Vector3): void {
+        if (!Number.isFinite(t)) {
+            return;
+        }
+        const last = this.count > 0 ? this.samples[this.count - 1] : undefined;
+        if (last) {
+            if (t < last.t - 1e-6) {
+                // Time ran backwards (a reset the client did not see): start over.
+                this.count = 0;
+            } else {
+                _guess.copy(last.position).addScaledVector(last.velocity, t - last.t);
+                if (_guess.distanceToSquared(position) > TELEPORT_M * TELEPORT_M) {
+                    this.count = 0;
+                } else if (t - last.t < 1e-6) {
+                    // The same step again (no 120 Hz step this frame): refresh it.
+                    last.position.copy(position);
+                    last.quaternion.copy(quaternion);
+                    last.velocity.copy(velocity);
+                    return;
+                }
+            }
+        }
+        if (this.count === POSE_HISTORY) {
+            const oldest = this.samples.shift()!;
+            this.samples.push(oldest);
+            this.count--;
+        }
+        let s = this.samples[this.count];
+        if (!s) {
+            s = { t, position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), velocity: new THREE.Vector3() };
+            this.samples[this.count] = s;
+        }
+        s.t = t;
+        s.position.copy(position);
+        s.quaternion.copy(quaternion);
+        s.velocity.copy(velocity);
+        this.count++;
+    }
+
+    rebase(shift: FrameShift): void {
+        for (let i = 0; i < this.count; i++) {
+            const s = this.samples[i];
+            shift.point(s.position);
+            shift.orientation(s.quaternion);
+            shift.vector(s.velocity);
+        }
+    }
+
+    /** Index i with samples[i].t <= t < samples[i+1].t, clamped; -1 when empty. */
+    private bracket(t: number): number {
+        let i = this.count - 2;
+        while (i > 0 && this.samples[i].t > t) {
+            i--;
+        }
+        return i;
+    }
+
+    position(t: number, out: THREE.Vector3): boolean {
+        if (this.count === 0) {
+            return false;
+        }
+        const newest = this.samples[this.count - 1];
+        if (this.count === 1 || t >= newest.t) {
+            const dt = Math.min(Math.max(0, t - newest.t), MAX_EXTRAPOLATE_S);
+            out.copy(newest.position).addScaledVector(newest.velocity, dt);
+            return true;
+        }
+        const i = this.bracket(t);
+        const a = this.samples[i], b = this.samples[i + 1];
+        out.lerpVectors(a.position, b.position, PoseHistory.alpha(a, b, t));
+        return true;
+    }
+
+    velocity(t: number, out: THREE.Vector3): boolean {
+        if (this.count === 0) {
+            return false;
+        }
+        const newest = this.samples[this.count - 1];
+        if (this.count === 1 || t >= newest.t) {
+            out.copy(newest.velocity);
+            return true;
+        }
+        const i = this.bracket(t);
+        const a = this.samples[i], b = this.samples[i + 1];
+        out.lerpVectors(a.velocity, b.velocity, PoseHistory.alpha(a, b, t));
+        return true;
+    }
+
+    quaternion(t: number, out: THREE.Quaternion): boolean {
+        if (this.count === 0) {
+            return false;
+        }
+        const newest = this.samples[this.count - 1];
+        if (this.count === 1) {
+            out.copy(newest.quaternion);
+            return true;
+        }
+        if (t >= newest.t) {
+            // Carry on turning at the rate between the last two samples.
+            const prev = this.samples[this.count - 2];
+            const span = newest.t - prev.t;
+            const k = span > 1e-6 ? Math.min(Math.max(0, t - newest.t), MAX_EXTRAPOLATE_S) / span : 0;
+            _dq.copy(prev.quaternion).invert().premultiply(newest.quaternion);
+            if (_dq.w < 0) {
+                _dq.set(-_dq.x, -_dq.y, -_dq.z, -_dq.w);
+            }
+            out.copy(newest.quaternion).premultiply(PoseHistory.powRotation(_dq, k));
+            return true;
+        }
+        const i = this.bracket(t);
+        const a = this.samples[i], b = this.samples[i + 1];
+        out.slerpQuaternions(a.quaternion, b.quaternion, PoseHistory.alpha(a, b, t));
+        return true;
+    }
+
+    private static alpha(a: PoseSample, b: PoseSample, t: number): number {
+        const span = b.t - a.t;
+        return span > 1e-9 ? Math.min(1, Math.max(0, (t - a.t) / span)) : 1;
+    }
+
+    /** q^k for a unit quaternion with w >= 0 (rotation angle scaled by k), in place. */
+    private static powRotation(q: THREE.Quaternion, k: number): THREE.Quaternion {
+        const w = Math.min(1, q.w);
+        const half = Math.acos(w);
+        const s = Math.sin(half);
+        if (s < 1e-9 || k === 0) {
+            return q.identity();
+        }
+        const halfK = half * k;
+        const f = Math.sin(halfK) / s;
+        return q.set(q.x * f, q.y * f, q.z * f, Math.cos(halfK));
     }
 }

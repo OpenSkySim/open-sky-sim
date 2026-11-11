@@ -34,6 +34,17 @@ const WORKER_STALL_MS = 30_000;
 /** A gap between ticks longer than this is the main thread stalling, not the worker. */
 const MAIN_THREAD_GAP_MS = 1_000;
 
+/**
+ * Playout clock (see CombatSimClient.getPlayoutTime): how far behind the
+ * newest snapshot proxies draw (one 120 Hz sim step, so the newest sample,
+ * which can sit up to a step before the snapshot's time, is nearly always
+ * ahead), how hard it is pulled toward that per frame, and past what error it
+ * jumps instead (a stall, a dropped backlog).
+ */
+const PLAYOUT_LAG_S = 1 / 120;
+const PLAYOUT_GAIN = 0.05;
+const PLAYOUT_SNAP_S = 0.1;
+
 /** A render-side proxy the client mirrors authoritative aircraft state onto. */
 export interface SimAircraftProxy {
     readonly simId: string;
@@ -95,6 +106,16 @@ export class CombatSimClient {
     /** performance.now() when the step in flight was sent, and of the last tick. */
     private stepSentAt = 0;
     private lastTickAt = 0;
+
+    /** Sim time (s) at the end of the last step posted, counted from boot. */
+    private postedTime = 0;
+    /** The sim time the latest applied snapshot shows: the end of the step it answered. */
+    private snapshotTime = 0;
+    /** postedTime + pendingDelta at the last tick: the sim time accounted for so far. */
+    private accountedTime = 0;
+    /** See {@link getPlayoutTime}. */
+    private playoutTime = 0;
+    private playoutStarted = false;
 
     constructor() {
         this.worker = new Worker(new URL('../worker/combatSimWorker.ts', import.meta.url));
@@ -452,6 +473,43 @@ export class CombatSimClient {
         this.watchForStall();
         this.pendingDelta += delta;
         this.flush();
+        this.advancePlayout();
+    }
+
+    /**
+     * The sim time render-side proxies draw their aircraft at this frame.
+     *
+     * Snapshots come back a frame late and cover whatever time the frame
+     * before had, so drawing each one as it lands makes every frame show the
+     * previous frame's worth of motion: under uneven frame times that is
+     * motion in anti-phase with how long each frame stays on screen, plus a
+     * freeze and a double step whenever the worker misses a frame. This clock
+     * instead advances by the time each frame accounts for, and is pulled
+     * gently (a few % of rate at most) toward one sim step behind the newest
+     * snapshot, so proxies interpolate between real samples nearly always.
+     */
+    getPlayoutTime(): number {
+        return this.playoutTime;
+    }
+
+    /** The sim time of the snapshot proxies were last given (see applyStateBuffer). */
+    getSnapshotTime(): number {
+        return this.snapshotTime;
+    }
+
+    private advancePlayout(): void {
+        const accounted = this.postedTime + this.pendingDelta;
+        // Dropped backlog (flush) shrinks it: never run the clock backwards for that.
+        this.playoutTime += Math.max(0, accounted - this.accountedTime);
+        this.accountedTime = accounted;
+        const ideal = this.snapshotTime - PLAYOUT_LAG_S;
+        const err = ideal - this.playoutTime;
+        if (!this.playoutStarted || Math.abs(err) > PLAYOUT_SNAP_S) {
+            this.playoutTime = ideal;
+            this.playoutStarted = true;
+        } else {
+            this.playoutTime += err * PLAYOUT_GAIN;
+        }
     }
 
     /** A step unanswered for WORKER_STALL_MS of main-thread time: the worker is dead or wedged. */
@@ -484,6 +542,8 @@ export class CombatSimClient {
             return;
         }
         this.lastSharedSeq = pull.seq;
+        // One step in flight at a time, and flush pulls before posting the next: this is its answer.
+        this.snapshotTime = this.postedTime;
         const count = Math.min(pull.aircraftCount, this.sharedIds.length);
         for (let i = 0; i < count; i++) {
             const id = this.sharedIds[i];
@@ -497,6 +557,11 @@ export class CombatSimClient {
     private flush(): void {
         if (this.shared) {
             this.busy = isSharedBusy(this.shared);
+            if (!this.busy) {
+                // The worker publishes before it clears BUSY: take that answer
+                // in now, while postedTime still dates it.
+                this.pullSharedPose();
+            }
         }
         if (this.fatal !== undefined || this.busy || this.pendingDelta <= 0 || this.proxies.size === 0) {
             return;
@@ -511,13 +576,17 @@ export class CombatSimClient {
         // enqueue multi-second worker steps that keep the UI behind forever.
         // Remainder is discarded (not carried) so pending cannot snowball when
         // snapshot RTT exceeds the step size — realtime pacing over exact catch-up.
-        const MAX_STEP_DELTA = 1 / 30;
+        // The cap sits above any one frame (simStepFor clamps those to 0.1 s):
+        // at 1/30 every frame past 33 ms lost the rest of its motion - a hitch
+        // on top of the slow frame - while the carrier moved the whole frame.
+        const MAX_STEP_DELTA = 0.1;
         const MAX_PENDING = 0.2;
         if (this.pendingDelta > MAX_PENDING) {
             this.pendingDelta = MAX_STEP_DELTA;
         }
         const delta = Math.min(this.pendingDelta, MAX_STEP_DELTA);
         this.pendingDelta = 0;
+        this.postedTime += delta;
         this.busy = true;
         this.stepSentAt = performance.now();
         if (this.shared) {
@@ -534,6 +603,7 @@ export class CombatSimClient {
     }
 
     private applySnapshot(snapshot: SnapshotBuffers): void {
+        this.snapshotTime = this.postedTime;
         for (let i = 0; i < snapshot.ids.length; i++) {
             const id = snapshot.ids[i];
             this.proxies.get(id)?.applyStateBuffer(

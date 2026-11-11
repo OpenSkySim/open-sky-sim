@@ -16,7 +16,7 @@ export type KernelTask = KernelUpdateTask;
 const DEFAULT_FRAME_DURATION: number = 1000.0 / 60.0;
 
 export class Kernel {
-    private runTasksFn = () => { this.runTasks(); };
+    private runTasksFn = (frameTime: number) => { this.runTasks(frameTime); };
 
     private updateTasks: KernelUpdateTask[] = [];
     private renderTasks: KernelRenderTask[] = [];
@@ -97,8 +97,8 @@ export class Kernel {
         });
     }
 
-    private runTasks() {
-        const deltaMs = this.updateDeltas();
+    private runTasks(frameTime: number) {
+        const deltaMs = this.updateDeltas(frameTime);
         window.requestAnimationFrame(this.runTasksFn);
 
         if (this.capture) {
@@ -166,9 +166,16 @@ export class Kernel {
         };
     }
 
-    private updateDeltas(): number {
-        const now = performance.now();
-        const deltaMs = now - this.prevTime;
+    /**
+     * Frame time from rAF's own timestamp (the start of the frame the browser
+     * is producing, on the vsync grid), not performance.now() when the
+     * callback got to run: that start wanders by up to a frame behind long
+     * tasks, and everything moved by the wander - a 17 ms frame stepped 33 ms
+     * of motion, a 50 ms one 25 ms - which is judder at any frame rate.
+     */
+    private updateDeltas(frameTime: number): number {
+        const now = Number.isFinite(frameTime) ? frameTime : performance.now();
+        const deltaMs = Math.max(0, now - this.prevTime);
         this.prevTime = now;
         return deltaMs;
     }

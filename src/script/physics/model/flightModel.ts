@@ -253,9 +253,15 @@ export abstract class FlightModel {
         }
     }
 
-    /** 1 = latest physics state, 0 = previous physics state. */
+    /**
+     * 1 = latest physics state, 0 = previous physics state. The clock stands
+     * `deltaRemainder` past the latest state, so drawing one step behind it
+     * (prev + remainder) shows time moving at the frame rate. (It read
+     * 1 - remainder/step, which ran the pose backwards as the remainder grew
+     * and jumped two steps when it wrapped: judder at uneven frame times.)
+     */
     getRenderInterpolationAlpha(): number {
-        return 1 - this.deltaRemainder / SIM_DELTA;
+        return this.deltaRemainder / SIM_DELTA;
     }
 
     getRenderPosition(target: THREE.Vector3): THREE.Vector3 {
