@@ -1589,6 +1589,12 @@ export class PlayerEntity implements Entity {
         return this.displayPosition;
     }
 
+    /** The airframe's largest extent in metres (span or length). */
+    getModelSize(): number {
+        const s = this.obj.scale;
+        return this.modelBody.model.maxSize * Math.max(s.x, s.y, s.z);
+    }
+
     getDisplayQuaternion(): THREE.Quaternion {
         return this.displayQuaternion;
     }

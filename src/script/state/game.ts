@@ -265,11 +265,18 @@ const CAMERA_BLEND_S = 2;
  */
 const CAMERA_BLEND_AIM_NEAR_M = 8;
 const CAMERA_BLEND_AIM_FAR_M = 20;
-/** Within this of the pilot's eye a glide into or out of the cockpit already shows the cockpit, not the airframe around it. */
-const CAMERA_BLEND_COCKPIT_M = 3;
-/** A glide into or out of the cockpit arcs this high over the airframe halfway, clear of the fins. */
-const CAMERA_BLEND_COCKPIT_ARC_M = 8;
-const _blendLift = new THREE.Vector3();
+/**
+ * A glide into or out of the cockpit crosses the space where the airframe
+ * would overfill the screen in this share of the glide, drawn as the
+ * cockpit (no airframe) while it is in there.
+ */
+const CAMERA_BLEND_COCKPIT_SHARE = 0.1;
+/** Margin on the distance at which the whole airframe just fits the screen. */
+const CAMERA_CLEARANCE_MARGIN = 1.15;
+const _blendDirA = new THREE.Vector3();
+const _blendDirB = new THREE.Vector3();
+const _blendAxis = new THREE.Vector3();
+const _blendUp = new THREE.Vector3();
 /** How far past the nose a glide into or out of the cockpit aims. */
 const CAMERA_BLEND_COCKPIT_LOOK_M = 60;
 const _blendFocus = new THREE.Vector3();
@@ -5814,23 +5821,19 @@ export class Game {
         // blended. Both ends land exactly on the two views' own poses. The
         // cockpit looks ahead, not at the aircraft: a glide to or from it aims
         // at a point out past the nose instead, so it ends up looking forward.
+        // The aim moves from that point onto the aircraft as the camera
+        // leaves the cockpit (and back as it comes in), so the aircraft is in
+        // frame for the outside part of the glide.
         const focus = b.cockpit
             ? _blendFocus.copy(FORWARD).applyQuaternion(this.player.getDisplayQuaternion())
                 .multiplyScalar(CAMERA_BLEND_COCKPIT_LOOK_M).add(this.player.getDisplayPosition())
+                .lerp(this.cameraFocus(), b.cockpit === 'from' ? k : 1 - k)
             : this.cameraFocus();
         if (!b.offFrom) {
             b.offFrom = lookRotation(_blendFrom, focus, new THREE.Quaternion()).invert().multiply(_blendFromQ);
         }
         lookRotation(_blendTo, focus, _blendToQ).invert().multiply(cam.quaternion); // the new view's turn
-        cam.position.lerpVectors(_blendFrom, _blendTo, k);
-        if (b.cockpit) {
-            // Over the canopy and the fins rather than through them.
-            _blendLift.copy(UP);
-            if (!b.world) {
-                _blendLift.applyQuaternion(this.player.getDisplayQuaternion());
-            }
-            cam.position.addScaledVector(_blendLift, 4 * k * (1 - k) * CAMERA_BLEND_COCKPIT_ARC_M);
-        }
+        const inCockpitZone = this.blendCameraPosition(b.cockpit, b.world, x, k, cam);
         _blendFromQ.copy(b.offFrom).slerp(_blendToQ, k);
         lookRotation(cam.position, focus, cam.quaternion).multiply(_blendFromQ);
         // Right beside the focus (the cockpit) aiming at it is ill-posed: turn
@@ -5841,10 +5844,76 @@ export class Game {
             cam.quaternion.copy(_blendPlainQ.slerp(cam.quaternion, aim));
         }
         if (b.cockpit && !this.player.isCrashed) {
-            const eye = b.cockpit === 'from' ? _blendFrom : _blendTo;
-            this.applyViewLayers(cam.position.distanceToSquared(eye) < CAMERA_BLEND_COCKPIT_M ** 2);
+            this.applyViewLayers(inCockpitZone);
         }
         cam.updateMatrixWorld();
+    }
+
+    /**
+     * Where the gliding camera is: travelling AROUND the aircraft (direction
+     * and distance blended apart), not on the straight line between the two
+     * views, which can pass right by or through it. So the glide is never
+     * closer than the nearer of the two views. The cockpit is the one view
+     * inside the airframe: a glide to or from it crosses the space where the
+     * aircraft would overfill the screen quickly, showing the cockpit there.
+     * True while the camera is in that space.
+     */
+    private blendCameraPosition(cockpit: 'from' | 'to' | undefined, world: boolean,
+        x: number, k: number, cam: THREE.PerspectiveCamera): boolean {
+        const centre = this.player.getDisplayPosition();
+        const dA = _blendDirA.subVectors(_blendFrom, centre).length();
+        const dB = _blendDirB.subVectors(_blendTo, centre).length();
+        if (dA < 1e-3 || dB < 1e-3) {
+            cam.position.lerpVectors(_blendFrom, _blendTo, k);
+            return false;
+        }
+        _blendDirA.divideScalar(dA);
+        _blendDirB.divideScalar(dB);
+        // Turn the direction about the axis between the two; straight
+        // opposite (cockpit to a view behind), go over the top.
+        const angle = Math.acos(THREE.MathUtils.clamp(_blendDirA.dot(_blendDirB), -1, 1));
+        _blendAxis.crossVectors(_blendDirA, _blendDirB);
+        if (_blendAxis.lengthSq() < 1e-6) {
+            _blendUp.copy(UP);
+            if (!world) {
+                _blendUp.applyQuaternion(this.player.getDisplayQuaternion());
+            }
+            _blendAxis.crossVectors(_blendDirA, _blendUp);
+            if (_blendAxis.lengthSq() < 1e-6) {
+                _blendAxis.set(1, 0, 0).cross(_blendDirA);
+            }
+        }
+        _blendAxis.normalize();
+        _blendDirA.applyAxisAngle(_blendAxis, angle * k);
+
+        let d: number;
+        let inside = false;
+        if (cockpit) {
+            // Out of the seat to where the aircraft fits the screen in the
+            // first sliver of the glide (or in, in the last), then on out.
+            const away = cockpit === 'from' ? x : 1 - x;
+            const dEye = cockpit === 'from' ? dA : dB;
+            const dOut = cockpit === 'from' ? dB : dA;
+            const dEdge = Math.max(dEye, Math.min(this.cameraClearance(cam), dOut));
+            if (away < CAMERA_BLEND_COCKPIT_SHARE) {
+                d = dEye + (dEdge - dEye) * (away / CAMERA_BLEND_COCKPIT_SHARE);
+                inside = true;
+            } else {
+                const t = (away - CAMERA_BLEND_COCKPIT_SHARE) / (1 - CAMERA_BLEND_COCKPIT_SHARE);
+                d = dEdge + (dOut - dEdge) * t * t * (3 - 2 * t);
+            }
+        } else {
+            d = dA + (dB - dA) * k;
+        }
+        cam.position.copy(centre).addScaledVector(_blendDirA, d);
+        return inside;
+    }
+
+    /** How far the camera must stay from the aircraft for all of it to fit on the screen. */
+    private cameraClearance(cam: THREE.PerspectiveCamera): number {
+        const halfV = THREE.MathUtils.degToRad(cam.fov) / 2;
+        const halfH = Math.atan(Math.tan(halfV) * cam.aspect);
+        return CAMERA_CLEARANCE_MARGIN * 0.5 * this.player.getModelSize() / Math.tan(Math.min(halfV, halfH));
     }
 
     /** What the current view is watching: the F2 subject, the AI in the AI chase, else the player. */
