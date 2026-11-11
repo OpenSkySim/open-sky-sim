@@ -12,6 +12,8 @@
  * and knots.
  */
 
+import { AI_G_LIMIT_MAX, AI_G_LIMIT_MIN, AI_PERSONALITY_KEYS, AiPersonality } from '../ai/tunable/aiPersonality';
+
 export const MISSION_VERSION = 1;
 /**
  * The sim holds 16 aircraft and throws past that (SIM_SHARED_MAX_AIRCRAFT);
@@ -24,6 +26,25 @@ export const MAX_SPEED_MPS = 700;
 const MAX_NAME = 80;
 
 export type FlightControl = 'ai' | 'player';
+
+/**
+ * Whose side an AI flight is on. Friendly flies with the player and fights
+ * hostile flights; hostile attacks the player and every friendly flight.
+ * Omitted means friendly (missions saved before there was a choice). The
+ * player's own flight is always friendly.
+ */
+export type FlightSide = 'friendly' | 'hostile';
+
+/** The AI pilot models (AiPilotModels' values; kept as strings so this file stays free of the game). */
+export const FLIGHT_PILOT_MODELS = ['CLASSIC', 'SHAW', 'AGGRESSIVE', 'ACE', 'TUNABLE'] as const;
+export type FlightPilotModel = typeof FLIGHT_PILOT_MODELS[number];
+
+/** Who flies an AI flight. Omitted: the classic pilot. */
+export interface FlightPilot {
+    model: FlightPilotModel;
+    /** The TUNABLE model's knobs; the other models ignore it. */
+    personality?: AiPersonality;
+}
 
 /**
  * What an altitude is measured from: mean sea level, or the ground under the
@@ -56,6 +77,10 @@ export interface Flight {
     /** A FlyableAircraftDef id from the aircraft registry. */
     aircraftId: string;
     control: FlightControl;
+    /** AI flights only; omitted is friendly. */
+    side?: FlightSide;
+    /** AI flights only; omitted is the classic pilot. */
+    pilot?: FlightPilot;
     start: FlightEndpoint;
     waypoints: Waypoint[];
     /** Omitted: the flight holds at its last waypoint. */
@@ -141,6 +166,12 @@ export function validateMission(m: unknown): string[] {
         } else if (f.control !== 'ai') {
             fail(`${at}.control`, "'ai' or 'player'");
         }
+        if (f.side !== undefined && f.side !== 'friendly' && f.side !== 'hostile') {
+            fail(`${at}.side`, "'friendly' or 'hostile'");
+        }
+        if (f.pilot !== undefined) {
+            checkPilot(f.pilot, `${at}.pilot`, fail);
+        }
         checkEndpoint(f.start, `${at}.start`, fail);
         if (f.land !== undefined) {
             checkEndpoint(f.land, `${at}.land`, fail);
@@ -168,6 +199,29 @@ export function validateMission(m: unknown): string[] {
 }
 
 type Fail = (where: string, what: string) => void;
+
+function checkPilot(p: unknown, at: string, fail: Fail): void {
+    if (!isObject(p)) {
+        fail(at, 'not an object');
+        return;
+    }
+    if (!(FLIGHT_PILOT_MODELS as readonly unknown[]).includes(p.model)) {
+        fail(`${at}.model`, FLIGHT_PILOT_MODELS.join(', '));
+    }
+    if (p.personality === undefined) {
+        return;
+    }
+    if (!isObject(p.personality)) {
+        fail(`${at}.personality`, 'not an object');
+        return;
+    }
+    for (const k of AI_PERSONALITY_KEYS) {
+        const [lo, hi] = k === 'gLimit' ? [AI_G_LIMIT_MIN, AI_G_LIMIT_MAX] : [0, 1];
+        if (!inRange(p.personality[k], lo, hi)) {
+            fail(`${at}.personality.${k}`, `${lo}-${hi}`);
+        }
+    }
+}
 
 function checkEndpoint(e: unknown, at: string, fail: Fail): void {
     if (!isObject(e)) {

@@ -1,9 +1,10 @@
 import { computed, signal } from '@angular/core';
 import {
-    AltitudeRef, Flight, FlightEndpoint, MAX_ALT_M, MAX_FLIGHTS, MAX_SPEED_MPS, MISSION_VERSION, Mission, Waypoint,
+    AltitudeRef, Flight, FlightEndpoint, FlightPilotModel, MAX_ALT_M, MAX_FLIGHTS, MAX_SPEED_MPS, MISSION_VERSION, Mission, Waypoint,
     initialBearingDeg, validateMission,
 } from './flightPlan';
 import * as store from './missionStore';
+import { AiPersonality, clampAiPersonality } from '../ai/tunable/aiPersonality';
 import { missionUrl } from '../state/appRoute';
 import { UnitSystems } from '../state/gameDefs';
 
@@ -158,6 +159,22 @@ export class MissionEditor {
             if (patch.control === 'player') {
                 m.flights.forEach((f, j) => { if (j !== i) f.control = 'ai'; });
             }
+        });
+    }
+
+    /** An AI flight's pilot model. The personality stays only with TUNABLE, which starts from the default one. */
+    setPilotModel(i: number, model: FlightPilotModel): void {
+        this.edit(m => {
+            const f = m.flights[i];
+            f.pilot = model === 'TUNABLE' ? { model, personality: clampAiPersonality(f.pilot?.personality) } : { model };
+        });
+    }
+
+    /** Changes knobs of an AI flight's TUNABLE personality (a preset is all of them). */
+    setPersonality(i: number, patch: Partial<AiPersonality>): void {
+        this.edit(m => {
+            const f = m.flights[i];
+            f.pilot = { model: 'TUNABLE', personality: clampAiPersonality({ ...f.pilot?.personality, ...patch }) };
         });
     }
 

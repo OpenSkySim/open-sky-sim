@@ -467,6 +467,12 @@ const TAKEOFF_SPOOL_S = 4;
 const TAKEOFF_ROTATE_STICK = 0.5;
 /** Climb-out hands over to formation / the fight above this (m AGL), cleaned up. */
 const CLIMB_OUT_HANDOFF_AGL = 300;
+/**
+ * A route-flying pilot with a target (a mission flight of the other side)
+ * leaves its route to fight it inside this range, and picks the route up
+ * again where it left off once the fight is over.
+ */
+const ROUTE_ENGAGE_RANGE_M = 30_000;
 /** A parked wingman scrambles when its lead is within this range (m) ... */
 const SCRAMBLE_LEAD_RANGE = 3000;
 /** ... and height (m) of it - on the same field - ... */
@@ -1553,6 +1559,13 @@ export class AiPilot implements AiPilotController {
      */
     private doWaypoint(delta: number): void {
         const route = this.route;
+        if (this.target && this.target.isAlive()) {
+            this.target.readPosition(this.tpos);
+            if (this.tpos.distanceToSquared(this.pos) < ROUTE_ENGAGE_RANGE_M * ROUTE_ENGAGE_RANGE_M) {
+                this.setPhase(AiFlightPhase.ENGAGE);
+                return;
+            }
+        }
         if (!route || route.points.length === 0) {
             this.setPhase(route?.land ? AiFlightPhase.RTB : AiFlightPhase.NAVIGATE);
             return;
@@ -1710,11 +1723,13 @@ export class AiPilot implements AiPilotController {
 
     private doEngage(delta: number): void {
         if (!this.target || !this.target.isAlive()) {
-            // A wingman rejoins its lead when the fight is over; a lone fighter
-            // has nothing to rejoin and goes back to its patrol.
+            // A wingman rejoins its lead when the fight is over, a mission
+            // flight its route; a lone fighter goes back to its patrol.
             this.phase = this.formationLead && this.formationLead.isAlive()
                 ? AiFlightPhase.FORMATION
-                : AiFlightPhase.NAVIGATE;
+                : this.route && (this.route.points.length > 0 || this.route.land)
+                    ? AiFlightPhase.WAYPOINT
+                    : AiFlightPhase.NAVIGATE;
             return;
         }
         this.aircraft.setLandingGearDeployed(false);

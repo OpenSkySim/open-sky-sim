@@ -40,7 +40,8 @@ export class Gun {
     constructor(
         private readonly config: GunConfig,
         private readonly sink: ProjectileSink,
-        private readonly faction: Faction,
+        /** Whose rounds these are; a pooled mission aircraft changes sides between missions. */
+        public faction: Faction,
     ) {
         this.ammo = config.ammo;
     }

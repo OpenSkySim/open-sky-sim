@@ -21,7 +21,7 @@ export interface AiPilotController {
      * the nose before the integral has found the stick again.
      */
     seedPitchStick?(stick: number): void;
-    /** A route for {@link AiFlightPhase.WAYPOINT}; only the classic pilot flies one. */
+    /** A route for {@link AiFlightPhase.WAYPOINT}; the classic pilot flies it, the other models hand it theirs. */
     setRoute?(route: AiRoute | undefined): void;
     getPhase(): AiFlightPhase;
     get isFiring(): boolean;

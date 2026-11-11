@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { defaultAiPersonality } from '../ai/tunable/aiPersonality';
 import { MAX_FLIGHTS } from './flightPlan';
 import { MissionEditor, MissionEditorHost, RunwayEnd, parseTypedNumber } from './missionEditor';
 
@@ -139,6 +140,24 @@ describe('MissionEditor', () => {
         e.clearLanding(0);
         assert.equal(e.mission().flights[0].land, undefined);
         assert.equal(e.selectedPoint(), undefined);
+    });
+
+    it('tunes an AI flight: TUNABLE starts from the default personality, presets and knobs clamp, other models drop it', () => {
+        const e = editor();
+        e.addFlight();
+        e.addFlight();
+        e.updateFlight(1, { side: 'hostile' });
+        e.setPilotModel(1, 'TUNABLE');
+        assert.deepEqual(e.mission().flights[1].pilot, { model: 'TUNABLE', personality: defaultAiPersonality() });
+        e.setPersonality(1, { skill: 1, gLimit: 20 });
+        const p = e.mission().flights[1].pilot!.personality!;
+        assert.equal(p.skill, 1);
+        assert.equal(p.gLimit, 9);
+        assert.equal(p.aggression, defaultAiPersonality().aggression);
+        assert.deepEqual(e.errors(), []);
+        e.setPilotModel(1, 'ACE');
+        assert.deepEqual(e.mission().flights[1].pilot, { model: 'ACE' });
+        assert.equal(e.mission().flights[1].side, 'hostile');
     });
 
     it('stops at the flights the sim has room for', () => {

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { clamp, FORWARD, RIGHT, UP } from '../../utils/math';
 import { Combatant } from '../../weapons/combatant';
-import { AiFlightPhase, AiPilot, AiPilotOptions } from '../aiPilot';
+import { AiFlightPhase, AiPilot, AiPilotOptions, AiRoute } from '../aiPilot';
 import { AiPilotController } from '../aiPilotController';
 import { PilotableAircraft } from '../aircraftControls';
 import { ballisticAimPoint, HEAD_ON_GUN_RANGE, predictedMissDistance } from '../dogfightGeometry';
@@ -153,6 +153,11 @@ export class AceAiPilot implements AiPilotController {
         }
         this.target = target;
         this.classic.setTarget(target);
+    }
+
+    /** The waypoint editor's route, flown by the classic pilot this one hands its non-combat phases to. */
+    setRoute(route: AiRoute | undefined): void {
+        this.classic.setRoute(route);
     }
 
     setFormationLead(lead: Combatant | undefined): void {

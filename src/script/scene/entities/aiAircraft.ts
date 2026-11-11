@@ -67,7 +67,8 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     readonly tags: string[] = [ENTITY_TAGS.AIRCRAFT];
     enabled = true;
 
-    readonly faction: Faction;
+    /** Set through {@link setFaction}, which tells the sim too. */
+    faction: Faction;
     readonly simId: string;
 
     private readonly models: ModelManager;
@@ -175,6 +176,12 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
      */
     setGroundHeightAt(fn: (x: number, z: number) => number): void {
         this.groundHeightAt = fn;
+    }
+
+    /** Change sides: a pooled mission aircraft reused by a flight of the other side. */
+    setFaction(faction: Faction): void {
+        this.faction = faction;
+        this.combatSim.setFaction(this.simId, faction);
     }
 
     respawn(spawn: AiAircraftSpawn): void {

@@ -505,8 +505,24 @@ const PLAYER_STARTING_POSITION = new THREE.Vector3(
     APPROACH_ALTITUDE_M,
     AIRBASE_RUNWAY.z - LAND_APPROACH_FINAL_M,
 );
-/** Mission AI flights fly routes, not fights (see startMission). */
-const MISSION_PILOT: AiPilotOptions = { cruiseAltitude: 3000, cruiseSpeed: 200, hardDeck: 150 };
+/**
+ * Mission AI flights fly their routes, and leave them to fight flights of the
+ * other side (see startMission); the fight numbers are the free-flight
+ * opponent's (opponentPilotOptions).
+ */
+const MISSION_PILOT: AiPilotOptions = {
+    cruiseAltitude: 3000, cruiseSpeed: 200, hardDeck: 150, combatSpeed: 180, gunRange: 900, skill: AiSkillLevel.ACE,
+};
+/** An AI flight's pilot: its model and, for TUNABLE, its personality; the classic pilot when it names none. */
+function missionPilotOptions(f: Flight): AiPilotOptions {
+    const model = (f.pilot?.model as AiPilotModels | undefined) ?? AiPilotModels.CLASSIC;
+    return {
+        ...MISSION_PILOT,
+        model,
+        alwaysEngage: model === AiPilotModels.CLASSIC,
+        personality: f.pilot?.personality,
+    };
+}
 /** Line-up spot past a runway's threshold, and the gap between aircraft queued behind it (m). */
 const MISSION_LINEUP_M = 150;
 const MISSION_RUNWAY_SPACING_M = 120;
@@ -5166,6 +5182,8 @@ export class Game {
             onEnd.set(endKey(f), (onEnd.get(endKey(f)) ?? 0) + 1);
         }
         const slot = new Map<string, number>();
+        // Friendly flights fight only when the mission has someone to fight.
+        const hostiles = m.flights.some(f => f.control === 'ai' && f.side === 'hostile');
         let pool = 0;
         for (const f of m.flights) {
             const key = endKey(f);
@@ -5193,13 +5211,21 @@ export class Game {
             }
             await this.preloadAircraftModels(def);
             const simId = `mf${pool}`;
+            const hostile = f.side === 'hostile';
+            const faction = hostile ? Faction.ENEMY : Faction.PLAYER;
+            const pilot = missionPilotOptions(f);
             let ai = this.missionAircraft[pool];
             if (ai) {
                 ai.loadAircraft(def);
+                if (ai.faction !== faction) {
+                    ai.setFaction(faction);
+                }
+                // Before the route: a rebuilt pilot is handed the sim's route.
+                this.combatSim.setPilotOptions(simId, pilot);
                 ai.respawn(pose);
             } else {
-                ai = new AiAircraftEntity(this.models, def, this.combatSim, simId, Faction.PLAYER, pose,
-                    this.materials, PLAYER_GUN, MISSION_PILOT);
+                ai = new AiAircraftEntity(this.models, def, this.combatSim, simId, faction, pose,
+                    this.materials, PLAYER_GUN, pilot);
                 ai.setGroundHeightAt((x, z) => this.drawnGroundHeightAt(x, z));
                 if (this.wreckField) ai.setWreckField(this.wreckField);
                 this.scene.add(ai);
@@ -5209,6 +5235,11 @@ export class Game {
             // new slot never had a barricade hull: push both, as for the player.
             this.pushAircraftMeshes(simId, def);
             this.combatSim.setRoute(simId, route);
+            if (hostile || hostiles) {
+                this.combatSim.setTargetFaction(simId, hostile ? Faction.PLAYER : Faction.ENEMY);
+            } else {
+                this.combatSim.setTarget(simId, null);
+            }
             if (pose.airborne) {
                 this.combatSim.setPhase(simId, AiFlightPhase.WAYPOINT);
             } else {

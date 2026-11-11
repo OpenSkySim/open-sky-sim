@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import * as THREE from 'three';
 import { AiFlightPhase, AiRoute } from '../../ai/aiPilot';
 import { AiPilotController } from '../../ai/aiPilotController';
+import { AiPilotModels } from '../../state/gameDefs';
 import { Faction } from '../../weapons/combatant';
 import { defaultFm2Config, fm2GroundRestHeight } from '../fm2/fm2AircraftConfig';
 import { CombatSim } from './combatSim';
@@ -142,6 +143,38 @@ describe('AI waypoint routes', () => {
         assert.ok(a.isLanded() && Math.abs(p.z - FAR_Z) < HALF_LENGTH && Math.abs(p.x) < HALF_WIDTH,
             `not stopped on the route runway (${p.toArray().map(v => v.toFixed(0))}): ${names(phases)}`);
         assert.ok(track.length > 0 && track[0] < -20, `rolled out at vz ${track[0]?.toFixed(0)}, not toward -Z`);
+    });
+
+    it('leaves the route to fight the other side and picks it up again, for every pilot model', () => {
+        for (const model of Object.values(AiPilotModels)) {
+            const s = sim();
+            const a = add(s, {
+                position: [0, 2000, 0], quaternion: [0, 0, 0, 1], velocity: [0, 0, 200],
+                landed: false, throttle: 0.8, airborne: true,
+            });
+            s.setPilotOptions(ID, { cruiseAltitude: 3000, cruiseSpeed: 200, hardDeck: 150, model, personality: { skill: 1 } });
+            s.setRoute(ID, { points: [{ x: 0, y: 2000, z: 5_000, speed: 200 }, { x: 0, y: 2000, z: 60_000, speed: 200 }], next: 0 });
+            s.setPhase(ID, AiFlightPhase.WAYPOINT);
+            fly(s, a, 40, () => (a.route?.next ?? 0) > 0);
+            assert.equal(a.route?.next, 1, `${model}: never passed the first waypoint`);
+            // A bandit 8 km off its nose, flying away: inside the engage range.
+            s.addAircraft({
+                id: 'bandit', faction: Faction.ENEMY, control: 'ai', kinematic: false, aircraftConfig: defaultFm2Config,
+                pilotOptions: { cruiseAltitude: 3000, cruiseSpeed: 200, hardDeck: 150 }, hitRadius: 10, maxHealth: 100,
+                spawn: { position: [0, 2000, a.getPosition().z + 8000], quaternion: [0, 0, 0, 1], velocity: [0, 0, 200],
+                    landed: false, throttle: 0.8, airborne: true },
+                enabled: true,
+            });
+            s.setPhase('bandit', AiFlightPhase.STRAIGHT);
+            s.setTargetFaction(ID, Faction.ENEMY);
+            const fight = fly(s, a, 5, () => a.pilot.getPhase() === AiFlightPhase.ENGAGE);
+            assert.equal(a.pilot.getPhase(), AiFlightPhase.ENGAGE, `${model}: did not engage: ${names(fight)}`);
+            // The bandit goes down: back on the route, at the waypoint it was flying to.
+            (s as unknown as { aircraft: Map<string, { health: number }> }).aircraft.get('bandit')!.health = 0;
+            const after = fly(s, a, 5, () => a.pilot.getPhase() === AiFlightPhase.WAYPOINT);
+            assert.equal(a.pilot.getPhase(), AiFlightPhase.WAYPOINT, `${model}: did not resume the route: ${names(after)}`);
+            assert.equal(a.route?.next, 1, `${model}: lost its place on the route`);
+        }
     });
 
     it('keeps the route when the pilot is rebuilt', () => {

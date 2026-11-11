@@ -4,8 +4,11 @@ import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
+import { MatSliderModule } from '@angular/material/slider';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { AltitudeRef, FlightControl, FlightEndpoint, MAX_ALT_M, MAX_FLIGHTS, MAX_SPEED_MPS } from '../../mission/flightPlan';
+import { AI_PERSONALITY_PRESETS } from '../../ai/tunable/aiPersonality';
+import { AI_PERSONALITY_SLIDERS, AI_PILOT_MODEL_OPTIONS, AiPersonalitySlider } from '../ai/aiPilotChoices';
+import { AltitudeRef, Flight, FlightControl, FlightEndpoint, FlightSide, MAX_ALT_M, MAX_FLIGHTS, MAX_SPEED_MPS } from '../../mission/flightPlan';
 import { MissionEditor, RunwayEnd, SELECTED_COLOUR, altitudeUnit, parseTypedNumber, speedUnit } from '../../mission/missionEditor';
 
 /**
@@ -17,7 +20,7 @@ import { MissionEditor, RunwayEnd, SELECTED_COLOUR, altitudeUnit, parseTypedNumb
 @Component({
     selector: 'rfs-mission-panel',
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [MatButtonModule, MatButtonToggleModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatTooltipModule],
+    imports: [MatButtonModule, MatButtonToggleModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatSliderModule, MatTooltipModule],
     // Fills the map's left pane (mapView.ts --map-split), scrolling on its own.
     host: { class: 'fixed inset-y-0 left-0 block w-[var(--map-split)] overflow-y-auto text-white/90' },
     template: `
@@ -76,7 +79,7 @@ import { MissionEditor, RunwayEnd, SELECTED_COLOUR, altitudeUnit, parseTypedNumb
                 [class]="i === e.selected() ? 'border-cyan-400/80' : 'border-white/20'"
                 (click)="open(i)">
                 <span class="min-w-0 flex-1 truncate">{{ f.name }}</span>
-                <span class="opacity-70">{{ aircraftName(f.aircraftId) }} · {{ f.control === 'ai' ? 'AI' : 'Player' }}
+                <span class="opacity-70">{{ aircraftName(f.aircraftId) }} · {{ f.control === 'ai' ? (f.side === 'hostile' ? 'AI hostile' : 'AI') : 'Player' }}
                     · {{ f.waypoints.length }} wp</span>
                 <span class="opacity-50">›</span>
                 <button mat-icon-button type="button" aria-label="Remove flight"
@@ -101,12 +104,51 @@ import { MissionEditor, RunwayEnd, SELECTED_COLOUR, altitudeUnit, parseTypedNumb
                     }
                 </mat-select>
             </mat-form-field>
-            <mat-button-toggle-group [value]="f.control" hideSingleSelectionIndicator
-                (change)="e.updateFlight(i, { control: $any($event.value) })">
-                @for (c of controls; track c.value) {
-                    <mat-button-toggle [value]="c.value">{{ c.label }}</mat-button-toggle>
+            <div class="flex flex-wrap gap-2">
+                <mat-button-toggle-group [value]="f.control" hideSingleSelectionIndicator
+                    (change)="e.updateFlight(i, { control: $any($event.value) })">
+                    @for (c of controls; track c.value) {
+                        <mat-button-toggle [value]="c.value">{{ c.label }}</mat-button-toggle>
+                    }
+                </mat-button-toggle-group>
+                @if (f.control === 'ai') {
+                    <mat-button-toggle-group [value]="f.side ?? 'friendly'" hideSingleSelectionIndicator
+                        aria-label="Side" (change)="e.updateFlight(i, { side: $any($event.value) })">
+                        @for (s of sides; track s.value) {
+                            <mat-button-toggle [value]="s.value" [matTooltip]="s.tooltip" matTooltipShowDelay="300">{{ s.label }}</mat-button-toggle>
+                        }
+                    </mat-button-toggle-group>
                 }
-            </mat-button-toggle-group>
+            </div>
+            @if (f.control === 'ai') {
+                <mat-form-field class="w-full" subscriptSizing="dynamic">
+                    <mat-label>AI pilot</mat-label>
+                    <mat-select [value]="f.pilot?.model ?? 'CLASSIC'" (selectionChange)="e.setPilotModel(i, $event.value)">
+                        @for (m of pilotModels; track m.value) {
+                            <mat-option [value]="m.value">{{ m.label }}</mat-option>
+                        }
+                    </mat-select>
+                </mat-form-field>
+                @if (f.pilot?.model === 'TUNABLE') {
+                    <div class="flex flex-wrap gap-1">
+                        @for (preset of presets; track preset.id) {
+                            <button mat-stroked-button type="button" [matTooltip]="preset.description" matTooltipShowDelay="300"
+                                (click)="e.setPersonality(i, preset.personality)">{{ preset.label }}</button>
+                        }
+                    </div>
+                    @for (slider of sliders; track slider.key) {
+                        <div class="flex items-center gap-2">
+                            <span class="w-28 shrink-0 cursor-help text-xs underline decoration-dotted underline-offset-4 opacity-70"
+                                [matTooltip]="slider.tooltip" matTooltipShowDelay="300" tabindex="0">{{ slider.label }}</span>
+                            <mat-slider class="min-w-0 flex-1" [min]="slider.min" [max]="slider.max" [step]="slider.step">
+                                <input matSliderThumb [value]="knob(f, slider)"
+                                    (input)="setKnob(i, slider, $event)">
+                            </mat-slider>
+                            <output class="w-12 text-right text-xs tabular-nums">{{ knob(f, slider) }}{{ slider.unit }}</output>
+                        </div>
+                    }
+                }
+            }
 
             <h3 class="m-0 mt-2 text-sm font-medium opacity-80">Waypoints</h3>
             @let last = f.waypoints.length - 1;
@@ -248,6 +290,13 @@ export class MissionPanel {
     readonly controls: ReadonlyArray<{ value: FlightControl; label: string }> = [
         { value: 'ai', label: 'AI' }, { value: 'player', label: 'Player' },
     ];
+    readonly sides: ReadonlyArray<{ value: FlightSide; label: string; tooltip: string }> = [
+        { value: 'friendly', label: 'Friendly', tooltip: 'Flies with you and fights the hostile flights.' },
+        { value: 'hostile', label: 'Hostile', tooltip: 'Attacks you and every friendly flight, breaking off its route to fight.' },
+    ];
+    readonly pilotModels = AI_PILOT_MODEL_OPTIONS;
+    readonly presets = AI_PERSONALITY_PRESETS;
+    readonly sliders = AI_PERSONALITY_SLIDERS;
     /** Breadcrumb level: the flight list, or one flight with its waypoints. */
     readonly level = signal<'flights' | 'flight'>('flights');
     readonly flight = computed(() => this.editor().mission().flights[this.editor().selected()]);
@@ -357,6 +406,16 @@ export class MissionPanel {
 
     toSpd(mps: number): number {
         return Math.round(mps / this.spd().si);
+    }
+
+    /** A TUNABLE knob as its slider shows it (percent, or g). */
+    knob(f: Flight, slider: AiPersonalitySlider): number {
+        const v = f.pilot?.personality?.[slider.key];
+        return v === undefined ? 0 : Math.round(v * slider.scale * 10) / 10;
+    }
+
+    setKnob(i: number, slider: AiPersonalitySlider, e: Event): void {
+        this.editor().setPersonality(i, { [slider.key]: this.num(e) / slider.scale });
     }
 
     value(e: Event): string {

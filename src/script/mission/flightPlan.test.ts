@@ -34,6 +34,19 @@ describe('validateMission', () => {
         assert.deepEqual(validateMission(mission([f])), []);
     });
 
+    it('accepts a side and an AI pilot with a personality, and rejects bad ones', () => {
+        const personality = { aggression: 1, defensiveness: 0, skill: 0.5, energyFighting: 0.2, gunDiscipline: 0.9, gLimit: 7.5 };
+        assert.deepEqual(validateMission(mission([flight({ side: 'hostile', pilot: { model: 'TUNABLE', personality } })])), []);
+        assert.deepEqual(validateMission(mission([flight({ side: 'friendly', pilot: { model: 'SHAW' } })])), []);
+        const bad = (over: Record<string, unknown>) => validateMission(mission([flight(over as Partial<Flight>)]));
+        assert.deepEqual(bad({ side: 'neutral' }), ["flights[0].side: 'friendly' or 'hostile'"]);
+        assert.deepEqual(bad({ pilot: { model: 'TOPGUN' } }), ['flights[0].pilot.model: CLASSIC, SHAW, AGGRESSIVE, ACE, TUNABLE']);
+        assert.deepEqual(bad({ pilot: { model: 'TUNABLE', personality: { ...personality, gLimit: 12 } } }),
+            ['flights[0].pilot.personality.gLimit: 3-9']);
+        assert.deepEqual(bad({ pilot: { model: 'TUNABLE', personality: { ...personality, skill: undefined } } }),
+            ['flights[0].pilot.personality.skill: 0-1']);
+    });
+
     it('survives a round trip through JSON', () => {
         assert.deepEqual(validateMission(JSON.parse(JSON.stringify(mission()))), []);
     });

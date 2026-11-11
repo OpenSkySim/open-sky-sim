@@ -200,7 +200,8 @@ function windCapable(model: SimFlightModel): WindCapableModel | undefined {
 class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
 
     readonly id: string;
-    readonly faction: Faction;
+    /** Changes only through {@link CombatSim.setFaction}, which also re-arms the gun. */
+    faction: Faction;
     control: SimControlMode;
     enabled: boolean;
     modelKind: SimFlightModelKind;
@@ -1175,6 +1176,14 @@ export class CombatSim implements ProjectileSink {
 
     setForceVectorsRequested(id: string, want: boolean): void {
         this.playerInputs.get(id)?.setForceVectorsRequested(want);
+    }
+
+    /** Put an aircraft on another side (a pooled mission slot reused by a flight of the other side). */
+    setFaction(id: string, faction: Faction): void {
+        const a = this.aircraft.get(id);
+        if (!a) return;
+        a.faction = faction;
+        if (a.gun) a.gun.faction = faction;
     }
 
     setTarget(id: string, targetId: string | null): void {

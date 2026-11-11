@@ -175,6 +175,7 @@ export type SimToWorkerMessage =
     | { type: 'setTarget'; id: string; targetId: string | null }
     | { type: 'setFormationLead'; id: string; leadId: string | null }
     | { type: 'setTargetFaction'; id: string; faction: number | null }
+    | { type: 'setFaction'; id: string; faction: number }
     | { type: 'setPhase'; id: string; phase: number }
     | { type: 'setRoute'; id: string; route: AiRoute | null }
     | { type: 'setPilotOptions'; id: string; options: AiPilotOptions }
