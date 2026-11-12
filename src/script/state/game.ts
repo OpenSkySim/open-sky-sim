@@ -249,8 +249,8 @@ function clearEffectFields(fx: EffectFields): void {
     fx.smoke.reset();
 }
 
-/** Frame rate of an exported replay video. */
-const VIDEO_EXPORT_FPS = 60;
+/** Frame rates an exported replay video can have; always real time, no slow motion. */
+const VIDEO_EXPORT_FPS_CHOICES = [30, 60] as const;
 /** Longest one exported frame waits for terrain to stream in before it is taken anyway. */
 const VIDEO_FRAME_STREAM_WAIT_MS = 4000;
 /** The first frame may wait longer: a fresh camera position can need a whole view of tiles. */
@@ -293,12 +293,12 @@ function lookRotation(eye: THREE.Vector3, focus: THREE.Vector3, out: THREE.Quate
 }
 
 /**
- * Frames in an export of `span` recorder seconds at `speed`. The last one
- * stays inside the span: a frame exactly at its end would read as the
+ * Frames in a real-time export of `span` recorder seconds at `fps`. The last
+ * one stays inside the span: a frame exactly at its end would read as the
  * replay looping back to the start.
  */
-function videoExportFrames(span: number, speed: number): number {
-    return Math.max(1, Math.floor(span * VIDEO_EXPORT_FPS / speed - 1e-6) + 1);
+function videoExportFrames(span: number, fps: number): number {
+    return Math.max(1, Math.floor(span * fps - 1e-6) + 1);
 }
 
 /** How long the terrain backlog must stay empty before the boot blur lifts; see Game.holdUntilStreamed. */
@@ -2608,7 +2608,7 @@ export class Game {
             if (ex) {
                 // Exporting: frame n shows exactly start + n frames of flight
                 // time, whatever the kernel's step did to get here.
-                this.replayPlayer.time = Math.min(ex.start + ex.index * ex.speed / VIDEO_EXPORT_FPS, this.recorder.endTime);
+                this.replayPlayer.time = Math.min(ex.start + ex.index / ex.fps, this.recorder.endTime);
             } else {
                 this.replayPlayer.advance(delta);
             }
@@ -3125,7 +3125,7 @@ export class Game {
         addView('Chase', PlayerViewState.CHASE, 'Close chase, rolling with the aircraft (F4)');
         addView('Tower', PlayerViewState.TOWER, 'From the nearest tower or the carrier (F7)');
         addView('Carrier', PlayerViewState.CARRIER_OVER_STERN, 'Over-the-stern view (F9)');
-        row.append(button('Export video', 'Render this replay to a smooth 60 fps MP4', () => this.openVideoExportDialog()));
+        row.append(button('Export video', 'Render this replay to a smooth 30 or 60 fps MP4', () => this.openVideoExportDialog()));
         row.append(button('Exit', 'Leave replay (Shift+F4 / Esc)', () => this.stopReplay()));
         root.append(seek, row);
         document.body.appendChild(root);
@@ -3192,9 +3192,9 @@ export class Game {
 
     private videoExport: {
         writer: Mp4VideoWriter;
-        /** Recorder time of frame 0, and recorder seconds per video second. */
+        /** Recorder time of frame 0, and the file's frame rate. */
         start: number;
-        speed: number;
+        fps: number;
         frames: number;
         /** Frames written so far; also the frame now on screen. */
         index: number;
@@ -3277,14 +3277,12 @@ export class Game {
         title.style.cssText = 'font-weight:bold;font-size:14px';
         const startText = timeLabel();
         const endText = timeLabel();
-        // Frames per second of flight: the file always plays at 60, so 120 and 240
-        // come out as half- and quarter-speed slow motion.
-        const speed = select([['1', '60 fps (real time)'], ['0.5', '120 fps (slow motion, 0.5x)'], ['0.25', '240 fps (slow motion, 0.25x)']], '1');
+        // Always real time; only the file's frame rate is a choice.
+        const fpsSelect = select(VIDEO_EXPORT_FPS_CHOICES.map(f => [String(f), `${f} fps`]), '60');
         const size = select([
-            ['1280x720', '720p (1280 x 720)'],
-            ['1920x1080', '1080p (1920 x 1080)'],
-            ['2560x1440', '1440p (2560 x 1440)'],
-            ['3840x2160', '4K (3840 x 2160)'],
+            ['1920x1080', 'HD (1920 x 1080)'],
+            ['3840x2160', 'UHD (3840 x 2160)'],
+            ['4096x2160', '4K (4096 x 2160)'],
         ], '1920x1080');
         const info = document.createElement('div');
         info.style.cssText = 'opacity:0.75;font-size:12px;line-height:1.4;max-width:420px';
@@ -3292,22 +3290,22 @@ export class Game {
         const go = button('Export', () => {
             if (!(end > start) || !supported) return;
             const [w, h] = size.value.split('x').map(Number);
-            void this.startVideoExport(start, end, Number(speed.value), w, h, overlays.checked, info);
+            void this.startVideoExport(start, end, Number(fpsSelect.value), w, h, overlays.checked, info);
         }, true);
         const refresh = () => {
             startText.textContent = fmt(start);
             endText.textContent = fmt(end);
-            const seconds = Math.max(0, end - start) / Number(speed.value);
+            const seconds = Math.max(0, end - start);
             info.textContent = !supported
                 ? 'This browser cannot encode video (no WebCodecs). Chrome or Edge can.'
                 : end > start
-                    ? `${seconds.toFixed(1)} s of video, ${videoExportFrames(end - start, Number(speed.value))} frames. `
+                    ? `${seconds.toFixed(1)} s of video, ${videoExportFrames(end - start, Number(fpsSelect.value))} frames. `
                         + 'Scrub the bar below to pick start and end. Keep this tab visible while it renders.'
                     : 'The end must come after the start.';
             go.disabled = !(end > start) || !supported;
             go.style.opacity = go.disabled ? '0.4' : '1';
         };
-        speed.addEventListener('change', refresh);
+        fpsSelect.addEventListener('change', refresh);
         const overlays = document.createElement('input');
         overlays.type = 'checkbox';
         overlays.checked = false;
@@ -3324,14 +3322,14 @@ export class Game {
         const actions = document.createElement('div');
         actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px';
         actions.append(button('Cancel', () => this.closeVideoExportDialog()), go);
-        root.append(title, startRow, endRow, line('FPS', speed), line('Size', size), line('Overlays', overlaysLabel), info, actions);
+        root.append(title, startRow, endRow, line('FPS', fpsSelect), line('Size', size), line('Overlays', overlaysLabel), info, actions);
         document.body.appendChild(root);
         this.videoDialog = root;
         refresh();
     }
 
     private async startVideoExport(
-        start: number, end: number, speed: number, width: number, height: number, showOverlays: boolean, info: HTMLElement,
+        start: number, end: number, fps: number, width: number, height: number, showOverlays: boolean, info: HTMLElement,
     ): Promise<void> {
         const kernel = this.kernel;
         if (!kernel || this.videoExport || !this.replaying) {
@@ -3343,7 +3341,7 @@ export class Game {
         }
         let writer: Mp4VideoWriter;
         try {
-            writer = await Mp4VideoWriter.create(width, height, VIDEO_EXPORT_FPS);
+            writer = await Mp4VideoWriter.create(width, height, fps);
         } catch (e) {
             info.textContent = e instanceof Error ? e.message : String(e);
             return;
@@ -3360,15 +3358,15 @@ export class Game {
         const stamp = new Date();
         const pad = (n: number) => String(n).padStart(2, '0');
         this.videoExport = {
-            writer, start, speed,
-            frames: videoExportFrames(end - start, speed),
+            writer, start, fps,
+            frames: videoExportFrames(end - start, fps),
             index: 0,
             holdSince: undefined,
             cancelled: false,
             startedAt: performance.now(),
             fileName: `flight-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}`
                 + `-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`
-                + `${speed !== 1 ? `-${Math.round(VIDEO_EXPORT_FPS / speed)}fps` : ''}.mp4`,
+                + `${fps !== 60 ? `-${fps}fps` : ''}.mp4`,
             ui,
             overlays: { perfHud: this.perfHud?.enabled ?? false, exterior: this.exteriorEntities.map(e => e.enabled) },
         };
@@ -3385,9 +3383,8 @@ export class Game {
         this.renderer.setExportSize([width, height]);
         this.hdResolutionWidth = -1; // re-size the HD targets even if the window matches
         this.updateHdResolution();
-        // Camera smoothing and effects run in flight time: a half-speed
-        // export steps them half a frame per frame, like the aircraft.
-        kernel.setCaptureMode(speed / VIDEO_EXPORT_FPS, () => this.captureVideoFrame());
+        // Each video frame steps the flight by exactly one frame time.
+        kernel.setCaptureMode(1 / fps, () => this.captureVideoFrame());
     }
 
     private buildVideoExportProgress(): NonNullable<Game['videoExport']>['ui'] {
@@ -3505,7 +3502,7 @@ export class Game {
             const blob = await ex.writer.finish();
             downloadBlob(blob, ex.fileName);
             ex.ui.text.textContent = `Saved ${ex.fileName} (${(blob.size / 1e6).toFixed(1)} MB, `
-                + `${ex.frames} frames at ${VIDEO_EXPORT_FPS} fps).`;
+                + `${ex.frames} frames at ${ex.fps} fps).`;
             ex.ui.bar.style.width = '100%';
         } catch (e) {
             ex.ui.text.textContent = `Video export failed: ${e instanceof Error ? e.message : String(e)}`;
