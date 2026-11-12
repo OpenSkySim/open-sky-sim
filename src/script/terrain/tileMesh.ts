@@ -25,7 +25,7 @@
 
 import * as THREE from 'three';
 import { TerrainShading } from '../state/gameDefs';
-import { EnuBasis, ecefToEnu, geodeticToEcef, sceneFromEnu } from './geodesy';
+import { EnuBasis, WGS84_A, ecefToEnu, geodeticToEcef, sceneFromEnu } from './geodesy';
 import { PTM_STROKE_KIND_OUTLINE, PTM_STROKE_KIND_WATER, PtmBorder, PtmTile } from './ptm';
 import type { SeamState } from './seamStitch';
 import type { SeamFillData } from './seamFillTail';
@@ -55,6 +55,8 @@ export interface TileMeshes {
      * the quadtree can read it after the decoded bytes are evicted.
      */
     geometricErrorM: number;
+    /** How far its facets sag under the curve where that beats the header, else 0; see triangleSagM. */
+    sagM: number;
     land?: THREE.Mesh;
     water?: THREE.Mesh;
     rivers?: THREE.Mesh;
@@ -166,6 +168,53 @@ export { leanEdgeNormals, regionSizes };
 
 function vertexCountOf(g: THREE.BufferGeometry): number {
     return g.getAttribute('position').count;
+}
+
+/**
+ * How far below the ellipsoid the tile's flattest-spanning triangle can sag
+ * (m): a flat facet of longest edge L lies up to L^2 / 6R under the curve
+ * between its corners (circumradius at most L / sqrt(3), sagitta r^2 / 2R).
+ *
+ * The header error measures heights only. A coarse tile over open sea is a
+ * handful of facets 100-200 km long whose middles sit 300-700 m below sea
+ * level, while the header says 70 m, so the quadtree kept it out to the
+ * horizon: its sea fell short of the true horizon and a pale wedge of sky
+ * showed under the skyline (Mallorca at 6 km, 2026-11-12). Ocean patches
+ * already refine on their sagitta; this lets a baked tile do the same
+ * (QuadNode.sagM).
+ */
+export function triangleSagM(tile: Pick<PtmTile,
+    'landPositions' | 'waterPositions' | 'waterIndices' | 'quantScale' | 'boundingRadiusM' | 'geometricErrorM'>,
+): number {
+    // No chord is longer than the bounding sphere's diameter.
+    const sagOf = (edgeSq: number) => edgeSq / (6 * WGS84_A);
+    if (sagOf(4 * tile.boundingRadiusM * tile.boundingRadiusM) <= tile.geometricErrorM) {
+        return 0;
+    }
+    const s = tile.quantScale;
+    let worst = 0;
+    const longest = (p: Int16Array, a: number, b: number, c: number) => {
+        const d = (i: number, j: number) => {
+            const x = p[i] - p[j];
+            const y = p[i + 1] - p[j + 1];
+            const z = p[i + 2] - p[j + 2];
+            return x * x + y * y + z * z;
+        };
+        const e = Math.max(d(a, b), d(b, c), d(c, a));
+        if (e > worst) {
+            worst = e;
+        }
+    };
+    const land = tile.landPositions;
+    for (let i = 0; i + 8 < land.length; i += 9) {
+        longest(land, i, i + 3, i + 6);
+    }
+    const water = tile.waterPositions;
+    const idx = tile.waterIndices;
+    for (let i = 0; i + 2 < idx.length; i += 3) {
+        longest(water, idx[i] * 3, idx[i + 1] * 3, idx[i + 2] * 3);
+    }
+    return sagOf(worst * s * s);
 }
 
 function landGeometry(tile: PtmTile): THREE.BufferGeometry | undefined {
@@ -462,7 +511,7 @@ export function buildTileMeshes(
 
     let bytes = 0;
     const meshes: TileMeshes = {
-        group, bytes: 0, geometricErrorM: tile.geometricErrorM, border: tile.border,
+        group, bytes: 0, geometricErrorM: tile.geometricErrorM, sagM: triangleSagM(tile), border: tile.border,
         centerHeightM: tile.centerHeightM,
     };
 

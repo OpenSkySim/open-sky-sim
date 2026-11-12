@@ -42,6 +42,12 @@ export interface QuadNode {
     geometricErrorM: number;
     /** True once `geometricErrorM` has been taken from the resident tile. */
     errorFromTile: boolean;
+    /**
+     * How far the resident tile's flat facets sag under the curve (m), or 0.
+     * Shape, not detail: refined on like an ocean patch's sagitta, past the
+     * governor and the detail falloff. See triangleSagM.
+     */
+    sagM: number;
     /** Set once the streamer has this tile uploaded. */
     resident: boolean;
     /** True when the index says there is no baked tile here. */
@@ -94,6 +100,8 @@ export interface QuadtreeOptions {
      * figure lets the cut follow the terrain: sea stays coarse, relief refines.
      */
     tileErrorM?: (id: TileKey) => number | undefined;
+    /** The resident tile's facet sag under the curve (m); see QuadNode.sagM. */
+    tileSagM?: (id: TileKey) => number | undefined;
     maxZoom?: number;
     /** Scene-space position of the ellipsoid centre, for horizon culling. */
     earthCenter: THREE.Vector3;
@@ -185,6 +193,7 @@ export class Quadtree {
                 ? levelErr
                 : ellipsoidSagittaM(id),
             errorFromTile: false,
+            sagM: 0,
             under: false,
             fadeM: 0,
             fadeFromMs: 0,
@@ -319,6 +328,7 @@ export class Quadtree {
                 const own = this.opts.tileErrorM?.(node.id);
                 if (own !== undefined && own >= 0) {
                     node.geometricErrorM = own;
+                    node.sagM = this.opts.tileSagM?.(node.id) ?? 0;
                     node.errorFromTile = true;
                 }
             }
@@ -388,6 +398,14 @@ export class Quadtree {
                 )
                 || node.ocean && shouldRefine(
                     ellipsoidSagittaM(node.id), d, screenHeightPx, fovYDeg, 1,
+                )
+                // A baked tile's facets sag under the curve too: a coarse
+                // tile of open-sea fill is a few facets 100+ km long, 300 m
+                // under sea level mid-facet, and kept out to the horizon by
+                // the detail falloff its sea stopped short of the skyline
+                // (a pale wedge of sky beneath it, Mallorca 2026-11-12).
+                || node.sagM > 0 && shouldRefine(
+                    node.sagM, d, screenHeightPx, fovYDeg, 1,
                 )
             );
             const capped = node.id.z >= this.leafZoomAt(node.id);

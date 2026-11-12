@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { makeEnuBasis } from './geodesy';
 import { tileAtLonLat } from './tiling';
-import { tileOriginWorld, buildSmoothLandGeometry, regionSizes, riverStrokeRange, strokeGeometry } from './tileMesh';
+import { tileOriginWorld, buildSmoothLandGeometry, regionSizes, riverStrokeRange, strokeGeometry, triangleSagM } from './tileMesh';
 import { PTM_STROKE_KIND_OUTLINE, PTM_STROKE_KIND_WATER, decodePtm, encodePtm } from './ptm';
 
 const HOME = { lat: 28.0015, lon: -15.3937 };
@@ -371,5 +371,36 @@ describe('watercourse strokes', () => {
         assert.deepEqual(riverStrokeRange(halfM, 5, 20), { start: 6, count: 6 });
         assert.deepEqual(riverStrokeRange(halfM, 30, Infinity), { start: 18, count: 0 });
         assert.deepEqual(riverStrokeRange(halfM, 10, 5), { start: 12, count: 0 });
+    });
+});
+
+describe('triangleSagM', () => {
+    /** One flat sea facet with corners at (0,0,0), (L,0,0), (0,0,L), at 1 m a unit. */
+    const facet = (edgeM: number, headerErrorM: number, scale = 1) => ({
+        landPositions: new Int16Array(0),
+        waterPositions: Int16Array.from([0, 0, 0, edgeM / scale, 0, 0, 0, 0, edgeM / scale]),
+        waterIndices: Uint16Array.from([0, 1, 2]),
+        quantScale: scale,
+        boundingRadiusM: edgeM,
+        geometricErrorM: headerErrorM,
+    });
+
+    it('rates a 125 km sea facet by its sag under the curve, not its header', () => {
+        // The z7 tile west of Mallorca: nine facets, header 70 m, ~310 m sag.
+        const hyp = 125_000 * Math.SQRT2;
+        const sag = triangleSagM(facet(125_000, 70, 8));
+        assert.ok(Math.abs(sag - hyp * hyp / (6 * 6_378_137)) < 1, `sag ${sag}`);
+        assert.ok(sag > 300);
+    });
+
+    it('measures land facets as well as water', () => {
+        const t = { ...facet(100_000, 0, 4), waterIndices: new Uint16Array(0) };
+        t.landPositions = t.waterPositions;
+        assert.ok(triangleSagM(t) > 200);
+    });
+
+    it('skips the scan when no chord in the tile can beat the header', () => {
+        // A z12-sized tile: 2 x 5 km bounding diameter sags ~2.6 m at most.
+        assert.equal(triangleSagM(facet(5_000, 10)), 0);
     });
 });
