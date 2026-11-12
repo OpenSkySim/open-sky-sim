@@ -26,6 +26,10 @@ export class Kernel {
     private targetFPSLength: number = 0.0;
     private targetFPSprogress: number = 0.0;
 
+    /** Asked every frame for a lower frame rate to run at; see setFrameThrottle. */
+    private frameThrottle: (() => number | undefined) | undefined;
+    private throttleProgress = 0;
+
     constructor(private targetFPS?: number) {
         this.setTargetFPS(targetFPS);
     }
@@ -51,6 +55,16 @@ export class Kernel {
         }
         this.targetFPS = targetFPS;
         this.targetFPSprogress = 0.0;
+    }
+
+    /**
+     * Run updates and renders at most `throttle()` times a second while it
+     * answers a number - the loading screen's weld wants the main thread
+     * more than the paused, blurred view under it does.
+     */
+    setFrameThrottle(throttle: (() => number | undefined) | undefined): void {
+        this.frameThrottle = throttle;
+        this.throttleProgress = 0;
     }
 
     start() {
@@ -98,12 +112,24 @@ export class Kernel {
     }
 
     private runTasks(frameTime: number) {
-        const deltaMs = this.updateDeltas(frameTime);
+        let deltaMs = this.updateDeltas(frameTime);
         window.requestAnimationFrame(this.runTasksFn);
 
         if (this.capture) {
             this.runCapture(this.capture);
             return;
+        }
+
+        const throttleFps = this.frameThrottle?.();
+        if (throttleFps) {
+            this.throttleProgress += deltaMs;
+            if (this.throttleProgress < 1000 / throttleFps) {
+                return;
+            }
+            deltaMs = this.throttleProgress;
+            this.throttleProgress = 0;
+        } else {
+            this.throttleProgress = 0;
         }
 
         if (this.targetFPS) {

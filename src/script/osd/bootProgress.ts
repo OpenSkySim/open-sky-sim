@@ -3,7 +3,8 @@
 import {
     KeyboardControlAction, KeyboardControlLayoutId, formatControlKey, getKeyboardLayout,
 } from '../input/keyboardLayouts';
-import { startWeldSparks, stopWeldSparks } from './weldBar';
+import { BootBarPacer } from './bootBarPacer';
+import { WeldBarLoop, WeldGeometry, WeldMessage, WeldReply } from './weldBar';
 
 const CHEAT_SHEET_ROWS: Record<string, [KeyboardControlAction, KeyboardControlAction]> = {
     pitch: [KeyboardControlAction.PITCH_NEG, KeyboardControlAction.PITCH_POS],
@@ -26,97 +27,7 @@ export function setBootCheatSheetLayout(layoutId: KeyboardControlLayoutId): void
     }
 }
 
-/**
- * Moves the bar at an even pace rather than in the jumps its steps report.
- *
- * Steps report progress in bursts - a tile download ticks per tile, an
- * airfield takes a second, the next step lands 20 % further on - so a bar
- * that follows them directly runs fast, stops, and leaps. This one aims for
- * where the load is heading instead: it extrapolates when the reported
- * target will reach 100 from how fast it has moved so far, and runs at the
- * speed that arrives there then, easing between speeds over a second or two.
- * A stall therefore slows the bar down instead of freezing it, and a jump
- * speeds it up instead of making it leap. It never goes backwards, and it
- * holds short of 100 until the target is there.
- */
-export class BootBarPacer {
-    private start: number | undefined;
-    private last = 0;
-    private speed = 0;
-    private paced = false;
-    private target = 0;
-    shown = 0;
-
-    /** Never lowers the target: steps may report out of order. */
-    setTarget(percent: number): void {
-        this.target = Math.max(this.target, Math.max(0, Math.min(100, percent)));
-    }
-
-    get targetPercent(): number {
-        return this.target;
-    }
-
-    reset(now: number): void {
-        this.start = now;
-        this.last = now;
-        this.speed = 0;
-        this.paced = false;
-        this.target = 0;
-        this.shown = 0;
-    }
-
-    /** Advance to `now` (ms) and return the percent to draw. */
-    tick(now: number): number {
-        if (this.start === undefined) {
-            this.reset(now);
-        }
-        const dtS = Math.max(0, now - this.last) / 1000;
-        this.last = now;
-        if (this.target >= 100) {
-            // Done: finish the sweep quickly rather than at the old pace.
-            this.shown += (100 - this.shown) * Math.min(1, dtS / BAR_FINISH_S);
-            if (100 - this.shown < 0.05) {
-                this.shown = 100;
-            }
-            return this.shown;
-        }
-        const elapsedS = Math.max(0, (now - (this.start ?? now)) / 1000);
-        const frac = this.target / 100;
-        // Projected total time: from the pace so far, weighed against an
-        // expected load time that only matters for the first seconds, while
-        // there is too little history to project from (2 % after 50 ms is
-        // not a 2.5 s load).
-        const projectedS = frac > 0 ? elapsedS / frac : BAR_EXPECTED_TOTAL_S;
-        const totalS = (elapsedS * projectedS + BAR_PRIOR_WEIGHT_S * BAR_EXPECTED_TOTAL_S)
-            / (elapsedS + BAR_PRIOR_WEIGHT_S);
-        const etaS = Math.min(BAR_ETA_MAX_S, Math.max(BAR_ETA_MIN_S, totalS - elapsedS));
-        const wanted = (BAR_HOLD_PERCENT - this.shown) / etaS;
-        if (!this.paced) {
-            this.paced = true;
-            // The first estimate: start at it. Easing up from standstill
-            // left the bar behind for its first seconds, so it then had to
-            // catch up - a bar that visibly accelerated through the load.
-            this.speed = wanted;
-        }
-        this.speed += (wanted - this.speed) * Math.min(1, dtS / BAR_SPEED_EASE_S);
-        this.shown = Math.min(BAR_HOLD_PERCENT, this.shown + Math.max(0, this.speed) * dtS);
-        return this.shown;
-    }
-}
-
-/** Seconds over which the bar's speed eases to a new estimate. */
-const BAR_SPEED_EASE_S = 1.5;
-/** Bounds on the projected time left, so the first instants cannot fling it. */
-const BAR_ETA_MIN_S = 0.75;
-const BAR_ETA_MAX_S = 60;
-/** What a first launch takes, boot plus streaming hold, on a Pages-like link. */
-const BAR_EXPECTED_TOTAL_S = 30;
-/** How many seconds of real progress outweigh that expectation. */
-const BAR_PRIOR_WEIGHT_S = 2;
-/** Where the bar waits until the load is really done. */
-const BAR_HOLD_PERCENT = 99;
-/** Time constant of the last sweep to 100 once the load is done. */
-const BAR_FINISH_S = 0.12;
+/** How often the fade checks whether the bar has arrived. */
 const BAR_FRAME_MS = 50;
 
 /**
@@ -129,31 +40,134 @@ const BAR_FRAME_MS = 50;
 const BOOT_SHARE = 40;
 
 type BarMode = 'idle' | 'boot' | 'stream';
+/**
+ * The targets the load reported, kept here to map steps onto the bar; the
+ * bar that is drawn paces its own copy (weldBar.ts), told every change.
+ */
 const pacer = new BootBarPacer();
 let mode: BarMode = 'idle';
 /** Where the streaming bar's 0 % sits: past the boot (or respawn preload) it continues. */
 let streamBase = 0;
-let timer: ReturnType<typeof setInterval> | undefined;
+/** Whether the bar is drawing (between runBar and stopBar). */
+let running = false;
+/** Whether the drawn bar reached 100 since the last reset. */
+let arrived = false;
+/** Whether the overlay covers the view (not fading or hidden); see bootOverlayCovering. */
+let covering = false;
 
-function drawBar(): void {
-    const fill = document.getElementById('boot-progress-fill');
-    if (fill) {
-        fill.style.width = `${pacer.tick(performance.now()).toFixed(2)}%`;
+/**
+ * Whether the loading overlay covers the view right now. The kernel then
+ * draws the paused, blurred view under it at a low rate, so the main
+ * thread has time for the load (see index.ts).
+ */
+export function bootOverlayCovering(): boolean {
+    return covering;
+}
+
+type WeldPost = (m: Exclude<WeldMessage, { t: 'init' }>) => void;
+let weldPost: WeldPost | undefined | null;
+
+/**
+ * The weld bar's drawing loop: in a worker on the canvas handed over to it
+ * where the browser can, so the bar runs at the display's rate whatever the
+ * main thread is doing; on the page otherwise. Null without the canvas.
+ */
+function weld(): WeldPost | null {
+    if (weldPost !== undefined) {
+        return weldPost;
     }
+    const canvas = document.getElementById('boot-progress-sparks') as HTMLCanvasElement | null;
+    if (!canvas) {
+        return (weldPost = null);
+    }
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const onArrived = () => {
+        arrived = true;
+    };
+    if (typeof canvas.transferControlToOffscreen === 'function' && typeof Worker !== 'undefined') {
+        try {
+            const worker = new Worker(new URL('./weldBarWorker.ts', import.meta.url));
+            const offscreen = canvas.transferControlToOffscreen();
+            const init: WeldMessage = { t: 'init', canvas: offscreen, reduced };
+            worker.postMessage(init, [offscreen]);
+            worker.onmessage = (e: MessageEvent<WeldReply>) => {
+                if (e.data.t === 'arrived') {
+                    onArrived();
+                }
+            };
+            weldPost = m => worker.postMessage(m);
+        } catch {
+            weldPost = undefined;
+        }
+    }
+    if (weldPost === undefined) {
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return (weldPost = null);
+        }
+        const loop = new WeldBarLoop(canvas, ctx, cb => requestAnimationFrame(cb),
+            id => cancelAnimationFrame(id), onArrived, reduced);
+        weldPost = m => {
+            switch (m.t) {
+                case 'geom': loop.setGeometry(m.geom); break;
+                case 'reset': loop.reset(); break;
+                case 'target': loop.setTarget(m.percent); break;
+                case 'run': loop.run(m.on); break;
+            }
+        };
+    }
+    new ResizeObserver(sendWeldGeometry).observe(canvas);
+    return weldPost;
+}
+
+/** Where the track sits on the canvas, for the weld loop to draw it there. */
+function sendWeldGeometry(): void {
+    const canvas = document.getElementById('boot-progress-sparks');
+    const track = document.getElementById('boot-progress-track');
+    if (!canvas || !track || !weldPost) {
+        return;
+    }
+    const c = canvas.getBoundingClientRect();
+    const t = track.getBoundingClientRect();
+    if (c.width === 0 || c.height === 0) {
+        return;
+    }
+    const geom: WeldGeometry = {
+        width: c.width,
+        height: c.height,
+        dpr: window.devicePixelRatio || 1,
+        track: { x: t.left - c.left, y: t.top - c.top, w: t.width, h: t.height },
+    };
+    weldPost({ t: 'geom', geom });
+}
+
+function resetBar(): void {
+    pacer.reset(performance.now());
+    arrived = false;
+    weld()?.({ t: 'reset' });
+}
+
+function setBarTarget(percent: number): void {
+    pacer.setTarget(percent);
+    weld()?.({ t: 'target', percent: pacer.targetPercent });
 }
 
 function runBar(): void {
-    timer ??= setInterval(drawBar, BAR_FRAME_MS);
-    startWeldSparks();
-    drawBar();
+    covering = true;
+    if (!running) {
+        running = true;
+        weld();
+        sendWeldGeometry();
+        weld()?.({ t: 'run', on: true });
+    }
 }
 
 function stopBar(): void {
-    if (timer !== undefined) {
-        clearInterval(timer);
-        timer = undefined;
+    if (running) {
+        running = false;
+        weld()?.({ t: 'run', on: false });
     }
-    stopWeldSparks();
+    covering = false;
     mode = 'idle';
 }
 
@@ -174,9 +188,9 @@ export function setBootProgress(percent: number, label: string): void {
     }
     if (mode !== 'boot') {
         mode = 'boot';
-        pacer.reset(performance.now());
+        resetBar();
     }
-    pacer.setTarget(percent * BOOT_SHARE / 100);
+    setBarTarget(percent * BOOT_SHARE / 100);
     runBar();
 }
 
@@ -210,10 +224,10 @@ export function setBootStreaming(percent: number, label: string): void {
     } else if (fresh || mode !== 'stream') {
         mode = 'stream';
         streamBase = 0;
-        pacer.reset(performance.now());
+        resetBar();
     }
     const p = Math.max(0, Math.min(100, percent));
-    pacer.setTarget(streamBase + (100 - streamBase) * p / 100);
+    setBarTarget(streamBase + (100 - streamBase) * p / 100);
     runBar();
 }
 
@@ -226,14 +240,42 @@ export function startStreamHoldBar(label: string): void {
     streamBase = pacer.targetPercent;
 }
 
-/** Clear the blur and dim to nothing over a second (see index.html), then hide the overlay. */
-export function fadeOutBootProgress(): void {
+/**
+ * Let the bar glide to 100, then clear the blur and dim to nothing over a
+ * second (see index.html) and hide the overlay. Resolves when the fade
+ * begins; a respawn's new bar before then cancels it.
+ */
+export function fadeOutBootProgress(): Promise<void> {
     const root = document.getElementById('boot-progress');
     if (!root) {
-        return;
+        return Promise.resolve();
     }
+    setBarTarget(100);
+    return new Promise<void>(resolve => {
+        const started = performance.now();
+        const wait = setInterval(() => {
+            // A new bar (a respawn) took over: leave the overlay up.
+            if (pacer.targetPercent < 100) {
+                clearInterval(wait);
+                resolve();
+                return;
+            }
+            if (!arrived && running && performance.now() - started < BAR_FINISH_WAIT_MS) {
+                return;
+            }
+            clearInterval(wait);
+            beginFade(root);
+            resolve();
+        }, BAR_FRAME_MS);
+    });
+}
+
+/** Longest the fade waits for the bar to arrive (it stops in a hidden tab). */
+const BAR_FINISH_WAIT_MS = 2000;
+
+function beginFade(root: HTMLElement): void {
     root.classList.add('fading');
-    pacer.setTarget(100);
+    covering = false;
     const done = () => {
         // Shown again (a respawn) since the fade began: leave it up.
         if (!root.classList.contains('fading')) {
@@ -243,7 +285,16 @@ export function fadeOutBootProgress(): void {
         root.classList.remove('fading', 'streaming');
         stopBar();
     };
-    root.addEventListener('transitionend', done, { once: true });
+    // Only the overlay's own fade: transitionend bubbles, and the bar's width
+    // ends a transition every frame or two, which hid the overlay 0.2 s into
+    // the fade.
+    const onEnd = (e: TransitionEvent) => {
+        if (e.target === root) {
+            root.removeEventListener('transitionend', onEnd);
+            done();
+        }
+    };
+    root.addEventListener('transitionend', onEnd);
     // transitionend never fires when the transition is skipped (reduced motion, hidden tab).
     setTimeout(done, 1100);
 }

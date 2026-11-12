@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { BootBarPacer } from './bootProgress';
+import { BootBarPacer } from './bootBarPacer';
 
 /** Run a pacer over a schedule of [ms, target] steps, sampling every 50 ms. */
 function run(steps: Array<[number, number]>, endMs: number): number[] {
@@ -62,21 +62,29 @@ describe('BootBarPacer', () => {
         assert.ok(max / min < 2, `uneven: ${rates.map(r => r.toFixed(1)).join(' ')}`);
     });
 
-    it('finishes quickly once the target reaches 100', () => {
+    it('glides to 100 once the target gets there, without a jump', () => {
         const pacer = new BootBarPacer();
         pacer.reset(0);
         pacer.setTarget(60);
-        for (let t = 0; t <= 3000; t += 50) {
+        for (let t = 0; t <= 6000; t += 50) {
             pacer.tick(t);
         }
+        const from = pacer.shown;
         pacer.setTarget(100);
-        let t = 3000;
-        while (pacer.shown < 100 && t < 4000) {
+        let t = 6000;
+        let prev = from;
+        let biggest = 0;
+        while (pacer.shown < 100 && t < 8000) {
             t += 50;
             pacer.tick(t);
+            biggest = Math.max(biggest, pacer.shown - prev);
+            prev = pacer.shown;
         }
         assert.equal(pacer.shown, 100);
-        assert.ok(t - 3000 <= 800, `took ${t - 3000} ms`);
+        assert.ok(t - 6000 <= 1250, `took ${t - 6000} ms`);
+        // From about half way: a sweep over a second, not a leap.
+        assert.ok(t - 6000 >= 500, `only ${t - 6000} ms from ${from.toFixed(0)} %`);
+        assert.ok(biggest < 5, `a ${biggest.toFixed(1)} % step in 50 ms`);
     });
 
     it('ignores a lower target reported late', () => {

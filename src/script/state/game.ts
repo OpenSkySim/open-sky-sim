@@ -1950,7 +1950,7 @@ export class Game {
         if (this.mapView) {
             // The map has no flight to hold still: it fills in as tiles arrive.
             this.kernelRunning = true;
-            fadeOutBootProgress();
+            void fadeOutBootProgress();
             return;
         }
         const token = ++this.streamHoldToken;
@@ -1968,7 +1968,10 @@ export class Game {
         // The blur clears over the first second of a "get ready" count,
         // still paused; the flight starts on "Go". Unconditional: a resident
         // respawn can interrupt a hold whose blur is still up.
-        fadeOutBootProgress();
+        await fadeOutBootProgress();
+        if (token !== this.streamHoldToken) {
+            return;
+        }
         for (let n = STREAM_COUNTDOWN_FROM; n > 0; n--) {
             showCountdown(String(n));
             await new Promise(r => setTimeout(r, 1000));
@@ -4973,7 +4976,7 @@ export class Game {
         this.streamHoldToken++;
         this.streamHeld = false;
         hideCountdown();
-        fadeOutBootProgress();
+        void fadeOutBootProgress();
         this.heldFixedCameraKeys.clear();
         this.fixedCameraRates = zeroFixedCameraRates();
         const route = parseCameraRoute(search, hash);

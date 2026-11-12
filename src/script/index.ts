@@ -11,7 +11,7 @@ import { JoystickControlDevice } from './input/devices/joystickControlDevice';
 import { KeyboardControlDevice } from './input/devices/keyboardControlDevice';
 import { TouchControlDevice } from './input/devices/touchControlDevice';
 import { TouchStartGate } from './input/touchStartGate';
-import { setBootCheatSheetLayout, setBootProgress, setBootStreaming } from './osd/bootProgress';
+import { bootOverlayCovering, setBootCheatSheetLayout, setBootProgress, setBootStreaming } from './osd/bootProgress';
 import { setupOSD } from './osd/osdPanel';
 import { CombatSimClient } from './physics/sim/combatSimClient';
 import { SimProxyFlightModel } from './physics/model/simProxyFlightModel';
@@ -36,6 +36,9 @@ import { Game, GameRenderTask, GameUpdateTask } from './state/game';
 import { FlightModels, TechProfiles } from './state/gameDefs';
 import { recordAndShowVisitorCount } from './ui/visitorCount';
 import { DETAIL_DISTANCE_OFF } from './terrain/lod';
+
+/** Frame rate of the paused, blurred view under the loading overlay; the weld bar runs at full rate. */
+const BOOT_OVERLAY_FPS = 12;
 async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice, TouchControlDevice, Game, AudioSystem]> {
     const settings = loadSettings();
     // Before anything loads: a phone gets tap-to-start (fullscreen) and landscape only.
@@ -159,6 +162,8 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
     kernel.addUpdateTask(new GameUpdateTask(game));
     kernel.addRenderTask(new GameRenderTask(game));
     game.setKernel(kernel);
+    // The loading weld before the paused, blurred view under it.
+    kernel.setFrameThrottle(() => bootOverlayCovering() ? BOOT_OVERLAY_FPS : undefined);
 
     config.techProfiles.addChangeListener(profile => kernel.setTargetFPS(targetFpsFor(profile)));
 
