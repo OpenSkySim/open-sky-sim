@@ -1996,7 +1996,7 @@ export class Game {
 
     /** The streaming bar: resolves once the LOD backlog stays empty. */
     private async waitForStreamBacklog(token: number): Promise<void> {
-        startStreamHoldBar('Streaming terrain...');
+        startStreamHoldBar('Loading scenery details...');
         const start = performance.now();
         let idleSince: number | undefined;
         await new Promise<void>(resolve => {
@@ -2012,7 +2012,7 @@ export class Game {
                 // and then refills for the rest of the hold, which reached
                 // the cap in every throttled boot measured. Settling early
                 // finishes the bar with a quick sweep instead.
-                setBootStreaming(100 * Math.min(1, (now - start) / STREAM_HOLD_MAX_MS), 'Streaming terrain...');
+                setBootStreaming(100 * Math.min(1, (now - start) / STREAM_HOLD_MAX_MS), 'Loading scenery details...');
                 if (this.planetTerrain.streamingBacklog > 0) {
                     idleSince = undefined;
                 } else {
