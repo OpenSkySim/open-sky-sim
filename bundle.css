@@ -27,7 +27,6 @@
     --radius-sm: 0.25rem;
     --default-transition-duration: 150ms;
     --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    --animate-countdown-tick: countdown-tick 1s ease-out;
   }
 }
 @layer utilities {
@@ -301,11 +300,6 @@
   .origin-\[10px_12px\] {
     transform-origin: 10px 12px;
   }
-  .-translate-1\/2 {
-    --tw-translate-x: calc(calc(1 / 2 * 100%) * -1);
-    --tw-translate-y: calc(calc(1 / 2 * 100%) * -1);
-    translate: var(--tw-translate-x) var(--tw-translate-y);
-  }
   .-translate-x-1\/2 {
     --tw-translate-x: calc(calc(1 / 2 * 100%) * -1);
     translate: var(--tw-translate-x) var(--tw-translate-y);
@@ -503,9 +497,6 @@
   .bg-\[\#3c5468\] {
     background-color: #3c5468;
   }
-  .bg-\[\#fafafa\] {
-    background-color: #fafafa;
-  }
   .bg-\[rgba\(12\,18\,26\,0\.82\)\] {
     background-color: rgba(12,18,26,0.82);
   }
@@ -517,6 +508,9 @@
   }
   .bg-\[var\(--mat-sys-tertiary\)\] {
     background-color: var(--mat-sys-tertiary);
+  }
+  .bg-black {
+    background-color: var(--color-black);
   }
   .bg-black\/60 {
     background-color: color-mix(in srgb, #000 60%, transparent);
@@ -686,9 +680,6 @@
   .text-\[1\.25rem\] {
     font-size: 1.25rem;
   }
-  .text-\[8rem\] {
-    font-size: 8rem;
-  }
   .text-\[11px\] {
     font-size: 11px;
   }
@@ -820,9 +811,6 @@
   }
   .\[text-shadow\:none\] {
     text-shadow: none;
-  }
-  .text-shadow-\[0_0_0\.5rem_black\,0_0_1\.5rem_black\] {
-    text-shadow: 0 0 0.5rem var(--tw-text-shadow-color, black), 0 0 1.5rem var(--tw-text-shadow-color, black);
   }
   .text-shadow-\[black_0_0_2px\] {
     text-shadow: var(--tw-text-shadow-color, black) 0 0 2px;
@@ -1048,9 +1036,6 @@
     --tw-backdrop-blur: blur(12px);
     -webkit-backdrop-filter: var(--tw-backdrop-blur,) var(--tw-backdrop-brightness,) var(--tw-backdrop-contrast,) var(--tw-backdrop-grayscale,) var(--tw-backdrop-hue-rotate,) var(--tw-backdrop-invert,) var(--tw-backdrop-opacity,) var(--tw-backdrop-saturate,) var(--tw-backdrop-sepia,);
     backdrop-filter: var(--tw-backdrop-blur,) var(--tw-backdrop-brightness,) var(--tw-backdrop-contrast,) var(--tw-backdrop-grayscale,) var(--tw-backdrop-hue-rotate,) var(--tw-backdrop-invert,) var(--tw-backdrop-opacity,) var(--tw-backdrop-saturate,) var(--tw-backdrop-sepia,);
-  }
-  .\[\&\.tick\]\:animate-countdown-tick.tick {
-    animation: var(--animate-countdown-tick);
   }
 }
 html {
@@ -1473,16 +1458,6 @@ html {
   syntax: "*";
   inherits: false;
 }
-@keyframes countdown-tick {
-  from {
-    scale: 1.4;
-    opacity: 1;
-  }
-  to {
-    scale: 1;
-    opacity: 0.6;
-  }
-}
 @layer properties {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
     *, ::before, ::after, ::backdrop {
@@ -1548,4 +1523,6 @@ html {
     }
   }
 }
+
+
 
