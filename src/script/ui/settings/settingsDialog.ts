@@ -1181,6 +1181,15 @@ function sliderValue(event: Event): number {
                                 </ul>
                             </section>
                         }
+
+                        <section>
+                            <h3 class="m-0 mb-1 text-base font-medium">Privacy</h3>
+                            <p class="m-0 text-sm opacity-70">
+                                The published game counts visits with
+                                <a href="https://www.goatcounter.com" target="_blank" rel="noopener" class="text-[#94ddff] no-underline hover:text-white hover:underline">GoatCounter</a>:
+                                no cookies, no personal data, only the total shown while loading.
+                            </p>
+                        </section>
                     </div>
                 }
             }

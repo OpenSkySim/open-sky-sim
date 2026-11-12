@@ -34,6 +34,7 @@ import { TracerModelLibBuilder } from './scene/models/lib/tracerModelBuilder';
 import { ModelManager } from './scene/models/models';
 import { Game, GameRenderTask, GameUpdateTask } from './state/game';
 import { FlightModels, TechProfiles } from './state/gameDefs';
+import { recordAndShowVisitorCount } from './ui/visitorCount';
 import { DETAIL_DISTANCE_OFF } from './terrain/lod';
 async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, JoystickControlDevice, TouchControlDevice, Game, AudioSystem]> {
     const settings = loadSettings();
@@ -167,6 +168,7 @@ async function setup(): Promise<[Kernel, ConfigService, KeyboardControlDevice, J
 window.addEventListener("load", () => {
     setBootProgress(0, 'Loading...');
     setBootCheatSheetLayout(loadSettings().keyboardLayout);
+    recordAndShowVisitorCount();
     void setup().then(([kernel, config, keyboardInput, joystickInput, touchInput, game, audio]) => {
         kernel.start();
         setupOSD(config, keyboardInput, joystickInput, touchInput, audio);
