@@ -309,7 +309,10 @@ export class TileStore<T> {
             return undefined;
         }
         if (this.queueDirty) {
-            this.sorted = [...this.queue.values()].sort((a, b) => b.priority - a.priority);
+            // Ascending, so pop() takes the highest priority (tileStreamer's
+            // scores: pinned > in frustum > the rest). This was descending,
+            // which served the least wanted tile first - pins last of all.
+            this.sorted = [...this.queue.values()].sort((a, b) => a.priority - b.priority);
             this.queueDirty = false;
         }
         while (this.sorted.length > 0) {

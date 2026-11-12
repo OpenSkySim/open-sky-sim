@@ -251,6 +251,25 @@ describe('TileStore', () => {
         });
     });
 
+    it('dispatches the highest-priority queued tile first', async () => {
+        const h = makeStore({ delayMs: 20 });
+        try {
+            const pending: Array<Promise<unknown>> = [];
+            // Fill every slot, so what follows is queued rather than dispatched.
+            for (let i = 0; i < 64; i++) {
+                pending.push(h.store.request(t(9, 1, i), 500));
+            }
+            pending.push(h.store.request(t(9, 2, 0), 1));
+            pending.push(h.store.request(t(9, 2, 1), 1e9));
+            pending.push(h.store.request(t(9, 2, 2), 1e6));
+            await Promise.all(pending);
+            const order = [...h.attempts.keys()].filter(u => u.startsWith('base/9/2/'));
+            assert.deepEqual(order, ['base/9/2/1', 'base/9/2/2', 'base/9/2/0']);
+        } finally {
+            h.restore();
+        }
+    });
+
     it('re-scores a queued tile instead of keeping its enqueue priority', async () => {
         const h = makeStore();
         try {

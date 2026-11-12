@@ -153,13 +153,6 @@ const HYBRID_SHADE_FALLBACK = { mid: 0.5, spread: 0.2 };
 const PAD_RELEVANCE_M = 400_000;
 
 /**
- * Deepest level pinArea fetches above its pins (see coarseAncestorsOf).
- * Below this the parents of a 30 km disc are many and large, and the pins
- * themselves are drawn there instead.
- */
-const PIN_ANCESTOR_MAX_ZOOM = 8;
-
-/**
  * Cap on how many tiles can get their first attachTrees() call in a single
  * reconcile - see treeInitialAttachesThisFrame. Trees alone rarely made many
  * tiles newly eligible in the same frame (most tiles have no forest), but
@@ -1430,27 +1423,16 @@ export class TerrainEntity implements Entity {
 
     /** Pin tiles around a scene point so boot and spawn areas cannot be evicted. */
     async pinArea(x: number, z: number, radiusM: number, zoom: number): Promise<void> {
-        const ring = this.tilesToPin(x, z, radiusM, zoom);
-        // The LOD pass walks down from the root and asks for a level only
-        // once its parent is drawn, so on a cold cache the coarse tiles above
-        // the pins came in one round trip and one upload apart - z0..z3 of a
-        // first launch landed 10 to 14 s in, long after the pins. They are a
-        // few KB each: pin the chain too, requested first.
-        const ids = [...coarseAncestorsOf(ring, PIN_ANCESTOR_MAX_ZOOM), ...ring];
+        const ids = this.tilesToPin(x, z, radiusM, zoom);
         for (const id of ids) {
             this.pinned.add(tileKeyString(id));
         }
         this.streamer.setPinnedKeys(this.pinned);
-        // Meshes and heights are separate files: fetch them together rather
-        // than the heights only after the last mesh has arrived.
-        await Promise.all([
-            this.streamer.ensure(ids, Number.MAX_SAFE_INTEGER).then(() => {
-                for (const id of ids) {
-                    this.meshStore.setPinned(id, true);
-                }
-            }),
-            this.heights.ensureLoadedAroundWorld(x, z, radiusM),
-        ]);
+        await this.streamer.ensure(ids, Number.MAX_SAFE_INTEGER);
+        for (const id of ids) {
+            this.meshStore.setPinned(id, true);
+        }
+        await this.heights.ensureLoadedAroundWorld(x, z, radiusM);
     }
 
     /**
@@ -2932,22 +2914,6 @@ export const EDGE_LIFT_FADE_M = 20_000;
  * area.
  */
 const AREA_EDGE_EPS_DEG = 1e-7;
-
-/**
- * Every tile above `ids` from the root down to `maxZoom`, once each,
- * coarsest first.
- */
-export function coarseAncestorsOf(ids: readonly TileKey[], maxZoom: number): TileKey[] {
-    const out = new Map<string, TileKey>();
-    for (const id of ids) {
-        for (let z = 0; z < id.z && z <= maxZoom; z++) {
-            const shift = id.z - z;
-            const a = { z, x: id.x >> shift, y: id.y >> shift };
-            out.set(tileKeyString(a), a);
-        }
-    }
-    return [...out.values()].sort((a, b) => a.z - b.z);
-}
 
 function tileOverlapsArea(b: LonLatBounds, a: LonLatBounds): boolean {
     const e = AREA_EDGE_EPS_DEG;
