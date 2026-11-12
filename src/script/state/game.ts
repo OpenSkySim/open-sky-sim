@@ -320,10 +320,10 @@ const SHELL_STRETCHED = new THREE.Vector3();
 /** Scratch for {@link Game.updateSunEntity}. */
 const SUN_FACING = new THREE.Quaternion();
 
-const CLOUD_BASE_ALTITUDE_M = 1400;
-const CLOUD_ALTITUDE_VARIATION_M = 500;
-/** A cloud's flat base never comes closer than this to the highest ground under it. */
-const CLOUD_GROUND_CLEARANCE_M = 400;
+/** A cloud's flat base sits this far above the highest ground under it (sea level over water). */
+const CLOUD_BASE_ABOVE_GROUND_M = 2000;
+/** Per-puff undulation of the base around {@link CLOUD_BASE_ABOVE_GROUND_M}. */
+const CLOUD_ALTITUDE_VARIATION_M = 200;
 /**
  * Rings sampled for the ground under a cloud: the scaled clouds reach ~3 km
  * out from their centre, so a centre-only probe let ridges pierce them.
@@ -7110,9 +7110,9 @@ export class Game {
             ],
             statsKey: 'cloud',
         };
-        // The deck is a sea-level altitude, so over high ground (the Alps run
-        // past 4 km) the clouds sat in the hills. Lift each one clear of the
-        // highest terrain under its footprint. Keyed by field coordinates,
+        // The deck follows the ground: each cloud's base is a fixed height
+        // above the highest terrain under its footprint (the Alps run past
+        // 4 km, so a sea-level deck sat in the hills). Keyed by field coordinates,
         // which a floating-origin re-base leaves alone (the height itself is
         // re-probed after one).
         const cloudGround = new Map<string, { y: number; at: number; sx: number; sz: number }>();
@@ -7139,10 +7139,9 @@ export class Game {
             cloudGround.set(key, { y, at: now, sx, sz });
             return y;
         };
-        const cloudAltitudeAt = (x: number, z: number, sx: number, sz: number) => Math.max(
-            CLOUD_BASE_ALTITUDE_M + Math.sin(x * 0.00021) * Math.cos(z * 0.00017) * CLOUD_ALTITUDE_VARIATION_M,
-            cloudGroundAt(x, z, sx, sz) + CLOUD_GROUND_CLEARANCE_M,
-        );
+        const cloudAltitudeAt = (x: number, z: number, sx: number, sz: number) =>
+            Math.max(0, cloudGroundAt(x, z, sx, sz)) + CLOUD_BASE_ABOVE_GROUND_M
+            + Math.sin(x * 0.00021) * Math.cos(z * 0.00017) * CLOUD_ALTITUDE_VARIATION_M;
         this.cloudField = new SceneryField(
             this.models,
             new THREE.Box2(new THREE.Vector2(-1e7, -1e7), new THREE.Vector2(1e7, 1e7)),
