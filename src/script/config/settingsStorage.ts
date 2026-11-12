@@ -1,19 +1,17 @@
-import { AiPersonality, clampAiPersonality, defaultAiPersonality } from "../ai/tunable/aiPersonality";
+import { AiPersonality, clampAiPersonality } from "../ai/tunable/aiPersonality";
 import { KeyboardControlLayoutId } from "../input/devices/keyboardControlDevice";
 import { KeyboardPitchStickMode } from "../input/keyboardLayouts";
-import { ColourAdjust, clampColourAdjust, defaultColourAdjust } from "../scene/materials/shaders/colourAdjust";
-import { DEFAULT_SUN_HOURS } from "../scene/materials/shaders/sun";
+import { ColourAdjust, clampColourAdjust } from "../scene/materials/shaders/colourAdjust";
 import { AiPilotModels, FlightModels, RoadsMode, TechProfiles, TerrainColours, TerrainShading, UnitSystems } from "../state/gameDefs";
 import {
-    LANDUSE_REVEAL_MIN_PX, LANDUSE_REVEAL_MIN_PX_MAX, LANDUSE_REVEAL_MIN_PX_MIN,
-    LEAF_REFINE_DISTANCE_SCALE, LEAF_REFINE_DISTANCE_SCALE_MAX, LEAF_REFINE_DISTANCE_SCALE_MIN,
-    TERRAIN_DETAIL_DISTANCE_DEFAULT_M, TERRAIN_TRIANGLE_BUDGET, TERRAIN_TRIANGLE_BUDGET_MAX,
+    LANDUSE_REVEAL_MIN_PX_MAX, LANDUSE_REVEAL_MIN_PX_MIN,
+    LEAF_REFINE_DISTANCE_SCALE_MAX, LEAF_REFINE_DISTANCE_SCALE_MIN,
+    TERRAIN_TRIANGLE_BUDGET_MAX,
     TERRAIN_TRIANGLE_BUDGET_MIN, TERRAIN_VISIBLE_ZOOM_MAX, TERRAIN_VISIBLE_ZOOM_MIN,
 } from "../terrain/lod";
-import { LANDUSE_BLEND_DEFAULT } from "../terrain/tones";
-import { TREE_DENSITY_MULTIPLIER_DEFAULT, TREE_DENSITY_MULTIPLIER_MAX, TREE_DENSITY_MULTIPLIER_MIN } from "../terrain/treeBillboards";
-import { DEFAULT_FOVEATION, Foveation, RENDER_SCALES, sanitizeFoveation } from "./configService";
-import { DEFAULT_VIEW_RANGES, ViewRanges, sanitizeViewRanges } from "./viewRanges";
+import { TREE_DENSITY_MULTIPLIER_MAX, TREE_DENSITY_MULTIPLIER_MIN } from "../terrain/treeBillboards";
+import { Foveation, RENDER_SCALES, sanitizeFoveation } from "./configService";
+import { ViewRanges, sanitizeViewRanges } from "./viewRanges";
 
 const STORAGE_KEY = 'retroflightsim.settings';
 
@@ -120,6 +118,12 @@ export interface AppSettings {
     volume: number;
 }
 
+/**
+ * First-run settings: what a player gets before they change anything, and
+ * what a missing or invalid stored field falls back to. These are a chosen
+ * client setup, deliberately not the engine constants (TERRAIN_TRIANGLE_BUDGET,
+ * LANDUSE_REVEAL_MIN_PX, ...), which other code and tests rely on.
+ */
 const DEFAULT_SETTINGS: AppSettings = {
     techProfile: TechProfiles.HD,
     flightModel: FlightModels.FM2,
@@ -127,33 +131,46 @@ const DEFAULT_SETTINGS: AppSettings = {
     keyboardPitchStickMode: KeyboardPitchStickMode.LAYOUT_DEFAULT,
     unitSystem: UnitSystems.METRIC,
     touchControls: 'auto',
-    aiPilotModel: AiPilotModels.CLASSIC,
-    aiPersonality: defaultAiPersonality(),
-    terrainColour: TerrainColours.HYBRID,
+    aiPilotModel: AiPilotModels.TUNABLE,
+    aiPersonality: { aggression: 0.7, defensiveness: 0.6, skill: 1, energyFighting: 0.3, gunDiscipline: 0.9, gLimit: 9 },
+    terrainColour: TerrainColours.IMAGERY,
     terrainShading: TerrainShading.FACETED,
-    landuseBlend: LANDUSE_BLEND_DEFAULT,
-    treeDensity: TREE_DENSITY_MULTIPLIER_DEFAULT,
-    colourAdjust: defaultColourAdjust(),
+    landuseBlend: 0,
+    treeDensity: 10,
+    colourAdjust: {
+        trees: { hue: 0, saturation: 1, brightness: 1 },
+        terrain: { hue: 0, saturation: 1.3, brightness: 0.85 },
+        water: { hue: 0, saturation: 1.55, brightness: 0.25 },
+        sky: { hue: 5, saturation: 2, brightness: 1 },
+    },
     aircraftId: 'f22',
     spawnMode: 'runway',
-    daytime: DEFAULT_SUN_HOURS,
+    daytime: 14,
     terrainArea: '',
     terrainTree: '',
-    terrainDetailDistanceM: TERRAIN_DETAIL_DISTANCE_DEFAULT_M,
-    landuseReach: LEAF_REFINE_DISTANCE_SCALE,
+    terrainDetailDistanceM: 2000,
+    landuseReach: 1,
     visibleZoom: TERRAIN_VISIBLE_ZOOM_MAX,
-    landuseRevealPx: LANDUSE_REVEAL_MIN_PX,
-    terrainTriangleBudget: TERRAIN_TRIANGLE_BUDGET,
+    landuseRevealPx: 1,
+    terrainTriangleBudget: TERRAIN_TRIANGLE_BUDGET_MAX,
     farTileTextures: true,
     buildings: true,
     opponentsScramble: false,
     roads: RoadsMode.ALL,
     renderScale: 1,
     supersampling: false,
-    foveation: DEFAULT_FOVEATION,
-    viewRanges: DEFAULT_VIEW_RANGES,
+    foveation: { outerScale: 0, size: 0.5 },
+    viewRanges: {
+        textureFromKm: 17,
+        coarseTextureFromKm: 79,
+        blueMarbleFromKm: 430,
+        roadsKm: 200,
+        buildingsKm: 50,
+        airfieldsKm: 100,
+        treesKm: 50,
+    },
     aircraftSmoothShading: false,
-    volume: 0.7,
+    volume: 0.3,
 };
 
 const TECH_PROFILES = new Set<string>(Object.values(TechProfiles));
@@ -173,7 +190,7 @@ export function loadSettings(): AppSettings {
     try {
         const raw = localStorage.getItem(STORAGE_KEY) || BUILD_DEFAULTS;
         if (!raw) {
-            return { ...DEFAULT_SETTINGS };
+            return structuredClone(DEFAULT_SETTINGS);
         }
 
         const parsed = JSON.parse(raw) as Partial<AppSettings>;
@@ -186,13 +203,13 @@ export function loadSettings(): AppSettings {
             touchControls: parsed.touchControls === 'on' || parsed.touchControls === 'off'
                 ? parsed.touchControls : DEFAULT_SETTINGS.touchControls,
             aiPilotModel: isValidAiPilotModel(parsed.aiPilotModel) ? parsed.aiPilotModel : DEFAULT_SETTINGS.aiPilotModel,
-            aiPersonality: clampAiPersonality(parsed.aiPersonality),
+            aiPersonality: clampAiPersonality(parsed.aiPersonality ?? DEFAULT_SETTINGS.aiPersonality),
             terrainColour: isValidTerrainColour(parsed.terrainColour) ? parsed.terrainColour : DEFAULT_SETTINGS.terrainColour,
             terrainShading: isValidTerrainShading(parsed.terrainShading) ? parsed.terrainShading : DEFAULT_SETTINGS.terrainShading,
             landuseBlend: isValidLanduseBlend(parsed.landuseBlend) ? parsed.landuseBlend : DEFAULT_SETTINGS.landuseBlend,
             treeDensity: isValidTreeDensity(parsed.treeDensity)
                 ? parsed.treeDensity : DEFAULT_SETTINGS.treeDensity,
-            colourAdjust: clampColourAdjust(parsed.colourAdjust),
+            colourAdjust: clampColourAdjust(parsed.colourAdjust ?? DEFAULT_SETTINGS.colourAdjust),
             aircraftId: isValidAircraftId(parsed.aircraftId) ? parsed.aircraftId : DEFAULT_SETTINGS.aircraftId,
             spawnMode: isValidSpawnMode(parsed.spawnMode) ? parsed.spawnMode : DEFAULT_SETTINGS.spawnMode,
             daytime: isValidDaytime(parsed.daytime) ? parsed.daytime : DEFAULT_SETTINGS.daytime,
@@ -220,14 +237,14 @@ export function loadSettings(): AppSettings {
             renderScale: isValidRenderScale(parsed.renderScale) ? parsed.renderScale : DEFAULT_SETTINGS.renderScale,
             supersampling: typeof parsed.supersampling === 'boolean'
                 ? parsed.supersampling : DEFAULT_SETTINGS.supersampling,
-            foveation: sanitizeFoveation(parsed.foveation),
-            viewRanges: sanitizeViewRanges(parsed.viewRanges),
+            foveation: sanitizeFoveation(parsed.foveation ?? DEFAULT_SETTINGS.foveation),
+            viewRanges: sanitizeViewRanges(parsed.viewRanges ?? DEFAULT_SETTINGS.viewRanges),
             aircraftSmoothShading: typeof parsed.aircraftSmoothShading === 'boolean'
                 ? parsed.aircraftSmoothShading : DEFAULT_SETTINGS.aircraftSmoothShading,
             volume: isValidVolume(parsed.volume) ? parsed.volume : DEFAULT_SETTINGS.volume,
         };
     } catch {
-        return { ...DEFAULT_SETTINGS };
+        return structuredClone(DEFAULT_SETTINGS);
     }
 }
 
