@@ -154,7 +154,7 @@ export class HeightField {
     }
 
     /** Ensure the fine tier covers a lon/lat box. Await before relying on it. */
-    async ensureLoaded(bounds: LonLatBounds): Promise<void> {
+    async ensureLoaded(bounds: LonLatBounds, onSettled?: (id: TileKey) => void): Promise<void> {
         await Promise.all(this.fineTileIds(bounds).map(
             id => this.store.request(id, Number.MAX_SAFE_INTEGER).then(tile => {
                 // Arrived after the mirror asked to keep it: pin it now, or
@@ -162,6 +162,7 @@ export class HeightField {
                 if (tile && this.retained.has(tileKeyString(id))) {
                     this.store.setPinned(id, true);
                 }
+                onSettled?.(id);
             }),
         ));
     }
@@ -186,8 +187,10 @@ export class HeightField {
     }
 
     /** Ensure the fine tier covers a radius (m) around a scene point. */
-    async ensureLoadedAroundWorld(x: number, z: number, radiusM: number): Promise<void> {
-        await this.ensureLoaded(boundsAroundEnu(this.basis, x, northFromSceneZ(z), radiusM));
+    async ensureLoadedAroundWorld(
+        x: number, z: number, radiusM: number, onSettled?: (id: TileKey) => void,
+    ): Promise<void> {
+        await this.ensureLoaded(boundsAroundEnu(this.basis, x, northFromSceneZ(z), radiusM), onSettled);
     }
 
     /** Which tier would answer a query here. */

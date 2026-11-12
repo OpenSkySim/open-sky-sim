@@ -199,16 +199,17 @@ export class TileStreamer<T, G> {
      * a value sitting in the store's cache is decoded but not *drawable*, and
      * only tiles that reach `ready` are ever uploaded.
      */
-    async ensure(ids: TileKey[], priority: number): Promise<void> {
+    async ensure(ids: TileKey[], priority: number, onSettled?: () => void): Promise<void> {
         await Promise.all(ids.map(async id => {
             const key = tileKeyString(id);
-            if (this.gpu.has(key) || this.ready.has(key)) {
-                return;
+            if (!this.gpu.has(key) && !this.ready.has(key)) {
+                const value = await this.opts.store.request(id, priority);
+                if (value !== null) {
+                    this.ready.set(key, { id, value });
+                }
             }
-            const value = await this.opts.store.request(id, priority);
-            if (value !== null) {
-                this.ready.set(key, { id, value });
-            }
+            // Once per id, arrived, absent or already here: a progress count.
+            onSettled?.();
         }));
     }
 

@@ -43,7 +43,7 @@
         "preserve": "npm run build",
         "serve": "tsx tools/modserver.ts",
         "pretest": "npm run lint:sg",
-        "test": "node --import tsx --test src/script/config/**/*.test.ts src/script/physics/**/*.test.ts src/script/ai/**/*.test.ts src/script/mission/**/*.test.ts src/script/weapons/**/*.test.ts src/script/state/**/*.test.ts src/script/render/**/*.test.ts src/script/scene/**/*.test.ts src/script/planet/**/*.test.ts src/script/terrain/**/*.test.ts src/script/ui/**/*.test.ts",
+        "test": "node --import tsx --test src/script/config/**/*.test.ts src/script/osd/**/*.test.ts src/script/physics/**/*.test.ts src/script/ai/**/*.test.ts src/script/mission/**/*.test.ts src/script/weapons/**/*.test.ts src/script/state/**/*.test.ts src/script/render/**/*.test.ts src/script/scene/**/*.test.ts src/script/planet/**/*.test.ts src/script/terrain/**/*.test.ts src/script/ui/**/*.test.ts",
         "lint:sg": "ast-grep scan",
         "test:tools": "node --import tsx --test tools/bake/**/*.test.ts tools/satellite/**/*.test.ts tools/*.test.ts"
     },

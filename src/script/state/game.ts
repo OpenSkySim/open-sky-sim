@@ -126,7 +126,7 @@ import type { TerrainArea } from '../terrain/manifest';
 import { restoreMainCameraParameters } from './stateUtils';
 import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 import {
-    fadeOutBootProgress, hideCountdown, setBootProgress, setBootStreaming, showCountdown,
+    fadeOutBootProgress, hideCountdown, setBootProgress, setBootStreaming, showCountdown, startStreamHoldBar,
 } from '../osd/bootProgress';
 import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def, groupAircraftByModel } from './aircraftRegistry';
@@ -309,8 +309,11 @@ const STREAM_HOLD_MAX_MS = 20_000;
 const STREAM_COUNTDOWN_FROM = 3;
 /** How long "Go" stays up over the running flight. */
 const STREAM_GO_SHOWN_MS = 800;
-/** Fastest the streaming bar may advance (fraction of full per second), so it sweeps rather than jumps. */
-const STREAM_BAR_RATE_PER_S = 0.5;
+/**
+ * Share of a respawn's blurred bar for its pin preload; the streaming hold
+ * that follows fills the rest (see bootProgress.startStreamHoldBar).
+ */
+const RESPAWN_PRELOAD_SHARE = 40;
 /** Scratch for {@link Game.updateAtmosphereShell}. */
 const SHELL_CENTRE = new THREE.Vector3();
 const SHELL_AXIS = new THREE.Vector3();
@@ -1256,7 +1259,7 @@ export class Game {
     }
 
     async setup() {
-        setBootProgress(5, 'Initializing renderer...');
+        setBootProgress(1, 'Initializing renderer...');
         if (this.mapMode) {
             // Before any tile binds its texture: see setCoverUnderlay.
             setCoverUnderlay(true);
@@ -1265,7 +1268,7 @@ export class Game {
         this.renderer.setPalette(this.getPalette());
         this.materials.setPalette(this.getPalette());
         this.setupControls();
-        setBootProgress(15, 'Loading aircraft packs...');
+        setBootProgress(2, 'Loading aircraft packs...');
         await this.loadPersistedPacks();
         const missionId = this.mapMode ? undefined : parseAppRoute().mission;
         const bootMission = missionId ? await this.missionById(missionId) : undefined;
@@ -1276,10 +1279,10 @@ export class Game {
             return;
         }
         const settings = loadSettings();
-        setBootProgress(25, 'Building scene...');
+        setBootProgress(5, 'Building scene...');
         await this.setupScene(settings.spawnMode);
         this.selectAircraftById(settings.aircraftId, 'f22');
-        setBootProgress(90, 'Loading aircraft...');
+        setBootProgress(74, 'Loading aircraft...');
         // beginFlight's spawn overwrites this.cameraRoute with the spawn's
         // own pose (see syncSpawnCameraUrl), so the URL's route has to be
         // captured before that call to still know whether to boot into it.
@@ -1306,7 +1309,7 @@ export class Game {
         }
         // The map fills in as its tiles arrive; there is no flight to hold for.
         if (!this.mapView) {
-            await this.waitForRequiredTerrain(90, 99);
+            await this.waitForRequiredTerrain(97, 99);
         }
         if (bootMission && missionId) {
             await this.startMission(bootMission, missionId);
@@ -1905,14 +1908,28 @@ export class Game {
         return this.onRunwayAxis(LAND_APPROACH_FINAL_M);
     }
 
-    /** Pin the tiles around the plane so the spawn area cannot be evicted. */
-    private async preloadTerrainAroundPlane(x: number, z: number, spawn?: SpawnMode): Promise<void> {
+    /**
+     * Pin the tiles around the plane so the spawn area cannot be evicted.
+     * `onProgress` hears the fraction of the plan's tiles that arrived, 0..1.
+     */
+    private async preloadTerrainAroundPlane(
+        x: number, z: number, spawn?: SpawnMode, onProgress?: (fraction: number) => void,
+    ): Promise<void> {
         const plan = this.terrainSeedPlan(spawn);
-        for (const ring of plan.rings) {
+        const rings = plan.rings.length;
+        for (const [i, ring] of plan.rings.entries()) {
             await this.planetTerrain.pinArea(
                 x, z, ring.radiusM, ring.zoom ?? this.planetTerrain.maxZoom,
+                (done, total) => onProgress?.((i + (total > 0 ? done / total : 1)) / rings),
             );
         }
+    }
+
+    /** A pin download as boot-bar progress between `min` and `max` percent. */
+    private bootTileProgress(min: number, max: number): (fraction: number) => void {
+        return fraction => setBootProgress(
+            min + (max - min) * fraction,
+            `Loading terrain tiles... ${Math.floor(100 * fraction)}%`);
     }
 
     /**
@@ -1979,17 +1996,9 @@ export class Game {
 
     /** The streaming bar: resolves once the LOD backlog stays empty. */
     private async waitForStreamBacklog(token: number): Promise<void> {
-        setBootStreaming(0, 'Streaming terrain... 0%');
+        startStreamHoldBar('Streaming terrain...');
         const start = performance.now();
         let idleSince: number | undefined;
-        // The backlog grows as the LOD pass finds more to want, so a plain
-        // backlog/peak ratio jumps back and forth. Count what drained instead,
-        // never let the bar go backwards, and move it at a capped rate so it
-        // reads as a steady sweep.
-        let prevBacklog = 0;
-        let drained = 0;
-        let shown = 0;
-        let lastTick = start;
         await new Promise<void>(resolve => {
             const tick = () => {
                 if (token !== this.streamHoldToken) {
@@ -1997,24 +2006,19 @@ export class Game {
                     return;
                 }
                 const now = performance.now();
-                const backlog = this.planetTerrain.streamingBacklog;
-                drained += Math.max(0, prevBacklog - backlog);
-                prevBacklog = backlog;
-                const target = backlog > 0 ? drained / (drained + backlog) : 1;
-                const step = STREAM_BAR_RATE_PER_S * (now - lastTick) / 1000;
-                lastTick = now;
-                shown = Math.min(Math.max(shown, target), shown + step);
-                // The label reads off the same smoothed value as the bar: the
-                // raw backlog count rises and falls as the LOD pass finds work.
-                setBootStreaming(100 * shown, `Streaming terrain... ${Math.floor(100 * shown)}%`);
-                if (backlog > 0) {
+                // The bar runs on time against the cap, not on the backlog:
+                // the LOD pass keeps finding work as tiles land, so on a
+                // Pages-speed link the backlog drains 85 % in a few seconds
+                // and then refills for the rest of the hold, which reached
+                // the cap in every throttled boot measured. Settling early
+                // finishes the bar with a quick sweep instead.
+                setBootStreaming(100 * Math.min(1, (now - start) / STREAM_HOLD_MAX_MS), 'Streaming terrain...');
+                if (this.planetTerrain.streamingBacklog > 0) {
                     idleSince = undefined;
                 } else {
                     idleSince ??= now;
                 }
-                // Let the bar finish its sweep before clearing, so it never
-                // vanishes at 70%.
-                const settled = idleSince !== undefined && now - idleSince >= STREAM_SETTLE_MS && shown >= 1;
+                const settled = idleSince !== undefined && now - idleSince >= STREAM_SETTLE_MS;
                 if (settled || now - start >= STREAM_HOLD_MAX_MS) {
                     resolve();
                     return;
@@ -5014,7 +5018,8 @@ export class Game {
             this.streamHeld = true;
             hideCountdown();
             setBootStreaming(0, 'Loading terrain...');
-            await this.preloadTerrainAroundPlane(p.x, p.z, 'approach');
+            await this.preloadTerrainAroundPlane(p.x, p.z, 'approach',
+                f => setBootStreaming(RESPAWN_PRELOAD_SHARE * f, `Loading terrain... ${Math.floor(100 * f)}%`));
         }
         // Unpaused first: the hold pauses for itself and resumes on "Go".
         this.player.setSimulationPaused(false);
@@ -6445,7 +6450,12 @@ export class Game {
         place();
         // The map has no flight to seed: its own tiles stream in on screen.
         if (!this.mapMode) {
-            await this.preloadTerrainAroundPlane(center.x, center.z, seedMode);
+            // The boot bar between "Loading aircraft" and the meshing wait,
+            // or the respawn's blurred bar; nothing when all is resident.
+            const progress = !this.kernelRunning ? this.bootTileProgress(74, 97)
+                : !resident ? (f: number) => setBootStreaming(RESPAWN_PRELOAD_SHARE * f, `Loading terrain... ${Math.floor(100 * f)}%`)
+                : undefined;
+            await this.preloadTerrainAroundPlane(center.x, center.z, seedMode, progress);
         }
         // Again, now that the DEM under the spawn is resident: a runway or
         // final picked at another airfield was placed above whatever height
@@ -7173,7 +7183,7 @@ export class Game {
         );
         this.scene.add(this.cirrusField);
 
-        setBootProgress(35, 'Loading terrain...');
+        setBootProgress(8, 'Loading terrain...');
         this.planetTerrain = new TerrainEntity({
             manifest,
             manifestUrl: terrainUrl,
@@ -7198,29 +7208,31 @@ export class Game {
         this.planetTerrain.setLodCamera(this.playerCamera.main);
         this.scene.add(this.planetTerrain);
         const center = this.spawnCenterEnu(spawn);
-        setBootProgress(45, 'Loading terrain tiles...');
+        setBootProgress(11, 'Loading terrain tiles...');
         // The airbase flatten pad is baked into both the mesh and the height
         // field, so there is no pad to lock here any more — that DEM sample and
         // the re-mesh it forced were the slowest step in the old boot.
+        //
+        // This download is most of a first launch: move the bar with it.
+        const routeAt = this.cameraRoute && !this.mapMode ? this.cameraRouteWorld(this.cameraRoute) : undefined;
         if (!this.mapMode) {
-            await this.preloadTerrainAroundPlane(center.x, center.z, spawn);
+            await this.preloadTerrainAroundPlane(center.x, center.z, spawn,
+                this.bootTileProgress(11, routeAt ? 40 : 63));
         }
-        if (this.cameraRoute && !this.mapMode) {
-            const at = this.cameraRouteWorld(this.cameraRoute);
-            await this.preloadTerrainAroundPlane(at.x, at.z, 'highAlt');
+        if (routeAt) {
+            await this.preloadTerrainAroundPlane(routeAt.x, routeAt.z, 'highAlt', this.bootTileProgress(40, 63));
         }
-        setBootProgress(50, 'Building terrain meshes...');
         // Airfields first: the runway this session is based at decides where
         // the spawns are, which way the ILS points and where the carrier goes
         // — so it has to be chosen before any of that is placed.
-        setBootProgress(60, 'Loading airfields...');
+        setBootProgress(63, 'Loading airfields...');
         this.surfacePads.clear();
         this.sceneryMeshes.length = 0;
         this.sceneryIndex = undefined;
         this.stagedSceneryMeshes.length = 0;
         await this.addOsmAirfields(this.scene);
 
-        setBootProgress(68, 'Loading airbase...');
+        setBootProgress(71, 'Loading airbase...');
         await this.addAirBase(this.scene, this.models);
 
         // All scenery is placed — its colliders become solid ground from here on.
@@ -7316,7 +7328,10 @@ export class Game {
         // The rest - pavement, buildings, the target - only near the spawn;
         // the others stream in as the aircraft comes within range.
         const centre = this.activeRunway?.center;
-        await this.buildAirfieldsNear(centre?.x ?? 0, centre?.z ?? 0);
+        // Each field waits on the height tiles under it: count them off, or
+        // the boot bar sits still at "Loading airfields" for seconds.
+        await this.buildAirfieldsNear(centre?.x ?? 0, centre?.z ?? 0, (done, total) => setBootProgress(
+            63 + 8 * done / total, `Loading airfields (${done}/${total})...`));
         const active = this.activeRunway;
         console.log(`airfields: ${here.length} in "${this.playArea.area.name}", `
             + `${this.sceneRunways.length} runways, ${this.builtAirfields.size} built within `
@@ -7348,14 +7363,17 @@ export class Game {
      * scene (x, z), nearest first: pavement, buildings, target, and solid
      * buildings (see addBuildingColliders). Runways are solid from boot.
      */
-    private async buildAirfieldsNear(x: number, z: number): Promise<void> {
+    private async buildAirfieldsNear(
+        x: number, z: number, onProgress?: (done: number, total: number) => void,
+    ): Promise<void> {
         const radius = this.airfieldStreamRadiusM();
         const r2 = radius * radius;
         const due = this.areaAirfields
             .filter(a => !this.builtAirfields.has(a.airfield)
                 && (a.x - x) ** 2 + (a.z - z) ** 2 <= r2)
             .sort((a, b) => ((a.x - x) ** 2 + (a.z - z) ** 2) - ((b.x - x) ** 2 + (b.z - z) ** 2));
-        for (const { airfield } of due) {
+        for (const [i, { airfield }] of due.entries()) {
+            onProgress?.(i, due.length);
             if (this.builtAirfields.has(airfield)) {
                 continue;
             }

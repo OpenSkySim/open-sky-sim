@@ -1421,18 +1421,49 @@ export class TerrainEntity implements Entity {
         this.lodCamera = camera;
     }
 
-    /** Pin tiles around a scene point so boot and spawn areas cannot be evicted. */
-    async pinArea(x: number, z: number, radiusM: number, zoom: number): Promise<void> {
+    /**
+     * Pin tiles around a scene point so boot and spawn areas cannot be evicted.
+     * `onProgress` hears (arrived, total) as the mesh and height tiles come
+     * in, so a loading bar can move through the download rather than sit
+     * still.
+     */
+    async pinArea(
+        x: number, z: number, radiusM: number, zoom: number,
+        onProgress?: (done: number, total: number) => void,
+    ): Promise<void> {
         const ids = this.tilesToPin(x, z, radiusM, zoom);
         for (const id of ids) {
             this.pinned.add(tileKeyString(id));
         }
         this.streamer.setPinnedKeys(this.pinned);
-        await this.streamer.ensure(ids, Number.MAX_SAFE_INTEGER);
+        // Count only what has to come over the wire: sea tiles the index
+        // rules out and tiles already here settle at once, and around a
+        // coast they are half the ring - the bar jumped to 50 % and crawled.
+        const toFetch: TileKey[] = [];
+        const settled: TileKey[] = [];
+        for (const id of ids) {
+            (this.streamer.has(id) || this.meshStore.isAbsent(id) ? settled : toFetch).push(id);
+        }
+        // The heights come after the meshes; counted from the start so the
+        // total never grows under a bar that is already moving.
+        const heightsToFetch = new Set(this.heights.fineTileIdsAroundWorld(x, z, radiusM)
+            .filter(id => !this.heights.peekFine(id) && !this.heights.isFineAbsent(id))
+            .map(tileKeyString));
+        const total = toFetch.length + heightsToFetch.size;
+        let done = 0;
+        onProgress?.(0, total);
+        await Promise.all([
+            this.streamer.ensure(settled, Number.MAX_SAFE_INTEGER),
+            this.streamer.ensure(toFetch, Number.MAX_SAFE_INTEGER, () => onProgress?.(++done, total)),
+        ]);
         for (const id of ids) {
             this.meshStore.setPinned(id, true);
         }
-        await this.heights.ensureLoadedAroundWorld(x, z, radiusM);
+        await this.heights.ensureLoadedAroundWorld(x, z, radiusM, id => {
+            if (heightsToFetch.delete(tileKeyString(id))) {
+                onProgress?.(++done, total);
+            }
+        });
     }
 
     /**

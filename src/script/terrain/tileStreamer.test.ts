@@ -119,6 +119,24 @@ describe('want scoring', () => {
 });
 
 describe('TileStreamer', () => {
+    it('ensure reports each tile as it settles, for the loading bar', async () => {
+        const h = makeHarness({ delayMs: 5 });
+        try {
+            const ids = [t(9, 0, 0), t(9, 0, 1), t(9, 0, 2)];
+            const seen: number[] = [];
+            let n = 0;
+            await h.streamer.ensure(ids, PRIORITY_PINNED, () => seen.push(++n));
+            assert.deepEqual(seen, [1, 2, 3]);
+            // Already here: still counted, so a respawn's bar reaches 100 %.
+            n = 0;
+            seen.length = 0;
+            await h.streamer.ensure(ids, PRIORITY_PINNED, () => seen.push(++n));
+            assert.deepEqual(seen, [1, 2, 3]);
+        } finally {
+            h.restore();
+        }
+    });
+
     it('requests every wanted tile once', async () => {
         const h = makeHarness();
         try {
