@@ -37,3 +37,11 @@ dist
 # Scratch output of tools/rebake_all.mjs
 /rebake_all.log
 /data/satellite/
+
+# Editor / agent / scratch folders
+/.agents/
+/.ai/
+/.claude/
+/.cursor/
+/.idea/
+/.tmp/
