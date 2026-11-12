@@ -149,7 +149,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     terrainArea: '',
     terrainTree: '',
     terrainDetailDistanceM: 2000,
-    landuseReach: 1,
+    landuseReach: 5.5,
     visibleZoom: TERRAIN_VISIBLE_ZOOM_MAX,
     landuseRevealPx: 1,
     terrainTriangleBudget: TERRAIN_TRIANGLE_BUDGET_MAX,
@@ -161,7 +161,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     supersampling: false,
     foveation: { outerScale: 0, size: 0.5 },
     viewRanges: {
-        textureFromKm: 17,
+        textureFromKm: 5,
         coarseTextureFromKm: 79,
         blueMarbleFromKm: 430,
         roadsKm: 200,
