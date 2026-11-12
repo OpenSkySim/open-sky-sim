@@ -1526,8 +1526,8 @@ export class CombatSim implements ProjectileSink {
             }
             a.applyInputsToModel();
             if (this.playerInputs.get(a.id)?.inputEnabled === false) {
-                // The player's flight is held (the spawn's streaming hold and
-                // countdown, the menu): the jet holds too. Flown on through it
+                // The player's flight is held (the spawn's streaming hold,
+                // the menu): the jet holds too. Flown on through it
                 // on neutral inputs - no power, flaps down, no trim - it was
                 // let go wherever that took it: the barricade arrival came out
                 // of a long hold ballooning over the net.

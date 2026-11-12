@@ -298,21 +298,3 @@ function beginFade(root: HTMLElement): void {
     // transitionend never fires when the transition is skipped (reduced motion, hidden tab).
     setTimeout(done, 1100);
 }
-
-/** The big "get ready" number shown after the streaming blur lifts (#countdown). */
-export function showCountdown(text: string): void {
-    const el = document.getElementById('countdown');
-    if (!el) {
-        return;
-    }
-    el.textContent = text;
-    el.classList.remove('hidden');
-    // Restart the pop animation for each number.
-    el.classList.remove('tick');
-    void el.offsetWidth;
-    el.classList.add('tick');
-}
-
-export function hideCountdown(): void {
-    document.getElementById('countdown')?.classList.add('hidden');
-}

@@ -240,25 +240,38 @@ function sparkColour(t: number): string {
     return '#d2461c';
 }
 
-/** The weld pool's glare: white core, orange bloom, flickering. */
+/**
+ * The arc: a white-hot core in a blue-white glare that flickers hard frame
+ * to frame, with now and then a flash; under it, a small orange glow from
+ * the molten pool.
+ */
 function drawArc(ctx: Ctx2D, x: number, y: number, steady: boolean): void {
-    const flicker = steady ? 1 : 0.75 + 0.5 * Math.random();
-    const r = 26 * flicker;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(255,255,255,1)');
-    g.addColorStop(0.12, 'rgba(255,246,214,0.95)');
-    g.addColorStop(0.35, 'rgba(255,170,60,0.45)');
-    g.addColorStop(1, 'rgba(255,90,0,0)');
-    ctx.fillStyle = g;
+    const flash = !steady && Math.random() < 0.06;
+    const flicker = steady ? 1 : flash ? 1.5 + 0.4 * Math.random() : 0.55 + 0.6 * Math.random();
+    // The pool, steadier than the arc above it.
+    const pr = 13;
+    const pool = ctx.createRadialGradient(x, y, 0, x, y, pr);
+    pool.addColorStop(0, 'rgba(255,190,90,0.55)');
+    pool.addColorStop(1, 'rgba(255,90,0,0)');
+    ctx.fillStyle = pool;
+    ctx.beginPath();
+    ctx.arc(x, y, pr, 0, Math.PI * 2);
+    ctx.fill();
+    // Blue-white glare.
+    const r = 34 * flicker;
+    const glare = ctx.createRadialGradient(x, y, 0, x, y, r);
+    glare.addColorStop(0, 'rgba(255,255,255,1)');
+    glare.addColorStop(0.1, 'rgba(235,244,255,0.95)');
+    glare.addColorStop(0.3, 'rgba(150,195,255,0.5)');
+    glare.addColorStop(0.6, 'rgba(90,140,255,0.15)');
+    glare.addColorStop(1, 'rgba(70,120,255,0)');
+    ctx.fillStyle = glare;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
-    // The arc's own blue-white light, tighter than the pool.
-    const c = ctx.createRadialGradient(x, y, 0, x, y, 9 * flicker);
-    c.addColorStop(0, 'rgba(225,235,255,0.9)');
-    c.addColorStop(1, 'rgba(160,190,255,0)');
-    ctx.fillStyle = c;
+    // White-hot core.
+    ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(x, y, 9 * flicker, 0, Math.PI * 2);
+    ctx.arc(x, y, 2.5 + 1.5 * flicker, 0, Math.PI * 2);
     ctx.fill();
 }

@@ -1515,9 +1515,19 @@ export class TerrainEntity implements Entity {
         const r = this.roads.stats;
         const b = this.bridges.stats;
         const h = this.buildings.stats;
+        // Buildings count until they are built, not just fetched: a house
+        // that arrived but is not extruded yet is not on screen either.
         return m.queued + m.inflight + this.streamer.pendingUploads
-            + c.queued + c.inflight + r.queued + r.inflight + b.queued + b.inflight + h.queued + h.inflight;
+            + c.queued + c.inflight + r.queued + r.inflight + b.queued + b.inflight
+            + h.queued + h.inflight + h.building;
     }
+
+    /**
+     * Set while the loading screen holds the flight (Game.holdUntilStreamed):
+     * the view under it is drawn at a low rate, so each frame builds
+     * buildings for longer to keep up.
+     */
+    loadingHold = false;
 
     /** Resolve once every pinned tile is uploaded, reporting progress. */
     async waitForPinned(onProgress?: (done: number, total: number) => void): Promise<void> {
@@ -1865,7 +1875,7 @@ export class TerrainEntity implements Entity {
         if (camera) {
             this.reorderTrees(camera.position, pixelAngle);
             this.roads.buildPendingLevels(ROAD_LEVEL_BUILD_MS);
-            this.buildings.buildPending(BUILDING_BUILD_MS);
+            this.buildings.buildPending(this.loadingHold ? BUILDING_HOLD_BUILD_MS : BUILDING_BUILD_MS);
             this.buildings.endFrame(pixelAngle);
         }
     }
@@ -2931,6 +2941,12 @@ const RIVER_TEXTURE_MIN_TEXELS = 2;
 
 /** Main-thread time a frame may spend simplifying far road levels; see RoadStrokes.buildPendingLevels. */
 const ROAD_LEVEL_BUILD_MS = 2;
+/**
+ * Building budget a frame under the loading screen, which draws the view at
+ * about 12 fps (index.ts): about 300 ms of building a second, so the houses
+ * are in before it lifts. The weld bar runs in a worker and does not mind.
+ */
+const BUILDING_HOLD_BUILD_MS = 25;
 
 /**
  * Width of the ramp from an area's edge down to the flat sea-level ground

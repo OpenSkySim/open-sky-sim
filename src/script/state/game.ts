@@ -126,7 +126,7 @@ import type { TerrainArea } from '../terrain/manifest';
 import { restoreMainCameraParameters } from './stateUtils';
 import { SpawnMenuEntity } from '../scene/entities/overlay/spawnMenu';
 import {
-    fadeOutBootProgress, hideCountdown, setBootProgress, setBootStreaming, showCountdown, startStreamHoldBar,
+    fadeOutBootProgress, setBootProgress, setBootStreaming, startStreamHoldBar,
 } from '../osd/bootProgress';
 import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def, groupAircraftByModel } from './aircraftRegistry';
@@ -303,12 +303,12 @@ function videoExportFrames(span: number, fps: number): number {
 
 /** How long the terrain backlog must stay empty before the boot blur lifts; see Game.holdUntilStreamed. */
 const STREAM_SETTLE_MS = 600;
-/** The boot blur lifts after this even if streaming never goes quiet (a failing tile, a slow link). */
-const STREAM_HOLD_MAX_MS = 20_000;
-/** Seconds counted down, still paused, once streaming has settled; "Go" follows. */
-const STREAM_COUNTDOWN_FROM = 3;
-/** How long "Go" stays up over the running flight. */
-const STREAM_GO_SHOWN_MS = 800;
+/**
+ * The boot blur lifts after this even if streaming never goes quiet (a
+ * failing tile). Throttled to Pages speed the whole scenery, houses built,
+ * settled in 13 s; this leaves room for a slower link.
+ */
+const STREAM_HOLD_MAX_MS = 45_000;
 /**
  * Share of a respawn's blurred bar for its pin preload; the streaming hold
  * that follows fills the rest (see bootProgress.startStreamHoldBar).
@@ -1944,7 +1944,7 @@ export class Game {
      * drawing while update() sits out the hold.
      *
      * With `stream` false (a respawn into terrain that is all resident) the
-     * overlay and the wait are skipped and only the countdown runs.
+     * overlay and the wait are skipped.
      */
     async holdUntilStreamed(stream = true): Promise<void> {
         if (this.mapView) {
@@ -1965,26 +1965,13 @@ export class Game {
         if (token !== this.streamHoldToken) {
             return;
         }
-        // The blur clears over the first second of a "get ready" count,
-        // still paused; the flight starts on "Go". Unconditional: a resident
-        // respawn can interrupt a hold whose blur is still up.
+        // The bar finishes, then the blur clears and the flight starts at
+        // once. Unconditional: a resident respawn can interrupt a hold whose
+        // blur is still up.
         await fadeOutBootProgress();
         if (token !== this.streamHoldToken) {
             return;
         }
-        for (let n = STREAM_COUNTDOWN_FROM; n > 0; n--) {
-            showCountdown(String(n));
-            await new Promise(r => setTimeout(r, 1000));
-            if (token !== this.streamHoldToken) {
-                return;
-            }
-        }
-        showCountdown('Go');
-        setTimeout(() => {
-            if (token === this.streamHoldToken) {
-                hideCountdown();
-            }
-        }, STREAM_GO_SHOWN_MS);
         this.streamHeld = false;
         // Something else (a fixed camera from the URL, the menu) may have
         // wanted the flight paused all along; only undo our own pause.
@@ -2002,11 +1989,13 @@ export class Game {
     /** The streaming bar: resolves once the LOD backlog stays empty. */
     private async waitForStreamBacklog(token: number): Promise<void> {
         startStreamHoldBar('Loading scenery details...');
+        this.planetTerrain.loadingHold = true;
         const start = performance.now();
         let idleSince: number | undefined;
         await new Promise<void>(resolve => {
             const tick = () => {
                 if (token !== this.streamHoldToken) {
+                    this.planetTerrain.loadingHold = false;
                     resolve();
                     return;
                 }
@@ -2014,9 +2003,9 @@ export class Game {
                 // The bar runs on time, not on the backlog: the LOD pass
                 // keeps finding work as tiles land, so on a Pages-speed link
                 // the backlog drains 85 % in a few seconds and then refills
-                // until the cap. Easing out over STREAM_BAR_TAU_MS leaves a
-                // short last sweep whether the hold settles at 5 s (local:
-                // 9 s) or runs to the 20 s cap (92 % by then).
+                // for seconds. Easing out over STREAM_BAR_TAU_MS leaves a
+                // short last sweep whether the hold settles at 5 s, at 13 s
+                // (Pages speed: 80 %) or runs to the 45 s cap.
                 setBootStreaming(100 * (1 - Math.exp(-(now - start) / STREAM_BAR_TAU_MS)), 'Loading scenery details...');
                 if (this.planetTerrain.streamingBacklog > 0) {
                     idleSince = undefined;
@@ -2025,6 +2014,7 @@ export class Game {
                 }
                 const settled = idleSince !== undefined && now - idleSince >= STREAM_SETTLE_MS;
                 if (settled || now - start >= STREAM_HOLD_MAX_MS) {
+                    this.planetTerrain.loadingHold = false;
                     resolve();
                     return;
                 }
@@ -3562,7 +3552,7 @@ export class Game {
     private advanceCarrier(delta: number): void {
         if (!this.kuz) return;
         // The ship holds still while the flight does (the spawn's streaming
-        // hold and countdown, the menu, a pause): steaming on under a frozen
+        // hold, the menu, a pause): steaming on under a frozen
         // jet left the barricade arrival hundreds of metres further astern
         // than spawned, and off its glide path, by the time it was let go.
         if (!this.player.controlsEnabled) return;
@@ -4975,7 +4965,6 @@ export class Game {
         // A spawn's hold still running would keep update(), and so the map, still.
         this.streamHoldToken++;
         this.streamHeld = false;
-        hideCountdown();
         void fadeOutBootProgress();
         this.heldFixedCameraKeys.clear();
         this.fixedCameraRates = zeroFixedCameraRates();
@@ -5021,7 +5010,6 @@ export class Game {
         const resident = this.isSeedAreaResident(p.x, p.z, 'approach');
         if (!resident) {
             this.streamHeld = true;
-            hideCountdown();
             setBootStreaming(0, 'Loading terrain...');
             await this.preloadTerrainAroundPlane(p.x, p.z, 'approach',
                 f => setBootStreaming(RESPAWN_PRELOAD_SHARE * f, `Loading terrain... ${Math.floor(100 * f)}%`));
@@ -6375,13 +6363,12 @@ export class Game {
         const center = at !== undefined ? this.locationSpawnPosition(at) : this.spawnCenterEnu(spawn);
         // Respawning where the last flight was finds the whole pinned ring
         // still resident (pins are never released): nothing to stream, so no
-        // blur and no streaming wait, only the countdown.
+        // blur and no streaming wait.
         const resident = this.kernelRunning && this.isSeedAreaResident(center.x, center.z, seedMode);
         if (this.kernelRunning && !resident) {
             // A respawn: blur the old view straight away rather than showing
             // the aircraft jump and the terrain around it fill in.
             this.streamHeld = true;
-            hideCountdown();
             setBootStreaming(0, 'Loading terrain...');
         }
         // Held until the terrain under the spawn is in (see below); the menu
