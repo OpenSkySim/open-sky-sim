@@ -6,7 +6,7 @@ Forked from [Ruben3d RetroFlightSim](https://github.com/ruben3d/retroflightsim/)
 ## Live demo
 <img width="200" height="200" alt="qrcode" src="https://github.com/user-attachments/assets/a5d8d3ad-e5af-468a-8519-d4e6d77d8abd" />
 
-[Open-Sky-Sim](https://christianschwarz.github.io/open-sky-sim/)
+[Open-Sky-Sim](https://openskysim.github.io/open-sky-sim-fe/)
 
 <img width="3439" height="1305" alt="image" src="https://github.com/user-attachments/assets/393ce764-8ba2-4ead-83ec-9a29635c036f" />
 <img width="3439" height="1305" alt="image" src="https://github.com/user-attachments/assets/80f82dd5-201f-4d99-abf2-1dcf45131fe3" />
