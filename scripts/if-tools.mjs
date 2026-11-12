@@ -1,6 +1,6 @@
 // Runs an npm script only when the private tools/ submodule is checked out.
 // The public game builds without it; the bake tools, mod packing and the dev
-// server live in OpenSkySim/open-sky-sim-be, mounted at tools/.
+// server live in OpenSkySim/open-sky-sim-server, mounted at tools/.
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 
