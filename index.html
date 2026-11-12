@@ -5,15 +5,15 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Retro Flight Sim</title>
+    <title>Open Sky Sim</title>
     <!-- Added to the home screen: starts fullscreen in landscape (touchStartGate.ts). -->
     <link rel="manifest" href="./manifest.webmanifest">
     <meta name="theme-color" content="#000000">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="apple-touch-icon" href="./assets/icon-192.png">
-    <link rel="stylesheet" href="./bundle.css?v=1794508781132">
-    <script src="./bundle.js?v=1794508781132"></script>
+    <link rel="stylesheet" href="./bundle.css?v=1794511798969">
+    <script src="./bundle.js?v=1794511798969"></script>
 </head>
 
 <!-- map-view: the map mode (F12, state/mapView.ts), the page as a map with the map on the right. -->
@@ -23,16 +23,12 @@
          fading: blur and dim go to zero in 1s, under the countdown; the dialog leaves at once. -->
     <div id="boot-progress" class="fixed inset-0 z-4 flex items-center justify-center bg-black/85 [&.hidden]:hidden
             [&.streaming]:transition-[backdrop-filter,background-color] [&.streaming]:duration-1000 [&.streaming]:ease-linear
-            [&.streaming:not(.fading)]:bg-black/35 [&.streaming:not(.fading)]:backdrop-blur-[12px]
+            [&.streaming:not(.fading)]:bg-black/80 [&.streaming:not(.fading)]:backdrop-blur-[12px]
             [&.fading]:pointer-events-none [&.fading]:bg-black/0 [&.fading]:backdrop-blur-[0px]">
         <div id="boot-progress-dialog" class="min-w-64 max-w-[90vw] border border-[#8a8a8a] bg-black/90 p-5 text-center text-[#b8b8b8] in-[.fading]:invisible">
-            <h2 class="mt-0 mb-4 text-[1.25rem] text-white">Retro Flight Sim</h2>
-            <div id="boot-progress-label" class="mb-3 text-[0.9rem] text-white">Loading...</div>
-            <div id="boot-progress-track" class="h-2 w-full overflow-hidden border border-[#8a8a8a] bg-[#3a3a3a]">
-                <div id="boot-progress-fill" class="h-full w-0 bg-white transition-[width] duration-200 ease-linear"></div>
-            </div>
+            <h2 class="mt-0 mb-4 text-[1.25rem] text-white">Open Sky Sim</h2>
             <!-- Filled from GoatCounter on the live site (ui/visitorCount.ts); stays hidden if that fails. -->
-            <div id="boot-visitors" class="hidden mt-2 text-[0.75rem] font-normal text-[#8a8a8a]"></div>
+            <div id="boot-visitors" class="hidden text-[0.75rem] font-normal text-[#8a8a8a]"></div>
             <!-- Key cheat sheet while loading. The four stick/throttle rows follow the
                  saved keyboard layout (osd/bootProgress.ts fills data-action cells). -->
             <div id="boot-keys" class="mt-4 border-t border-[#5a5a5a] pt-3 text-left text-[0.8rem] font-normal pointer-coarse:hidden
@@ -62,6 +58,15 @@
                 <a href="https://bsky.app/profile/openskysim.bsky.social" target="_blank" rel="noopener"
                     class="text-[#8fd3ff] underline hover:text-white">@openskysim.bsky.social on Bluesky</a>
             </div>
+        </div>
+        <!-- Progress along the bottom of the screen, under the dialog. -->
+        <!-- The bar is a weld seam, drawn whole on the canvas by a worker (osd/weldBar.ts)
+             so it runs smoothly while the page is busy loading. -->
+        <div id="boot-progress-bottom" class="absolute inset-x-0 bottom-0 px-4 pb-6 text-center in-[.fading]:invisible sm:px-[10vw]">
+            <div id="boot-progress-label" class="relative z-1 mb-2 text-[0.9rem] text-white">Loading...</div>
+            <!-- Where the bar goes: the canvas below draws it here. -->
+            <div id="boot-progress-track" class="h-2.5 w-full"></div>
+            <canvas id="boot-progress-sparks" class="pointer-events-none absolute inset-x-0 bottom-0 h-40 w-full"></canvas>
         </div>
     </div>
     <div id="countdown" class="hidden pointer-events-none fixed top-1/2 left-1/2 z-4 -translate-1/2 text-[8rem] font-bold text-white text-shadow-[0_0_0.5rem_black,0_0_1.5rem_black] [&.tick]:animate-countdown-tick in-[.map-view]:hidden"></div>

@@ -1,6 +1,6 @@
 {
-    "name": "Retro Flight Sim",
-    "short_name": "Flight Sim",
+    "name": "Open Sky Sim",
+    "short_name": "Open Sky Sim",
     "start_url": "./",
     "scope": "./",
     "display": "fullscreen",
