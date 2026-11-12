@@ -63,7 +63,7 @@ export async function toggleSettingsDialog(): Promise<void> {
 function prepareWindow(win: Window): void {
     const doc = win.document;
     doc.open();
-    doc.write('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Settings - Retro Flight Sim</title></head><body></body></html>');
+    doc.write('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Settings - Open Sky Sim</title></head><body></body></html>');
     doc.close();
     for (const el of Array.from(document.head.querySelectorAll('link[rel="stylesheet"], style'))) {
         const copy = doc.importNode(el, true) as HTMLElement;
