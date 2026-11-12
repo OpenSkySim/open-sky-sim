@@ -3,6 +3,7 @@
 import {
     KeyboardControlAction, KeyboardControlLayoutId, formatControlKey, getKeyboardLayout,
 } from '../input/keyboardLayouts';
+import { startWeldSparks, stopWeldSparks } from './weldBar';
 
 const CHEAT_SHEET_ROWS: Record<string, [KeyboardControlAction, KeyboardControlAction]> = {
     pitch: [KeyboardControlAction.PITCH_NEG, KeyboardControlAction.PITCH_POS],
@@ -143,6 +144,7 @@ function drawBar(): void {
 
 function runBar(): void {
     timer ??= setInterval(drawBar, BAR_FRAME_MS);
+    startWeldSparks();
     drawBar();
 }
 
@@ -151,6 +153,7 @@ function stopBar(): void {
         clearInterval(timer);
         timer = undefined;
     }
+    stopWeldSparks();
     mode = 'idle';
 }
 

@@ -314,6 +314,8 @@ const STREAM_GO_SHOWN_MS = 800;
  * that follows fills the rest (see bootProgress.startStreamHoldBar).
  */
 const RESPAWN_PRELOAD_SHARE = 40;
+/** Time constant of the streaming hold's bar (see Game.waitForStreamBacklog). */
+const STREAM_BAR_TAU_MS = 8000;
 /** Scratch for {@link Game.updateAtmosphereShell}. */
 const SHELL_CENTRE = new THREE.Vector3();
 const SHELL_AXIS = new THREE.Vector3();
@@ -2006,13 +2008,13 @@ export class Game {
                     return;
                 }
                 const now = performance.now();
-                // The bar runs on time against the cap, not on the backlog:
-                // the LOD pass keeps finding work as tiles land, so on a
-                // Pages-speed link the backlog drains 85 % in a few seconds
-                // and then refills for the rest of the hold, which reached
-                // the cap in every throttled boot measured. Settling early
-                // finishes the bar with a quick sweep instead.
-                setBootStreaming(100 * Math.min(1, (now - start) / STREAM_HOLD_MAX_MS), 'Loading scenery details...');
+                // The bar runs on time, not on the backlog: the LOD pass
+                // keeps finding work as tiles land, so on a Pages-speed link
+                // the backlog drains 85 % in a few seconds and then refills
+                // until the cap. Easing out over STREAM_BAR_TAU_MS leaves a
+                // short last sweep whether the hold settles at 5 s (local:
+                // 9 s) or runs to the 20 s cap (92 % by then).
+                setBootStreaming(100 * (1 - Math.exp(-(now - start) / STREAM_BAR_TAU_MS)), 'Loading scenery details...');
                 if (this.planetTerrain.streamingBacklog > 0) {
                     idleSince = undefined;
                 } else {

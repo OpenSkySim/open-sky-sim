@@ -27,12 +27,8 @@
             [&.fading]:pointer-events-none [&.fading]:bg-black/0 [&.fading]:backdrop-blur-[0px]">
         <div id="boot-progress-dialog" class="min-w-64 max-w-[90vw] border border-[#8a8a8a] bg-black/90 p-5 text-center text-[#b8b8b8] in-[.fading]:invisible">
             <h2 class="mt-0 mb-4 text-[1.25rem] text-white">Open Sky Sim</h2>
-            <div id="boot-progress-label" class="mb-3 text-[0.9rem] text-white">Loading...</div>
-            <div id="boot-progress-track" class="h-2 w-full overflow-hidden border border-[#8a8a8a] bg-[#3a3a3a]">
-                <div id="boot-progress-fill" class="h-full w-0 bg-white transition-[width] duration-200 ease-linear"></div>
-            </div>
             <!-- Filled from GoatCounter on the live site (ui/visitorCount.ts); stays hidden if that fails. -->
-            <div id="boot-visitors" class="hidden mt-2 text-[0.75rem] font-normal text-[#8a8a8a]"></div>
+            <div id="boot-visitors" class="hidden text-[0.75rem] font-normal text-[#8a8a8a]"></div>
             <!-- Key cheat sheet while loading. The four stick/throttle rows follow the
                  saved keyboard layout (osd/bootProgress.ts fills data-action cells). -->
             <div id="boot-keys" class="mt-4 border-t border-[#5a5a5a] pt-3 text-left text-[0.8rem] font-normal pointer-coarse:hidden
@@ -62,6 +58,20 @@
                 <a href="https://bsky.app/profile/openskysim.bsky.social" target="_blank" rel="noopener"
                     class="text-[#8fd3ff] underline hover:text-white">@openskysim.bsky.social on Bluesky</a>
             </div>
+        </div>
+        <!-- Progress along the bottom of the screen, under the dialog. -->
+        <!-- The bar is a weld seam: a rippled bead with heat tint behind the tip;
+             the arc glow and sparks at the tip are drawn on the canvas (osd/weldBar.ts). -->
+        <div id="boot-progress-bottom" class="absolute inset-x-0 bottom-0 px-4 pb-6 text-center transition-opacity in-[.fading]:opacity-0 in-[.fading]:delay-500 in-[.fading]:duration-500 sm:px-[10vw]">
+            <div id="boot-progress-label" class="relative z-1 mb-2 text-[0.9rem] text-white">Loading...</div>
+            <div id="boot-progress-track" class="h-2.5 w-full overflow-hidden border border-[#5a5a5a] bg-[#161718] shadow-[inset_0_1px_2px_black]">
+                <div id="boot-progress-fill" class="relative h-full w-0 transition-[width] duration-200 ease-linear
+                        bg-[repeating-linear-gradient(90deg,#8d929b_0_2px,#5f646d_2px_5px)] shadow-[inset_0_1px_0_#c9ccd2,inset_0_-1px_0_#2a2c30]">
+                    <div class="absolute inset-y-0 right-0 w-24 max-w-full
+                            bg-[linear-gradient(90deg,transparent,#3d5fa866_20%,#c08a3099_45%,#ff5a00_78%,#fff4cc)]"></div>
+                </div>
+            </div>
+            <canvas id="boot-progress-sparks" class="pointer-events-none absolute inset-x-0 bottom-0 h-40 w-full"></canvas>
         </div>
     </div>
     <div id="countdown" class="hidden pointer-events-none fixed top-1/2 left-1/2 z-4 -translate-1/2 text-[8rem] font-bold text-white text-shadow-[0_0_0.5rem_black,0_0_1.5rem_black] [&.tick]:animate-countdown-tick in-[.map-view]:hidden"></div>
