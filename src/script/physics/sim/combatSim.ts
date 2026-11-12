@@ -1,4 +1,3 @@
-import { GROUND_PROBE } from '../../terrain/groundProbe';
 import * as THREE from 'three';
 import { BELLY_FATAL_HARDNESS, BELLY_SOFT_HARDNESS, damageFraction } from '../model/landingLimits';
 import { createSimFlightModel, modelKindFromDesc, SimFlightModel, SimFlightModelKind } from './simFlightModel';
@@ -1514,10 +1513,8 @@ export class CombatSim implements ProjectileSink {
                 a.setThrottle(0);
                 continue;
             }
-            GROUND_PROBE.y = a.model.position.y;
             a.pilot.update(delta);
         }
-        GROUND_PROBE.y = Infinity;
         // 4. Advance every model from the now-consistent command buffers.
         for (const a of this.aircraft.values()) {
             if (!a.enabled) continue;
@@ -1528,8 +1525,6 @@ export class CombatSim implements ProjectileSink {
                 a.slideFxCooldown = Math.max(0, a.slideFxCooldown - delta);
             }
             a.applyInputsToModel();
-            // Floating islands are ground only for an aircraft above their undersides.
-            GROUND_PROBE.y = a.model.position.y;
             if (this.playerInputs.get(a.id)?.inputEnabled === false) {
                 // The player's flight is held (the spawn's streaming hold and
                 // countdown, the menu): the jet holds too. Flown on through it
@@ -1566,7 +1561,6 @@ export class CombatSim implements ProjectileSink {
             this.resolveBarricade(a, delta);
             a.resolveFiring();
         }
-        GROUND_PROBE.y = Infinity;
         // 4a. The barricade webbing, with the aircraft it holds.
         this.stepBarricadeWebs(delta);
         // 4b. Aircraft against each other.

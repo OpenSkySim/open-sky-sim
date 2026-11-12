@@ -51,7 +51,7 @@ import {
     TERRAIN_TRIANGLE_BUDGET_MIN, TERRAIN_VISIBLE_ZOOM_MAX, TERRAIN_VISIBLE_ZOOM_MIN,
 } from '../../terrain/lod';
 import { loadTerrainManifest, terrainManifestUrl, terrainTreeName } from '../../terrain/manifest';
-import { homeArea, playableAreas } from '../../terrain/playArea';
+import { homeArea, terrainAreas } from '../../terrain/playArea';
 import { TerrainImporter } from './terrain/terrainImporter';
 import { MultiRangeSlider } from './multiRangeSlider';
 import { VIEW_BAND_MAX_KM, VIEW_LAYER_MAX_KM, ViewLayer, ViewRanges } from '../../config/viewRanges';
@@ -1768,7 +1768,7 @@ export class SettingsDialog {
      */
     private loadAreas() {
         loadTerrainManifest(terrainManifestUrl(loadSettings().terrainTree)).then(manifest => {
-            const areas = playableAreas(manifest);
+            const areas = terrainAreas(manifest);
             const home = homeArea(areas, PLAY_ORIGIN);
             const saved = loadSettings().terrainArea;
             const selected = areas.some(a => a.name === saved)

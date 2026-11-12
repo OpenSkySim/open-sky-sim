@@ -43,11 +43,7 @@ import { ImpactMarks } from '../scene/entities/impactMarks';
 import { MovingSurface } from '../scene/entities/movingSurface';
 import { DamageSmokeField } from '../scene/entities/damageSmokeField';
 import { GroundTargetEntity } from '../scene/entities/groundTarget';
-import { ActivePlayArea, areaContains, homeArea, playableAreas, resolvePlayArea, terrainAreas } from '../terrain/playArea';
-import { GROUND_PROBE, withGroundProbe } from '../terrain/groundProbe';
-import { SKY_ISLES_AREA, skyIsleAirfields, SkyIsleField, skyIsleFrame, loadSkyIsles, isleBuildings, isleCoastDist, SkyIsle, frameOffset } from '../terrain/skyIsles';
-import { buildSkyIsleMaterials, SkyIsleBuilder, SkyIsleEntity } from '../scene/entities/skyIsleEntity';
-import { getTreeAtlas } from '../scene/textures/treeAtlas';
+import { ActivePlayArea, areaContains, homeArea, resolvePlayArea, terrainAreas } from '../terrain/playArea';
 import { carrierSurfaceY, chooseCarrierSite } from './carrierSite';
 import { Airfield, AirfieldBuilding, airfieldsInArea } from '../terrain/airfields';
 import {
@@ -447,12 +443,6 @@ const AIRFIELD_STREAM_RADIUS_M = 50_000;
  * 111 km, so this keeps the horizon within 0.18 degrees of level.
  */
 const REBASE_DISTANCE_M = 20_000;
-/**
- * Sky Isles drawing their own baked terrain (a second TerrainEntity each,
- * with its own workers and caches): the first this many islands, the hub
- * first. One while the placed-terrain path is proven.
- */
-const ISLE_TERRAIN_VIEWS = 1;
 /** How often the aircraft's position is checked for airfields to stream in. */
 const AIRFIELD_STREAM_INTERVAL_MS = 1000;
 /** Edge softening on a building's roof pad. A wall is a step, not a ramp. */
@@ -708,7 +698,6 @@ const COVER_CLASS_NAMES: Record<number, string> = {
     11: 'Moss / tundra', 12: 'Sand', 13: 'Open ground', 14: 'Heath',
 };
 
-
 export class GameUpdateTask implements KernelUpdateTask {
 
     constructor(private game: Game) { }
@@ -738,11 +727,6 @@ export class Game {
     private readonly surfacePads = new SurfacePadIndex();
     /** Every runway of this play area, longest first. Empty on an old pyramid. */
     private sceneRunways: SceneRunway[] = [];
-    /** The Sky Isles as ground, in this scene frame; undefined in any other area. */
-    private skyIsles: SkyIsleField | undefined;
-    private skyIsleEntities: SkyIsleEntity[] = [];
-    /** Islands drawing their own baked terrain: see addIsleTerrainView. */
-    private readonly isleTerrainViews: { isle: SkyIsle; view: TerrainEntity; placement: THREE.Matrix4 }[] = [];
     /** Arresting wires of this area's airfields, in scene coordinates (re-based with the scene). */
     private landWires: LandArrestorWire[] = [];
     /**
@@ -2159,16 +2143,14 @@ export class Game {
         // run-up) is started from its very end, or there is no run left.
         const inset = Math.min(RUNWAY_SPAWN_INSET_M, this.spawnFrame.halfLength * 0.15);
         const p = this.onRunwayAxis(this.spawnFrame.halfLength - inset);
-        // On the runway, whoever flew last under an island.
-        const ground = withGroundProbe(Infinity, () => this.groundHeightAt(p.x, p.z));
-        return new THREE.Vector3(p.x, ground + gearY, p.z);
+        return new THREE.Vector3(p.x, this.groundHeightAt(p.x, p.z) + gearY, p.z);
     }
 
     /** Short final toward the runway, AGL above DEM. */
     private landApproachSpawnPosition(): THREE.Vector3 {
         const p = this.onRunwayAxis(LAND_APPROACH_FINAL_M);
-        const ground = withGroundProbe(Infinity, () => this.groundHeightAt(p.x, p.z));
-        return new THREE.Vector3(p.x, ground + LAND_APPROACH_FINAL_M * ILS_GLIDESLOPE_TAN, p.z);
+        return new THREE.Vector3(
+            p.x, this.groundHeightAt(p.x, p.z) + LAND_APPROACH_FINAL_M * ILS_GLIDESLOPE_TAN, p.z);
     }
 
     /** Overhead the airbase at high altitude (10 km AGL). */
@@ -2210,22 +2192,6 @@ export class Game {
         return this.sceneryIndex.sampleYMax(x, z);
     }
 
-    /**
-     * The DEM, or the top of a floating island over it whoever asks: where
-     * something built on the ground stands, not where the ground is for an
-     * aircraft (see groundProbe.ts).
-     */
-    private terrainOrIsleY(x: number, z: number): number {
-        const dem = this.planetTerrain.heightAtWorld(x, z);
-        return this.skyIsles ? Math.max(dem, this.skyIsles.surfaceYAt(x, z, Infinity)) : dem;
-    }
-
-    /** A floor for a collider standing on a floating island (see groundProbe.ts); undefined off them. */
-    private isleFloorDepth(x: number, z: number, surfaceY: number): number | undefined {
-        const bottom = this.skyIsles?.bottomYAt(x, z);
-        return bottom === undefined ? undefined : Math.max(30, surfaceY - bottom - 5);
-    }
-
     /** Highest solid ground Y at (x, z): DEM/flat datum, hills, ski jumps, surface pads, scenery + carrier meshes. */
     private groundHeightAt(x: number, z: number): number {
         const demY = this.planetTerrain.heightAtWorld(x, z);
@@ -2235,7 +2201,6 @@ export class Game {
             this.surfacePads.sampleYMax(x, z),
             this.sceneryYMax(x, z),
             sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes),
-            this.skyIsles ? this.skyIsles.surfaceYAt(x, z) : -Infinity,
         );
     }
 
@@ -2265,7 +2230,6 @@ export class Game {
             this.surfacePads.sampleYMax(x, z),
             this.sceneryYMax(x, z),
             sampleCarrierMeshSurfaceYMax(x, z, this.carrierMeshes),
-            this.skyIsles ? this.skyIsles.surfaceYAt(x, z) : -Infinity,
         );
     }
 
@@ -2278,7 +2242,7 @@ export class Game {
      */
     private obstacleBaseY(x: number, z: number): number {
         return Math.max(
-            this.terrainOrIsleY(x, z),
+            this.planetTerrain.heightAtWorld(x, z),
             sampleSkiJumpSurfaceYMax(x, z, this.skiJumps),
             this.surfacePads.sampleYMax(x, z),
         );
@@ -2631,9 +2595,6 @@ export class Game {
 
     update(delta: number) {
         this.paintGroundStrips();
-        // The ground the page reads this frame is the player's: under a
-        // floating island there is only the sea (see groundProbe.ts).
-        GROUND_PROBE.y = this.player?.position.y ?? Infinity;
         if (this.menuPaused || this.streamHeld) {
             return;
         }
@@ -6565,7 +6526,6 @@ export class Game {
             })(),
             this.surfacePads.pads,
             this.sceneryMeshes,
-            this.skyIsles,
         );
     }
 
@@ -7086,7 +7046,7 @@ export class Game {
         // A URL camera flies in whichever area holds it, not the saved one:
         // the terrain is only meshed near its area's origin.
         const routeArea = this.cameraRoute
-            ? homeArea(playableAreas(manifest), { ...this.cameraRoute, height: 0 })
+            ? homeArea(terrainAreas(manifest), { ...this.cameraRoute, height: 0 })
             : undefined;
         if (this.cameraRoute && !routeArea) {
             console.warn(`camera route (${this.cameraRoute.lat}, ${this.cameraRoute.lon}) `
@@ -7095,7 +7055,7 @@ export class Game {
         this.playArea = resolvePlayArea(
             manifest, PLAY_ORIGIN, routeArea?.name ?? loadSettings().terrainArea,
         );
-        this.areaList = playableAreas(manifest);
+        this.areaList = terrainAreas(manifest);
         if (this.pendingDestination?.kind === 'airfield') {
             this.preferredIcao = this.pendingDestination.airfieldKey;
         }
@@ -7223,7 +7183,6 @@ export class Game {
             manifestUrl: terrainUrl,
             materials: this.materials,
             enuOrigin: this.playArea.origin,
-            openSeaWater: this.playArea.area.name === SKY_ISLES_AREA.name,
             terrainColour: this.configService.terrainColour,
             terrainShading: this.configService.terrainShading,
             terrainDetail: this.configService.terrainDetail,
@@ -7263,7 +7222,6 @@ export class Game {
         this.sceneryMeshes.length = 0;
         this.sceneryIndex = undefined;
         this.stagedSceneryMeshes.length = 0;
-        await this.addSkyIsles(this.scene);
         await this.addOsmAirfields(this.scene);
 
         setBootProgress(68, 'Loading airbase...');
@@ -7315,160 +7273,13 @@ export class Game {
      * slope and the first-order curvature of the earth falling away from the
      * play origin, which over a 3 km strip is metres.
      */
-    /**
-     * The Sky Isles, when that is the area flown in: each island on screen,
-     * the islands as ground for the physics, and the village houses as solid
-     * roofs. Their airfields come with the others, in addOsmAirfields.
-     */
-    private async addSkyIsles(scene: Scene): Promise<void> {
-        if (this.skyIsleEntities.length > 0) {
-            return;
-        }
-        if (this.playArea.area.name !== SKY_ISLES_AREA.name) {
-            this.skyIsles = undefined;
-            return;
-        }
-        const t0 = performance.now();
-        const isles = await loadSkyIsles();
-        const basis = this.planetTerrain.basis;
-        this.skyIsles = SkyIsleField.forBasis(isles, basis);
-        // The terrain's own tree sprites; without them (no canvas) the islands grow none.
-        const treeAtlas = await getTreeAtlas().catch(() => undefined);
-        const mats = buildSkyIsleMaterials(this.materials, this.planetTerrain.landMaterial, treeAtlas);
-        // Islands whose real place has baked terrain draw that terrain on top
-        // of their rock (a placed TerrainEntity, see addIsleTerrainView).
-        const baked = new Set(isles.filter(i => i.index < ISLE_TERRAIN_VIEWS && this.isleHasBakedTerrain(i)));
-        let houses = 0;
-        for (const isle of isles) {
-            const frame = skyIsleFrame(basis, isle);
-            const entity = new SkyIsleEntity(isle, frame, mats, baked.has(isle));
-            scene.add(entity);
-            this.skyIsleEntities.push(entity);
-            houses += this.addIsleHouseColliders(isle);
-        }
-        for (const isle of baked) {
-            await this.addIsleTerrainView(scene, isle);
-        }
-        // Their finer levels, built near them a few milliseconds a frame.
-        scene.add(new SkyIsleBuilder(this.skyIsleEntities));
-        console.log(`sky isles: ${isles.length} islands, ${houses} buildings, `
-            + `${isles.filter(i => i.runway).length} airfields, built in ${(performance.now() - t0).toFixed(0)} ms`);
-        (globalThis as Record<string, unknown>).__skyIsles = this.skyIsles;
-    }
-
-    /** Whether the main terrain bake has an area over this island's real place. */
-    private isleHasBakedTerrain(isle: SkyIsle): boolean {
-        const s = isle.shape;
-        const halfLat = s.realExtentM / 2 / 111_000;
-        const halfLon = halfLat / Math.max(0.2, Math.cos(s.realLat * Math.PI / 180));
-        const inside = (a: { south: number; north: number; west: number; east: number }) =>
-            s.realLat - halfLat >= a.south && s.realLat + halfLat <= a.north
-            && s.realLon - halfLon >= a.west && s.realLon + halfLon <= a.east;
-        return (this.planetTerrain.terrainManifest.areas ?? []).some(a => inside(a) || (a.parts ?? []).some(inside));
-    }
-
-    /**
-     * The island's own baked terrain - the same tiles, land use, roads,
-     * buildings and trees the terrain bake made at its real place - drawn
-     * at its floating place: a second TerrainEntity round the real island,
-     * land only, moved by islePlacement. Its rock stays the SkyIsleEntity's.
-     */
-    private async addIsleTerrainView(scene: Scene, isle: SkyIsle): Promise<void> {
-        const s = isle.shape;
-        const halfLat = s.realExtentM / 2 / 111_000 + 0.01;
-        const halfLon = halfLat / Math.max(0.2, Math.cos(s.realLat * Math.PI / 180));
-        const placement = new THREE.Matrix4();
-        this.islePlacement(isle, placement);
-        const view = new TerrainEntity({
-            manifest: this.planetTerrain.terrainManifest,
-            manifestUrl: this.planetTerrain.terrainManifestUrl,
-            materials: this.materials,
-            enuOrigin: { lat: s.realLat, lon: s.realLon },
-            placement,
-            onlyBox: [s.realLon - halfLon, s.realLat - halfLat, s.realLon + halfLon, s.realLat + halfLat],
-            landOnly: true,
-            // The island's own coast (its baked grid, a little outside it):
-            // the coarse tiles round it hold its neighbours' coasts too.
-            // Not its seabed either: with no sea drawn over it, it would show.
-            landMask: (x, z, y) => y > -1 && isleCoastDist(isle, x, -z) > -60,
-            secondary: true,
-            terrainColour: this.configService.terrainColour,
-            terrainShading: this.configService.terrainShading,
-            terrainDetail: this.configService.terrainDetail,
-            landuseBlend: this.configService.landuseBlend,
-            landuseReach: this.configService.landuseReach,
-            visibleZoom: this.configService.visibleZoom,
-            landuseReveal: this.configService.landuseReveal,
-            buildings: this.configService.buildings,
-            roads: this.configService.roads,
-            treeDensity: this.configService.treeDensity,
-            viewRanges: this.configService.viewRanges,
-        });
-        view.setRenderScale(this.hdMainScale);
-        // No ground textures on the islands: their land is its facets' colour.
-        view.landMaterial.uniforms.uCoverEnabled.value = 0;
-        await view.load(this.planetTerrain.terrainManifestUrl);
-        view.setLodCamera(this.playerCamera.main);
-        scene.add(view);
-        this.isleTerrainViews.push({ isle, view, placement });
-        // Dev aid, beside __skyIsles: the placed island terrains.
-        (globalThis as Record<string, unknown>).__isleTerrainViews = this.isleTerrainViews;
-        console.log(`sky isles: ${isle.name} draws its own baked terrain`);
-    }
-
-    /**
-     * Scene from a placed island terrain's own frame (x east, y up, z south
-     * round the real island, heights above its real sea): its floating
-     * frame's axes, lifted by the island's altitude.
-     */
-    private islePlacement(isle: SkyIsle, out: THREE.Matrix4): THREE.Matrix4 {
-        const f = skyIsleFrame(this.planetTerrain.basis, isle);
-        return out.set(
-            f.e[0], f.u[0], -f.n[0], f.c[0] + isle.altM * f.u[0],
-            f.e[1], f.u[1], -f.n[1], f.c[1] + isle.altM * f.u[1],
-            f.e[2], f.u[2], -f.n[2], f.c[2] + isle.altM * f.u[2],
-            0, 0, 0, 1,
-        );
-    }
-
-    /** An island's OSM buildings as boxes round their footprints, floored like everything on an island. */
-    private addIsleHouseColliders(isle: SkyIsle): number {
-        const frame = skyIsleFrame(this.planetTerrain.basis, isle);
-        const c = new THREE.Vector3(frame.c[0], frame.c[1], frame.c[2]);
-        const at = new THREE.Vector3(), dir = new THREE.Vector3();
-        const list = isleBuildings(isle);
-        for (const h of list) {
-            frameOffset(frame, h.e, h.n, h.groundU, at).add(c);
-            frameOffset(frame, Math.cos(h.angle), Math.sin(h.angle), 0, dir);
-            const height = h.heightM;
-            this.surfacePads.push({
-                centerX: at.x,
-                centerZ: at.z,
-                heading: Math.atan2(dir.x, dir.z),
-                halfLength: h.halfLength,
-                halfWidth: h.halfWidth,
-                surfaceY: at.y + height,
-                baseY: at.y,
-                feather: BUILDING_PAD_FEATHER_M,
-                floorDepth: height + 40,
-            });
-        }
-        return list.length;
-    }
-
     private async addOsmAirfields(scene: Scene): Promise<void> {
         const file = await this.planetTerrain.loadAirfields();
-        // The Sky Isles' fields are invented, not baked; they are found and
-        // charted with the rest.
-        const isleFields = skyIsleAirfields(await loadSkyIsles());
-        const items = [...file.items, ...isleFields];
         this.spawnPanel.setSearchIndex(
-            items.map(airfieldEntryOf), this.areaList, this.playArea.area.name);
+            file.items.map(airfieldEntryOf), this.areaList, this.playArea.area.name);
         // The F12 map charts every area's airfields, not only this one's.
-        this.chartAirfields = items.map(airfield => ({ airfield }));
-        const here = this.playArea.area.name === SKY_ISLES_AREA.name
-            ? isleFields
-            : airfieldsInArea(file, this.playArea.area.name);
+        this.chartAirfields = file.items.map(airfield => ({ airfield }));
+        const here = airfieldsInArea(file, this.playArea.area.name);
         this.sceneRunways = sceneRunwaysOf(
             here, this.planetTerrain.basis, AIRFIELD_SURFACE_EPS_M);
         this.planetTerrain.setAirfieldExclusion(here);
@@ -7569,8 +7380,7 @@ export class Game {
         // Elevation of the real ground, which on a runway, apron or graded
         // taxiway is its pad's surface and elsewhere is whatever is there.
         const groundElevationAt = (e: number, n: number) =>
-            this.skyIsles?.altitudeAt(e, -n)
-            ?? this.planetTerrain.heights.geodeticHeightAtWorld(e, -n);
+            this.planetTerrain.heights.geodeticHeightAtWorld(e, -n);
         // What the ground is made of, for a strip that is drawn as ground.
         const groundCoverAt = (e: number, n: number) =>
             this.planetTerrain.drawnCoverAtWorld(e, -n);
@@ -7626,9 +7436,6 @@ export class Game {
         if (this.worldSent && colliders.some(c => this.aircraftInBox(c))) {
             console.warn(`airfield ${airfield.icao || airfield.name}: pavement left soft, an aircraft is on it`);
             return;
-        }
-        for (const c of colliders) {
-            c.floorDepth = this.isleFloorDepth(c.originX, c.originZ, c.originY + c.aabb.min[1]);
         }
         this.sceneryMeshes.push(...colliders);
         if (this.worldSent) {
@@ -7694,14 +7501,6 @@ export class Game {
     private rebaseWorld(lat: number, lon: number): void {
         const t0 = performance.now();
         const shift = this.planetTerrain.rebaseTo(lat, lon);
-        // The islands stay where they are on the earth; their frames are the scene's.
-        if (this.skyIsles) {
-            this.skyIsles = SkyIsleField.forBasis(this.skyIsles.isles, this.planetTerrain.basis);
-        }
-        // Their placed terrains follow (the views keep their own frames).
-        for (const v of this.isleTerrainViews) {
-            this.islePlacement(v.isle, v.placement);
-        }
 
         // Aircraft, trails, particles, scenery, airfields, clouds.
         this.scene.rebase(shift);
@@ -7895,7 +7694,7 @@ export class Game {
         // same rule the drawn box uses for its base.
         let baseY = Infinity;
         for (const c of corners) {
-            baseY = Math.min(baseY, this.terrainOrIsleY(c.x, c.z));
+            baseY = Math.min(baseY, this.planetTerrain.heightAtWorld(c.x, c.z));
         }
         if (!Number.isFinite(baseY)) {
             return undefined;
@@ -7913,7 +7712,6 @@ export class Game {
             // A wall is a step, not a ramp. Just enough that the edge is not a
             // mathematical discontinuity for the gear springs to land on.
             feather: BUILDING_PAD_FEATHER_M,
-            floorDepth: this.isleFloorDepth(centre.x, centre.z, baseY + height),
         };
         return {
             pad,
@@ -8001,7 +7799,6 @@ export class Game {
             feather: SURFACE_PAD_FEATHER_M,
             slope: runway.slope,
             profile: runway.profile,
-            floorDepth: this.isleFloorDepth(runway.center.x, runway.center.z, runway.center.y),
         });
     }
 

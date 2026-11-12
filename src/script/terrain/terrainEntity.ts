@@ -228,55 +228,12 @@ const tileBeforeRender: THREE.Mesh['onBeforeRender'] = function (
  */
 let noCoverTexture: THREE.Texture | null = null;
 
-/**
- * Collapse the land triangles of a tile whose middle the mask turns away
- * (the tile group's own frame applied: it is the entity's frame), each onto
- * its first corner, so it draws nothing. In place: the faceted geometry's
- * positions are the decoded tile's, and the next upload of it starts masked.
- */
-function maskLand(meshes: TileMeshes, keep: (x: number, z: number, y: number) => boolean): void {
-    const g = meshes.landGeometryFaceted ?? meshes.land?.geometry;
-    const pos = g?.getAttribute('position') as THREE.BufferAttribute | undefined;
-    if (!g || !pos || !meshes.land) return;
-    meshes.group.updateMatrix();
-    meshes.land.updateMatrix();
-    const m = new THREE.Matrix4().multiplyMatrices(meshes.group.matrix, meshes.land.matrix);
-    const v = new THREE.Vector3();
-    const a = pos.array as Float32Array;
-    let changed = false;
-    for (let t = 0; t + 2 < pos.count; t += 3) {
-        v.set(
-            (a[t * 3] + a[t * 3 + 3] + a[t * 3 + 6]) / 3,
-            (a[t * 3 + 1] + a[t * 3 + 4] + a[t * 3 + 7]) / 3,
-            (a[t * 3 + 2] + a[t * 3 + 5] + a[t * 3 + 8]) / 3,
-        ).applyMatrix4(m);
-        if (keep(v.x, v.z, v.y)) continue;
-        for (let k = 1; k < 3; k++) {
-            a[(t + k) * 3] = a[t * 3];
-            a[(t + k) * 3 + 1] = a[t * 3 + 1];
-            a[(t + k) * 3 + 2] = a[t * 3 + 2];
-        }
-        changed = true;
-    }
-    if (changed) {
-        pos.needsUpdate = true;
-        g.computeBoundingSphere();
-    }
-}
-
 export interface TerrainEntityOptions {
     manifest: TerrainManifest;
     manifestUrl: string;
     materials: SceneMaterialManager;
     /** Override the ENU origin; defaults to the manifest's. */
     enuOrigin?: { lat: number; lon: number; height?: number };
-    /**
-     * Draw the open sea far from every baked area as water rather than as
-     * flat land in the globe map's colours (see edgeLiftFor). For an area
-     * with no bake under it - the Sky Isles - whose sea is all open sea and
-     * is seen up close, where that land shows as plain green.
-     */
-    openSeaWater?: boolean;
     maxZoom?: number;
     /** Live terrain colour mode. Omit and the entity stays on its default. */
     terrainColour?: TerrainColourSetting;
@@ -310,29 +267,6 @@ export interface TerrainEntityOptions {
      * reach. Omit and everything is drawn as far as the LOD takes it.
      */
     viewRanges?: ViewRangesSetting;
-    /**
-     * Draw this terrain somewhere else: its tiles, built round `enuOrigin` as
-     * usual, are moved by this matrix (scene from the entity's own frame,
-     * rigid) - the Sky Isles float a real island's own baked terrain over
-     * the Pacific this way. Read every frame, so the owner may rewrite it in
-     * place (after a scene re-base). LOD is chosen from the camera carried
-     * back through its inverse, so everything inside sees the camera in its
-     * own frame, as it always has.
-     */
-    placement?: THREE.Matrix4;
-    /** Only the tiles touching this box (west, south, east, north); the rest of the world is nothing. */
-    onlyBox?: readonly [number, number, number, number];
-    /** Land only: no sea, no ocean stand-ins, no edge fill. A floating island has no sea round it. */
-    landOnly?: boolean;
-    /**
-     * Land kept, by where a triangle's middle is in this entity's own frame
-     * (x east, y up, z south, metres from enuOrigin): the rest is collapsed
-     * as the tile is uploaded. A coarse tile round a floating island holds
-     * its neighbours' coasts too, and every tile its seabed.
-     */
-    landMask?: (x: number, z: number, y: number) => boolean;
-    /** A second terrain beside the main one: it publishes no stats and leaves globalThis.__terrain alone. */
-    secondary?: boolean;
 }
 
 export interface TerrainStats {
@@ -387,16 +321,6 @@ export class TerrainEntity implements Entity {
 
     private readonly manifest: TerrainManifest;
     private readonly group = new THREE.Group();
-    /** What is attached to the render list: the group, or the placement round it. */
-    private readonly root: THREE.Object3D;
-    private readonly placement: THREE.Matrix4 | undefined;
-    private readonly onlyBox: readonly [number, number, number, number] | undefined;
-    private readonly landOnly: boolean;
-    private readonly landMask: ((x: number, z: number, y: number) => boolean) | undefined;
-    private readonly secondary: boolean;
-    /** The LOD camera carried into this entity's own frame, for a placed terrain. */
-    private readonly lodProxy = new THREE.PerspectiveCamera();
-    private readonly placementInverse = new THREE.Matrix4();
     private readonly materials: THREE.Material[] = [];
     private readonly meshStore: TileStore<PtmTile>;
     private readonly heightStore: TileStore<DemTile>;
@@ -414,16 +338,13 @@ export class TerrainEntity implements Entity {
     private readonly railWallMaterial: THREE.Material;
     private readonly quadtree: Quadtree;
     private readonly oceans = new Map<string, OceanPatch>();
-    /** See TerrainEntityOptions.openSeaWater. */
-    private readonly openSeaWater: boolean;
     /** Provisional patches oceanPatchFor may still rebuild this reconcile. */
     private oceanRetries = 0;
     /** Highest ground any lifted patch has reached; see edgeLiftFor. */
     edgeLiftTopM = 0;
     private readonly pinned = new Set<string>();
     private readonly earthCenter: THREE.Vector3;
-    /** The land material, shared with whatever else is drawn as ground (the Sky Isles' tops). */
-    readonly landMaterial: THREE.ShaderMaterial;
+    private readonly landMaterial: THREE.ShaderMaterial;
     /**
      * Watercourse strokes. Its own material because its own vertex program
      * widens the centreline, and because it is the one part of a tile drawn
@@ -836,20 +757,6 @@ export class TerrainEntity implements Entity {
 
     constructor(opts: TerrainEntityOptions) {
         this.manifest = opts.manifest;
-        this.openSeaWater = opts.openSeaWater ?? false;
-        this.placement = opts.placement;
-        this.onlyBox = opts.onlyBox;
-        this.landOnly = opts.landOnly ?? false;
-        this.landMask = opts.landMask;
-        this.secondary = opts.secondary ?? false;
-        if (this.placement) {
-            const wrap = new THREE.Group();
-            wrap.matrixAutoUpdate = false;
-            wrap.add(this.group);
-            this.root = wrap;
-        } else {
-            this.root = this.group;
-        }
         const origin = opts.enuOrigin ?? opts.manifest.enuOrigin;
         this.basis = makeEnuBasis(origin.lat, origin.lon, origin.height ?? 0);
         // Tiles are baked as offsets from their centre in the *bake's* ENU
@@ -861,9 +768,7 @@ export class TerrainEntity implements Entity {
         );
         this.group.name = 'Terrain';
         // Dev aid, alongside globalThis.__terrainStats.
-        if (!this.secondary) {
-            (globalThis as Record<string, unknown>).__terrain = this;
-        }
+        (globalThis as Record<string, unknown>).__terrain = this;
 
         const base = baseUrlOf(opts.manifestUrl);
 
@@ -1041,7 +946,7 @@ export class TerrainEntity implements Entity {
                 + t.landNormals.byteLength + t.landAttrs.byteLength + (t.landRegionSizes?.byteLength ?? 0)
                 + t.waterIndices.byteLength,
             maxBytes: MESH_CACHE_BYTES,
-            exists: (id) => (this.meshIndex ? this.meshIndex.has(id) : true) && this.inOnlyBox(id),
+            exists: (id) => (this.meshIndex ? this.meshIndex.has(id) : true),
         });
 
         this.heightStore = new TileStore<DemTile>({
@@ -1089,12 +994,6 @@ export class TerrainEntity implements Entity {
                     TerrainShading.FACETED,
                     undefined, this.leafZoomAt(id),
                 );
-                if (this.landOnly && meshes.water) {
-                    meshes.water.visible = false;
-                }
-                if (this.landMask) {
-                    maskLand(meshes, this.landMask);
-                }
                 this.smoothBacklog = true;
                 // Trees (and ground clutter - see stones.ts) are attached
                 // lazily from the draw loop (see syncGroup), for the tiles
@@ -1834,11 +1733,9 @@ export class TerrainEntity implements Entity {
         // MFD pass corrupts the governor and the traversal every frame.
         const isLodPass = (this.lodCamera === undefined || camera === this.lodCamera)
             && camera instanceof THREE.PerspectiveCamera;
-        // A placed terrain sees the camera in its own frame.
-        const local = this.placement && camera instanceof THREE.PerspectiveCamera ? this.toOwnFrame(camera) : camera;
         if (isLodPass) {
             this.viewportHeightPx = targetHeight;
-            this.reconcile(local as THREE.PerspectiveCamera);
+            this.reconcile(camera);
             this.pumpSmooth();
         }
         const list = lists.get(SceneLayers.Terrain);
@@ -1846,50 +1743,16 @@ export class TerrainEntity implements Entity {
             // Only for a pass that draws terrain: the sky passes run this
             // entity too, and their culling (and the track-detail flips in it)
             // was paid every frame for nothing.
-            this.cullSharedGroupFor(local, isLodPass);
+            this.cullSharedGroupFor(camera, isLodPass);
             this.collectBatches();
-            if (this.placement) {
-                this.root.matrix.copy(this.placement);
-                this.root.matrixWorldNeedsUpdate = true;
-            }
             // Must go through attachToRenderList, not list.add: the renderer
             // stamps a generation on each build pass and pruneRenderList drops
             // every child that is not stamped for the current one. A plain add
             // is silently pruned again before anything is drawn.
-            attachToRenderList(list, this.root);
+            attachToRenderList(list, this.group);
             // After the tiles: every tile's land is down before the strokes.
             attachToRenderList(list, this.batcher.root);
         }
-    }
-
-    /** The bake this terrain draws. */
-    get terrainManifest(): TerrainManifest {
-        return this.manifest;
-    }
-
-    /** Where its manifest was loaded from. */
-    get terrainManifestUrl(): string {
-        return this.manifestUrl;
-    }
-
-    /** The camera carried back through the placement: same projection, posed in this entity's frame. */
-    private toOwnFrame(camera: THREE.PerspectiveCamera): THREE.PerspectiveCamera {
-        const proxy = this.lodProxy;
-        proxy.copy(camera, false);
-        this.placementInverse.copy(this.placement!).invert();
-        camera.updateMatrixWorld();
-        const m = new THREE.Matrix4().multiplyMatrices(this.placementInverse, camera.matrixWorld);
-        m.decompose(proxy.position, proxy.quaternion, proxy.scale);
-        proxy.updateMatrixWorld(true);
-        return proxy;
-    }
-
-    /** Whether a tile touches the onlyBox (always, without one). */
-    private inOnlyBox(id: TileKey): boolean {
-        const box = this.onlyBox;
-        if (!box) return true;
-        const b = tileBounds(id);
-        return b.east > box[0] && b.west < box[2] && b.north > box[1] && b.south < box[3];
     }
 
     /**
@@ -1962,11 +1825,8 @@ export class TerrainEntity implements Entity {
             }
             const smooth = this.landShading === TerrainShading.SMOOTH;
             const near = smooth ? meshes.landGeometrySmooth ?? meshes.landGeometryFaceted : meshes.landGeometryFaceted;
-            // Not under a land mask: the far land is a mesh of its own, unmasked.
-            if (!this.landMask) {
-                this.farLand.show(node.id, meshes, FAR_LAND_MAX_PIXELS * nearM * pixelAngle,
-                    PRIORITY_IN_FRUSTUM - nearM, near, smooth && near === meshes.landGeometrySmooth);
-            }
+            this.farLand.show(node.id, meshes, FAR_LAND_MAX_PIXELS * nearM * pixelAngle,
+                PRIORITY_IN_FRUSTUM - nearM, near, smooth && near === meshes.landGeometrySmooth);
             // After the far land: the fill rides on whichever geometry it chose.
             this.syncSeamFill(meshes, fillVisible);
         }
@@ -2015,13 +1875,7 @@ export class TerrainEntity implements Entity {
             if (!meshes || meshes.group.parent !== this.group || !meshes.group.visible) {
                 continue;
             }
-            if (this.landOnly) {
-                // The cover textures and the fill-water clip both turn a
-                // tile's sea back on; a floating island has none.
-                if (meshes.water) meshes.water.visible = false;
-            } else {
-                this.batcher.offer(meshes.water);
-            }
+            this.batcher.offer(meshes.water);
             this.batcher.offer(meshes.rivers);
             const roads = meshes.roads;
             if (roads !== undefined && roads !== 'pending' && roads !== 'none' && roads.group.visible) {
@@ -2280,9 +2134,7 @@ export class TerrainEntity implements Entity {
         this.syncGroup(camera.position);
         this.markDrawnTiles();
         this.streamer.evictIdle();
-        if (!this.secondary) {
-            publishTerrainStats({ ...this.stats, altitudeM: camera.position.y });
-        }
+        publishTerrainStats({ ...this.stats, altitudeM: camera.position.y });
     }
 
     /**
@@ -2616,9 +2468,7 @@ export class TerrainEntity implements Entity {
                 this.clipFillWater(node.id, meshes);
                 // Under its children too: the ones outside an area are not
                 // all drawn while it dissolves, and its fill is gone.
-                if (this.landOnly) {
-                    // Nothing round a floating island's land.
-                } else if (this.straddlesAreaEdge(node.id)) {
+                if (this.straddlesAreaEdge(node.id)) {
                     const patches: OceanPatch[] = [];
                     this.addEdgeFill(node.id, updateUniforms, extraOceans, camPos, patches);
                     if (patches.length > 0) {
@@ -2680,9 +2530,7 @@ export class TerrainEntity implements Entity {
                 void this.railBedJob(node.id, meshes);
                 continue;
             }
-            if (!this.landOnly) {
-                this.group.add(this.oceanPatchFor(node.id, updateUniforms).group);
-            }
+            this.group.add(this.oceanPatchFor(node.id, updateUniforms).group);
         }
         stitchSeams(stitched, SEAM_STITCH_MS);
         this.pruneOceans(extraOceans);
@@ -2797,7 +2645,7 @@ export class TerrainEntity implements Entity {
         // Past the ramp the ground outside stays flat at sea level: an
         // ordinary sea patch. The centre is up to half a diagonal from the box.
         if (closest.distM - edgeM > EDGE_LIFT_FADE_M) {
-            return this.openSeaWater ? undefined : { at: () => 0, divisions: 2, missing: () => false };
+            return { at: () => 0, divisions: 2, missing: () => false };
         }
         const span = windowM(Math.max(0, closest.distM - edgeM));
         const divisions = Math.min(EDGE_LIFT_MAX_DIVISIONS, Math.max(8, Math.ceil(edgeM / span)));

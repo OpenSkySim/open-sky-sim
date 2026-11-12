@@ -16,7 +16,6 @@
  */
 
 import { TerrainArea, TerrainManifest } from './manifest';
-import { SYNTHETIC_AREAS } from './skyIsles';
 
 export interface Geodetic {
     lat: number;
@@ -48,16 +47,6 @@ export function terrainAreas(manifest: TerrainManifest): TerrainArea[] {
         return areas;
     }
     return [{ name: 'terrain', ...manifest.coverage }];
-}
-
-/**
- * The areas a session can fly in: the baked ones, then the invented ones that
- * need no bake (the Sky Isles). Kept apart from {@link terrainAreas}, which the
- * terrain itself reads as "where there is baked data".
- */
-export function playableAreas(manifest: TerrainManifest): TerrainArea[] {
-    const baked = terrainAreas(manifest);
-    return [...baked, ...SYNTHETIC_AREAS.filter(a => !baked.some(b => b.name === a.name))];
 }
 
 export function areaContains(area: TerrainArea, lat: number, lon: number): boolean {
@@ -96,7 +85,7 @@ export function resolvePlayArea(
     home: Geodetic,
     selectedName?: string,
 ): ActivePlayArea {
-    const areas = playableAreas(manifest);
+    const areas = terrainAreas(manifest);
     const atHome = homeArea(areas, home);
     const named = selectedName
         ? areas.find(a => a.name === selectedName)
