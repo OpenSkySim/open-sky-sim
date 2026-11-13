@@ -15,7 +15,7 @@ import { CarrierMeshCollider } from '../../scene/entities/carrierDeck';
 import { BarricadeEngagement, BARRICADE_DECK_Y, BARRICADE_LOCAL_Z, BARRICADE_MID_X } from '../../scene/entities/barricadeSpec';
 import { CombatSim } from '../sim/combatSim';
 import { serializeWorld } from '../sim/serializedWorld';
-import { hasWebFixture, loadWebAirframe, WebFixture } from './webFixtures.testkit.test';
+import { loadWebAirframe, WEB_FIXTURES, WebFixture } from './webFixtures.testkit.test';
 import { buildRiggedWeb } from './webLayout';
 import { WebSolver } from './webSolver';
 import { withoutGear } from './webCollider';
@@ -95,7 +95,7 @@ function rolling(fixture: WebFixture, speed: number, x: number, deck = flatDeck(
 }
 
 describe('barricade webbing in the sim', () => {
-    for (const fixture of (['f22', 'f14a'] as const).filter(hasWebFixture)) {
+    for (const fixture of (['twinTail', 'wideWing'] as const)) {
         for (const x of [0, 3]) {
             it(`stops the ${fixture} at 45 m/s, ${x === 0 ? 'centred' : `${x} m off`}`, () => {
                 const sim = rolling(fixture, 45, x);
@@ -173,7 +173,7 @@ describe('barricade webbing rigged in the sim', () => {
         });
     }
     it('hangs taut again after a catch, laced fresh', () => {
-        const sim = rolling('f22', 45, 0);
+        const sim = rolling('twinTail', 45, 0);
         const a = (sim as unknown as { aircraft: Map<string, Ac> }).aircraft.get(ID)!;
         // Caught (held, or still settling in the net: this test is about the lacing after it).
         for (let f = 0; f < 60 * 30 && a.barricadeState !== BarricadeEngagement.HELD; f++) sim.step(DT, { [ID]: { ...INPUT } });
@@ -200,7 +200,7 @@ describe('barricade webbing rigged in the sim', () => {
 describe('barricade webbing on the real deck', () => {
     for (const x of [0, 3]) {
         it(`keeps the webbing on a raised, sloping, cambered deck, ${x} m off`, () => {
-            const sim = rolling('f22', 45, x, shapedDeck(), shapedDeckHeight);
+            const sim = rolling('twinTail', 45, x, shapedDeck(), shapedDeckHeight);
             const a = (sim as unknown as { aircraft: Map<string, Ac> }).aircraft.get(ID)!;
             const solver = () => (sim as unknown as { barricadeWebs: { solver: WebSolver }[] }).barricadeWebs[0].solver;
             let worst = Infinity, at = '';
@@ -238,7 +238,7 @@ describe('barricade webbing holds what it stopped', () => {
     const MAX_ROLL_DEG = 30;
     /** Held, then this long more (s): a rebound shows by then. */
     const AFTER_HELD_S = 4;
-    for (const fixture of (['f22', 'f14a', 'f16a', 'f16xl'] as const).filter(hasWebFixture)) {
+    for (const fixture of WEB_FIXTURES) {
         for (const speed of [45, 60]) {
             for (const x of [0, 3, -3]) {
                 it(`${fixture} at ${speed} m/s, ${x === 0 ? 'centred' : `${x} m off`}: braked and free`, () => {
@@ -291,7 +291,7 @@ describe('barricade webbing holds what it stopped', () => {
 describe('barricade webbing keeps the airframe on the deck', () => {
     /** How far a skin point may sit in the deck (m): the hull contact's margin and a frame's sink. */
     const MAX_SKIN_DEPTH_M = 0.1;
-    for (const fixture of (['f22', 'f16xl'] as const).filter(hasWebFixture)) {
+    for (const fixture of (['twinTail', 'crankedDelta'] as const)) {
         for (const x of [0, 3]) {
             it(`${fixture} at 60 m/s, ${x === 0 ? 'centred' : `${x} m off`}, with its hitbox set`, () => {
                 const sim = rolling(fixture, 60, x);

@@ -14,7 +14,7 @@ import { PAYOUT_MAX_M, SKIN_M, WebSolver } from './webSolver';
 import { WebAirframe, WebFixture } from './webFixtures.testkit.test';
 
 /** Arrival masses (kg): landing weights, kept inside the 15–30 t the gates were set for. */
-export const MASS_KG: Record<WebFixture, number> = { f22: 26e3, f16a: 15e3, f16xl: 16e3, f14a: 24e3 };
+export const MASS_KG: Record<WebFixture, number> = { twinTail: 26e3, singleTail: 15e3, crankedDelta: 16e3, wideWing: 24e3 };
 /**
  * This thread's CPU time (ms). The cost gate reads this, not the wall clock:
  * the machine these run on is shared, and wall time doubled under load; the

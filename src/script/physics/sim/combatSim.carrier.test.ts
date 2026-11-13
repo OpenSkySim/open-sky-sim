@@ -281,7 +281,7 @@ describe('hands-off barricade arrival (the spawn set-up)', () => {
     // set-up stopped in the webbing every time.
     const setups = [
         { model: 'fm2', speedKmh: 290, throttle: 0.5, trim: 0.72, flaps: true, web: undefined },
-        { model: 'fm3', speedKmh: 260, throttle: 0.4, trim: -0.125, flaps: true, web: 'f22' },
+        { model: 'fm3', speedKmh: 260, throttle: 0.4, trim: -0.125, flaps: true, web: 'twinTail' },
     ] as const;
     for (const g of setups) for (const shipSpeed of [0, SHIP_SPEED]) {
         it(`lands in the net hands off on ${g.model}, ship at ${Math.round(shipSpeed * 3.6)} km/h`, () => {

@@ -371,8 +371,8 @@ for (const speed of [5, 60]) {
  */
 describe('barricade webbing: the 90 m end stop', () => {
     it('holds a jet the engines were set too light for', () => {
-        const r = runCatch('f22', 60, MASS_KG.f22 / 3);
-        const line = `end stop f22 @ 60 m/s, engines set for ${(MASS_KG.f22 / 3e3).toFixed(1)} t: ${JSON.stringify({ stopped: r.stopped, runOut: +r.runOut.toFixed(1), payout: +r.payoutMax.toFixed(2), peakG: +r.peakG.toFixed(2), maxSpeed: +r.maxSpeed.toFixed(1), aboveDeck: +(r.lowestY - BARRICADE_DECK_Y).toFixed(3) })}`;
+        const r = runCatch('twinTail', 60, MASS_KG.twinTail / 3);
+        const line = `end stop twinTail @ 60 m/s, engines set for ${(MASS_KG.twinTail / 3e3).toFixed(1)} t: ${JSON.stringify({ stopped: r.stopped, runOut: +r.runOut.toFixed(1), payout: +r.payoutMax.toFixed(2), peakG: +r.peakG.toFixed(2), maxSpeed: +r.maxSpeed.toFixed(1), aboveDeck: +(r.lowestY - BARRICADE_DECK_Y).toFixed(3) })}`;
         console.log(line);
         assert.ok(r.stopped, line);
         assert.deepEqual(r.deckPay, [], line);
