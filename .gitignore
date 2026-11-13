@@ -45,3 +45,6 @@ dist
 /.cursor/
 /.idea/
 /.tmp/
+
+# Missions saved by the in-game editor are local
+/data/missions/*
