@@ -30,6 +30,7 @@ import { nextWingSweepMode, poseSurface, stepWingSweep, WingSweepMode, wingSweep
 import { Combatant, Faction } from '../../weapons/combatant';
 import { CombatSimClient } from '../../physics/sim/combatSimClient';
 import { SimProxyFlightModel } from '../../physics/model/simProxyFlightModel';
+import { WingFoldRefusal } from '../../physics/sim/simSnapshotCodec';
 import { shortPhaseLabel } from '../../ai/phaseLabels';
 import { PLAYER_SIM_ID } from '../../physics/sim/simIds';
 import {
@@ -51,6 +52,17 @@ const FLAPS_ANIM_DURATION = 2; // Seconds
 const AIRBRAKE_ANIM_DURATION = 1.5; // Seconds
 const TAILHOOK_ANIM_DURATION = 1.5; // Seconds
 const WING_FOLD_SECONDS = 8; // Full fold or spread (R key)
+/** How long the HUD says why R did not fold the wings. */
+const WING_FOLD_NOTICE_SECONDS = 3;
+
+/** The HUD line for a refused wing fold; undefined when there is nothing to say. */
+export function wingFoldRefusalText(reason: number): string | undefined {
+    switch (reason) {
+        case WingFoldRefusal.THROTTLE: return 'IDLE TO FOLD';
+        case WingFoldRefusal.AIRBORNE: return 'FOLD ON GROUND';
+        default: return undefined;
+    }
+}
 
 /** Horizontal radius (m) around Kuz origin to treat as on-deck for display ride. */
 const CARRIER_DISPLAY_RIDE_RADIUS_M = 200;
@@ -158,6 +170,13 @@ export class PlayerEntity implements Entity {
     /** Visible wing fold [0,1] (0 spread, 1 folded) and the sim's commanded state (R key). */
     private wingFoldUnit = 0;
     private wingFoldTarget = false;
+    /** The aircraft has folding panels (a 'fold' surface); others never show a fold notice. */
+    private hasWingFold = false;
+    /** The sim's refused-fold count last seen; null until the first snapshot. */
+    private wingFoldRefusalsSeen: number | null = null;
+    /** Why R was just refused, HUD-sized, and how long it stays up (s). */
+    private wingFoldNoticeText: string | undefined;
+    private wingFoldNoticeTimeLeft = 0;
     /** Tailhook: sim owns the commanded state, this is the visible swing. */
     private hookState: AircraftDeviceState = AircraftDeviceState.RETRACTED;
     private hookProgress = 0;
@@ -373,6 +392,7 @@ export class PlayerEntity implements Entity {
             };
         });
         this.swingWings = def.swingWings;
+        this.hasWingFold = def.surfaces.some(s => s.control === 'fold');
         this.fx.setWingSweepSource(() => this.replayPose?.surfaces?.sweep ?? this.wingSweepUnit);
     }
 
@@ -521,7 +541,9 @@ export class PlayerEntity implements Entity {
             if (folded !== null) {
                 this.wingFoldTarget = folded;
             }
+            this.noticeWingFoldRefusal();
         }
+        this.wingFoldNoticeTimeLeft = Math.max(0, this.wingFoldNoticeTimeLeft - delta);
 
         this.obj.position.copy(this.flightModel.position);
         this.obj.quaternion.copy(this.flightModel.quaternion);
@@ -547,6 +569,26 @@ export class PlayerEntity implements Entity {
             this.updateWingSweep(delta);
             this.updateWingFold(delta);
         }
+    }
+
+    /** Put up why R did nothing when the sim refuses a fold (a new refusal since the last frame). */
+    private noticeWingFoldRefusal(): void {
+        const refusal = this.flightModel.getSimWingFoldRefusal();
+        if (refusal === null) {
+            return;
+        }
+        const seen = this.wingFoldRefusalsSeen;
+        this.wingFoldRefusalsSeen = refusal.count;
+        if (seen === null || refusal.count === seen || !this.hasWingFold) {
+            return;
+        }
+        this.wingFoldNoticeText = wingFoldRefusalText(refusal.reason);
+        this.wingFoldNoticeTimeLeft = this.wingFoldNoticeText ? WING_FOLD_NOTICE_SECONDS : 0;
+    }
+
+    /** Why the last R did not fold the wings, HUD-sized, for a few seconds after it. */
+    get wingFoldNotice(): string | undefined {
+        return this.wingFoldNoticeTimeLeft > 0 ? this.wingFoldNoticeText : undefined;
     }
 
     /** Move the wing fold toward the sim's state at a fixed rate (a full fold takes WING_FOLD_SECONDS). */
@@ -728,6 +770,7 @@ export class PlayerEntity implements Entity {
         this.wingSweepMode = WingSweepMode.AUTO;
         this.wingFoldUnit = 0;
         this.wingFoldTarget = false;
+        this.wingFoldNoticeTimeLeft = 0;
         this.hookState = AircraftDeviceState.RETRACTED;
         this.hookProgress = 0;
         this.hookProgressUnit = 0;

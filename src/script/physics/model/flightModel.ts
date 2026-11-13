@@ -179,6 +179,7 @@ export abstract class FlightModel {
 
     /** Sim-owned wing fold state, or null when this model is not sim-owned. */
     getSimWingsFolded(): boolean | null { return null; }
+    getSimWingFoldRefusal(): { count: number; reason: number } | null { return null; }
 
     reset() {
         this.obj.position.set(0, 0, 0);

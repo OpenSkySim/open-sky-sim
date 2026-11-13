@@ -49,7 +49,7 @@ import {
     buildBarricadeField,
 } from '../../scene/entities/barricadeSpec';
 
-import { AC, AC_STRIDE, PROJ_STRIDE, SnapshotBuffers } from './simSnapshotCodec';
+import { AC, AC_STRIDE, PROJ_STRIDE, SnapshotBuffers, WingFoldRefusal } from './simSnapshotCodec';
 import {
     AircraftCollisionMesh,
     collectCollisionMeshTerrainContacts,
@@ -301,6 +301,9 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
     private inHook = false;
     /** Wings folded (player 'R'); only parked or taxiing, see toggleWingFold. */
     private inWingFold = false;
+    /** Refused folds so far and why the last one was, for the HUD notice. */
+    private wingFoldRefusals = 0;
+    private wingFoldRefusal = WingFoldRefusal.NONE;
     private inBrakes = false;
     private inLimiterMode = FcsPitchLimiter.SOFT;
     private inLimiters = true;
@@ -525,13 +528,23 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
      * the throttle near idle (parked or taxiing; throttle rather than speed, so
      * it works on a moving carrier deck); spreading always works. Aircraft
      * without folding wings carry the flag harmlessly (nothing draws it).
+     * A refused fold is counted with its reason, so the HUD can say why.
      */
     toggleWingFold(): void {
         if (this.inWingFold) {
             this.inWingFold = false;
-        } else if (this.model.isLanded() && this.inThrottle <= WING_FOLD_MAX_THROTTLE) {
+        } else if (!this.model.isLanded()) {
+            this.refuseWingFold(WingFoldRefusal.AIRBORNE);
+        } else if (this.inThrottle > WING_FOLD_MAX_THROTTLE) {
+            this.refuseWingFold(WingFoldRefusal.THROTTLE);
+        } else {
             this.inWingFold = true;
         }
+    }
+
+    private refuseWingFold(reason: WingFoldRefusal): void {
+        this.wingFoldRefusals++;
+        this.wingFoldRefusal = reason;
     }
 
     spreadWings(): void {
@@ -714,6 +727,8 @@ class SimAircraft implements PilotableAircraft, Combatant, SimPlayerInputSink {
         out[base + AC.hookZ] = this.hookNow.z;
         out[base + AC.barricade] = this.barricadeState;
         out[base + AC.wingsFolded] = this.isWingsFolded() ? 1 : 0;
+        out[base + AC.wingFoldRefusals] = this.wingFoldRefusals;
+        out[base + AC.wingFoldRefusal] = this.wingFoldRefusal;
     }
 }
 

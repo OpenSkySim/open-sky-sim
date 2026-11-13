@@ -30,6 +30,8 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
     private simAirbrakesExtended = false;
     private simHookDeployed = false;
     private simWingsFolded = false;
+    private simWingFoldRefusals = 0;
+    private simWingFoldRefusal = 0;
     private simFiring = false;
     private simHealth = 100;
     private simAmmo = 0;
@@ -99,6 +101,8 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
         this.simAirbrakesExtended = buf[base + AC.airbrakesExtended] !== 0;
         this.simHookDeployed = buf[base + AC.hookDeployed] !== 0;
         this.simWingsFolded = buf[base + AC.wingsFolded] !== 0;
+        this.simWingFoldRefusals = buf[base + AC.wingFoldRefusals];
+        this.simWingFoldRefusal = buf[base + AC.wingFoldRefusal];
         this.simStateReady = true;
         this.simFiring = buf[base + AC.firing] !== 0;
         this.simHealth = buf[base + AC.health];
@@ -193,6 +197,11 @@ export class SimProxyFlightModel extends FlightModel implements SimAircraftProxy
 
     getSimWingsFolded(): boolean | null {
         return this.simStateReady ? this.simWingsFolded : null;
+    }
+
+    /** Refused wing folds so far and why the last one was ({@link WingFoldRefusal}). */
+    getSimWingFoldRefusal(): { count: number; reason: number } | null {
+        return this.simStateReady ? { count: this.simWingFoldRefusals, reason: this.simWingFoldRefusal } : null;
     }
 
     /** Clear mirrored gear/flaps until the next worker snapshot (e.g. after respawn). */

@@ -13,7 +13,7 @@ import { SimHitEvent } from './simTypes';
  */
 
 /** Floats per aircraft row. Keep in sync with the AC_* offsets below. */
-export const AC_STRIDE = 56;
+export const AC_STRIDE = 58;
 
 export const AC = {
     posX: 0, posY: 1, posZ: 2,
@@ -61,7 +61,20 @@ export const AC = {
     barricade: 54,
     /** Wings folded for parking (carrier aircraft, R key). */
     wingsFolded: 55,
+    /** How many times R was refused (counts up; the HUD notices each new one). */
+    wingFoldRefusals: 56,
+    /** Why the last R was refused, a {@link WingFoldRefusal}. */
+    wingFoldRefusal: 57,
 } as const;
+
+/** Why a wing fold was refused. */
+export enum WingFoldRefusal {
+    NONE = 0,
+    /** Off the ground. */
+    AIRBORNE = 1,
+    /** On the wheels, but the throttle is above the fold limit. */
+    THROTTLE = 2,
+}
 
 /** Floats per projectile row: position (3) + quaternion (4). */
 export const PROJ_STRIDE = 7;

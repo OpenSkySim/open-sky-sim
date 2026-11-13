@@ -6,7 +6,7 @@ import { Faction } from '../../weapons/combatant';
 import { defaultFm2Config } from '../fm2/fm2AircraftConfig';
 import { CombatSim } from './combatSim';
 import { serializeWorld } from './serializedWorld';
-import { AC, AC_STRIDE } from './simSnapshotCodec';
+import { AC, AC_STRIDE, WingFoldRefusal } from './simSnapshotCodec';
 
 /** The R key folds a carrier aircraft's wings: parked only, and they spread again for takeoff. */
 
@@ -32,10 +32,20 @@ function run(s: CombatSim, seconds: number): void {
     }
 }
 
-function folded(s: CombatSim): boolean {
+function row(s: CombatSim): Float32Array {
     const snap = s.encodeSnapshotInto(undefined, undefined);
     const k = snap.ids.indexOf('player');
-    return snap.aircraft.subarray(k * AC_STRIDE, (k + 1) * AC_STRIDE)[AC.wingsFolded] !== 0;
+    return snap.aircraft.subarray(k * AC_STRIDE, (k + 1) * AC_STRIDE);
+}
+
+function folded(s: CombatSim): boolean {
+    return row(s)[AC.wingsFolded] !== 0;
+}
+
+/** Refused folds so far and why the last one was. */
+function refusal(s: CombatSim): [number, number] {
+    const r = row(s);
+    return [r[AC.wingFoldRefusals], r[AC.wingFoldRefusal]];
 }
 
 function press(s: CombatSim, key: string): void {
@@ -62,6 +72,30 @@ describe('wing fold (R)', () => {
         press(s, WING_FOLD_KEY);
         run(s, 0.1);
         assert.equal(folded(s), false);
+        assert.deepEqual(refusal(s), [1, WingFoldRefusal.AIRBORNE]);
+    });
+
+    it('will not fold above half throttle, and says so', () => {
+        const s = sim(false);
+        run(s, 1);
+        s.syncEffectiveThrottle('player', 0.7);
+        run(s, 0.1);
+        press(s, WING_FOLD_KEY);
+        run(s, 0.1);
+        assert.equal(folded(s), false);
+        assert.deepEqual(refusal(s), [1, WingFoldRefusal.THROTTLE]);
+        press(s, WING_FOLD_KEY);
+        run(s, 0.1);
+        assert.deepEqual(refusal(s), [2, WingFoldRefusal.THROTTLE]);
+    });
+
+    it('counts no refusal for a fold or a spread', () => {
+        const s = sim(false);
+        run(s, 1);
+        press(s, WING_FOLD_KEY);
+        press(s, WING_FOLD_KEY);
+        run(s, 0.1);
+        assert.deepEqual(refusal(s), [0, WingFoldRefusal.NONE]);
     });
 
     it('spreads by itself on takeoff power', () => {

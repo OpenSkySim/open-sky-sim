@@ -264,6 +264,11 @@ export class HUDEntity implements Entity {
         if (cue) {
             painter.text(font, throttleX, throttleY - 2 * (font.charHeight + 2), cue, hudColor);
         }
+        // Why R just did nothing (throttle up, or off the ground), for a few seconds.
+        const foldNotice = this.actor.wingFoldNotice;
+        if (foldNotice) {
+            painter.text(font, throttleX, throttleY - 3 * (font.charHeight + 2), foldNotice, hudWarnColor);
+        }
 
         this.renderFlightDataIndicators(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor, fontSmall);
         this.renderAoaIndexer(airSpeedX, airSpeedY, geomScale, painter, hudColor, hudWarnColor, hudSecondaryColor, palette);
