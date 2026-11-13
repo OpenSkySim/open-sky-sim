@@ -182,6 +182,20 @@ const LICENCE_URLS: Record<string, string> = {
 
 const BAVARIA_CREDIT = 'Datenquelle: Bayerische Vermessungsverwaltung – www.geodaten.bayern.de';
 
+/**
+ * The MIT notice of the project this game is forked from, verbatim from
+ * LICENSE. The licence requires it in all copies, so the About tab shows it.
+ */
+const UPSTREAM_LICENCE = `MIT License
+
+Copyright (c) 2022 Ruben Moreno Montoliu <ruben3d@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.`;
+
 /** One baked tree, as /api/terrain-trees lists it; `name` '' is assets/terrain. */
 interface TerrainTree {
     name: string;
@@ -1142,6 +1156,17 @@ function sliderValue(event: Event): number {
                 @case ('About') {
                     <div class="flex flex-col gap-6">
                         <section>
+                            <h3 class="m-0 mb-1 text-base font-medium">Based on RetroFlightSim</h3>
+                            <p class="m-0 mb-2 text-sm opacity-70">
+                                Open Sky Sim is a fork of
+                                <a href="https://github.com/ruben3d/retroflightsim" target="_blank" rel="noopener" class="text-[#94ddff] no-underline hover:text-white hover:underline">RetroFlightSim</a>
+                                by Ruben Moreno Montoliu (ruben3d), used and modified under the MIT License.
+                                The original copyright and permission notice follow.
+                            </p>
+                            <pre class="m-0 whitespace-pre-wrap rounded border border-white/15 bg-white/5 p-3 font-mono text-xs leading-relaxed opacity-80">{{ upstreamLicence }}</pre>
+                        </section>
+
+                        <section>
                             <h3 class="m-0 mb-1 text-base font-medium">Data sources</h3>
                             <p class="m-0 text-sm opacity-70">
                                 The world is built from open data. Each source is clipped, resampled,
@@ -1416,6 +1441,7 @@ export class SettingsDialog {
     readonly spawnHelp = SPAWN_HELP;
     readonly viewsHelp = VIEWS_HELP;
     readonly dataSources = DATA_SOURCES;
+    readonly upstreamLicence = UPSTREAM_LICENCE;
     readonly licenceUrls = LICENCE_URLS;
 
     /** Flight control keys, relabelled whenever the keyboard layout changes. */
