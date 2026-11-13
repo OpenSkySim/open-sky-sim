@@ -1189,6 +1189,26 @@ function sliderValue(event: Event): number {
                         </section>
 
                         <section>
+                            <h3 class="m-0 mb-1 text-base font-medium">3D models</h3>
+                            <p class="m-0 mb-2 text-sm opacity-70">
+                                Models not made for RetroFlightSim or Open Sky Sim, credited to their source.
+                            </p>
+                            <ul class="m-0 flex list-none flex-col gap-2 p-0 text-sm">
+                                <li>
+                                    <div>
+                                        <span class="font-medium">Admiral Kuznetsov aircraft carrier</span>
+                                        <span class="opacity-70"> · the carrier at sea, reworked for the game</span>
+                                    </div>
+                                    <div class="text-xs opacity-80">
+                                        Based on
+                                        <a href="https://www.cadnav.com/3d-models/model-44901.html" target="_blank" rel="noopener" class="text-[#94ddff] no-underline hover:text-white hover:underline">"Admiral Kuznetsov Aircraft Carrier 3D Model"</a>
+                                        (CadNav model #44901); © its original author, via CadNav · Non-commercial licence
+                                    </div>
+                                </li>
+                            </ul>
+                        </section>
+
+                        <section>
                             <h3 class="m-0 mb-1 text-base font-medium">Data sources</h3>
                             <p class="m-0 text-sm opacity-70">
                                 The world is built from open data. Each source is clipped, resampled,
