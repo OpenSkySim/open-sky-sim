@@ -4,6 +4,7 @@ const CopyPlugin = require('copy-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const fs = require('fs');
 const path = require('path');
+const { ThirdPartyLicencesPlugin } = require('./scripts/third-party-licences');
 
 // Angular's npm packages ship partially compiled; the linker finishes them at
 // build time so the bundle needs no runtime JIT compiler.
@@ -85,6 +86,8 @@ module.exports = (_env, argv) => ({
             jitMode: false,
         }),
         new MiniCssExtractPlugin({ filename: 'bundle.css' }),
+        // Licence texts of every bundled npm package, for the About tab.
+        new ThirdPartyLicencesPlugin(),
         // TERRAIN_URL=https://host/v1/manifest.json points the game at terrain
         // hosted elsewhere; see doc/terrain-hosting.md. Unset keeps assets/terrain.
         // DEFAULT_SETTINGS is settings JSON used until the player saves their own.

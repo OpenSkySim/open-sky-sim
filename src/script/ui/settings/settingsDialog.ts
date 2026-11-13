@@ -196,6 +196,14 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.`;
 
+/** One npm package in the build, as scripts/third-party-licences.js lists it. */
+interface BundledLibrary {
+    name: string;
+    version: string;
+    licence: string;
+    homepage: string;
+}
+
 /** One baked tree, as /api/terrain-trees lists it; `name` '' is assets/terrain. */
 interface TerrainTree {
     name: string;
@@ -1222,6 +1230,22 @@ function sliderValue(event: Event): number {
                         }
 
                         <section>
+                            <h3 class="m-0 mb-1 text-base font-medium">Open-source libraries</h3>
+                            <p class="m-0 mb-2 text-sm opacity-70">
+                                The game's code includes these libraries. Their copyright and licence texts are in
+                                <a [href]="libraryLicencesUrl" target="_blank" rel="noopener" class="text-[#94ddff] no-underline hover:text-white hover:underline">third-party-licences.txt</a>.
+                            </p>
+                            <ul class="m-0 flex list-none flex-col gap-1 p-0 text-sm">
+                                @for (library of libraries(); track library.name) {
+                                    <li>
+                                        <a [href]="library.homepage" target="_blank" rel="noopener" class="font-medium text-[#94ddff] no-underline hover:text-white hover:underline">{{ library.name }}</a>
+                                        <span class="opacity-70"> {{ library.version }} · {{ library.licence }}</span>
+                                    </li>
+                                }
+                            </ul>
+                        </section>
+
+                        <section>
                             <h3 class="m-0 mb-1 text-base font-medium">Privacy</h3>
                             <p class="m-0 text-sm opacity-70">
                                 The published game counts visits with
@@ -1459,6 +1483,14 @@ export class SettingsDialog {
     /** Absolute, because the dialog lives in a popup window whose base URL is not guaranteed to be the game's. */
     readonly upstreamScreenshot = new URL('assets/retroflightsim-screenshot.png', window.location.href).href;
     readonly upstreamScreenshotNight = new URL('assets/retroflightsim-screenshot-night.png', window.location.href).href;
+    /** Written by scripts/third-party-licences.js at build time, next to bundle.js. */
+    readonly libraryLicencesUrl = new URL('third-party-licences.txt', window.location.href).href;
+    readonly libraries = signal<BundledLibrary[]>([]);
+
+    private readonly librariesLoad = fetch(new URL('third-party-licences.json', window.location.href).href)
+        .then(response => response.ok ? response.json() as Promise<BundledLibrary[]> : [])
+        .then(list => this.libraries.set(list))
+        .catch(() => undefined);
     readonly licenceUrls = LICENCE_URLS;
 
     /** Flight control keys, relabelled whenever the keyboard layout changes. */
