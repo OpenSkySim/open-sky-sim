@@ -15,7 +15,7 @@ import { CarrierMeshCollider } from '../../scene/entities/carrierDeck';
 import { BarricadeEngagement, BARRICADE_DECK_Y, BARRICADE_LOCAL_Z, BARRICADE_MID_X } from '../../scene/entities/barricadeSpec';
 import { CombatSim } from '../sim/combatSim';
 import { serializeWorld } from '../sim/serializedWorld';
-import { loadWebAirframe, WebFixture } from './webFixtures.testkit.test';
+import { hasWebFixture, loadWebAirframe, WebFixture } from './webFixtures.testkit.test';
 import { buildRiggedWeb } from './webLayout';
 import { WebSolver } from './webSolver';
 import { withoutGear } from './webCollider';
@@ -95,7 +95,7 @@ function rolling(fixture: WebFixture, speed: number, x: number, deck = flatDeck(
 }
 
 describe('barricade webbing in the sim', () => {
-    for (const fixture of ['f22', 'f14a'] as const) {
+    for (const fixture of (['f22', 'f14a'] as const).filter(hasWebFixture)) {
         for (const x of [0, 3]) {
             it(`stops the ${fixture} at 45 m/s, ${x === 0 ? 'centred' : `${x} m off`}`, () => {
                 const sim = rolling(fixture, 45, x);
@@ -238,7 +238,7 @@ describe('barricade webbing holds what it stopped', () => {
     const MAX_ROLL_DEG = 30;
     /** Held, then this long more (s): a rebound shows by then. */
     const AFTER_HELD_S = 4;
-    for (const fixture of ['f22', 'f14a', 'f16a', 'f16xl'] as const) {
+    for (const fixture of (['f22', 'f14a', 'f16a', 'f16xl'] as const).filter(hasWebFixture)) {
         for (const speed of [45, 60]) {
             for (const x of [0, 3, -3]) {
                 it(`${fixture} at ${speed} m/s, ${x === 0 ? 'centred' : `${x} m off`}: braked and free`, () => {
@@ -291,7 +291,7 @@ describe('barricade webbing holds what it stopped', () => {
 describe('barricade webbing keeps the airframe on the deck', () => {
     /** How far a skin point may sit in the deck (m): the hull contact's margin and a frame's sink. */
     const MAX_SKIN_DEPTH_M = 0.1;
-    for (const fixture of ['f22', 'f16xl'] as const) {
+    for (const fixture of (['f22', 'f16xl'] as const).filter(hasWebFixture)) {
         for (const x of [0, 3]) {
             it(`${fixture} at 60 m/s, ${x === 0 ? 'centred' : `${x} m off`}, with its hitbox set`, () => {
                 const sim = rolling(fixture, 60, x);

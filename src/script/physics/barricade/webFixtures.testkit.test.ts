@@ -12,8 +12,25 @@ import { buildTriangleBvh, TriangleBvh } from '../collision/triangleBvh';
 import { buildWebCollider, WebCollider, withoutGear } from './webCollider';
 import { decimateSoup } from './webDecimate';
 
-export const WEB_FIXTURES = ['f22', 'f16a', 'f16xl', 'f14a'] as const;
-export type WebFixture = typeof WEB_FIXTURES[number];
+const ALL_WEB_FIXTURES = ['f22', 'f16a', 'f16xl', 'f14a'] as const;
+export type WebFixture = typeof ALL_WEB_FIXTURES[number];
+
+function fixtureFile(name: WebFixture): string {
+    // Relative to the repo root, where the tests run (as the other fixture-reading tests do).
+    return path.join('src', 'script', 'physics', 'barricade', 'fixtures', `${name}.f32.gz`);
+}
+
+/**
+ * Only the F-22 (Ruben Moreno Montoliu's model, MIT) is in the public repo. The
+ * F-16A, F-16XL and F-14A were baked from a third-party mod and stay local, so
+ * the tests that need them run where they are on disk and are skipped elsewhere.
+ */
+export function hasWebFixture(name: WebFixture): boolean {
+    return fs.existsSync(fixtureFile(name));
+}
+
+/** The airframes present on this machine; see {@link hasWebFixture}. */
+export const WEB_FIXTURES: readonly WebFixture[] = ALL_WEB_FIXTURES.filter(hasWebFixture);
 
 export interface WebAirframe {
     readonly name: WebFixture;
@@ -44,9 +61,7 @@ const cache = new Map<WebFixture, WebAirframe>();
 export function loadWebAirframe(name: WebFixture): WebAirframe {
     const hit = cache.get(name);
     if (hit) return hit;
-    // Relative to the repo root, where the tests run (as the other fixture-reading tests do).
-    const file = path.join('src', 'script', 'physics', 'barricade', 'fixtures', `${name}.f32.gz`);
-    const raw = zlib.gunzipSync(fs.readFileSync(file));
+    const raw = zlib.gunzipSync(fs.readFileSync(fixtureFile(name)));
     // Copied out: a view straight onto the buffer need not be 4-byte aligned.
     const triangles = new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength));
     const bvh = buildTriangleBvh(triangles);
