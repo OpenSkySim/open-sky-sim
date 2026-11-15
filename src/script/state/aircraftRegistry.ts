@@ -59,6 +59,15 @@ export function buildF22Def(): FlyableAircraftDef {
     };
 }
 
+/**
+ * The F-22M1: data/f22M1.blend, the F-22 with a more detailed canopy. Only the
+ * body differs (exported by tools/export_f22m1.py); gear, shadow, control
+ * surfaces and flight model are the F-22's.
+ */
+export function buildF22M1Def(): FlyableAircraftDef {
+    return { ...buildF22Def(), id: 'f22m1', name: 'F-22M1', body: 'assets/f22m1.glb' };
+}
+
 /** Raw shape of a packed `manifest.json` (subset the sim consumes). */
 interface AircraftManifest {
     id?: string;
@@ -215,6 +224,7 @@ export class AircraftRegistry {
 
     constructor() {
         this.register(buildF22Def());
+        this.register(buildF22M1Def());
     }
 
     private register(def: FlyableAircraftDef): void {
