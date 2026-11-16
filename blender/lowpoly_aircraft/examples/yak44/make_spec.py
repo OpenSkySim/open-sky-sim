@@ -284,7 +284,7 @@ def main():
             {'type': 'wingFold', 'role': 'wingFold', 'control': 'fold', 'view': 'top', 'mirror': True,
              # Hinged on the upper skin; the left panel folds a little further than the right so the
              # two lie one above the other where they cross.
-             'sign': 1.0, 'range_deg_sides': [170.0, 164.0], 'hinge_skin': 1.0,
+             'sign': 1.0, 'range_deg_sides': [173.0, 167.0], 'hinge_skin': 1.0,
              'polygon_m': top_m([(6.10, 8.2), (4.736, 13.0), (13.6, 13.0), (13.6, 8.2)])},
             # Kept clear of the inward-leaning fins: stops short of them and only cuts the tailplane's height.
             {'type': 'elevator', 'view': 'top', 'mirror': True, 'depth_m': [0.3, 1.3],
