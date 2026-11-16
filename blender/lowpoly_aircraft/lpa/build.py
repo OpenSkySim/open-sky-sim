@@ -479,6 +479,69 @@ def _cockpit(views, spec, regions) -> list:
     return [0.0, 1.0, 0.25 * float(spec['length_m'])]
 
 
+def _fcurves(action):
+    """F-curves of an action, layered (Blender 4.4+) or legacy."""
+    if hasattr(action, 'fcurves'):
+        return list(action.fcurves)
+    out = []
+    for layer in action.layers:
+        for strip in layer.strips:
+            for bag in strip.channelbags:
+                out.extend(bag.fcurves)
+    return out
+
+
+def _stand_on_wheels(ground_y: float) -> None:
+    """Raise or lower the whole aircraft so the wheels (gear down) touch body y = ground_y.
+
+    The sim rests every type with its body origin a fixed height above the ground
+    (2 m: PLANE_DISTANCE_TO_GROUND), so a taller gear otherwise stands sunk in.
+    Moves every exported object (and the gear's keyed locations) and the scene's
+    recorded points.
+    """
+    scene = bpy.context.scene
+    scene.frame_set(GEAR_FRAMES[1])
+    deps = bpy.context.evaluated_depsgraph_get()
+    low = math.inf
+    for o in bpy.data.collections['Gear'].objects if 'Gear' in bpy.data.collections else []:
+        if o.type != 'MESH':
+            continue
+        e = o.evaluated_get(deps)
+        me = e.to_mesh()
+        low = min([low] + [(e.matrix_world @ v.co).z for v in me.vertices])
+        e.to_mesh_clear()
+    scene.frame_set(GEAR_FRAMES[0])
+    if not math.isfinite(low):
+        print('[lpa] ground_y: no gear, aircraft left where it is')
+        return
+    dy = ground_y - low
+    for coll in ('Body', 'Shadow', 'Gear', 'Surfaces'):
+        if coll not in bpy.data.collections:
+            continue
+        for o in bpy.data.collections[coll].objects:
+            if o.parent is not None:
+                continue
+            o.location.z += dy
+            ad = o.animation_data
+            if ad and ad.action:
+                for fc in _fcurves(ad.action):
+                    if fc.data_path == 'location' and fc.array_index == 2:
+                        for kp in fc.keyframe_points:
+                            kp.co.y += dy
+                            kp.handle_left.y += dy
+                            kp.handle_right.y += dy
+    scene['lpa_wingtips'] = [[w[0], w[1] + dy, w[2]] for w in scene['lpa_wingtips']]
+    c = list(scene['lpa_cockpit'])
+    scene['lpa_cockpit'] = [c[0], c[1] + dy, c[2]]
+    if scene.get('lpa_tailhook'):
+        hook = json.loads(scene['lpa_tailhook'])
+        for k in ('hinge', 'tip'):
+            hook[k][1] = round(hook[k][1] + dy, 4)
+        scene['lpa_tailhook'] = json.dumps(hook)
+    bpy.context.view_layer.update()
+    print(f'[lpa] stand on wheels: moved {dy:+.3f} m (wheels at y {ground_y})')
+
+
 def build_parts(spec: dict) -> None:
     """Realistic low-poly model from shaped parts (lofts and profiled panels).
 
@@ -524,6 +587,9 @@ def build_parts(spec: dict) -> None:
                 obj.name = f'1_{obj.name}'
                 geo._link(obj, 'Body')
                 geo.tidy(obj, material, smooth)
+                if item.get('inside_out'):
+                    # Seen from within (a cockpit tub behind the glazing): faces point inwards.
+                    obj.data.flip_normals()
                 separate.append(obj)
     _WELL_SKINS.clear()
     for obj, material in wells:
@@ -578,6 +644,8 @@ def build_parts(spec: dict) -> None:
     hook = build_tailhook(spec, spec['id'])
     if hook:
         scene['lpa_tailhook'] = json.dumps(hook)
+    if 'ground_y' in spec:
+        _stand_on_wheels(float(spec['ground_y']))
     tris = sum(len(o.data.polygons) for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name != 'Shadow')
     print(f'[lpa] built {spec["id"]}: {tris} triangles')
 

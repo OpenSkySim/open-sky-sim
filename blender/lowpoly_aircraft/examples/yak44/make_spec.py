@@ -104,10 +104,11 @@ def windows_and_doors():
         {'name': 'RearPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(13.61, -0.05, 0.15))},
         {'name': 'RearDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,
          'polygon_m': side_m(rounded_rect(13.17, 14.05, -1.35, 0.36))},
-        # Black radome cap on the nose tip and a lower glazing band under the windscreen (reference renders).
+        # Black radome cap on the nose tip and a dark band under the windscreen (reference renders).
         {'name': 'NoseCap', 'view': 'side', 'material': '#1d2024',
          'polygon_m': side_m([(-0.2, -2.5), (-0.2, 0.5), (0.3, 0.5), (0.3, -2.5)])},
-        {'name': 'LowerWindscreen', 'view': 'side', 'mirror': True, 'depth_m': [0.04, 1.6],
+        # One dark grey panel across the nose under the windscreen (not glass; user).
+        {'name': 'LowerWindscreen', 'view': 'side', 'material': '#3a3e44',
          'polygon_m': side_m([(1.0, -0.44), (1.0, -0.24), (2.03, -0.24), (2.03, -0.36)])},
         {'name': 'BellyPorts', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
          'polygons_m': [side_m(circle(8.38, -1.21, 0.09, 6)), side_m(circle(8.75, -1.2, 0.15)),
@@ -236,6 +237,18 @@ def main():
             {'name': 'MainWell', 'type': 'loft', 'mirror': True, 'join': 'cut', 'segments': 12,
              'stations': loft_rows(main_well, 4.05)},
             {'name': 'NoseWell', 'type': 'loft', 'join': 'cut', 'segments': 12, 'stations': loft_rows(nose_well)},
+            # Dummy cockpit behind the (see-through) glazing: a dark tub inset from the skin, its floor
+            # above the nose gear well, with an instrument panel and two crew seats.
+            {'name': 'CockpitTub', 'type': 'loft', 'join': 'separate', 'inside_out': True, 'material': '#25282c',
+             'segments': 16, 'stations': loft_rows([(1.15, 0.72, -0.58, -0.45, 3), (1.5, 0.9, -0.58, -0.24, 3),
+                                                    (1.9, 1.02, -0.58, 0.1, 3), (2.4, 1.12, -0.58, 0.48, 3),
+                                                    (3.0, 1.16, -0.58, 0.64, 3), (3.45, 1.16, -0.58, 0.64, 3)])},
+            {'name': 'InstrumentPanel', 'type': 'loft', 'join': 'separate', 'material': '#1d2024', 'segments': 8,
+             'stations': loft_rows([(1.7, 0.78, -0.56, -0.08, 6), (1.88, 0.78, -0.56, -0.08, 6)])},
+            {'name': 'Seat', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 8,
+             'stations': loft_rows([(2.55, 0.22, -0.56, -0.2, 6), (2.95, 0.22, -0.56, -0.2, 6)], 0.45)},
+            {'name': 'SeatBack', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 8,
+             'stations': loft_rows([(2.95, 0.22, -0.56, 0.4, 6), (3.12, 0.22, -0.56, 0.4, 6)], 0.45)},
             # Recess under the tail cone that takes the stowed arrestor hook (E-2 Hawkeye style).
             {'name': 'HookWell', 'type': 'loft', 'join': 'cut', 'segments': 10,
              'stations': loft_rows([(15.8, 0.26, -1.74, -1.46, 4), (16.6, 0.24, -1.62, -1.33, 4),
@@ -264,6 +277,8 @@ def main():
         'regions': windows_and_doors(),
         # Arrestor hook like the E-2 Hawkeye's: a forked, striped arm hinged under the tail cone that
         # lies in the HookWell recess and swings down 25 deg, its shoe 0.27 m above the deck.
+        # The sim rests aircraft with the origin 2 m above the ground: stand the wheels there.
+        'ground_y': -2.0,
         'tailhook': {'hinge': P(0.0, -1.55, 16.0), 'stowed_tip': P(0.0, -1.18, 18.3), 'tip': P(0.0, -2.55, 18.104)},
         'surfaces': [
             # Trailing edge as on the drawing's top view: aileron x 9.5..12.2 (front at d 11.3), double flaps
