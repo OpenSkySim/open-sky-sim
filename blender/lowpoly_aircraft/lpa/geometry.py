@@ -209,6 +209,50 @@ def cut_part(hull: bpy.types.Object, name: str, view: str, poly_body2: np.ndarra
     return part
 
 
+def recess(hull: bpy.types.Object, cutter: bpy.types.Object, name: str, material: str,
+           collection: str, inset: float = 0.012) -> bpy.types.Object | None:
+    """Sink a well (wheel bay) into the hull with *cutter*; returns its dark lining (or None).
+
+    The hull keeps the cavity walls; the lining is the cutter's own skin inside the
+    hull, pulled *inset* inwards and facing into the well, so the well reads dark
+    while the body keeps one material. The cutter is consumed.
+    """
+    liner = copy_object(cutter, name, collection)
+    bm = bmesh.new()
+    bm.from_mesh(liner.data)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.normal_update()
+    for v in bm.verts:
+        v.co -= v.normal * inset
+    bm.to_mesh(liner.data)
+    bm.free()
+    skin = BVHTree.FromObject(liner, bpy.context.evaluated_depsgraph_get())
+    boolean(liner, hull, 'INTERSECT')
+    boolean(hull, cutter, 'DIFFERENCE')
+    bpy.data.objects.remove(cutter)
+    # Keep only the lining walls: drop the faces that lie on the hull's outer skin.
+    bm = bmesh.new()
+    bm.from_mesh(liner.data)
+    off = [f for f in bm.faces if skin.find_nearest(f.calc_center_median())[3] > 1e-3]
+    bmesh.ops.delete(bm, geom=off, context='FACES')
+    bm.to_mesh(liner.data)
+    bm.free()
+    if is_empty(liner):
+        bpy.data.objects.remove(liner)
+        return None
+    tidy(liner, material)
+    # tidy cannot orient an open shell: point every face into the well.
+    centre = sum((v.co for v in liner.data.vertices), Vector()) / len(liner.data.vertices)
+    bm = bmesh.new()
+    bm.from_mesh(liner.data)
+    bm.normal_update()
+    flip = [f for f in bm.faces if f.normal.dot(f.calc_center_median() - centre) > 0]
+    bmesh.ops.reverse_faces(bm, faces=flip)
+    bm.to_mesh(liner.data)
+    bm.free()
+    return liner
+
+
 def flat_shape(name: str, loops_body2: list[np.ndarray], material: str, collection: str) -> bpy.types.Object:
     """Top-view outline as a flat polygon on y = 0 (the ground shadow)."""
     bm = bmesh.new()

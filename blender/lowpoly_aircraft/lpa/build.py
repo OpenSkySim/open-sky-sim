@@ -342,7 +342,8 @@ def _add_gear_doors(gear: dict) -> None:
 
     Each door is given by its hinge (x, y), its z range and its height; 'side' says which
     edge of the bay it sits on (+1: the +X edge, so it folds towards -X to close) and
-    'splay_deg' tilts the open door outwards. Doors animate with the gear (same frames,
+    'closed_deg' is the swing to shut (90 = flat; less for a door that follows a
+    rounded skin) and 'splay_deg' tilts the open door outwards. Doors animate with the gear (same frames,
     one '<name>Action' clip each), so the sim swings them with the legs.
     """
     for door in gear.get('doors', []):
@@ -357,7 +358,7 @@ def _add_gear_doors(gear: dict) -> None:
             obj = geo.gear_door(name, xi, y, z0, z1, float(door['height_m']), 'Gear',
                                 thickness=float(door.get('thickness_m', 0.03)))
             axis = geo.to_bl((0.0, 0.0, 1.0))
-            q_closed = Quaternion(axis, -si * math.radians(90.0))
+            q_closed = Quaternion(axis, -si * math.radians(float(door.get('closed_deg', 90.0))))
             q_open = Quaternion(axis, si * math.radians(float(door.get('splay_deg', 0.0))))
             obj.rotation_mode = 'QUATERNION'
             for frame, q in ((GEAR_FRAMES[0], q_closed), (GEAR_FRAMES[1], q_open)):
@@ -399,6 +400,7 @@ def build_parts(spec: dict) -> None:
     spec.setdefault('smooth_deg', smooth)
     hull = None
     separate = []
+    wells = []
     for item in spec['parts']:
         for mirrored in ([False, True] if item.get('mirror') else [False]):
             obj = parts.build_part(item, mirrored)
@@ -406,6 +408,10 @@ def build_parts(spec: dict) -> None:
             material = item.get('material', spec.get('material', 'VEHICLE_PLANE_GREY'))
             obj.name = f"{item.get('name', item['type'])}{side_name}"
             join = item.get('join', 'surface' if item.get('surface') else 'body')
+            if join == 'cut':
+                # Wells (wheel bays) are sunk into the finished body below.
+                wells.append((obj, item.get('material', 'VEHICLE_PLANE_ENGINE')))
+                continue
             if join == 'body':
                 if hull is None:
                     hull = obj
@@ -421,6 +427,8 @@ def build_parts(spec: dict) -> None:
                 geo._link(obj, 'Body')
                 geo.tidy(obj, material, smooth)
                 separate.append(obj)
+    for obj, material in wells:
+        geo.recess(hull, obj, f'1_{obj.name}', material, 'Body')
     wingtips = _wingtips(hull)
     for i, item in enumerate(spec.get('regions', [])):
         view = item.get('view', 'side')
