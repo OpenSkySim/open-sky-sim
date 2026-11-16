@@ -99,6 +99,16 @@ def filled_silhouette(ink: np.ndarray, close_px: int = 2) -> np.ndarray:
     return solid[pad:-pad, pad:-pad]
 
 
+def open_mask(mask: np.ndarray, px: int) -> np.ndarray:
+    """Remove strokes thinner than about 2*px (dashed ghost lines, ground lines, labels)."""
+    if px <= 0:
+        return mask
+    kept = erode(mask, px)
+    for _ in range(px):
+        kept = dilate(kept, 1) & mask
+    return kept
+
+
 def trace_loops(mask: np.ndarray) -> list[np.ndarray]:
     """Closed outlines of a mask along pixel edges, as (n, 2) arrays of (u, v).
 
@@ -215,6 +225,33 @@ def outline_polygons(mask: np.ndarray, eps_px: float, min_area_frac: float = 0.0
         if len(s) >= 3:
             out.append(s)
     return out
+
+
+def shape_mask(shape: dict, h: int, w: int) -> np.ndarray:
+    """Rasterise {"rect": [u0,v0,u1,v1]}, {"circle": [u,v,r]}, {"ellipse": [u,v,ru,rv]} or {"polygon": [[u,v],...]}."""
+    vv, uu = np.mgrid[0:h, 0:w]
+    uu = uu + 0.5
+    vv = vv + 0.5
+    if 'rect' in shape:
+        u0, v0, u1, v1 = shape['rect']
+        return (uu >= u0) & (uu < u1) & (vv >= v0) & (vv < v1)
+    if 'circle' in shape:
+        cu, cv, r = shape['circle']
+        return (uu - cu) ** 2 + (vv - cv) ** 2 <= r * r
+    if 'ellipse' in shape:
+        cu, cv, ru, rv = shape['ellipse']
+        return ((uu - cu) / ru) ** 2 + ((vv - cv) / rv) ** 2 <= 1.0
+    poly = np.asarray(shape['polygon'], dtype=np.float64)
+    inside = np.zeros((h, w), dtype=bool)
+    n = len(poly)
+    for i in range(n):  # even-odd rule, one edge at a time
+        (x0, y0), (x1, y1) = poly[i], poly[(i + 1) % n]
+        if y0 == y1:
+            continue
+        crosses = (vv >= min(y0, y1)) & (vv < max(y0, y1))
+        xi = x0 + (vv - y0) * (x1 - x0) / (y1 - y0)
+        inside ^= crosses & (uu < xi)
+    return inside
 
 
 def bbox(mask: np.ndarray) -> tuple[int, int, int, int]:

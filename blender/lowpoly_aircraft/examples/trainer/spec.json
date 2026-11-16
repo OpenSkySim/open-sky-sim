@@ -167,12 +167,12 @@
       {
         "name": "Main",
         "side_px": [
-          800.0,
+          776.0,
           452.0
         ],
         "top_px": [
           364.0,
-          240.0
+          216.0
         ],
         "mirror": true,
         "retract": "inward",

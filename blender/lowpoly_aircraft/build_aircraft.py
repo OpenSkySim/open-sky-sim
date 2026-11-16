@@ -40,7 +40,10 @@ def main() -> None:
     out = args.out or os.path.join(os.path.dirname(os.path.abspath(args.spec)), 'build', aid)
     manifest = export_pack(out, pack=not args.no_pack)
     if not args.no_blend:
-        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, f'{aid}.blend'))
+        blend = os.path.join(out, f'{aid}.blend')
+        if os.path.exists(blend):
+            os.remove(blend)  # no .blend1 backups next to the pack
+        bpy.ops.wm.save_as_mainfile(filepath=blend)
     print(f'[lpa] wrote {out}: {len(manifest["surfaces"])} surfaces, gear={"yes" if manifest["gear"] else "no"}')
 
 

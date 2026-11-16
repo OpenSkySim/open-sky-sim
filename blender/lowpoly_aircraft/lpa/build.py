@@ -25,6 +25,8 @@ SURFACE_TYPES = {
     'spoiler':    ('airbrake', (1.0, 1.0), 45.0),
     'airbrake':   ('airbrake', (1.0, 1.0), 45.0),
     'slat':       ('slats', (1.0, 1.0), 15.0),
+    # An all-moving canard sits ahead of the wing: nose up wants its trailing edge down.
+    'canard':     ('pitch', (-1.0, -1.0), 20.0),
 }
 
 GEAR_RETRACT_AXES = {
@@ -61,18 +63,18 @@ def _mirror_x(view: str, pts: np.ndarray) -> np.ndarray:
     return out
 
 
-def _mid_through(tree, view: str, ab, fallback: float) -> float:
-    """Middle of the part's thickness at a hinge end, along the view's missing axis."""
+def _mid_through(tree, view: str, ab, fallback: float) -> tuple[float, float]:
+    """(middle, thickness) of the part along the view's missing axis at a hinge point."""
     a, b = float(ab[0]), float(ab[1])
     if view != 'top':
-        return fallback
+        return fallback, 0.0
     lo = geo.underside_y(tree, a, b, -500.0)
     if lo is None:
-        return fallback
+        return fallback, float('inf')
     # Cast down from above for the top skin.
     hit = tree.ray_cast(geo.to_bl((a, 500.0, b)), geo.Vector((0, 0, -1)))
     hi = geo.from_bl(hit[0])[1] if hit[0] is not None else lo
-    return 0.5 * (lo + hi)
+    return 0.5 * (lo + hi), hi - lo
 
 
 def _hinge_3d(part, view: str, hinge2: np.ndarray):
@@ -82,9 +84,27 @@ def _hinge_3d(part, view: str, hinge2: np.ndarray):
     # Measure the thickness a little inside the part (the hinge is its edge),
     # but keep the hinge line itself where it was drawn.
     center2 = {'top': (center[0], center[2]), 'side': (center[2], center[1]), 'front': (center[0], center[1])}[view]
-    inset = hinge2 + 0.15 * (np.asarray(center2) - hinge2)
+    # Sample the part's mid-thickness a quarter in from each hinge end (the
+    # ends often run into the fuselage or a tip) and extrapolate to the ends.
     tree = geo.bvh_of(part)
-    p = [geo.view_point_3d(view, hinge2[i], _mid_through(tree, view, inset[i], center[third_axis])) for i in range(2)]
+    # Sample the part's mid-thickness along the hinge; samples much thicker
+    # than the thinnest (where the cut runs into a fuselage, fin or pod) are
+    # dropped, and a straight line through the rest gives the hinge height.
+    ts = np.linspace(0.15, 0.85, 8)
+    samples = []
+    for t in ts:
+        q = hinge2[0] + t * (hinge2[1] - hinge2[0])
+        q = q + 0.15 * (np.asarray(center2) - q)
+        samples.append(_mid_through(tree, view, q, center[third_axis]))
+    mids = np.array([m for m, _ in samples])
+    thick = np.array([th for _, th in samples])
+    keep = thick <= 1.5 * thick.min() + 1e-6
+    if keep.sum() >= 2:
+        slope, icpt = np.polyfit(ts[keep], mids[keep], 1)
+    else:
+        slope, icpt = 0.0, float(mids[keep].mean()) if keep.any() else center[third_axis]
+    ends = [icpt, icpt + slope]
+    p = [geo.view_point_3d(view, hinge2[i], ends[i]) for i in range(2)]
     p0, p1 = np.array(p[0]), np.array(p[1])
     # Pivot on the hinge line, at the projection of the part centre.
     d = p1 - p0
@@ -101,6 +121,101 @@ def _hinge_3d(part, view: str, hinge2: np.ndarray):
     return pivot, axis
 
 
+def _depth(views, item) -> tuple[float, float]:
+    """How far a cut reaches along the view's line of sight (default: through everything).
+
+    A fin's rudder drawn in the side view would otherwise cut every fin at
+    once; `depth_top_px` limits it to a span of the top view (its u range).
+    """
+    if 'depth_m' in item:
+        a, b = item['depth_m']
+    elif 'depth_top_px' in item:
+        u0, u1 = item['depth_top_px']
+        a = views['top'].to_body2([[u0, 0]])[0][0]
+        b = views['top'].to_body2([[u1, 0]])[0][0]
+    else:
+        return (-geo.EXTRUDE, geo.EXTRUDE)
+    return (min(a, b), max(a, b))
+
+
+def _add_props(views, spec) -> None:
+    """Propeller discs: hub from the front view (x, y) and top or side view (z)."""
+    for i, pr in enumerate(spec.get('props', [])):
+        x, y = views['front'].to_body2([pr['front_px']])[0]
+        if 'top_px' in pr:
+            z = views['top'].to_body2([pr['top_px']])[0][1]
+        else:
+            z = views['side'].to_body2([pr['side_px']])[0][0]
+        r_px = float(pr['radius_px'])
+        r = float(np.linalg.norm(views['front'].to_body2([[r_px, 0]])[0] - views['front'].to_body2([[0, 0]])[0]))
+        xs = [x, -x] if pr.get('mirror', abs(x) > 0.05) else [x]
+        for xi in xs:
+            side = '' if len(xs) == 1 else ('Left' if xi > 0 else 'Right')
+            geo.disc(f'2_Prop{side}{i or ""}', (xi, y, z), r, 'z', pr.get('material', 'VEHICLE_PLANE_ENGINE'), 'Body')
+            print(f'[lpa] prop {side}: hub {np.round((xi, y, z), 2).tolist()} radius {r:.2f} m')
+
+
+def _add_components(views, spec) -> None:
+    """Extra solids built from their own shapes per view (a rotodome, a pod, a canard).
+
+    Each is the intersection of the prisms of its shapes in the views it
+    names; a view it leaves out does not limit it. It stays a separate object
+    with its own material, untouched by the control-surface cuts. With
+    "mirror" it is built on both sides; with "surface" ({"type", "hinge_px"
+    or "hinge_m", "view"}) the whole part moves, like an all-moving canard
+    or stabilator, about the given hinge line.
+    """
+    from .views import shape_outline
+    for i, comp in enumerate(spec.get('components', [])):
+        base = comp.get('name', f'Component{i}')
+        surf = comp.get('surface')
+        for mirrored in ([False, True] if comp.get('mirror') else [False]):
+            solid = None
+            for view, shapes in comp['shapes'].items():
+                loops = [views[view].to_body2(shape_outline(sh, 24)) for sh in shapes]
+                if mirrored:
+                    loops = [_mirror_x(view, lp) for lp in loops]
+                p = geo.prism(f'C_{base}_{view}', view, loops)
+                if solid is None:
+                    solid = p
+                else:
+                    geo.boolean(solid, p, 'INTERSECT')
+                    bpy.data.objects.remove(p)
+            mn, mx = geo.bounds_body(solid)
+            side_name = '' if not comp.get('mirror') else ('Left' if mn[0] + mx[0] > 0 else 'Right')
+            material = comp.get('material', spec.get('material', 'VEHICLE_PLANE_GREY'))
+            solid.hide_render = False
+            bpy.data.collections['Construction'].objects.unlink(solid)
+            if not surf:
+                solid.name = f'1_{base}{side_name}'
+                geo._link(solid, 'Body')
+                geo.tidy(solid, material)
+                print(f'[lpa] component {solid.name}: {len(solid.data.polygons)} triangles')
+                continue
+            kind = surf.get('type', 'stabilator')
+            control, signs, rng = SURFACE_TYPES.get(kind, (surf.get('control', 'pitch'), (1.0, 1.0), 20.0))
+            hview = surf.get('view', 'top')
+            hinge = _hinge_body2(views, {'view': hview, **surf}, np.zeros((2, 2)))
+            if mirrored:
+                hinge = _mirror_x(hview, hinge)
+            role = surf.get('role', kind) + side_name
+            solid.name = role
+            geo._link(solid, 'Surfaces')
+            geo.tidy(solid, material)
+            pivot, axis = _hinge_3d(solid, hview, hinge)
+            geo.set_origin(solid, pivot)
+            ctl = surf.get('control', control)
+            if ctl == 'stabilator':
+                ctl = 'stabilator' + (side_name or 'Left')
+            side_ix = 1 if side_name == 'Right' else 0
+            solid['lpa_role'] = role
+            solid['lpa_control'] = ctl
+            solid['lpa_sign'] = float(surf.get('sign', signs[side_ix]))
+            solid['lpa_range_deg'] = float(surf.get('range_deg', rng))
+            solid['lpa_axis'] = [float(c) for c in axis]
+            print(f'[lpa] all-moving {role}: pivot {np.round(pivot, 3).tolist()} axis {np.round(axis, 3).tolist()} -> {ctl}')
+
+
 def _add_surfaces(views, hull, spec) -> None:
     for item in spec.get('surfaces', []):
         kind = item['type']
@@ -108,17 +223,22 @@ def _add_surfaces(views, hull, spec) -> None:
         view = item.get('view', 'top')
         poly = _poly_body2(views, item)
         hinge = _hinge_body2(views, item, poly)
-        sides = [(poly, hinge)]
+        depth = _depth(views, item)
+        sides = [(poly, hinge, depth)]
         if item.get('mirror', view != 'side'):
-            sides.append((_mirror_x(view, poly), _mirror_x(view, hinge)))
-        for p, h in sides:
-            cx = float(np.mean(p[:, 0])) if view in ('top', 'front') else 0.0
+            if view == 'side':
+                sides.append((poly, hinge, (-depth[1], -depth[0])))
+            else:
+                sides.append((_mirror_x(view, poly), _mirror_x(view, hinge), depth))
+        for p, h, dep in sides:
+            cx = float(np.mean(p[:, 0])) if view in ('top', 'front') else 0.5 * (dep[0] + dep[1])
             if len(sides) == 1:
                 side_name, side_ix = '', 1
             else:
                 side_name, side_ix = ('Left', 0) if cx > 0 else ('Right', 1)
             role = item.get('role', kind) + side_name
-            part = geo.cut_part(hull, role, view, p, item.get('material', spec.get('material', 'VEHICLE_PLANE_GREY')), 'Surfaces')
+            part = geo.cut_part(hull, role, view, p, item.get('material', spec.get('material', 'VEHICLE_PLANE_GREY')),
+                                'Surfaces', depth=dep)
             if part is None:
                 print(f'[lpa] surface {role}: polygon does not touch the hull, skipped')
                 continue
@@ -159,6 +279,8 @@ def _add_gear(views, hull, spec) -> None:
         z, y_ground = float(side[0]), float(side[1])
         if 'top_px' in leg:
             x = float(views['top'].to_body2([leg['top_px']])[0][0])
+        elif 'front_px' in leg:
+            x = float(views['front'].to_body2([leg['front_px']])[0][0])
         else:
             x = float(leg.get('x_m', 0.0))
         radius = float(leg.get('wheel_radius_m', max(0.15, 0.03 * length)))
@@ -231,6 +353,8 @@ def build(spec_path: str) -> None:
     regions = _add_regions(views, hull, spec)
     _add_surfaces(views, hull, spec)
     _add_gear(views, hull, spec)
+    _add_props(views, spec)
+    _add_components(views, spec)
 
     body_material = spec.get('material', 'VEHICLE_PLANE_GREY')
     geo.tidy(hull, body_material)

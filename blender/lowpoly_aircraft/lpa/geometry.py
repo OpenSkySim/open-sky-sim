@@ -53,14 +53,15 @@ def _link(obj: bpy.types.Object, collection: str) -> bpy.types.Object:
     return obj
 
 
-def prism(name: str, view: str, loops_body2: list[np.ndarray], collection: str = 'Construction') -> bpy.types.Object:
-    """Silhouette loops extruded through the whole aircraft along the view's line of sight."""
+def prism(name: str, view: str, loops_body2: list[np.ndarray], collection: str = 'Construction',
+          depth: tuple[float, float] = (-EXTRUDE, EXTRUDE)) -> bpy.types.Object:
+    """Silhouette loops extruded along the view's line of sight (through everything by default)."""
     bm = bmesh.new()
     for loop in loops_body2:
         lo, hi = [], []
         for ab in loop:
-            lo.append(bm.verts.new(to_bl(view_point_3d(view, ab, -EXTRUDE))))
-            hi.append(bm.verts.new(to_bl(view_point_3d(view, ab, EXTRUDE))))
+            lo.append(bm.verts.new(to_bl(view_point_3d(view, ab, depth[0]))))
+            hi.append(bm.verts.new(to_bl(view_point_3d(view, ab, depth[1]))))
         n = len(loop)
         try:
             bm.faces.new(lo)
@@ -142,13 +143,22 @@ def set_origin(obj: bpy.types.Object, pivot_body) -> None:
 
 
 def visual_hull(views: dict[str, View]) -> bpy.types.Object:
-    hull = prism('Hull', 'top', views['top'].loops_body2())
-    side = prism('PrismSide', 'side', views['side'].loops_body2())
-    front = prism('PrismFront', 'front', views['front'].loops_body2())
-    boolean(hull, side, 'INTERSECT')
-    boolean(hull, front, 'INTERSECT')
-    for o in (side, front):
-        bpy.data.objects.remove(o)
+    from .views import depth_range
+    prisms = {}
+    for name in ('top', 'side', 'front'):
+        p = prism(f'Prism_{name}', name, views[name].loops_body2())
+        for i, (outline_px, shape) in enumerate(views[name].extras):
+            extra = prism(f'Prism_{name}_extra{i}', name, [views[name].to_body2(outline_px)],
+                          depth=depth_range(views, shape))
+            boolean(p, extra, 'UNION')
+            bpy.data.objects.remove(extra)
+        prisms[name] = p
+    hull = prisms['top']
+    hull.name = 'Hull'
+    hull.hide_render = False
+    for name in ('side', 'front'):
+        boolean(hull, prisms[name], 'INTERSECT')
+        bpy.data.objects.remove(prisms[name])
     return hull
 
 
@@ -170,9 +180,9 @@ def underside_y(tree: BVHTree, x: float, z: float, y_from: float) -> float | Non
 
 
 def cut_part(hull: bpy.types.Object, name: str, view: str, poly_body2: np.ndarray,
-             material: str, collection: str) -> bpy.types.Object | None:
+             material: str, collection: str, depth=(-EXTRUDE, EXTRUDE)) -> bpy.types.Object | None:
     """Split the region under a view polygon off the hull; returns the part (or None)."""
-    cutter = prism(f'Cut_{name}', view, [poly_body2])
+    cutter = prism(f'Cut_{name}', view, [poly_body2], depth=depth)
     part = copy_object(hull, name, collection)
     boolean(part, cutter, 'INTERSECT')
     if is_empty(part):
@@ -265,3 +275,32 @@ def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: flo
         set_origin(obj, top)
         parts.append(obj)
     return parts
+
+
+def disc(name: str, center, radius: float, normal_axis: str, material: str, collection: str,
+         sides: int = 12, thickness: float = 0.06) -> bpy.types.Object:
+    """A thin n-gon disc (a propeller's blur) facing along a body axis."""
+    bm = bmesh.new()
+    cx, cy, cz = center
+    a, b = [], []
+    for i in range(sides):
+        t = 2 * math.pi * (i + 0.5) / sides
+        u, v = radius * math.cos(t), radius * math.sin(t)
+        if normal_axis == 'z':
+            p0, p1 = (cx + u, cy + v, cz - thickness / 2), (cx + u, cy + v, cz + thickness / 2)
+        else:
+            p0, p1 = (cx - thickness / 2, cy + u, cz + v), (cx + thickness / 2, cy + u, cz + v)
+        a.append(bm.verts.new(to_bl(p0)))
+        b.append(bm.verts.new(to_bl(p1)))
+    bm.faces.new(a)
+    bm.faces.new(list(reversed(b)))
+    for i in range(sides):
+        j = (i + 1) % sides
+        bm.faces.new((a[i], a[j], b[j], b[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.append(get_material(material))
+    obj = bpy.data.objects.new(name, me)
+    return _link(obj, collection)

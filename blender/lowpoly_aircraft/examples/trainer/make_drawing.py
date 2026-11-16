@@ -121,7 +121,7 @@ def main():
         ],
         'gear': {'legs': [
             {'name': 'Nose', 'side_px': r(side(1.3, -0.75)), 'retract': 'aft', 'wheel_radius_m': 0.2},
-            {'name': 'Main', 'side_px': r(side(4.0, -0.8)), 'top_px': r(top(1.6, 4.0)),
+            {'name': 'Main', 'side_px': r(side(3.4, -0.8)), 'top_px': r(top(1.6, 3.4)),
              'mirror': True, 'retract': 'inward', 'wheel_radius_m': 0.28},
         ]},
     }

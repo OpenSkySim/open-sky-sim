@@ -29,6 +29,10 @@ class View:
     mask: np.ndarray           # filled silhouette, full source-image size
     affine: np.ndarray         # 2x3: [a, b] = affine @ [u, v, 1]
     loops_px: list[np.ndarray] = field(default_factory=list)
+    # Includes limited in depth: (outline in px, depth spec) pairs, built as
+    # their own prisms (a nacelle seen from the front only exists over the
+    # nacelle's length, not all the way to the tail).
+    extras: list[tuple[np.ndarray, dict]] = field(default_factory=list)
 
     def to_body2(self, pts_px) -> np.ndarray:
         p = np.asarray(pts_px, dtype=np.float64).reshape(-1, 2)
@@ -57,12 +61,50 @@ def load_view_mask(spec_dir: str, spec: dict, name: str) -> np.ndarray:
     u0, v0, u1, v1 = (int(round(c)) for c in crop)
     region = np.zeros_like(ink)
     region[v0:v1, u0:u1] = True
-    for (eu0, ev0, eu1, ev1) in vs.get('erase', []):
-        region[int(ev0):int(ev1), int(eu0):int(eu1)] = False
     solid = sil.filled_silhouette(ink[v0:v1, u0:u1], int(vs.get('close_px', 2)))
+    solid = sil.open_mask(solid, int(vs.get('open_px', spec.get('open_px', 0))))
     mask = np.zeros_like(ink)
     mask[v0:v1, u0:u1] = solid
-    return mask & region
+    mask &= region
+    # Corrections: drop ghost lines, labels, drawn-down gear or prop discs
+    # (exclude), then put back what they covered by mistake (include).
+    for shape in vs.get('exclude', []):
+        cut = sil.shape_mask(shape, h, w)
+        if shape.get('grow_px'):   # also take the shape's own ink outline
+            cut = sil.dilate(cut, int(shape['grow_px']))
+        mask &= ~cut
+    for shape in vs.get('include', []):
+        if not _is_deep_limited(shape):
+            mask |= sil.shape_mask(shape, h, w)
+    return mask
+
+
+def _is_deep_limited(shape: dict) -> bool:
+    return 'z_top_px' in shape or 'x_top_px' in shape or 'depth_m' in shape
+
+
+def shape_outline(shape: dict, sides: int = 16) -> np.ndarray:
+    if 'rect' in shape:
+        u0, v0, u1, v1 = shape['rect']
+        return np.array([[u0, v0], [u1, v0], [u1, v1], [u0, v1]], dtype=np.float64)
+    if 'circle' in shape or 'ellipse' in shape:
+        cu, cv, ru, rv = shape['ellipse'] if 'ellipse' in shape else (*shape['circle'], shape['circle'][2])
+        t = 2 * np.pi * (np.arange(sides) + 0.5) / sides
+        return np.stack([cu + ru * np.cos(t), cv + rv * np.sin(t)], axis=1)
+    return np.asarray(shape['polygon'], dtype=np.float64)
+
+
+def depth_range(views: dict, shape: dict) -> tuple[float, float]:
+    """Body-frame extent along a view's line of sight, read off the top view."""
+    if 'depth_m' in shape:
+        a, b = shape['depth_m']
+    elif 'z_top_px' in shape:   # front-view item: z from the top view's v range
+        v0, v1 = shape['z_top_px']
+        a, b = views['top'].to_body2([[0, v0], [0, v1]])[:, 1]
+    else:                       # side-view item: x from the top view's u range
+        u0, u1 = shape['x_top_px']
+        a, b = views['top'].to_body2([[u0, 0], [u1, 0]])[:, 0]
+    return (float(min(a, b)), float(max(a, b)))
 
 
 def build_views(spec_dir: str, spec: dict) -> dict[str, View]:
@@ -131,6 +173,7 @@ def build_views(spec_dir: str, spec: dict) -> dict[str, View]:
     eps = float(spec.get('detail_px', 4.0))
     for v in views.values():
         v.loops_px = sil.outline_polygons(v.mask, eps)
+        v.extras = [(shape_outline(sh), sh) for sh in spec['views'][v.name].get('include', []) if _is_deep_limited(sh)]
     return views
 
 
