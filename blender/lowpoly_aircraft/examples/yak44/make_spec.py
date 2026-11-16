@@ -284,7 +284,7 @@ def main():
             {'type': 'wingFold', 'role': 'wingFold', 'control': 'fold', 'view': 'top', 'mirror': True,
              # Hinged on the upper skin; the left panel folds a little further than the right so the
              # two lie one above the other where they cross.
-             'sign': 1.0, 'range_deg_sides': [177.0, 171.0], 'hinge_skin': 1.0,
+             'sign': 1.0, 'range_deg_sides': [179.0, 167.0], 'hinge_skin': 1.0,
              # The axis turns 5 deg further than the cut (user: fold more forward).
              'axis_yaw_deg': 5.0,
              'polygon_m': top_m([(5.95, 8.2), (4.60, 13.0), (13.6, 13.0), (13.6, 8.2)])},

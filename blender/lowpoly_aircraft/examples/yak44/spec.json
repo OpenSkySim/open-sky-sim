@@ -2135,8 +2135,8 @@
    "mirror": true,
    "sign": 1.0,
    "range_deg_sides": [
-    177.0,
-    171.0
+    179.0,
+    167.0
    ],
    "hinge_skin": 1.0,
    "axis_yaw_deg": 5.0,
