@@ -238,6 +238,28 @@ def main():
              'stations': loft_rows(main_well, 4.05)},
             {'name': 'NoseWell', 'type': 'loft', 'join': 'cut', 'segments': 12, 'stations': loft_rows(nose_well)},
             # Cockpit behind the (see-through) glazing: one open space with two seats and two pilots (user).
+            # Cockpit panels (user): instrument panel with screens, glare shield, centre pedestal,
+            # side consoles and an overhead panel, all trimmed to the inside of the skin.
+            {'name': 'InstrumentPanel', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
+             'segments': 8, 'stations': loft_rows([(1.7, 0.9, -0.56, -0.08, 6), (1.88, 0.9, -0.56, -0.08, 6)])},
+            {'name': 'GlareShield', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#16181b',
+             'segments': 8, 'stations': loft_rows([(1.66, 0.9, -0.09, -0.03, 6), (1.98, 0.9, -0.09, -0.03, 6)])},
+            {'name': 'ScreenInner', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#2f5263',
+             'segments': 6, 'stations': loft_rows([(1.88, 0.1, -0.38, -0.15, 8), (1.9, 0.1, -0.38, -0.15, 8)], 0.3)},
+            {'name': 'ScreenOuter', 'type': 'loft', 'join': 'separate', 'mirror': True, 'clip_hull': True,
+             'material': '#2f5263', 'segments': 6,
+             'stations': loft_rows([(1.88, 0.1, -0.38, -0.15, 8), (1.9, 0.1, -0.38, -0.15, 8)], 0.56)},
+            {'name': 'ScreenCentre', 'type': 'loft', 'join': 'separate', 'material': '#3d5f4a', 'segments': 6,
+             'stations': loft_rows([(1.88, 0.08, -0.45, -0.2, 8), (1.9, 0.08, -0.45, -0.2, 8)])},
+            {'name': 'Pedestal', 'type': 'loft', 'join': 'separate', 'material': '#2e3236', 'segments': 8,
+             'stations': loft_rows([(1.88, 0.12, -0.56, -0.3, 6), (2.65, 0.12, -0.56, -0.34, 6)])},
+            {'name': 'SideConsole', 'type': 'loft', 'join': 'separate', 'mirror': True, 'clip_hull': True,
+             'material': '#2e3236', 'segments': 8,
+             'stations': loft_rows([(1.95, 0.16, -0.56, -0.3, 6), (3.15, 0.16, -0.56, -0.3, 6)], 0.85)},
+            {'name': 'Overhead', 'type': 'loft', 'join': 'separate', 'material': '#2e3236',
+             'segments': 8, 'stations': loft_rows([(2.35, 0.26, 0.34, 0.42, 6), (2.95, 0.26, 0.34, 0.42, 6)])},
+            {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'material': '#2a2d31',
+             'segments': 8, 'stations': loft_rows([(1.2, 2.0, -0.6, -0.56, 8), (3.26, 2.0, -0.6, -0.56, 8)])},
             {'name': 'Seat', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 8,
              'stations': loft_rows([(2.55, 0.22, -0.56, -0.2, 6), (2.95, 0.22, -0.56, -0.2, 6)], 0.45)},
             {'name': 'SeatBack', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 8,
@@ -251,7 +273,7 @@ def main():
             {'name': 'PilotVisor', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#101215', 'segments': 8,
              'stations': loft_rows([(2.6, 0.08, 0.4, 0.47, 3), (2.66, 0.1, 0.39, 0.48, 3)], 0.45)},
             # Black bulkhead behind the seats: closes the open cabin off from the empty fuselage (user).
-            {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': True, 'material': '#121314',
+            {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#121314',
              'segments': 8, 'stations': loft_rows([(3.22, 2.5, -2.0, 2.0, 8), (3.28, 2.5, -2.0, 2.0, 8)])},
             # Recess under the tail cone that takes the stowed arrestor hook (E-2 Hawkeye style).
             {'name': 'HookWell', 'type': 'loft', 'join': 'cut', 'segments': 10,
@@ -283,6 +305,8 @@ def main():
         # lies in the HookWell recess and swings down 25 deg, its shoe 0.27 m above the deck.
         # The sim rests aircraft with the origin 2 m above the ground: stand the wheels there.
         'ground_y': -2.0,
+        # The cockpit seen through the glazing: hull faces inside it that face into the airframe go.
+        'open_cabin': {'lo': P(-1.4, -0.54, 3.24), 'hi': P(1.4, 1.4, 1.0)},
         # Origin (the sim's centre of gravity) about the wing's quarter chord, ahead of the main wheels
         # (d 10.85); the drawing's frame had it at d Z0, behind them, so the aircraft rocked on its mains.
         'z0_m': Z0, 'origin_d': 10.0,

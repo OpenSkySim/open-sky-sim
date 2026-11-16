@@ -491,8 +491,10 @@ def _fcurves(action):
     return out
 
 
-def _fill_section(obj, hull) -> None:
-    """Cut a slab part down to the hull section it spans, keeping only its fore and aft faces.
+def _fill_section(obj, hull, how='section') -> None:
+    """Cut a slab part down to the hull section it spans, keeping only its two broad faces.
+
+    *how* 'floor' keeps the top and bottom faces (a deck), anything else the fore and aft ones.
 
     The rim the cut leaves lies on the skin and would fight with it, so it goes; what stays is
     a flat wall that fills the fuselage there (a bulkhead seen through the glazing).
@@ -502,13 +504,71 @@ def _fill_section(obj, hull) -> None:
     geo.boolean(obj, hull, 'INTERSECT')
     bm = bmesh.new()
     bm.from_mesh(obj.data)
-    rim = [f for f in bm.faces if abs(f.normal.y) < 0.9]   # Blender Y is the body's fore-aft axis
+    k = 2 if how == 'floor' else 1                        # Blender Z is up, Blender Y fore-aft
+    rim = [f for f in bm.faces if abs(f.normal[k]) < 0.9]
     bmesh.ops.delete(bm, geom=rim, context='FACES')
     # Pull the edge 2 % in off the skin so it cannot show through it as a seam.
     centre = sum((v.co for v in bm.verts), Vector()) / max(len(bm.verts), 1)
     for v in bm.verts:
-        v.co.x = centre.x + 0.98 * (v.co.x - centre.x)
-        v.co.z = centre.z + 0.98 * (v.co.z - centre.z)
+        for j in {0, 1, 2} - {k}:
+            v.co[j] = centre[j] + 0.98 * (v.co[j] - centre[j])
+    bm.to_mesh(obj.data)
+    bm.free()
+
+
+def _open_cabin(hull, box: dict, reach: float = 3.0) -> None:
+    """Delete the hull faces inside a body-frame box that face into the airframe, not out of it.
+
+    Seen through the glazing the cabin is one open space: a face there whose normal runs into
+    the hull or another body part (glass, roof, panels) within *reach* is a cut wall or shelf
+    left by some cut, not skin, and goes.
+    """
+    import bmesh  # type: ignore  # (needs bpy loaded first)
+    from mathutils.bvhtree import BVHTree  # type: ignore
+    lo = np.minimum(box['lo'], box['hi'])
+    hi = np.maximum(box['lo'], box['hi'])
+    bm_all = bmesh.new()
+    for o in bpy.data.collections['Body'].objects:
+        if o.type == 'MESH':
+            me = o.data.copy()
+            me.transform(o.matrix_world)
+            bm_all.from_mesh(me)
+            bpy.data.meshes.remove(me)
+    me = hull.data.copy()
+    me.transform(hull.matrix_world)
+    bm_all.from_mesh(me)
+    bpy.data.meshes.remove(me)
+    tree = BVHTree.FromBMesh(bm_all)
+    bm_all.free()
+    bm = bmesh.new()
+    bm.from_mesh(hull.data)
+    bm.transform(hull.matrix_world)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    doomed = []
+    for f in bm.faces:
+        c = f.calc_center_median()
+        p = np.asarray(geo.from_bl(c))
+        if np.all(p >= lo) and np.all(p <= hi):
+            if tree.ray_cast(c + f.normal * 0.005, f.normal, reach)[0] is not None:
+                doomed.append(f)
+    bmesh.ops.delete(bm, geom=doomed, context='FACES')
+    bm.transform(hull.matrix_world.inverted())
+    bm.to_mesh(hull.data)
+    bm.free()
+    print(f'[lpa] open cabin: {len(doomed)} inner faces dropped')
+
+
+def _clip_to_hull(obj, hull, tol: float = 0.01) -> None:
+    """Trim a part to the inside of the hull, dropping the faces the cut leaves on the skin."""
+    import bmesh  # type: ignore  # (needs bpy loaded first)
+    skin = geo.bvh_of(hull)
+    geo.boolean(obj, hull, 'INTERSECT')
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.transform(obj.matrix_world)
+    on_skin = [f for f in bm.faces if skin.find_nearest(f.calc_center_median())[3] < tol]
+    bmesh.ops.delete(bm, geom=on_skin, context='FACES')
+    bm.transform(obj.matrix_world.inverted())
     bm.to_mesh(obj.data)
     bm.free()
 
@@ -618,7 +678,10 @@ def build_parts(spec: dict) -> None:
                 geo.tidy(obj, material, smooth)
                 if item.get('fill_hull'):
                     # A bulkhead: the part is cut down to the fuselage section it spans (below).
-                    fills.append(obj)
+                    fills.append((obj, item['fill_hull']))
+                elif item.get('clip_hull'):
+                    # Cockpit furniture: trimmed where it would poke through the skin (below).
+                    fills.append((obj, 'clip'))
                 if item.get('inside_out'):
                     # Seen from within (a cockpit tub behind the glazing): faces point inwards.
                     obj.data.flip_normals()
@@ -630,8 +693,8 @@ def build_parts(spec: dict) -> None:
         _, skin = geo.recess(hull, obj, f'1_{well_name}', material, 'Body')
         if skin is not None:
             _WELL_SKINS[well_name] = (skin, centre_x)
-    for obj in fills:
-        _fill_section(obj, hull)
+    for obj, how in fills:
+        _clip_to_hull(obj, hull) if how == 'clip' else _fill_section(obj, hull, how)
     wingtips = _wingtips(hull)
     see_through = []
     for i, item in enumerate(spec.get('regions', [])):
@@ -665,6 +728,8 @@ def build_parts(spec: dict) -> None:
     for skin, cutter in see_through:
         # The walls the cut leaves in the hull go too: the cabin behind a pane is open.
         geo.drop_off_skin(hull, skin, cutter)
+    if 'open_cabin' in spec:
+        _open_cabin(hull, spec['open_cabin'])
     for skin, _ in _WELL_SKINS.values():
         bpy.data.objects.remove(skin)
     _WELL_SKINS.clear()
