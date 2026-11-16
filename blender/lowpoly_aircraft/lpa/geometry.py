@@ -206,6 +206,23 @@ def drop_off_skin(obj: bpy.types.Object, skin: BVHTree, cutter: BVHTree, tol: fl
     bm.free()
 
 
+def decimate(obj: bpy.types.Object, ratio: float) -> None:
+    """Collapse-decimate a mesh in place to *ratio* of its faces, symmetric about the body's X."""
+    mod = obj.modifiers.new('decimate', 'DECIMATE')
+    mod.decimate_type = 'COLLAPSE'
+    mod.ratio = ratio
+    mod.use_symmetry = True
+    mod.symmetry_axis = 'X'
+    deps = bpy.context.evaluated_depsgraph_get()
+    deps.update()
+    new_mesh = bpy.data.meshes.new_from_object(obj.evaluated_get(deps))
+    obj.modifiers.remove(mod)
+    old = obj.data
+    obj.data = new_mesh
+    new_mesh.name = old.name
+    bpy.data.meshes.remove(old)
+
+
 def bvh_of(obj: bpy.types.Object) -> BVHTree:
     bm = bmesh.new()
     bm.from_mesh(obj.data)
