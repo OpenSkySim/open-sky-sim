@@ -192,28 +192,34 @@ def _add_components(views, spec) -> None:
                 geo.tidy(solid, material)
                 print(f'[lpa] component {solid.name}: {len(solid.data.polygons)} triangles')
                 continue
-            kind = surf.get('type', 'stabilator')
-            control, signs, rng = SURFACE_TYPES.get(kind, (surf.get('control', 'pitch'), (1.0, 1.0), 20.0))
-            hview = surf.get('view', 'top')
-            hinge = _hinge_body2(views, {'view': hview, **surf}, np.zeros((2, 2)))
-            if mirrored:
-                hinge = _mirror_x(hview, hinge)
-            role = surf.get('role', kind) + side_name
-            solid.name = role
-            geo._link(solid, 'Surfaces')
-            geo.tidy(solid, material)
-            pivot, axis = _hinge_3d(solid, hview, hinge)
-            geo.set_origin(solid, pivot)
-            ctl = surf.get('control', control)
-            if ctl == 'stabilator':
-                ctl = 'stabilator' + (side_name or 'Left')
-            side_ix = 1 if side_name == 'Right' else 0
-            solid['lpa_role'] = role
-            solid['lpa_control'] = ctl
-            solid['lpa_sign'] = float(surf.get('sign', signs[side_ix]))
-            solid['lpa_range_deg'] = float(surf.get('range_deg', rng))
-            solid['lpa_axis'] = [float(c) for c in axis]
-            print(f'[lpa] all-moving {role}: pivot {np.round(pivot, 3).tolist()} axis {np.round(axis, 3).tolist()} -> {ctl}')
+            _all_moving(views, solid, surf, side_name, mirrored, material)
+
+
+def _all_moving(views, solid, surf: dict, side_name: str, mirrored: bool, material: str,
+                smooth_deg: float | None = None) -> None:
+    """Make a whole part a control surface pivoting about its hinge line."""
+    kind = surf.get('type', 'stabilator')
+    control, signs, rng = SURFACE_TYPES.get(kind, (surf.get('control', 'pitch'), (1.0, 1.0), 20.0))
+    hview = surf.get('view', 'top')
+    hinge = _hinge_body2(views, {'view': hview, **surf}, np.zeros((2, 2)))
+    if mirrored:
+        hinge = _mirror_x(hview, hinge)
+    role = surf.get('role', kind) + side_name
+    solid.name = role
+    geo._link(solid, 'Surfaces')
+    geo.tidy(solid, material, smooth_deg)
+    pivot, axis = _hinge_3d(solid, hview, hinge)
+    geo.set_origin(solid, pivot)
+    ctl = surf.get('control', control)
+    if ctl == 'stabilator':
+        ctl = 'stabilator' + (side_name or 'Left')
+    side_ix = 1 if side_name == 'Right' else 0
+    solid['lpa_role'] = role
+    solid['lpa_control'] = ctl
+    solid['lpa_sign'] = float(surf.get('sign', signs[side_ix]))
+    solid['lpa_range_deg'] = float(surf.get('range_deg', rng))
+    solid['lpa_axis'] = [float(c) for c in axis]
+    print(f'[lpa] all-moving {role}: pivot {np.round(pivot, 3).tolist()} axis {np.round(axis, 3).tolist()} -> {ctl}')
 
 
 def _add_surfaces(views, hull, spec) -> None:
@@ -238,7 +244,7 @@ def _add_surfaces(views, hull, spec) -> None:
                 side_name, side_ix = ('Left', 0) if cx > 0 else ('Right', 1)
             role = item.get('role', kind) + side_name
             part = geo.cut_part(hull, role, view, p, item.get('material', spec.get('material', 'VEHICLE_PLANE_GREY')),
-                                'Surfaces', depth=dep)
+                                'Surfaces', depth=dep, smooth_deg=spec.get('smooth_deg'))
             if part is None:
                 print(f'[lpa] surface {role}: polygon does not touch the hull, skipped')
                 continue
@@ -275,9 +281,14 @@ def _add_gear(views, hull, spec) -> None:
     tree = geo.bvh_of(hull)
     length = float(spec['length_m'])
     for leg in gear.get('legs', []):
-        side = views['side'].to_body2([leg['side_px']])[0]  # (z, y) of the wheel's ground contact
-        z, y_ground = float(side[0]), float(side[1])
-        if 'top_px' in leg:
+        if 'pos_m' in leg:  # (x, y, z) of the wheel's ground contact
+            x, y_ground, z = (float(c) for c in leg['pos_m'])
+        else:
+            side = views['side'].to_body2([leg['side_px']])[0]  # (z, y) of the wheel's ground contact
+            z, y_ground = float(side[0]), float(side[1])
+        if 'pos_m' in leg:
+            pass                 # x already set
+        elif 'top_px' in leg:
             x = float(views['top'].to_body2([leg['top_px']])[0][0])
         elif 'front_px' in leg:
             x = float(views['front'].to_body2([leg['front_px']])[0][0])
@@ -294,7 +305,8 @@ def _add_gear(views, hull, spec) -> None:
                 y_top = y_ground + 2.5 * radius
                 print(f'[lpa] gear {name}: nothing above the wheel, strut top guessed at y={y_top:.2f}')
             top = (xi, y_top, z)
-            objs = geo.gear_leg(name, top, (xi, y_ground, z), radius, width, 'Gear')
+            objs = geo.gear_leg(name, top, (xi, y_ground, z), radius, width, 'Gear',
+                                wheel_sides=int(gear.get('wheel_sides', 16 if 'parts' in spec else 8)))
             axis_body, sgn = GEAR_RETRACT_AXES[leg.get('retract', 'aft')]
             if axis_body[2] != 0 and xi < 0:
                 sgn = -sgn  # inward/outward mirror across the plane of symmetry
@@ -335,6 +347,72 @@ def _cockpit(views, spec, regions) -> list:
     return [0.0, 1.0, 0.25 * float(spec['length_m'])]
 
 
+def build_parts(spec: dict) -> None:
+    """Realistic low-poly model from shaped parts (lofts and profiled panels).
+
+    Parts with "join": "body" (the default) are merged into one body mesh,
+    which the control surfaces are then cut from; "separate" parts (canopy,
+    nozzles) stay their own body objects; parts with "surface" move as a
+    whole (all-moving canards and tailplanes). Everything is in body metres.
+    """
+    from . import parts
+    smooth = spec.get('smooth_deg', 35.0)
+    spec.setdefault('smooth_deg', smooth)
+    hull = None
+    separate = []
+    for item in spec['parts']:
+        for mirrored in ([False, True] if item.get('mirror') else [False]):
+            obj = parts.build_part(item, mirrored)
+            side_name = '' if not item.get('mirror') else ('Right' if mirrored else 'Left')
+            material = item.get('material', spec.get('material', 'VEHICLE_PLANE_GREY'))
+            obj.name = f"{item.get('name', item['type'])}{side_name}"
+            join = item.get('join', 'surface' if item.get('surface') else 'body')
+            if join == 'body':
+                if hull is None:
+                    hull = obj
+                else:
+                    geo.boolean(hull, obj, 'UNION')
+                    bpy.data.objects.remove(obj)
+                continue
+            bpy.data.collections['Construction'].objects.unlink(obj)
+            if join == 'surface':
+                _all_moving(None, obj, item['surface'], side_name, mirrored, material, smooth)
+            else:
+                obj.name = f'1_{obj.name}'
+                geo._link(obj, 'Body')
+                geo.tidy(obj, material, smooth)
+                separate.append(obj)
+    wingtips = _wingtips(hull)
+    for i, item in enumerate(spec.get('regions', [])):
+        part = geo.cut_part(hull, f"{i + 1}_{item.get('name', 'Region')}", item.get('view', 'side'),
+                            _poly_body2(None, item), item.get('material', 'GLASS'), 'Body',
+                            depth=_depth(None, item), smooth_deg=smooth)
+        if part is not None:
+            part['lpa_region'] = item.get('name', 'Region')
+    _add_surfaces(None, hull, spec)
+    _add_gear(None, hull, spec)
+
+    geo.tidy(hull, spec.get('material', 'VEHICLE_PLANE_GREY'), smooth)
+    hull.name = hull.data.name = '0_Body'
+    bpy.data.collections['Construction'].objects.unlink(hull)
+    geo._link(hull, 'Body')
+    construction = bpy.data.collections['Construction']
+    for o in list(construction.objects):
+        bpy.data.objects.remove(o)
+    bpy.data.collections.remove(construction)
+
+    footprint = [o for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name in ('Body', 'Surfaces')]
+    parts.shadow_from_mesh(footprint, '0_Shadow')
+
+    scene = bpy.context.scene
+    scene['lpa_id'] = spec['id']
+    scene['lpa_name'] = spec.get('name', spec['id'])
+    scene['lpa_wingtips'] = wingtips
+    scene['lpa_cockpit'] = [float(c) for c in spec.get('cockpit_m', [0.0, 1.0, 0.25 * float(spec['length_m'])])]
+    tris = sum(len(o.data.polygons) for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name != 'Shadow')
+    print(f'[lpa] built {spec["id"]}: {tris} triangles')
+
+
 def build(spec_path: str) -> None:
     spec_dir = os.path.dirname(os.path.abspath(spec_path))
     with open(spec_path) as f:
@@ -343,6 +421,9 @@ def build(spec_path: str) -> None:
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.unit_settings.system = 'METRIC'
+    if 'parts' in spec:
+        build_parts(spec)
+        return
 
     views = build_views(spec_dir, spec)
     for n, v in views.items():

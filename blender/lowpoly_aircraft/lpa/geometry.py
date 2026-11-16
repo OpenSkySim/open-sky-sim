@@ -107,19 +107,31 @@ def copy_object(src: bpy.types.Object, name: str, collection: str) -> bpy.types.
     return obj
 
 
-def tidy(obj: bpy.types.Object, material: str) -> None:
-    """Merge slivers, flatten coplanar faces, flat-shade, assign the sim material."""
+def tidy(obj: bpy.types.Object, material: str, smooth_deg: float | None = None) -> None:
+    """Merge slivers, flatten coplanar faces, triangulate, assign the sim material.
+
+    Flat-shaded by default; with *smooth_deg* the faces are smooth-shaded and
+    only edges sharper than that angle stay hard (wing edges, fin roots).
+    """
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
     bmesh.ops.dissolve_degenerate(bm, edges=bm.edges, dist=1e-4)
-    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(1.0), verts=bm.verts, edges=bm.edges)
+    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(0.5 if smooth_deg else 1.0),
+                             verts=bm.verts, edges=bm.edges)
     bmesh.ops.triangulate(bm, faces=bm.faces)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    if smooth_deg:
+        limit = math.radians(smooth_deg)
+        for e in bm.edges:
+            e.smooth = not (len(e.link_faces) == 2 and e.calc_face_angle(0.0) > limit)
+        for f in bm.faces:
+            f.smooth = True
+    else:
+        for f in bm.faces:
+            f.smooth = False
     bm.to_mesh(obj.data)
     bm.free()
-    for p in obj.data.polygons:
-        p.use_smooth = False
     obj.data.materials.clear()
     obj.data.materials.append(get_material(material))
 
@@ -180,7 +192,8 @@ def underside_y(tree: BVHTree, x: float, z: float, y_from: float) -> float | Non
 
 
 def cut_part(hull: bpy.types.Object, name: str, view: str, poly_body2: np.ndarray,
-             material: str, collection: str, depth=(-EXTRUDE, EXTRUDE)) -> bpy.types.Object | None:
+             material: str, collection: str, depth=(-EXTRUDE, EXTRUDE),
+             smooth_deg: float | None = None) -> bpy.types.Object | None:
     """Split the region under a view polygon off the hull; returns the part (or None)."""
     cutter = prism(f'Cut_{name}', view, [poly_body2], depth=depth)
     part = copy_object(hull, name, collection)
@@ -191,7 +204,7 @@ def cut_part(hull: bpy.types.Object, name: str, view: str, poly_body2: np.ndarra
         return None
     boolean(hull, cutter, 'DIFFERENCE')
     bpy.data.objects.remove(cutter)
-    tidy(part, material)
+    tidy(part, material, smooth_deg)
     return part
 
 
@@ -247,7 +260,7 @@ def box(bm, lo, hi):
 
 
 def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: float,
-             collection: str) -> list[bpy.types.Object]:
+             collection: str, wheel_sides: int = 8) -> list[bpy.types.Object]:
     """One leg as two objects (strut, wheel), both with their origin at the strut's top.
 
     The sim animates a gear mesh by its own name, so every animated object
@@ -261,7 +274,7 @@ def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: flo
         ('Strut', 'VEHICLE_PLANE_GREY',
          lambda bm: box(bm, (x - strut / 2, axle_y, z - strut / 2), (x + strut / 2, y_top, z + strut / 2))),
         ('Wheel', 'VEHICLE_PLANE_ENGINE',
-         lambda bm: cylinder_x(bm, (x, axle_y, z), wheel_radius, wheel_width)),
+         lambda bm: cylinder_x(bm, (x, axle_y, z), wheel_radius, wheel_width, sides=wheel_sides)),
     ):
         bm = bmesh.new()
         build(bm)
