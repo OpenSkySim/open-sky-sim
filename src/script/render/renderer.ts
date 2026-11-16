@@ -128,6 +128,12 @@ export interface RenderLayer {
      * read back through, and the background sky camera's is a different number.
      */
     sceneDepthFrom?: THREE.PerspectiveCamera;
+    /**
+     * Clear the depth standing in the target before the layer draws, so it
+     * lands in front of everything already there: the cockpit interior, whose
+     * near plane is far inside the main camera's.
+     */
+    clearDepth?: boolean;
 }
 
 /**
@@ -627,6 +633,9 @@ export class Renderer {
     render3D(renderTarget: WebGLRenderTarget, scene: Scene, layer: RenderLayer, palette: Palette, key = layer.target, reuseLists = false) {
         if (!reuseLists) {
             this.buildLists(renderTarget, scene, layer, palette);
+        }
+        if (layer.clearDepth) {
+            this.renderer.clearDepth();
         }
 
         // Before the submit, not after: the layer's own materials sample this.

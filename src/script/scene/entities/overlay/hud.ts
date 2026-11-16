@@ -70,9 +70,6 @@ const FCS_MODE_LABELS: Record<number, string> = {
 
 export class HUDEntity implements Entity {
 
-    /** The FPS / triangle readout in the top-right corner (off in a clean video export). */
-    showPerfStats = true;
-
     private displayUnits: DisplayUnits;
     private readonly onUnitSystemChange = (system: UnitSystems) => {
         this.displayUnits.setSystem(system);
@@ -87,7 +84,6 @@ export class HUDEntity implements Entity {
     private altitude: number = 0; // display units (m or ft)
     /** The same altitude in metres, for the physics readouts that want SI. */
     private altitudeM: number = 0;
-    private renderFps: number = 0;
     private speed: number = 0; // display units (km/h or kt)
     private verticalSpeed: number = 0; // m/s or ft/min
     private velocityDirection: THREE.Vector3 = new THREE.Vector3();
@@ -111,7 +107,6 @@ export class HUDEntity implements Entity {
     private elevatorLimitHigh: number = 1; // [-1, 1] nose-up elevator-command clamp
     private elevatorLimitLow: number = -1; // [-1, 1] nose-down elevator-command clamp
     private elapsed: number = 0; // Seconds
-    private lastRenderTime: number = 0;
 
     private _v = new THREE.Vector3();
     private _w = new THREE.Vector3();
@@ -149,16 +144,6 @@ export class HUDEntity implements Entity {
     }
 
     private refreshVisualState(): void {
-        const now = performance.now();
-        if (this.lastRenderTime > 0) {
-            const frameDtMs = now - this.lastRenderTime;
-            const instantFps = 1000 / frameDtMs;
-            this.renderFps = this.renderFps > 0
-                ? this.renderFps * 0.9 + instantFps * 0.1
-                : instantFps;
-        }
-        this.lastRenderTime = now;
-
         const displayQuat = this.actor.getDisplayQuaternion();
         const displayVel = this.actor.getDisplayVelocity();
 
@@ -308,10 +293,6 @@ export class HUDEntity implements Entity {
             this.renderStallStatus(layout, airSpeedX, airSpeedY, painter, hudColor, hudWarnColor);
             this.renderVerticalVelocityIndicator(layout, tickStep, altitudeX, altitudeY, painter, hudColor, hudWarnColor);
         }
-
-        if (this.showPerfStats) {
-            this.renderPerfStats(targetWidth, layoutScale, dx, dy, painter, hudSecondaryColor, fontSmall);
-        }
     }
 
     /**
@@ -371,39 +352,6 @@ export class HUDEntity implements Entity {
         camera.up.copy(savedUp);
         camera.updateMatrixWorld(true);
         return result;
-    }
-
-    /**
-     * Live perf readout: FPS plus rendered-triangle counts split by category.
-     * Terrain and cloud/cirrus triangles are tracked at their own render
-     * sites (__terrainStats, __fieldStats); "objects" is the remainder of
-     * the exact GPU-reported scene total (__sceneTriangles) after
-     * subtracting those two, so the three numbers always add up.
-     */
-    private renderPerfStats(
-        targetWidth: number,
-        layoutScale: number,
-        dx: number,
-        dy: number,
-        painter: CanvasPainter,
-        hudColor: string,
-        font: Font,
-    ) {
-        const margin = Math.max(4, Math.round(4 * layoutScale));
-        const lineHeight = font.charHeight + font.charSpacing;
-        const x = targetWidth - margin + dx;
-
-        const terrainStats = (globalThis as Record<string, unknown>).__terrainStats as { triangles: number } | undefined;
-        const terrainTriangles = terrainStats?.triangles ?? 0;
-        const fieldStats = (globalThis as Record<string, unknown>).__fieldStats as Record<string, number> | undefined;
-        const cloudTriangles = (fieldStats?.cloud ?? 0) + (fieldStats?.cirrus ?? 0);
-        const sceneTriangles = ((globalThis as Record<string, unknown>).__sceneTriangles as number | undefined) ?? 0;
-        const objectTriangles = Math.max(0, sceneTriangles - terrainTriangles - cloudTriangles);
-
-        painter.text(font, x, margin + dy, `${this.renderFps.toFixed(0)}FPS`, hudColor, TextAlignment.RIGHT);
-        painter.text(font, x, margin + dy + lineHeight, `OBJ ${(objectTriangles / 1000).toFixed(1)}K`, hudColor, TextAlignment.RIGHT);
-        painter.text(font, x, margin + dy + lineHeight * 2, `TER ${(terrainTriangles / 1000).toFixed(1)}K`, hudColor, TextAlignment.RIGHT);
-        painter.text(font, x, margin + dy + lineHeight * 3, `CLD ${(cloudTriangles / 1000).toFixed(1)}K`, hudColor, TextAlignment.RIGHT);
     }
 
     private renderFlightDataIndicators(

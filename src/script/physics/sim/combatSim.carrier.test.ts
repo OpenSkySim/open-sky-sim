@@ -20,6 +20,10 @@ import { loadWebAirframe, WebFixture } from '../barricade/webFixtures.testkit.te
 import { BarricadeEngagement, barricadeFrameWorld } from '../../scene/entities/barricadeSpec';
 import { CombatSim } from './combatSim';
 import { defaultArrestorCableField, serializeArrestorCables, serializeWorld } from './serializedWorld';
+import { WEB_FRAME_BUDGET } from '../barricade/webBarricade';
+
+// The webbing at its full quality, not what fits the machine's load this run (see WEB_FRAME_BUDGET).
+WEB_FRAME_BUDGET.ms = Infinity;
 
 /**
  * An AI jet recovering aboard the Kuznetsov: put on the angled deck's final,

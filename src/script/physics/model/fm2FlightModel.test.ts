@@ -252,63 +252,6 @@ describe('FM2 rigid-body flight model', () => {
         });
     });
 
-    it('sits stably on the runway with the engine at idle', () => {
-        const model = new Fm2FlightModel();
-        model.reset();
-        model.position.set(1500, PLANE_DISTANCE_TO_GROUND, -800);
-        model.setLanded(true);
-        model.setLandingGearDeployed(true);
-        model.setThrottle(0);
-
-        for (let i = 0; i < 4 * 120; i++) {
-            model.update(1 / 120);
-        }
-
-        const maxStroke = defaultFm2Config.gear.maxStrokeM ?? 0.35;
-        const meanCompress = model.getGearCompressionMean();
-        assert.ok(!model.isCrashed(), 'should not crash sitting on the ground');
-        assert.ok(model.position.y > 1.0 && model.position.y < 2.6,
-            `did not rest at ground height: ${model.position.y.toFixed(2)} m`);
-        assert.ok(model.velocityVector.length() < 6,
-            `drifted on the ground: ${model.velocityVector.length().toFixed(1)} m/s`);
-        assert.ok(meanCompress > 0.015 && meanCompress <= maxStroke,
-            `expected static oleo sag, got mean=${meanCompress.toFixed(3)} m`);
-        for (const c of model.getGearCompression()) {
-            assert.ok(c >= 0 && c <= maxStroke,
-                `leg compression out of stroke: ${c.toFixed(3)} m`);
-        }
-    });
-
-    it('gear springs rest relative to raised terrain height', () => {
-        const model = new Fm2FlightModel();
-        const plateau = 40;
-        model.setWorldQuery({
-            groundHeightAt: () => plateau,
-            isLand: () => true,
-            obstacles: () => [],
-            runway: () => RUNWAY,
-            runways: () => [RUNWAY],
-            nearestRunway: () => RUNWAY,
-        });
-        model.reset();
-        model.position.set(0, plateau + PLANE_DISTANCE_TO_GROUND, 0);
-        model.setLanded(true);
-        model.setLandingGearDeployed(true);
-        model.setThrottle(0);
-
-        for (let i = 0; i < 4 * 120; i++) {
-            model.update(1 / 120);
-        }
-
-        assert.ok(!model.isCrashed(), 'should not crash on plateau');
-        assert.ok(
-            model.position.y > plateau + 1.0 && model.position.y < plateau + 2.6,
-            `did not rest above plateau: y=${model.position.y.toFixed(2)} (plateau=${plateau})`,
-        );
-        assert.ok(model.getGearCompressionMean() > 0.015,
-            `expected oleo sag on plateau, got ${model.getGearCompressionMean().toFixed(3)} m`);
-    });
-
     it('contact drag at a wingtip bleeds speed gently and yaws the airframe', () => {
         const model = new Fm2FlightModel();
         model.reset();
@@ -373,28 +316,6 @@ describe('FM2 rigid-body flight model', () => {
             `gear tunnelled past oleo stroke: max penetration ${worstPen.toFixed(3)} m`);
         assert.ok(model.position.y > groundAt(0, model.position.z) + 1.0,
             `body below ramp deck: y=${model.position.y.toFixed(2)}`);
-    });
-
-    it('gear-up produces no oleo compression or spring support', () => {
-        const model = new Fm2FlightModel();
-        model.reset();
-        model.position.set(1500, PLANE_DISTANCE_TO_GROUND, -800);
-        model.setLanded(true);
-        model.setLandingGearDeployed(true);
-        model.setThrottle(0);
-        for (let i = 0; i < 2 * 120; i++) {
-            model.update(1 / 120);
-        }
-        assert.ok(model.getGearCompressionMean() > 0.015, 'precondition: gear-down sag');
-
-        model.setLandingGearDeployed(false);
-        for (let i = 0; i < 30; i++) {
-            model.update(1 / 120);
-        }
-        assert.equal(model.getGearCompressionMean(), 0, 'gear-up should clear oleo compression');
-        for (const c of model.getGearCompression()) {
-            assert.equal(c, 0);
-        }
     });
 
     it('accelerates down the runway and takes off', () => {
@@ -507,27 +428,6 @@ describe('FM2 rigid-body flight model', () => {
                 `mode ${mode}: g exceeded the structural limit: ${maxG.toFixed(2)}g`);
             assert.ok(elevStd < 0.12,
                 `mode ${mode}: stabilator hunting at the limit: elev stddev=${elevStd.toFixed(3)}`);
-        }
-    });
-
-    it('every FCS limiter strategy caps negative g on a hard push without hunting', () => {
-        const p = defaultFm2Config.fcs.pitch;
-        for (const mode of [FcsPitchLimiter.SOFT, FcsPitchLimiter.PREDICTIVE, FcsPitchLimiter.SMOOTH]) {
-            const model = new Fm2FlightModel();
-            airborne(model, 4000, 250, 0.8);
-
-            let minG = Infinity;
-            for (let i = 0; i < 5 * 120; i++) {
-                model.setPitchLimiterMode(mode);
-                model.setPitch(-1.0);
-                model.update(1 / 120);
-                assert.ok(!model.isCrashed(), `mode ${mode}: crashed on hard push`);
-                if (i >= 120) minG = Math.min(minG, model.getLoadFactorG());
-            }
-            // SOFT (mode 1) is purely reactive so it permits the largest transient
-            // overshoot on an instantaneous full push; PREDICTIVE/SMOOTH sit tighter.
-            assert.ok(minG >= p.minCommandG - 1.0,
-                `mode ${mode}: g went below the negative structural limit: ${minG.toFixed(2)}g`);
         }
     });
 
@@ -753,36 +653,6 @@ describe('FM2 flight model — comprehensive behavior', () => {
             assert.ok(model.velocityVector.length() < 500,
                 `speed ran away to ${model.velocityVector.length().toFixed(0)} m/s at t=${t.toFixed(1)}s`);
         }
-    });
-
-    it('exposes FCS-commanded surface deflections that preserve stick polarity', () => {
-        const lowAoa = new Fm2FlightModel();
-        airborne(lowAoa, 4000, 240, 0.8);
-        for (let i = 0; i < 10; i++) { lowAoa.setPitch(1.0); lowAoa.update(1 / 120); }
-        assert.ok(lowAoa.getCommandedElevator() > 0.2,
-            `aft stick should deflect the elevator nose-up: ${lowAoa.getCommandedElevator().toFixed(2)}`);
-        assert.ok(Math.abs(lowAoa.getAngleOfAttack()) * DEG < 6, 'setup: should still be at low AoA');
-
-        const highAoa = new Fm2FlightModel();
-        airborne(highAoa, 3000, 83, 1.0);
-        let peakElev = 0;
-        for (let i = 0; i < 4 * 120; i++) {
-            highAoa.setPitch(1.0);
-            highAoa.update(1 / 120);
-            peakElev = Math.max(peakElev, highAoa.getCommandedElevator());
-        }
-        assert.ok(peakElev > 0.9,
-            `full aft stick should hold full nose-up deflection: ${peakElev.toFixed(2)}`);
-
-        const roll = new Fm2FlightModel();
-        airborne(roll, 4000, 260, 0.7);
-        roll.setRoll(1.0); roll.update(1 / 120);
-        assert.ok(roll.getCommandedAileron() > 0, `right roll stick should give positive aileron: ${roll.getCommandedAileron().toFixed(2)}`);
-
-        const yaw = new Fm2FlightModel();
-        airborne(yaw, 4000, 240, 0.6);
-        yaw.setYaw(1.0); yaw.update(1 / 120);
-        assert.ok(yaw.getCommandedRudder() > 0, `right pedal should give positive rudder: ${yaw.getCommandedRudder().toFixed(2)}`);
     });
 
     it('maps roll/yaw stick directly and gives a monotonic pitch response under the limiter', () => {

@@ -424,9 +424,9 @@ export class ModelManager {
         }
     }
 
-    /** True for flyable aircraft: built-in F-22 parts and every aircraft pack asset. */
+    /** True for flyable aircraft: built-in F-22 / F-14 / Su-33 parts and every aircraft pack asset. */
     private static isAircraftModelUrl(url: string): boolean {
-        return isPackUrl(url) || /(^|\/)f22[^/]*\.(gltf|glb)(\?|#|$)/i.test(url);
+        return isPackUrl(url) || /(^|\/)(f(22|14)|su33d)[^/]*\.(gltf|glb)(\?|#|$)/i.test(url);
     }
 
     /** True for flyable-aircraft ground-shadow assets (`*_shadow.gltf` / `.glb`). */

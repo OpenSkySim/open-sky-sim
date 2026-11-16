@@ -98,3 +98,80 @@ export function netEnergy(s: WebSolver): number {
     }
     return e;
 }
+
+/** Per layout: each strap's links as particle pairs and rest lengths, eye first. */
+const strapLinks = new WeakMap<WebSolver['layout'], { a: number; b: number; rest: number }[][]>();
+
+/**
+ * The strain the worst strap carries: per strap, the median over its links
+ * with neither end pressed on the airframe. A free span carries one tension
+ * from end to end, which the median reads whatever a single link does, and
+ * that tension is what the gate holds under the webbing's rating (two-ply
+ * nylon, about 22 % at break). Single links read far higher in two places
+ * the 0.4 m links cannot resolve: where the strap lies on the airframe, its
+ * eye pulled over a leading edge or a wingtip by the upper belt (29-41 %, the
+ * span below at 9-16 %), and the eye link itself, re-stretched when the sling
+ * puts the eye back on the belt after the strap's solve (30 % beside 10 %).
+ */
+export function freeSpanStrapStrain(s: WebSolver): number {
+    const lay = s.layout;
+    let straps = strapLinks.get(lay);
+    if (!straps) {
+        const rest = new Map<number, number>();
+        const n = lay.mass.length;
+        for (const l of lay.links) rest.set(Math.min(l.i, l.j) * n + Math.max(l.i, l.j), l.rest);
+        straps = lay.straps.map(st => st.slice(1).map((b, k) => {
+            const a = st[k];
+            return { a, b, rest: rest.get(Math.min(a, b) * n + Math.max(a, b))! };
+        }));
+        strapLinks.set(lay, straps);
+    }
+    const x = s.x, pressed = s.bodyPressed;
+    let worst = 0;
+    const free: number[] = [];
+    for (const links of straps) {
+        free.length = 0;
+        for (const l of links) {
+            if (pressed[l.a] || pressed[l.b]) continue;
+            const a = 3 * l.a, b = 3 * l.b;
+            free.push(Math.hypot(x[b] - x[a], x[b + 1] - x[a + 1], x[b + 2] - x[a + 2]) / l.rest - 1);
+        }
+        if (free.length === 0) continue;
+        free.sort((p, q) => p - q);
+        worst = Math.max(worst, free[free.length >> 1]);
+    }
+    return worst;
+}
+
+/**
+ * The net's energy books over the hold: what it gained beyond what the
+ * airframe put in less what the sinks took (J), from `fromF` to `toF` frames
+ * into the hold, with `residual` the net's energy less the airframe's work
+ * plus the sinks'. With the jet stopped nothing outside feeds the net, so a
+ * gain is the solver's (a contact or edge solve pumping it, 4-6 kW when one
+ * did). It replaces a 0.2 m/s speed limit three seconds in: a 6 m strap swings
+ * like a pendulum with a 4-5 s period, so a speed then measured where in its
+ * swing it was (median settle 5.75 s on the drawn meshes), not a fault.
+ */
+export class HoldBooks {
+    private r0 = NaN;
+    private r1 = NaN;
+    constructor(private readonly residual: () => number, private readonly fromF: number, private readonly toF: number) {}
+
+    /** Call every frame with the frames since the hold began. */
+    sample(g: number): void {
+        if (g === this.fromF) this.r0 = this.residual();
+        if (g === this.toF) this.r1 = this.residual();
+    }
+
+    /** What the net gained over the window (J), NaN until it is over. */
+    get gainJ(): number {
+        return this.r1 - this.r0;
+    }
+
+    fails(maxJ: number): string | null {
+        const g = this.gainJ;
+        if (!Number.isFinite(g)) return 'the hold was not reached';
+        return g > maxJ ? `the net gained ${g.toFixed(0)} J in the hold` : null;
+    }
+}

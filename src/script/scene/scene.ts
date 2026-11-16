@@ -24,7 +24,14 @@ export enum SceneLayers {
      * aureole, it sits inside it. The disc stays in the background pass,
      * because that genuinely is behind the ridge.
      */
-    ForegroundSky = 'ForegroundSky'
+    ForegroundSky = 'ForegroundSky',
+    /**
+     * The cockpit's own interior (panel, consoles, HUD frame), drawn last
+     * over a cleared depth buffer through a camera with a near plane a few
+     * centimetres out: the main camera's near plane is metres away, which
+     * would clip the whole panel.
+     */
+    CockpitInterior = 'CockpitInterior'
 }
 
 /**

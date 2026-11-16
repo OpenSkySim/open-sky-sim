@@ -39,6 +39,14 @@ export interface DummyAirframeSpec {
      * off the tips, and the net let a 60 m/s catch go.
      */
     tipStores?: TipStore[];
+    /**
+     * Thinnest its panels get (m). On the wide jets a strap hooked over a
+     * round-nosed tip 10-16 cm thick (a leading edge of about 2 cm radius)
+     * put its 0.4 m links through the skin; at 25 cm none crossed. The
+     * F-16-like jets keep 10 cm: thicker, their tips held the belt worse and
+     * the 60 m/s catches in the sim ran past the MK-7's 105 m.
+     */
+    minPanelThickM?: number;
 }
 
 /** A missile on a wingtip rail: its axis (x, y), tail and nose stations, radius. */
@@ -59,7 +67,7 @@ const NOSE_RINGS = 4;
 const AIRFOIL_T = [0.01, 0.05, 0.15, 0.3, 0.5, 0.75, 1];
 const naca = (x: number) => 5 * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x ** 2 + 0.2843 * x ** 3 - 0.1015 * x ** 4) / 0.5;
 const AIRFOIL_H = AIRFOIL_T.map(naca);
-/** Thinnest a panel gets (m): a skin a few centimetres thick is a blade the net's links cut across. */
+/** Thinnest a panel gets unless its airframe says otherwise (m; see DummyAirframeSpec.minPanelThickM). */
 const MIN_PANEL_THICK_M = 0.1;
 
 type Tri = number[];
@@ -150,8 +158,8 @@ function fuselageRing(s: Section): Vec3[] {
     return ring;
 }
 
-/** A wing, tailplane or fin through its stations, round-nosed, at least MIN_PANEL_THICK_M thick. */
-function panel(stations: PanelStation[]): Tri {
+/** A wing, tailplane or fin through its stations, round-nosed, at least `minThick` thick (m). */
+function panel(stations: PanelStation[], minThick: number): Tri {
     const dense: PanelStation[] = [];
     for (let i = 0; i + 1 < stations.length; i++) {
         const a = stations[i], b = stations[i + 1];
@@ -172,7 +180,7 @@ function panel(stations: PanelStation[]): Tri {
     const sl = Math.hypot(span[0], span[1]);
     const up: Vec3 = [-span[1] / sl, span[0] / sl, 0];
     const rings = dense.map(st => {
-        const h = Math.max(st.chord * st.thick, MIN_PANEL_THICK_M) / 2;
+        const h = Math.max(st.chord * st.thick, minThick) / 2;
         const at = (t: number, side: number): Vec3 => [st.le[0] + up[0] * side * h, st.le[1] + up[1] * side * h, st.le[2] - t * st.chord];
         const ring: Vec3[] = [at(0, 0)];
         for (let i = 0; i < AIRFOIL_T.length; i++) ring.push(at(AIRFOIL_T[i], AIRFOIL_H[i]));
@@ -219,7 +227,7 @@ function tipStore(m: TipStore): Tri[] {
 
 export function buildDummyAirframe(spec: DummyAirframeSpec): Float32Array {
     const stores = (spec.tipStores ?? []).flatMap(m => [m, { ...m, x: -m.x }]).flatMap(tipStore);
-    const parts: Tri[] = [fuselage(spec.fuselage, spec.nose), ...spec.panels.map(panel), ...stores, ...spec.gear.flatMap(gearLeg)];
+    const parts: Tri[] = [fuselage(spec.fuselage, spec.nose), ...spec.panels.map(p => panel(p, spec.minPanelThickM ?? MIN_PANEL_THICK_M)), ...stores, ...spec.gear.flatMap(gearLeg)];
     return Float32Array.from(parts.flat());
 }
 
@@ -227,6 +235,7 @@ const st = (x: number, y: number, z: number, chord: number, thick: number): Pane
 
 /** A twin-fin jet with a wide flat body: 18.8 m long, 13.6 m span. */
 const TWIN_TAIL: DummyAirframeSpec = {
+    minPanelThickM: 0.25,
     fuselage: [
         { z: -7.5, cy: 0.1, hw: 1.4, hh: 0.45, p: 3 },
         { z: -4, cy: 0, hw: 2.0, hh: 0.7, p: 3 },
@@ -298,6 +307,7 @@ const CRANKED_DELTA: DummyAirframeSpec = {
  * (a 6 m wide body held the straps' eyes down across its top at 38 % strain).
  */
 const WIDE_WING: DummyAirframeSpec = {
+    minPanelThickM: 0.25,
     fuselage: [
         { z: -8.2, cy: 0.2, hw: 2.1, hh: 0.5, p: 3 },
         { z: -6, cy: 0.1, hw: 2.1, hh: 0.75, p: 3 },

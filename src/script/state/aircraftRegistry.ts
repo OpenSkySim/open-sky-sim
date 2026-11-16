@@ -68,6 +68,228 @@ export function buildF22M1Def(): FlyableAircraftDef {
     return { ...buildF22Def(), id: 'f22m1', name: 'F-22M1', body: 'assets/f22m1.glb' };
 }
 
+/** F-14 wing sweep travel. */
+const F14_SWEEP_RAD = 0.8378; // 20 deg spread -> 68 deg swept
+
+/**
+ * The F-14: an original model built in Blender by tools/build_f14_blender.py
+ * (data/f14.blend; pivots and axes below are the ones it prints). Swing wings with flaps
+ * riding on them, rolling all-moving tail, twin rudders, upper speedbrake.
+ * It flies the default FM2 airframe on its own gear layout.
+ */
+export function buildF14Def(): FlyableAircraftDef {
+    const gearPoints: [number, number, number][] = [
+        [0, -2, 6.42], [2.5, -2, -0.6], [-2.5, -2, -0.6],
+    ];
+    return {
+        id: 'f14',
+        name: 'F-14',
+        body: 'assets/f14.glb',
+        shadow: 'assets/f14_shadow.glb',
+        gear: 'assets/f14_gear.glb',
+        gearAnimated: true,
+        cockpitOffset: [0, 1.37, 6.97],
+        fx: {
+            wingtips: [[9.43, 0.65, -1.5429], [-9.43, 0.65, -1.5429]],
+            nozzles: [[1.437, -0.2, -7.042], [-1.437, -0.2, -7.042]],
+            nozzleRadius: 0.45,
+        },
+        flight: { ...defaultFm2Config, gear: { ...defaultFm2Config.gear, points: gearPoints } },
+        // Spread for the approach, fully swept by the high subsonic cruise.
+        swingWings: { minKias: 300, maxKias: 550, travelSeconds: 7 },
+        surfaces: [
+            {
+                role: 'wingLeft', model: 'assets/f14_wing_left.glb',
+                pivot: [2.72, 0.59, 0.91], axis: [0, 1, 0],
+                control: 'sweep', sign: 1, rangeRad: F14_SWEEP_RAD,
+            },
+            {
+                role: 'wingRight', model: 'assets/f14_wing_right.glb',
+                pivot: [-2.72, 0.59, 0.91], axis: [0, -1, 0],
+                control: 'sweep', sign: 1, rangeRad: F14_SWEEP_RAD,
+            },
+            {
+                role: 'flapLeft', model: 'assets/f14_flap_left.glb',
+                pivot: [3.6, 0.5963, -1.491], axis: [0.9987, 0.0093, -0.0499],
+                control: 'flaps', sign: -1, rangeRad: 0.61, sweepParent: 'wingLeft',
+            },
+            {
+                role: 'flapRight', model: 'assets/f14_flap_right.glb',
+                pivot: [-3.6, 0.5963, -1.491], axis: [0.9987, -0.0093, 0.0499],
+                control: 'flaps', sign: -1, rangeRad: 0.61, sweepParent: 'wingRight',
+            },
+            {
+                role: 'elevatorLeft', model: 'assets/f14_stab_left.glb',
+                pivot: [0, 0, -5.43], axis: [1, 0, 0],
+                control: 'stabilatorLeft', sign: 1, rangeRad: HINGE_RANGE,
+            },
+            {
+                role: 'elevatorRight', model: 'assets/f14_stab_right.glb',
+                pivot: [0, 0, -5.43], axis: [1, 0, 0],
+                control: 'stabilatorRight', sign: 1, rangeRad: HINGE_RANGE,
+            },
+            {
+                role: 'rudderLeft', model: 'assets/f14_rudder_left.glb',
+                pivot: [1.4477, 0.8, -6.546], axis: [0.0899, 0.9727, -0.214],
+                control: 'yaw', sign: 1, rangeRad: HINGE_RANGE,
+            },
+            {
+                role: 'rudderRight', model: 'assets/f14_rudder_right.glb',
+                pivot: [-1.4477, 0.8, -6.546], axis: [-0.0899, 0.9727, -0.214],
+                control: 'yaw', sign: 1, rangeRad: HINGE_RANGE,
+            },
+            {
+                role: 'speedbrake', model: 'assets/f14_speedbrake.glb',
+                pivot: [0, 0.24, -5.03], axis: [1, 0, 0],
+                control: 'airbrake', sign: 1, rangeRad: 0.9,
+            },
+        ],
+    };
+}
+
+/** Su-33 outer wing fold: up and over to lean inboard (published folded span 7.4 m). */
+const SU33_WING_FOLD_RAD = 126 * Math.PI / 180;
+
+/**
+ * The Su-33 (Flanker-D): an original model built in Blender by
+ * tools/build_su33_blender.py (data/su33d.blend; pivots and axes below are the
+ * ones it prints). All-moving canards and tailerons, split flaps and
+ * flaperons, leading-edge flaps, twin rudders, dorsal airbrake; the outer wings
+ * fold at x 3.55 m and the stabilator tips at x 3.29 m (R key), with the
+ * flaperons and outer leading-edge flaps riding the folding panels. It flies
+ * the default FM2 airframe on its own gear layout.
+ */
+export function buildSu33Def(): FlyableAircraftDef {
+    const gearPoints: [number, number, number][] = [
+        [0, -2, 2.44], [2.135, -2, -3.37], [-2.135, -2, -3.37],
+    ];
+    return {
+        id: 'su33d',
+        name: '*Su-33',
+        body: 'assets/su33d.glb',
+        shadow: 'assets/su33d_shadow.glb',
+        gear: 'assets/su33d_gear.glb',
+        gearAnimated: true,
+        cockpitOffset: [0, 1.38, 5.1],
+        fx: {
+            wingtips: [[7.15, 0.224, -6.3], [-7.15, 0.224, -6.3]],
+            nozzles: [[1.16, -0.13, -9.5], [-1.16, -0.13, -9.5]],
+            nozzleRadius: 0.42,
+        },
+        flight: { ...defaultFm2Config, gear: { ...defaultFm2Config.gear, points: gearPoints } },
+        surfaces: [
+            // Folding outer wings first: the flaperons and LE flaps below ride them.
+            {
+                role: 'wingFoldLeft', model: 'assets/su33d_wing_fold_left.glb',
+                pivot: [3.55, 0.3628, -3.4], axis: [0, 0, -1],
+                control: 'fold', sign: -1, rangeRad: SU33_WING_FOLD_RAD,
+            },
+            {
+                role: 'wingFoldRight', model: 'assets/su33d_wing_fold_right.glb',
+                pivot: [-3.55, 0.3628, -3.4], axis: [0, 0, 1],
+                control: 'fold', sign: -1, rangeRad: SU33_WING_FOLD_RAD,
+            },
+            {
+                role: 'flapInnerLeft', model: 'assets/su33d_flap_inner_left.glb',
+                pivot: [2.2, 0.356, -4.5812], axis: [0.9479, -0.0157, -0.3181],
+                control: 'flaps', sign: -1, rangeRad: 0.6,
+            },
+            {
+                role: 'flapInnerRight', model: 'assets/su33d_flap_inner_right.glb',
+                pivot: [-2.2, 0.356, -4.5812], axis: [0.9479, 0.0157, 0.3181],
+                control: 'flaps', sign: -1, rangeRad: 0.6,
+            },
+            {
+                role: 'flapLeft', model: 'assets/su33d_flap_left.glb',
+                pivot: [3.575, 0.3331, -5.0426], axis: [0.9479, -0.0173, -0.3181],
+                control: 'flaps', sign: -1, rangeRad: 0.5, sweepParent: 'wingFoldLeft',
+            },
+            {
+                role: 'flapRight', model: 'assets/su33d_flap_right.glb',
+                pivot: [-3.575, 0.3331, -5.0426], axis: [0.9479, 0.0173, 0.3181],
+                control: 'flaps', sign: -1, rangeRad: 0.5, sweepParent: 'wingFoldRight',
+            },
+            {
+                role: 'aileronLeft', model: 'assets/su33d_aileron_left.glb',
+                // Right roll (+) lowers the left trailing edge, as the taileron does.
+                pivot: [5.1, 0.3053, -5.5544], axis: [0.9479, -0.0198, -0.3181],
+                control: 'roll', sign: -1, rangeRad: 0.35, sweepParent: 'wingFoldLeft',
+            },
+            {
+                role: 'aileronRight', model: 'assets/su33d_aileron_right.glb',
+                pivot: [-5.1, 0.3053, -5.5544], axis: [0.9479, 0.0198, 0.3181],
+                control: 'roll', sign: 1, rangeRad: 0.35, sweepParent: 'wingFoldRight',
+            },
+            {
+                role: 'slatInnerLeft', model: 'assets/su33d_slat_inner_left.glb',
+                pivot: [2.15, 0.4658, -0.6991], axis: [0.76, -0.0228, -0.6496],
+                control: 'slats', sign: 1, rangeRad: 0.52,
+            },
+            {
+                role: 'slatInnerRight', model: 'assets/su33d_slat_inner_right.glb',
+                pivot: [-2.15, 0.4658, -0.6991], axis: [0.76, 0.0228, 0.6496],
+                control: 'slats', sign: 1, rangeRad: 0.52,
+            },
+            {
+                role: 'slatLeft', model: 'assets/su33d_slat_left.glb',
+                pivot: [3.575, 0.423, -1.9171], axis: [0.7599, -0.0246, -0.6496],
+                control: 'slats', sign: 1, rangeRad: 0.52, sweepParent: 'wingFoldLeft',
+            },
+            {
+                role: 'slatRight', model: 'assets/su33d_slat_right.glb',
+                pivot: [-3.575, 0.423, -1.9171], axis: [0.7599, 0.0246, 0.6496],
+                control: 'slats', sign: 1, rangeRad: 0.52, sweepParent: 'wingFoldRight',
+            },
+            {
+                // Nose up: canard leading edge up, against the tail.
+                role: 'canardLeft', model: 'assets/su33d_canard_left.glb',
+                pivot: [1.5, 0.45, 1.4], axis: [1, 0, 0],
+                control: 'pitch', sign: -1, rangeRad: 0.35,
+            },
+            {
+                role: 'canardRight', model: 'assets/su33d_canard_right.glb',
+                pivot: [-1.5, 0.45, 1.4], axis: [1, 0, 0],
+                control: 'pitch', sign: -1, rangeRad: 0.35,
+            },
+            {
+                role: 'elevatorLeft', model: 'assets/su33d_stab_left.glb',
+                pivot: [0, -0.08, -7.75], axis: [1, 0, 0],
+                control: 'stabilatorLeft', sign: 1, rangeRad: HINGE_RANGE,
+            },
+            {
+                role: 'elevatorRight', model: 'assets/su33d_stab_right.glb',
+                pivot: [0, -0.08, -7.75], axis: [1, 0, 0],
+                control: 'stabilatorRight', sign: 1, rangeRad: HINGE_RANGE,
+            },
+            {
+                role: 'stabFoldLeft', model: 'assets/su33d_stab_fold_left.glb',
+                pivot: [2.71, -0.08, -8.0], axis: [0, 0, -1],
+                control: 'fold', sign: -1, rangeRad: Math.PI / 2, sweepParent: 'elevatorLeft',
+            },
+            {
+                role: 'stabFoldRight', model: 'assets/su33d_stab_fold_right.glb',
+                pivot: [-2.71, -0.08, -8.0], axis: [0, 0, 1],
+                control: 'fold', sign: -1, rangeRad: Math.PI / 2, sweepParent: 'elevatorRight',
+            },
+            {
+                role: 'rudderLeft', model: 'assets/su33d_rudder_left.glb',
+                pivot: [2.0124, 0.95, -7.136], axis: [0.0019, 0.996, -0.0896],
+                control: 'yaw', sign: 1, rangeRad: HINGE_RANGE,
+            },
+            {
+                role: 'rudderRight', model: 'assets/su33d_rudder_right.glb',
+                pivot: [-2.0124, 0.95, -7.136], axis: [-0.0019, 0.996, -0.0896],
+                control: 'yaw', sign: 1, rangeRad: HINGE_RANGE,
+            },
+            {
+                role: 'speedbrake', model: 'assets/su33d_speedbrake.glb',
+                pivot: [0, 1.4537, 2.6], axis: [1, 0, 0],
+                control: 'airbrake', sign: 1, rangeRad: 0.9,
+            },
+        ],
+    };
+}
+
 /** Raw shape of a packed `manifest.json` (subset the sim consumes). */
 interface AircraftManifest {
     id?: string;
@@ -225,6 +447,8 @@ export class AircraftRegistry {
     constructor() {
         this.register(buildF22Def());
         this.register(buildF22M1Def());
+        this.register(buildF14Def());
+        this.register(buildSu33Def());
     }
 
     private register(def: FlyableAircraftDef): void {

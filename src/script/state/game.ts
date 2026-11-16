@@ -74,6 +74,7 @@ import { ShipWakeEntity } from '../scene/entities/shipWake';
 import {
     CockpitEntity, CockpitMFD2X, CockpitMFD2Y, CockpitMFDSize,
 } from '../scene/entities/overlay/cockpit';
+import { CockpitInteriorEntity } from '../scene/entities/overlay/cockpitInterior';
 import { CARRIER_CG_ABOVE_HOOK_M, ILS_GLIDESLOPE_TAN } from '../scene/entities/overlay/approachAids';
 import { ExteriorDataEntity } from '../scene/entities/overlay/exteriorData';
 import { HUDEntity } from '../scene/entities/overlay/hud';
@@ -1248,8 +1249,18 @@ export class Game {
                 lists: [SceneLayers.Overlay]
             }
         ];
-        this.cockpitRenderLayersHd = [...playerLayersHd, ...canvasLayersHd];
-        this.cockpitTargetRenderLayersHd = [...playerLayersHd, ...targetLayersHd, ...canvasLayersHd];
+        // The cockpit's own panel and consoles, last of the main target's
+        // passes and in front of all of it.
+        const interiorLayersHd: RenderLayer[] = [
+            {
+                target: MAIN_RENDER_TARGET_HD,
+                camera: this.playerCamera.interior,
+                lists: [SceneLayers.CockpitInterior],
+                clearDepth: true
+            }
+        ];
+        this.cockpitRenderLayersHd = [...playerLayersHd, ...interiorLayersHd, ...canvasLayersHd];
+        this.cockpitTargetRenderLayersHd = [...playerLayersHd, ...interiorLayersHd, ...targetLayersHd, ...canvasLayersHd];
         this.exteriorRenderLayersHd = [...playerLayersHd, ...canvasLayersHd];
         const showcaseLayersHd: RenderLayer[] = [
             {
@@ -3379,7 +3390,6 @@ export class Game {
         if (!showOverlays) {
             // A clean picture: no frame-rate readout, no SPD / ALT line.
             if (this.perfHud) this.perfHud.enabled = false;
-            if (this.hud) this.hud.showPerfStats = false;
             this.exportHidesOverlays = true;
             for (const e of this.exteriorEntities) e.enabled = false;
         }
@@ -3484,7 +3494,6 @@ export class Game {
         this.videoExport = undefined;
         this.kernel?.clearCaptureMode();
         if (this.perfHud) this.perfHud.enabled = ex.overlays.perfHud;
-        if (this.hud) this.hud.showPerfStats = true;
         this.exportHidesOverlays = false;
         this.exteriorEntities.forEach((e, i) => { e.enabled = ex.overlays.exterior[i] ?? e.enabled; });
         this.renderer.setExportSize(undefined);
@@ -7255,6 +7264,10 @@ export class Game {
         this.cockpit = cockpit;
         this.cockpitEntities.push(cockpit);
         this.scene.add(cockpit);
+
+        const cockpitInterior = new CockpitInteriorEntity(this.player, this.models);
+        this.cockpitEntities.push(cockpitInterior);
+        this.scene.add(cockpitInterior);
 
         const exteriorData = new ExteriorDataEntity(this.player, this.configService);
         exteriorData.enabled = false;

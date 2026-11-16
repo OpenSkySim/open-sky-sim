@@ -10,9 +10,19 @@ import { TerrainEntity } from './terrainEntity';
 import { TileMeshes } from './tileMesh';
 import { QuadNode } from './quadtree';
 
-/** Enough of the material manager to construct the entity. */
+/**
+ * Enough of the material manager to construct the entity. Its materials make
+ * any uniform they are asked for, as the real shaders declare theirs: the
+ * entity sets some at construction (the river material's uMinHalfPixels).
+ */
 const materials = {
-    build: () => new THREE.ShaderMaterial(),
+    build: () => {
+        const m = new THREE.ShaderMaterial();
+        m.uniforms = new Proxy({} as Record<string, THREE.IUniform>, {
+            get: (u, k: string) => (u[k] ??= { value: null }),
+        });
+        return m;
+    },
 } as unknown as SceneMaterialManager;
 
 function manifest(): TerrainManifest {
@@ -36,6 +46,25 @@ function manifest(): TerrainManifest {
         },
         flattenPads: [],
     };
+}
+
+/**
+ * What a group holds besides the open-sea stand-ins (oceanPatch.ts): every tile
+ * is drawn with an ocean patch of its own beside its land, and these tests are
+ * about the land tiles.
+ */
+function land(group: THREE.Object3D): THREE.Object3D[] {
+    return group.children.filter(c => !c.name.startsWith('ocean:'));
+}
+
+/**
+ * How many times the entity's terrain group is in a render list. The entity
+ * attaches its draw batcher's root beside it (water, river and road strokes,
+ * TileBatcher in tileBatch.ts), so the list holds more than the group.
+ */
+function terrainIn(list: THREE.Object3D, entity: TerrainEntity): number {
+    const group = (entity as unknown as { group: THREE.Group }).group;
+    return list.children.filter(c => c === group).length;
 }
 
 function makeEntity(): TerrainEntity {
@@ -70,10 +99,10 @@ describe('TerrainEntity render list attachment', () => {
         beginRenderListPass(list, 7);
         entity.render3D(1280, 720, camera(), lists, null as never);
 
-        assert.equal(list.children.length, 1, 'group attached');
+        assert.equal(terrainIn(list, entity), 1, 'group attached');
         pruneRenderList(list);
         assert.equal(
-            list.children.length, 1,
+            terrainIn(list, entity), 1,
             'terrain group was pruned — it must attach via attachToRenderList',
         );
     });
@@ -87,7 +116,7 @@ describe('TerrainEntity render list attachment', () => {
             beginRenderListPass(list, gen);
             entity.render3D(1280, 720, camera(), lists, null as never);
             pruneRenderList(list);
-            assert.equal(list.children.length, 1, `survived generation ${gen}`);
+            assert.equal(terrainIn(list, entity), 1, `survived generation ${gen}`);
         }
     });
 
@@ -137,7 +166,7 @@ describe('TerrainEntity render list attachment', () => {
             entity.render3D(1280, 720, camera(), lists, null as never);
             pruneRenderList(list);
             assert.equal(
-                list.children.length, 1,
+                terrainIn(list, entity), 1,
                 'the target MFD pass must still draw whatever the main pass produced',
             );
         });
@@ -309,7 +338,7 @@ describe('terrain triangle budget (safety valve)', () => {
         assert.equal(entity.stats.triangles, 5000);
         assert.equal(entity.stats.triangleBudgetHit, false);
         const group = (entity as unknown as { group: THREE.Group }).group;
-        assert.equal(group.children.length, 5, 'every tile was drawn');
+        assert.equal(land(group).length, 5, 'every tile was drawn');
     });
 
     it('keeps the nearest tiles and drops the farthest once over budget', () => {
@@ -324,7 +353,7 @@ describe('terrain triangle budget (safety valve)', () => {
             `drew ${entity.stats.triangles}, over the ${TERRAIN_TRIANGLE_BUDGET} budget`,
         );
         const group = (entity as unknown as { group: THREE.Group }).group;
-        const kept = group.children.map(c => c.name).sort();
+        const kept = land(group).map(c => c.name).sort();
         // Nearest-first: with a 600k budget and 200k/tile, exactly the 3
         // nearest (x = 1000, 2000, 3000) fit; the two farthest are dropped.
         assert.deepEqual(kept, ['5/0/0', '5/1/0', '5/2/0']);
@@ -420,7 +449,7 @@ describe('terrain triangle budget (safety valve)', () => {
         syncGroup(entity, new THREE.Vector3());
         assert.equal(entity.stats.triangleBudgetHit, false, 'the cap never had to engage');
         const group = (entity as unknown as { group: THREE.Group }).group;
-        assert.equal(group.children.length, 3, 'nothing was dropped');
+        assert.equal(land(group).length, 3, 'nothing was dropped');
     });
 
     it('cuts by a tile\'s near edge, not its centre (regression)', () => {
@@ -433,6 +462,6 @@ describe('terrain triangle budget (safety valve)', () => {
 
         assert.equal(entity.stats.triangleBudgetHit, true);
         const group = (entity as unknown as { group: THREE.Group }).group;
-        assert.deepEqual(group.children.map(c => c.name).sort(), ['5/0/0', '5/1/0', '5/3/0']);
+        assert.deepEqual(land(group).map(c => c.name).sort(), ['5/0/0', '5/1/0', '5/3/0']);
     });
 });

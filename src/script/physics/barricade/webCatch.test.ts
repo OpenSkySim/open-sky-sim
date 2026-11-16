@@ -10,7 +10,8 @@
  * either side:
  *  - no webbing particle deeper inside the drawn skin than the skin margin,
  *    and no link through it;
- *  - engaging-strap strain under 20 %;
+ *  - engaging-strap strain under 20 % along its free span (see
+ *    freeSpanStrapStrain);
  *  - each belt end's payout within a geometric bound of the jet's travel
  *    past the net (see {@link payoutBound});
  *  - after the rebound and the lean the webbing still drapes the airframe:
@@ -19,8 +20,9 @@
  *  - no energy created: the net's kinetic, elastic and potential energy
  *    gained is at most what the airframe's contacts put in less what the
  *    modelled sinks took, within {@link MAX_CREATED} of the airframe's work;
- *  - every particle under 0.2 m/s three seconds into the hold;
- *  - at most 5 ms of solver time per 60 Hz frame.
+ *  - no energy created in the hold either (see HoldBooks).
+ *
+ * Solver cost is reported, not gated (see webCoupled.test.ts).
  *
  * Also reported: the pull the net would put on the jet (the contact
  * impulses per frame, as g on the airframe's mass) against the sim's 5 g cap.
@@ -41,7 +43,7 @@ import { serializeWorld } from '../sim/serializedWorld';
 import { BELT_EA_N, buildRiggedWeb } from './webLayout';
 import { WebSolver } from './webSolver';
 import { loadWebAirframe, WEB_FIXTURES, WebAirframe, WebFixture } from './webFixtures.testkit.test';
-import { cpuMs, deckAndPayoutFails, MASS_KG, netEnergy, penetration } from './webHarness.testkit.test';
+import { cpuMs, deckAndPayoutFails, MASS_KG, netEnergy, penetration, HoldBooks, freeSpanStrapStrain } from './webHarness.testkit.test';
 
 /*
  * Diagnostics, off unless set (node only; this file is outside the app's typecheck):
@@ -57,11 +59,12 @@ const STATE_NAME = ['none', 'pulling', 'held', 'rebound'];
 const G0 = 9.80665;
 const SPEEDS = [5, 30, 60];
 const OFFSETS = [0, -3, 3];
-const MAX_MS_PER_FRAME = 5;
 const MAX_STRAP_STRAIN = 0.2;
 const MAX_CREATED = 0.05;
 const MIN_DRAPE = 10;
 const SETTLED_MPS = 0.2;
+/** Energy the net may gain from 0.5 s to SETTLE_S into the hold (J; see HoldBooks). */
+const MAX_HOLD_GAIN_J = 2000;
 /** An engaging strap, upper belt to lower belt as rigged (m). */
 const STRAP_LENGTH_M = BARRICADE_HEIGHT_M - BARRICADE_LOWER_LIFT_M;
 /** How long into the hold the net must have settled (s). */
@@ -150,6 +153,8 @@ interface CatchResult {
     deep: number;
     through: number;
     maxStrapStrain: number;
+    /** The worst strap's free-span strain (freeSpanStrapStrain), the gated one. */
+    freeSpanStrain: number;
     /** Frame and arrest state of the worst strain. */
     strainAt: string;
     /** Worst payout outside its geometric bound (m; ≤ 0 inside), and the end and frame it was at. */
@@ -176,6 +181,8 @@ interface CatchResult {
     substepSpeed: number;
     /** Seconds into the hold of the last 0.1 s window with a particle at or over SETTLED_MPS. */
     settleTime: number;
+    /** What the net gained in the hold beyond what went in (J; HoldBooks). */
+    holdGainJ: number;
     /**
      * What the sinks took (W) from 1 s to 5 s into the hold, with the airframe
      * still: energy the solver put in, since nothing else can (needs a hold of 5 s).
@@ -312,7 +319,8 @@ function runCatch(fixture: WebFixture, speed: number, offset: number, arrest: Ar
     const side = sides(af);
     let strainAt = '';
     let noseDepthMax = 0, loMargin = Infinity, hiMargin = Infinity;
-    let ms = 0, deep = 0, through = 0, maxStrap = 0, payoutExcess = -Infinity, payoutAt = '';
+    let ms = 0, deep = 0, through = 0, maxStrap = 0, freeSpan = 0, payoutExcess = -Infinity, payoutAt = '';
+    const hold = new HoldBooks(() => netEnergy(s) - st.bodyWork + sinks(), 30, Math.round(SETTLE_S / DT));
     let drape = 0, drapeLeft = 0, drapeRight = 0, settledSpeed = Infinity;
     let pullPeak = 0, pullSum = 0, pullN = 0, simPeak = 0;
     const tethers = layout.tethers;
@@ -341,6 +349,7 @@ function runCatch(fixture: WebFixture, speed: number, offset: number, arrest: Ar
         const state = arrest[f].state;
         if (st.maxStrapStrain > maxStrap) strainAt = `f${f} ${STATE_NAME[state]}`;
         maxStrap = Math.max(maxStrap, st.maxStrapStrain);
+        freeSpan = Math.max(freeSpan, freeSpanStrapStrain(s));
         if (process.env.WC_DIAG && f % 15 === 0) {
             const res = ((netEnergy(s) - e0) - ((st.bodyWork - body0) - (sinks() - sinks0))) / 1e3;
             let fast = 0, fi = -1;
@@ -471,6 +480,7 @@ function runCatch(fixture: WebFixture, speed: number, offset: number, arrest: Ar
             console.log(`TRACE f+${f - heldAt} ${parts.join('  ')} contacts ${st.contacts}`);
         }
         const settleF = Math.round(SETTLE_S / DT);
+        if (heldAt >= 0) hold.sample(f - heldAt);
         if (heldAt >= 0 && (f - heldAt) % SETTLE_WINDOW_F === 0) {
             if (windowFrom) {
                 let m = 0;
@@ -524,9 +534,9 @@ function runCatch(fixture: WebFixture, speed: number, offset: number, arrest: Ar
     const created = ((netEnergy(s) - e0) - (bodyWork - (sinks() - sinks0))) / Math.max(bodyWork, 1);
     return {
         deckPay: deckAndPayoutFails(s), lowestY: s.stats.lowestY,
-        fixture, speed, offset, frames: arrest.length - 1, deep, through, maxStrapStrain: maxStrap, strainAt,
+        fixture, speed, offset, frames: arrest.length - 1, deep, through, maxStrapStrain: maxStrap, freeSpanStrain: freeSpan, strainAt,
         payoutExcess, payoutAt, loMargin, hiMargin, finalPayout: st.payout.slice(),
-        settleTime: lastMoving, holdPowerW: holdPower, drape, drapeLeft, drapeRight, created, bodyWorkKJ: bodyWork / 1e3, settledSpeed, substepSpeed,
+        settleTime: lastMoving, holdGainJ: hold.gainJ, holdPowerW: holdPower, drape, drapeLeft, drapeRight, created, bodyWorkKJ: bodyWork / 1e3, settledSpeed, substepSpeed,
         msPerFrame: ms / (arrest.length - 1),
         pullPeakG: pullPeak, pullMeanG: pullN > 0 ? pullSum / pullN : 0, simPeakG: simPeak,
     };
@@ -598,13 +608,13 @@ for (const speed of SPEEDS) {
                     const r = runCatch(fixture, speed, offset, arrest);
                     const line = `${fixture} @ ${speed} m/s, x ${offset}: ${JSON.stringify({
                         frames: r.frames, deep: r.deep, through: r.through,
-                        strain: +r.maxStrapStrain.toFixed(3), strainAt: r.strainAt,
+                        strain: +r.maxStrapStrain.toFixed(3), freeSpanStrain: +r.freeSpanStrain.toFixed(3), strainAt: r.strainAt,
                         payoutExcess: +r.payoutExcess.toFixed(2), payoutAt: r.payoutAt,
                         payoutMargins: [+r.loMargin.toFixed(1), +r.hiMargin.toFixed(1)],
                         finalPayout: r.finalPayout.map(p => +p.toFixed(1)),
                         drape: r.drape, drapeLeft: r.drapeLeft, drapeRight: r.drapeRight,
                         created: +r.created.toFixed(4), bodyWorkKJ: +r.bodyWorkKJ.toFixed(1),
-                        settled: +r.settledSpeed.toFixed(3), settleTime: +r.settleTime.toFixed(1), holdPowerW: +r.holdPowerW.toFixed(0), substepSpeed: +r.substepSpeed.toFixed(2),
+                        settled: +r.settledSpeed.toFixed(3), settleTime: +r.settleTime.toFixed(1), holdPowerW: +r.holdPowerW.toFixed(0), holdGainJ: +r.holdGainJ.toFixed(0), substepSpeed: +r.substepSpeed.toFixed(2),
                         ms: +r.msPerFrame.toFixed(2), vsRigged: riggedMs > 0 ? +(r.msPerFrame / riggedMs).toFixed(2) : null,
                         pullPeakG: +r.pullPeakG.toFixed(2), pullMeanG: +r.pullMeanG.toFixed(2), simPeakG: +r.simPeakG.toFixed(2),
                     })}`;
@@ -612,12 +622,11 @@ for (const speed of SPEEDS) {
                     const fails: string[] = [...r.deckPay];
                     if (r.deep > 0) fails.push(`${r.deep} particles deeper than the skin`);
                     if (r.through > 0) fails.push(`${r.through} links through the skin`);
-                    if (r.maxStrapStrain >= MAX_STRAP_STRAIN) fails.push(`strap strain ${(100 * r.maxStrapStrain).toFixed(1)} %`);
+                    if (r.freeSpanStrain >= MAX_STRAP_STRAIN) fails.push(`strap strain ${(100 * r.freeSpanStrain).toFixed(1)} %`);
                     if (r.payoutExcess > 0) fails.push(`payout outside its bound: ${r.payoutAt}`);
                     if (r.drape < MIN_DRAPE || r.drapeLeft === 0 || r.drapeRight === 0) fails.push(`drape ${r.drape} (${r.drapeLeft} / ${r.drapeRight})`);
                     if (r.created > MAX_CREATED) fails.push(`${(100 * r.created).toFixed(1)} % energy created`);
-                    if (!(r.settledSpeed < SETTLED_MPS)) fails.push(`${r.settledSpeed.toFixed(2)} m/s ${SETTLE_S} s into the hold`);
-                    if (r.msPerFrame > MAX_MS_PER_FRAME) fails.push(`${r.msPerFrame.toFixed(2)} ms/frame`);
+                    if (!(r.holdGainJ <= MAX_HOLD_GAIN_J)) fails.push(Number.isFinite(r.holdGainJ) ? `the net gained ${r.holdGainJ.toFixed(0)} J in the hold` : 'the hold was not reached');
                     assert.deepEqual(fails, [], line);
                 });
             }

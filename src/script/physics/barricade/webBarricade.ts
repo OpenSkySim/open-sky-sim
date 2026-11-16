@@ -155,8 +155,12 @@ const BODY_STILL_ROT = 1e-8;
  * links through it, at 8 everything did and it ran out 114 m, past the
  * MK-7's 105. Below 25 m/s, 8 still let 1-2 through. A still body (held,
  * stopped) sweeps nothing through the webbing: MIN_SUBSTEPS_STILL.
+ *
+ * Mutable for the tests only: a wall-clock budget makes a catch depend on the
+ * machine's load, so they lift it and run every catch at the airframe's full
+ * quality (webSim.test.ts, combatSim.carrier.test.ts).
  */
-const BUDGET_MS = 4;
+export const WEB_FRAME_BUDGET = { ms: 4 };
 const MIN_SUBSTEPS = 12;
 const MIN_SUBSTEPS_STILL = 8;
 const PACE_SMOOTHING = 0.3;
@@ -316,7 +320,7 @@ export class BarricadeWeb {
     /**
      * Advance by dt with `body` in the net, or alone (asleep once still).
      * `maxSubsteps` is the quality the airframe asks for (substepsFor), per
-     * 1/60 s; the step takes as many of them as fit in BUDGET_MS, and no fewer
+     * 1/60 s; the step takes as many of them as fit in WEB_FRAME_BUDGET, and no fewer
      * than MIN_SUBSTEPS.
      */
     step(dt: number, body: BarricadeWebBody | null, maxSubsteps = 32): void {
@@ -379,7 +383,7 @@ export class BarricadeWeb {
         const scale = Math.max(1, dt * 60);
         const most = Math.round(maxSubsteps * scale);
         const least = Math.ceil((still ? MIN_SUBSTEPS_STILL : MIN_SUBSTEPS) * scale);
-        const budget = BUDGET_MS;
+        const budget = WEB_FRAME_BUDGET.ms;
         const fit = this.paceMs > 0 ? Math.floor(budget / this.paceMs) : most;
         // Alone, it takes the full count, with no deadline: it costs little and soon sleeps, and
         // fewer let the upper belt's pretension (20 kN) pull its pendants past their 25 kN slip.
