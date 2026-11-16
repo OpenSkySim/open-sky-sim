@@ -237,27 +237,11 @@ def main():
             {'name': 'MainWell', 'type': 'loft', 'mirror': True, 'join': 'cut', 'segments': 12,
              'stations': loft_rows(main_well, 4.05)},
             {'name': 'NoseWell', 'type': 'loft', 'join': 'cut', 'segments': 12, 'stations': loft_rows(nose_well)},
-            # Dummy cockpit behind the (see-through) glazing: a dark tub inset from the skin, its floor
-            # above the nose gear well, with an instrument panel and two crew seats.
-            {'name': 'CockpitTub', 'type': 'loft', 'join': 'separate', 'inside_out': True, 'material': '#25282c',
-             'segments': 16, 'stations': loft_rows([(1.15, 0.72, -0.58, -0.45, 3), (1.5, 0.9, -0.58, -0.24, 3),
-                                                    (1.9, 1.02, -0.58, 0.1, 3), (2.4, 1.12, -0.58, 0.48, 3),
-                                                    (3.0, 1.16, -0.58, 0.64, 3), (3.45, 1.16, -0.58, 0.64, 3)])},
-            {'name': 'InstrumentPanel', 'type': 'loft', 'join': 'separate', 'material': '#1d2024', 'segments': 8,
-             'stations': loft_rows([(1.7, 0.78, -0.56, -0.08, 6), (1.88, 0.78, -0.56, -0.08, 6)])},
+            # Cockpit behind the (see-through) glazing: one open space with two seats and two pilots (user).
             {'name': 'Seat', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 8,
              'stations': loft_rows([(2.55, 0.22, -0.56, -0.2, 6), (2.95, 0.22, -0.56, -0.2, 6)], 0.45)},
             {'name': 'SeatBack', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 8,
              'stations': loft_rows([(2.95, 0.22, -0.56, 0.4, 6), (3.12, 0.22, -0.56, 0.4, 6)], 0.45)},
-            # More cockpit detail: glare shield, centre pedestal, side consoles, overhead panel, two pilots.
-            {'name': 'GlareShield', 'type': 'loft', 'join': 'separate', 'material': '#16181b', 'segments': 8,
-             'stations': loft_rows([(1.62, 0.8, -0.09, -0.02, 6), (1.98, 0.8, -0.09, -0.02, 6)])},
-            {'name': 'Pedestal', 'type': 'loft', 'join': 'separate', 'material': '#2e3236', 'segments': 8,
-             'stations': loft_rows([(1.88, 0.13, -0.56, -0.28, 6), (2.65, 0.13, -0.56, -0.3, 6)])},
-            {'name': 'SideConsole', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#2e3236', 'segments': 8,
-             'stations': loft_rows([(2.0, 0.12, -0.56, -0.3, 6), (3.2, 0.12, -0.56, -0.3, 6)], 0.8)},
-            {'name': 'Overhead', 'type': 'loft', 'join': 'separate', 'material': '#2e3236', 'segments': 8,
-             'stations': loft_rows([(2.35, 0.32, 0.36, 0.43, 6), (2.95, 0.32, 0.36, 0.43, 6)])},
             {'name': 'PilotBody', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#4d5940', 'segments': 10,
              'stations': loft_rows([(2.55, 0.12, -0.2, 0.2, 2.5), (2.68, 0.2, -0.2, 0.3, 3), (2.9, 0.2, -0.2, 0.3, 3),
                                     (2.98, 0.14, -0.2, 0.26, 2.5)], 0.45)},
