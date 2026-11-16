@@ -9,8 +9,8 @@
   {
    "name": "Fuselage",
    "type": "loft",
-   "segments": 10,
-   "resample": 13,
+   "segments": 20,
+   "resample": 10,
    "stations": [
     [
      12.234,
@@ -2463,6 +2463,7 @@
   }
  ],
  "ground_y": -2.0,
+ "planar_deg": 0,
  "decimate": 0.5,
  "open_cabin": {
   "lo": [

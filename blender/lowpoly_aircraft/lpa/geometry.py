@@ -206,13 +206,18 @@ def drop_off_skin(obj: bpy.types.Object, skin: BVHTree, cutter: BVHTree, tol: fl
     bm.free()
 
 
-def decimate(obj: bpy.types.Object, ratio: float) -> None:
-    """Collapse-decimate a mesh in place to *ratio* of its faces, symmetric about the body's X."""
+def decimate(obj: bpy.types.Object, ratio: float = 1.0, planar_deg: float = 0.0) -> None:
+    """Decimate a mesh in place: merge near-flat faces (within *planar_deg*), else collapse to
+    *ratio* of its faces symmetric about the body's X."""
     mod = obj.modifiers.new('decimate', 'DECIMATE')
-    mod.decimate_type = 'COLLAPSE'
-    mod.ratio = ratio
-    mod.use_symmetry = True
-    mod.symmetry_axis = 'X'
+    if planar_deg > 0:
+        mod.decimate_type = 'DISSOLVE'
+        mod.angle_limit = math.radians(planar_deg)
+    else:
+        mod.decimate_type = 'COLLAPSE'
+        mod.ratio = ratio
+        mod.use_symmetry = True
+        mod.symmetry_axis = 'X'
     deps = bpy.context.evaluated_depsgraph_get()
     deps.update()
     new_mesh = bpy.data.meshes.new_from_object(obj.evaluated_get(deps))

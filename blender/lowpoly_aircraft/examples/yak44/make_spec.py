@@ -203,7 +203,7 @@ def main():
         'material': 'VEHICLE_PLANE_GREY',
         'smooth_deg': 35,
         'parts': [
-            {'name': 'Fuselage', 'type': 'loft', 'segments': 10, 'resample': 13, 'stations': fus_rows(fuselage)},
+            {'name': 'Fuselage', 'type': 'loft', 'segments': 20, 'resample': 10, 'stations': fus_rows(fuselage)},
             {'name': 'Fairing', 'type': 'loft', 'segments': 8, 'resample': 6, 'stations': loft_rows(fairing)},
             {'name': 'Nacelle', 'type': 'loft', 'mirror': True, 'segments': 8, 'resample': 7,
              'stations': loft_rows(nacelle, 4.05)},
@@ -305,7 +305,8 @@ def main():
         # lies in the HookWell recess and swings down 25 deg, its shoe 0.27 m above the deck.
         # The sim rests aircraft with the origin 2 m above the ground: stand the wheels there.
         'ground_y': -2.0,
-        # User: half the polygons of the first detailed build (~11,600 triangles).
+        # User: about half the polygons of the first detailed build (~11,600 triangles), with a round
+        # fuselage: a 20-sided fuselage loft, then the joined hull collapsed to half its faces.
         'decimate': 0.5,
         # The cockpit seen through the glazing: hull faces inside it that face into the airframe go.
         'open_cabin': {'lo': P(-1.4, -0.54, 3.24), 'hi': P(1.4, 1.4, 1.0)},
