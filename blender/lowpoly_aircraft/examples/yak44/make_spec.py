@@ -279,6 +279,9 @@ def main():
         # lies in the HookWell recess and swings down 25 deg, its shoe 0.27 m above the deck.
         # The sim rests aircraft with the origin 2 m above the ground: stand the wheels there.
         'ground_y': -2.0,
+        # Origin (the sim's centre of gravity) about the wing's quarter chord, ahead of the main wheels
+        # (d 10.85); the drawing's frame had it at d Z0, behind them, so the aircraft rocked on its mains.
+        'z0_m': Z0, 'origin_d': 10.0,
         'tailhook': {'hinge': P(0.0, -1.55, 16.0), 'stowed_tip': P(0.0, -1.18, 18.3), 'tip': P(0.0, -2.55, 18.104)},
         'surfaces': [
             # Trailing edge as on the drawing's top view: aileron x 9.5..12.2 (front at d 11.3), double flaps
@@ -319,7 +322,7 @@ def main():
                             side_m([(19.3, 0.82), (19.3, -1.1), (20.4, -1.1), (20.4, 0.82)])]},
         ],
         'gear': {'legs': [
-            {'name': 'Nose', 'pos_m': P(0.0, -2.83, 1.21), 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -1.65, 'wheel_radius_m': 0.31, 'twin': True},
+            {'name': 'Nose', 'pos_m': P(0.0, -2.58, 1.21), 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -1.65, 'wheel_radius_m': 0.31, 'twin': True},
             {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -0.85, 'wheel_radius_m': 0.46, 'twin': True},
         ],
             # Thin bay doors (drawing: nose doors d 0.9..2.4 splayed in the front view; main doors d 9.7..11.45
