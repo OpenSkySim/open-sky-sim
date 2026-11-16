@@ -260,11 +260,12 @@ def box(bm, lo, hi):
 
 
 def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: float,
-             collection: str, wheel_sides: int = 8) -> list[bpy.types.Object]:
+             collection: str, wheel_sides: int = 8, twin: bool = False) -> list[bpy.types.Object]:
     """One leg as two objects (strut, wheel), both with their origin at the strut's top.
 
     The sim animates a gear mesh by its own name, so every animated object
     must stay one mesh with one material; strut and wheel are kept apart.
+    *twin* puts two wheels side by side on one axle (both in the wheel mesh).
     """
     x, y_top, z = top
     axle_y = wheel_bottom[1] + wheel_radius
@@ -274,7 +275,8 @@ def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: flo
         ('Strut', 'VEHICLE_PLANE_GREY',
          lambda bm: box(bm, (x - strut / 2, axle_y, z - strut / 2), (x + strut / 2, y_top, z + strut / 2))),
         ('Wheel', 'VEHICLE_PLANE_ENGINE',
-         lambda bm: cylinder_x(bm, (x, axle_y, z), wheel_radius, wheel_width, sides=wheel_sides)),
+         lambda bm: [cylinder_x(bm, (x + dx, axle_y, z), wheel_radius, wheel_width, sides=wheel_sides)
+                     for dx in ((-0.6 * wheel_width - strut / 2, 0.6 * wheel_width + strut / 2) if twin else (0.0,))]),
     ):
         bm = bmesh.new()
         build(bm)

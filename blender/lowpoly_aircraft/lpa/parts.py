@@ -160,22 +160,41 @@ def _panel_into(bm, rows, chord_points, normal=None, chord_dir=None) -> None:
 
 def prop(name: str, center, radius: float, blades: int = 6, root_r: float = 0.4, chord: float = 0.4,
          pitch_deg: float = 30.0, phase_deg: float = 0.0, hand: float = 1.0, material: str = 'VEHICLE_PLANE_ENGINE',
-         collection: str = 'Construction') -> bpy.types.Object:
-    """Propeller blades about the +Z axis through *center*, one object."""
+         collection: str = 'Construction', sweep: float = 0.0) -> bpy.types.Object:
+    """Propeller blades about the +Z axis through *center*, one object.
+
+    *sweep* bends each blade back against its rotation (a scimitar blade): the
+    tip trails the straight line by sweep * radius, growing with the square of
+    the span; chord peaks at about two thirds of the span and rounds off at the tip.
+    """
     c = np.asarray(center, dtype=np.float64)
     bm = bmesh.new()
     pitch = math.radians(pitch_deg)
+    span = [(root_r, 0.65), (root_r + 0.4 * (radius - root_r), 1.0), (root_r + 0.8 * (radius - root_r), 0.9),
+            (radius, 0.3)]
+    if not sweep:
+        span = [(root_r, 0.75), (0.55 * radius, 1.0), (radius, 0.35)]
     for k in range(blades):
         th = math.radians(phase_deg) + 2 * math.pi * k / blades
-        radial = np.array([math.cos(th), math.sin(th), 0.0])
-        tangent = hand * np.array([-math.sin(th), math.cos(th), 0.0])
-        cd = tangent * math.cos(pitch) + np.array([0.0, 0.0, -1.0]) * math.sin(pitch)
         rows = []
-        for r, ch in ((root_r, 0.75 * chord), (0.55 * radius, chord), (radius, 0.35 * chord)):
+        for r, f in span:
+            s = (r - root_r) / max(radius - root_r, 1e-6)
+            # Swept blades: the station moves back along the arc, so its own radial line turns too.
+            phi = th - hand * sweep * s * s * radius / max(r, 1e-6)
+            radial = np.array([math.cos(phi), math.sin(phi), 0.0])
+            tangent = hand * np.array([-math.sin(phi), math.cos(phi), 0.0])
+            cd = tangent * math.cos(pitch) + np.array([0.0, 0.0, -1.0]) * math.sin(pitch)
+            ch = f * chord
             le = c + radial * r - cd * ch * 0.35
             rows.append([*le, ch, 0.08])
-        _panel_into(bm, np.array(rows), 5, chord_dir=cd)
+        # One chord direction per blade (the mid station's) keeps the sections parallel.
+        _panel_into(bm, np.array(rows), 5, chord_dir=_prop_chord_dir(th, hand, pitch))
     return _object(bm, name, material, collection)
+
+
+def _prop_chord_dir(th: float, hand: float, pitch: float) -> np.ndarray:
+    tangent = hand * np.array([-math.sin(th), math.cos(th), 0.0])
+    return tangent * math.cos(pitch) + np.array([0.0, 0.0, -1.0]) * math.sin(pitch)
 
 
 def mirror_rows(kind: str, rows) -> list:
@@ -210,7 +229,8 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
         return prop(name, c, float(spec_part['radius']), int(spec_part.get('blades', 6)),
                     float(spec_part.get('root_r', 0.4)), float(spec_part.get('chord', 0.4)),
                     float(spec_part.get('pitch_deg', 30)), float(spec_part.get('phase_deg', 0)),
-                    float(spec_part.get('hand', 1.0)) * (-1.0 if mirrored else 1.0), material)
+                    float(spec_part.get('hand', 1.0)) * (-1.0 if mirrored else 1.0), material,
+                    sweep=float(spec_part.get('sweep', 0.0)))
     raise ValueError(f'unknown part type {kind!r}')
 
 

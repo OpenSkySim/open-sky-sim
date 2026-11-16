@@ -306,7 +306,8 @@ def _add_gear(views, hull, spec) -> None:
                 print(f'[lpa] gear {name}: nothing above the wheel, strut top guessed at y={y_top:.2f}')
             top = (xi, y_top, z)
             objs = geo.gear_leg(name, top, (xi, y_ground, z), radius, width, 'Gear',
-                                wheel_sides=int(gear.get('wheel_sides', 16 if 'parts' in spec else 8)))
+                                wheel_sides=int(gear.get('wheel_sides', 16 if 'parts' in spec else 8)),
+                                twin=bool(leg.get('twin', False)))
             axis_body, sgn = GEAR_RETRACT_AXES[leg.get('retract', 'aft')]
             if axis_body[2] != 0 and xi < 0:
                 sgn = -sgn  # inward/outward mirror across the plane of symmetry

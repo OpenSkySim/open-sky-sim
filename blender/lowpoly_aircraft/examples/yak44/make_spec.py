@@ -126,8 +126,9 @@ def main():
     wing = [(1.0, 0.95, 6.5, 6.1, 0.14), (5.2, 0.9, 8.41, 3.92, 0.15), (12.3, 0.92, 10.14, 1.74, 0.12),
             (12.6, 0.95, 10.38, 1.55, 0.11)]
     winglet = [(12.55, 0.95, 10.4, 1.5, 0.1), (12.78, 1.9, 11.3, 0.75, 0.08), (12.85, 2.3, 11.6, 0.4, 0.08)]
-    tail = [(0.4, 0.95, 16.5, 3.38, 0.1), (5.8, 1.15, 18.0, 1.85, 0.1)]
-    fin = [(5.8, -0.95, 18.45, 1.55, 0.08), (5.8, 1.0, 17.25, 2.85, 0.08), (5.8, 2.95, 18.2, 1.9, 0.08)]
+    tail = [(0.4, 0.95, 16.5, 3.38, 0.1), (5.55, 1.15, 18.0, 1.85, 0.1)]
+    # Fins lean inward (front view: x 5.6 at the root, 5.3 at the tip).
+    fin = [(5.62, -0.95, 18.45, 1.55, 0.08), (5.47, 1.0, 17.25, 2.85, 0.08), (5.32, 2.95, 18.2, 1.9, 0.08)]
     pylon = [(0.0, 0.6, 12.6, 2.3, 0.32), (0.0, 3.8, 12.7, 2.2, 0.32)]
     dark = 'VEHICLE_PLANE_ENGINE'
     spec = {
@@ -154,9 +155,9 @@ def main():
             {'name': 'Scoop', 'type': 'loft', 'join': 'separate', 'material': dark, 'segments': 12,
              'stations': loft_rows(scoop)},
             {'name': 'PropFront', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': dark,
-             'center': P(4.05, 0.2, 5.55), 'radius': 2.25, 'blades': 8, 'root_r': 0.42, 'chord': 0.55},
+             'center': P(4.05, 0.2, 5.55), 'radius': 2.25, 'blades': 8, 'root_r': 0.42, 'chord': 0.62, 'sweep': 0.22},
             {'name': 'PropRear', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': dark,
-             'center': P(4.05, 0.2, 6.15), 'radius': 2.2, 'blades': 6, 'root_r': 0.5, 'chord': 0.55,
+             'center': P(4.05, 0.2, 6.15), 'radius': 2.2, 'blades': 6, 'root_r': 0.5, 'chord': 0.62, 'sweep': 0.22,
              'phase_deg': 30, 'hand': -1},
         ],
         'regions': windows_and_doors(),
@@ -172,12 +173,12 @@ def main():
                                  (3.25, wing_te(3.25) + 0.4), (1.45, wing_te(1.45) + 0.4)])},
             {'type': 'elevator', 'view': 'top', 'mirror': True,
              'polygon_m': top_m([(0.6, 19.1), (5.45, 19.1), (5.45, 20.1), (0.6, 20.1)])},
-            {'type': 'rudder', 'view': 'side', 'mirror': True, 'depth_m': [5.4, 6.2],
+            {'type': 'rudder', 'view': 'side', 'mirror': True, 'depth_m': [5.0, 6.0],
              'polygon_m': [[round(Z0 - d, 3), y] for d, y in ((19.3, 3.2), (19.3, -1.1), (20.4, -1.1), (20.4, 3.2))]},
         ],
         'gear': {'legs': [
-            {'name': 'Nose', 'pos_m': P(0.0, -2.83, 1.21), 'retract': 'aft', 'wheel_radius_m': 0.31},
-            {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'wheel_radius_m': 0.46},
+            {'name': 'Nose', 'pos_m': P(0.0, -2.83, 1.21), 'retract': 'aft', 'wheel_radius_m': 0.31, 'twin': True},
+            {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'wheel_radius_m': 0.46, 'twin': True},
         ]},
         'cockpit_m': P(0.0, 0.1, 2.4),
     }

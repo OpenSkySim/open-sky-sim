@@ -533,7 +533,7 @@
      0.1
     ],
     [
-     5.8,
+     5.55,
      1.15,
      -5.766,
      1.85,
@@ -554,21 +554,21 @@
    "resample": 7,
    "stations": [
     [
-     5.8,
+     5.62,
      -0.95,
      -6.216,
      1.55,
      0.08
     ],
     [
-     5.8,
+     5.47,
      1.0,
      -5.016,
      2.85,
      0.08
     ],
     [
-     5.8,
+     5.32,
      2.95,
      -5.966,
      1.9,
@@ -750,7 +750,8 @@
    "radius": 2.25,
    "blades": 8,
    "root_r": 0.42,
-   "chord": 0.55
+   "chord": 0.62,
+   "sweep": 0.22
   },
   {
    "name": "PropRear",
@@ -766,7 +767,8 @@
    "radius": 2.2,
    "blades": 6,
    "root_r": 0.5,
-   "chord": 0.55,
+   "chord": 0.62,
+   "sweep": 0.22,
    "phase_deg": 30,
    "hand": -1
   }
@@ -1191,8 +1193,8 @@
    "view": "side",
    "mirror": true,
    "depth_m": [
-    5.4,
-    6.2
+    5.0,
+    6.0
    ],
    "polygon_m": [
     [
@@ -1224,7 +1226,8 @@
      11.024
     ],
     "retract": "aft",
-    "wheel_radius_m": 0.31
+    "wheel_radius_m": 0.31,
+    "twin": true
    },
    {
     "name": "Main",
@@ -1235,7 +1238,8 @@
     ],
     "mirror": true,
     "retract": "aft",
-    "wheel_radius_m": 0.46
+    "wheel_radius_m": 0.46,
+    "twin": true
    }
   ]
  },
