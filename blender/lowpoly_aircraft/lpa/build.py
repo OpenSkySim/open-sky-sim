@@ -227,23 +227,29 @@ def _add_surfaces(views, hull, spec) -> None:
         kind = item['type']
         control, signs, rng = SURFACE_TYPES.get(kind, (item.get('control', 'pitch'), (1.0, 1.0), 25.0))
         view = item.get('view', 'top')
-        poly = _poly_body2(views, item)
-        hinge = _hinge_body2(views, item, poly)
+        if 'polygons_m' in item:
+            # One surface in several pieces (a rudder split by the tailplane): one mesh, one hinge.
+            loops = [np.asarray(lp, dtype=np.float64) for lp in item['polygons_m']]
+        else:
+            loops = [_poly_body2(views, item)]
+        poly = np.vstack(loops)
+        hinge = _hinge_body2(views, item, loops[0])
         depth = _depth(views, item)
-        sides = [(poly, hinge, depth)]
+        sides = [(poly, loops, hinge, depth)]
         if item.get('mirror', view != 'side'):
             if view == 'side':
-                sides.append((poly, hinge, (-depth[1], -depth[0])))
+                sides.append((poly, loops, hinge, (-depth[1], -depth[0])))
             else:
-                sides.append((_mirror_x(view, poly), _mirror_x(view, hinge), depth))
-        for p, h, dep in sides:
+                sides.append((_mirror_x(view, poly), [_mirror_x(view, lp) for lp in loops],
+                              _mirror_x(view, hinge), depth))
+        for p, lps, h, dep in sides:
             cx = float(np.mean(p[:, 0])) if view in ('top', 'front') else 0.5 * (dep[0] + dep[1])
             if len(sides) == 1:
                 side_name, side_ix = '', 1
             else:
                 side_name, side_ix = ('Left', 0) if cx > 0 else ('Right', 1)
             role = item.get('role', kind) + side_name
-            part = geo.cut_part(hull, role, view, p, item.get('material', spec.get('material', 'VEHICLE_PLANE_GREY')),
+            part = geo.cut_part(hull, role, view, lps, item.get('material', spec.get('material', 'VEHICLE_PLANE_GREY')),
                                 'Surfaces', depth=dep, smooth_deg=spec.get('smooth_deg'))
             if part is None:
                 print(f'[lpa] surface {role}: polygon does not touch the hull, skipped')

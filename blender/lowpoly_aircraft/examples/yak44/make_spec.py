@@ -171,10 +171,13 @@ def main():
             {'type': 'flap', 'role': 'flapInner', 'view': 'top', 'mirror': True,
              'polygon_m': top_m([(1.45, wing_te(1.45) - 0.95), (3.25, wing_te(3.25) - 0.9),
                                  (3.25, wing_te(3.25) + 0.4), (1.45, wing_te(1.45) + 0.4)])},
-            {'type': 'elevator', 'view': 'top', 'mirror': True,
-             'polygon_m': top_m([(0.6, 19.1), (5.45, 19.1), (5.45, 20.1), (0.6, 20.1)])},
+            # Kept clear of the inward-leaning fins: stops short of them and only cuts the tailplane's height.
+            {'type': 'elevator', 'view': 'top', 'mirror': True, 'depth_m': [0.7, 1.5],
+             'polygon_m': top_m([(0.6, 19.1), (5.2, 19.1), (5.2, 20.1), (0.6, 20.1)])},
+            # Upper and lower rudder, split where the tailplane passes through the fin (y 0.95..1.3).
             {'type': 'rudder', 'view': 'side', 'mirror': True, 'depth_m': [5.0, 6.0],
-             'polygon_m': [[round(Z0 - d, 3), y] for d, y in ((19.3, 3.2), (19.3, -1.1), (20.4, -1.1), (20.4, 3.2))]},
+             'polygons_m': [side_m([(19.3, 3.2), (19.3, 1.3), (20.4, 1.3), (20.4, 3.2)]),
+                            side_m([(19.3, 0.95), (19.3, -1.1), (20.4, -1.1), (20.4, 0.95)])]},
         ],
         'gear': {'legs': [
             {'name': 'Nose', 'pos_m': P(0.0, -2.83, 1.21), 'retract': 'aft', 'wheel_radius_m': 0.31, 'twin': True},

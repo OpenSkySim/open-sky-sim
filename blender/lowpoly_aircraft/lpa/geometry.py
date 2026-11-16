@@ -194,8 +194,9 @@ def underside_y(tree: BVHTree, x: float, z: float, y_from: float) -> float | Non
 def cut_part(hull: bpy.types.Object, name: str, view: str, poly_body2: np.ndarray,
              material: str, collection: str, depth=(-EXTRUDE, EXTRUDE),
              smooth_deg: float | None = None) -> bpy.types.Object | None:
-    """Split the region under a view polygon off the hull; returns the part (or None)."""
-    cutter = prism(f'Cut_{name}', view, [poly_body2], depth=depth)
+    """Split the region under a view polygon (or a list of polygons) off the hull; returns the part (or None)."""
+    loops = poly_body2 if isinstance(poly_body2, list) else [poly_body2]
+    cutter = prism(f'Cut_{name}', view, loops, depth=depth)
     part = copy_object(hull, name, collection)
     boolean(part, cutter, 'INTERSECT')
     if is_empty(part):
