@@ -119,6 +119,13 @@ def export_pack(out_dir: str, pack: bool = True) -> dict:
             surface['slide'] = _vec(obj['lpa_slide'])
         surfaces.append(surface)
 
+    tailhook = None
+    hook_objs = _objects('Hook')
+    if hook_objs and scene.get('lpa_tailhook'):
+        tailhook = json.loads(scene['lpa_tailhook'])
+        _export_glb(os.path.join(out_dir, tailhook['model']), hook_objs, False)
+        files.append(tailhook['model'])
+
     manifest = {
         'id': aid,
         'name': name,
@@ -135,6 +142,8 @@ def export_pack(out_dir: str, pack: bool = True) -> dict:
         'fx': {'wingtips': [_vec(w) for w in scene['lpa_wingtips']] if 'lpa_wingtips' in scene else None,
                'nozzles': None},
     }
+    if tailhook:
+        manifest['tailhook'] = tailhook
     with open(os.path.join(out_dir, 'manifest.json'), 'w') as f:
         json.dump(manifest, f, indent=2)
     files.append('manifest.json')

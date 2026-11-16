@@ -223,6 +223,8 @@ export class PlayerEntity implements Entity {
     private readonly _hinge = new THREE.Vector3();
     private readonly _hookDir = new THREE.Vector3();
     private readonly _hookStowedDir = new THREE.Vector3();
+    /** Body-frame arm direction with the hook stowed (the aircraft's own, else straight aft). */
+    private readonly _hookStowedBody = new THREE.Vector3(0, 0, -1);
     private readonly _qStowed = new THREE.Quaternion();
     private readonly _hookTip = new THREE.Vector3();
     private readonly _hookTipBody = new THREE.Vector3(...DEFAULT_ARRESTOR_HOOK_BODY);
@@ -332,13 +334,14 @@ export class PlayerEntity implements Entity {
             });
         }
 
-        const tailhookModel = this.models.getModel('lib:tailhook');
+        const tailhookModel = this.models.getModel(def.tailhook?.model ?? 'lib:tailhook');
         this.modelTailhook = new LODHelper(tailhookModel);
         this.trackAircraftModel(tailhookModel);
 
         const hook = arrestorHookPlacementForAircraft(def);
         this._hookTipBody.fromArray(hook.tip);
         this._hookHingeBody.fromArray(hook.hinge);
+        this._hookStowedBody.fromArray(def.tailhook?.stowedDir ?? [0, 0, -1]).normalize();
 
         this.cockpitOffset.fromArray(def.cockpitOffset);
 
@@ -1102,7 +1105,7 @@ export class PlayerEntity implements Entity {
         const deploy = this._showcaseMode ? 1 : this.hookProgressUnit;
         if (deploy < 1) {
             // Stowed arm lies flush aft along the belly; it swings down from there.
-            this._hookStowedDir.set(0, 0, -1).applyQuaternion(this.displayQuaternion);
+            this._hookStowedDir.copy(this._hookStowedBody).applyQuaternion(this.displayQuaternion);
             this._qStowed.setFromUnitVectors(FORWARD, this._hookStowedDir);
             this._qStowed.slerp(this._q, deploy);
             this._q.copy(this._qStowed);

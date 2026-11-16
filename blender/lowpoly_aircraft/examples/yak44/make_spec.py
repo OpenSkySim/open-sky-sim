@@ -236,6 +236,10 @@ def main():
             {'name': 'MainWell', 'type': 'loft', 'mirror': True, 'join': 'cut', 'segments': 12,
              'stations': loft_rows(main_well, 4.05)},
             {'name': 'NoseWell', 'type': 'loft', 'join': 'cut', 'segments': 12, 'stations': loft_rows(nose_well)},
+            # Recess under the tail cone that takes the stowed arrestor hook (E-2 Hawkeye style).
+            {'name': 'HookWell', 'type': 'loft', 'join': 'cut', 'segments': 10,
+             'stations': loft_rows([(15.8, 0.26, -1.74, -1.46, 4), (16.6, 0.24, -1.62, -1.33, 4),
+                                    (17.4, 0.15, -1.5, -1.2, 4), (18.5, 0.12, -1.32, -1.02, 4)])},
             {'name': 'DomeHub', 'type': 'loft', 'join': 'slide', 'slide_m': [0.0, -1.5, 0.0], 'segments': 12,
              'stations': loft_rows(dome_hub)},
             {'name': 'AntennaFront', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
@@ -258,6 +262,9 @@ def main():
              'phase_deg': 30, 'hand': 1, 'span_range': [0.86, 1.0]},
         ],
         'regions': windows_and_doors(),
+        # Arrestor hook like the E-2 Hawkeye's: a forked, striped arm hinged under the tail cone that
+        # lies in the HookWell recess and swings down 25 deg, its shoe 0.27 m above the deck.
+        'tailhook': {'hinge': P(0.0, -1.55, 16.0), 'stowed_tip': P(0.0, -1.18, 18.3), 'tip': P(0.0, -2.55, 18.104)},
         'surfaces': [
             # Trailing edge as on the drawing's top view: aileron x 9.5..12.2 (front at d 11.3), double flaps
             # x 4.85..6.9 and 6.9..9.5 (front at d 11.5), and the inner flap between fuselage and nacelle.

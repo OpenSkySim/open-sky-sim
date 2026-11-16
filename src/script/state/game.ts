@@ -1392,6 +1392,7 @@ export class Game {
             def.body,
             def.shadow,
             ...(def.gear ? [def.gear] : []),
+            ...(def.tailhook?.model ? [def.tailhook.model] : []),
             ...(def.collision ? [def.collision] : []),
             ...def.surfaces.map(s => s.model),
         ];

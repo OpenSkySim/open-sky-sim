@@ -10,6 +10,7 @@ import numpy as np
 from mathutils import Quaternion  # type: ignore
 
 from . import geometry as geo
+from .tailhook import build_tailhook
 from .views import View, build_views
 
 # Defaults per surface type: control axis, sign (left, right), max deflection (deg).
@@ -574,6 +575,9 @@ def build_parts(spec: dict) -> None:
     scene['lpa_name'] = spec.get('name', spec['id'])
     scene['lpa_wingtips'] = wingtips
     scene['lpa_cockpit'] = [float(c) for c in spec.get('cockpit_m', [0.0, 1.0, 0.25 * float(spec['length_m'])])]
+    hook = build_tailhook(spec, spec['id'])
+    if hook:
+        scene['lpa_tailhook'] = json.dumps(hook)
     tris = sum(len(o.data.polygons) for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name != 'Shadow')
     print(f'[lpa] built {spec["id"]}: {tris} triangles')
 

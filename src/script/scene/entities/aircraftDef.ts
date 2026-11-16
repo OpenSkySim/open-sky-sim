@@ -20,6 +20,21 @@ import { Fm2AircraftConfig } from '../../physics/fm2/fm2AircraftConfig';
 export type ControlAxis = 'pitch' | 'roll' | 'yaw' | 'flaps' | 'slats' | 'airbrake' | 'sweep' | 'fold'
     | 'flaperonLeft' | 'flaperonRight' | 'stabilatorLeft' | 'stabilatorRight' | 'spin';
 
+/**
+ * An aircraft's own arrestor hook (body frame, m). The model is drawn about the
+ * hinge with the arm along its +Z; the player swings it from `stowedDir` down to
+ * the hinge -> tip line, and the tip is the arrest point.
+ */
+export interface AircraftTailhookConfig {
+    /** glTF/GLB path of the hook model; the shared procedural hook when absent. */
+    model?: string;
+    hinge: [number, number, number];
+    /** Hook shoe with the hook down. */
+    tip: [number, number, number];
+    /** Arm direction when stowed; straight aft when absent. */
+    stowedDir?: [number, number, number];
+}
+
 /** A single animated control surface loaded as its own hinge-pivoted model. */
 export interface ControlSurfaceConfig {
     role: string;
@@ -118,6 +133,8 @@ export interface FlyableAircraftDef {
     spawn?: AircraftSpawnConfig;
     /** FM2 flight-dynamics config; when set, the FM2 model flies this aircraft. */
     flight?: Fm2AircraftConfig;
+    /** The aircraft's own arrestor hook; the shared procedural hook when absent. */
+    tailhook?: AircraftTailhookConfig;
     /** TCA / mod canonical type name (groups liveries of the same airframe). */
     canonicalName?: string;
     /** Spawn-menu aircraft label without livery suffix. */
