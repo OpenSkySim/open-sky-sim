@@ -52,6 +52,7 @@ def fus_rows(rows, n_of=lambda d: 2.8):
 
 
 DOOR = '#7b828a'      # door and hatch panels: a shade darker than the skin so their outlines read
+TEAL = '#3a8f8c'      # propeller blades, as on the reference renders (yellow tips)
 
 
 def side_m(pts):
@@ -92,12 +93,11 @@ def windows_and_doors():
         {'name': 'RearPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(13.61, -0.05, 0.15))},
         {'name': 'RearDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,
          'polygon_m': side_m(rounded_rect(13.17, 14.05, -1.35, 0.36))},
-        {'name': 'Radome', 'view': 'side', 'material': '#8d969f',
-         'polygon_m': side_m([(-0.2, -2.5), (-0.2, 0.5), (0.95, 0.5), (0.95, -2.5)])},
-        {'name': 'NacelleScoops', 'view': 'side', 'mirror': True, 'depth_m': [4.3, 5.3], 'material': 'VEHICLE_PLANE_ENGINE',
-         'polygons_m': [side_m(circle(7.56, 0.82, 0.1, 6)), side_m(circle(8.75, 0.41, 0.1, 6)),
-                        side_m(circle(7.56, -0.07, 0.1, 6)), side_m(circle(7.96, 0.54, 0.07, 6)),
-                        side_m([(9.25, -0.31), (9.62, -0.37), (9.62, -0.29)])]},
+        # Black radome cap on the nose tip and a lower glazing band under the windscreen (reference renders).
+        {'name': 'NoseCap', 'view': 'side', 'material': '#1d2024',
+         'polygon_m': side_m([(-0.2, -2.5), (-0.2, 0.5), (0.3, 0.5), (0.3, -2.5)])},
+        {'name': 'LowerWindscreen', 'view': 'side', 'mirror': True, 'depth_m': [0.04, 1.6],
+         'polygon_m': side_m([(1.0, -0.44), (1.0, -0.24), (2.03, -0.24), (2.03, -0.36)])},
         {'name': 'BellyPorts', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
          'polygons_m': [side_m(circle(8.38, -1.21, 0.09, 6)), side_m(circle(8.75, -1.2, 0.15)),
                         side_m(circle(9.16, -1.2, 0.15))]},
@@ -115,11 +115,28 @@ def main():
                 (16.5, 0.92, -1.52, 0.72), (17.5, 0.72, -1.29, 0.88), (18.5, 0.56, -1.05, 0.98),
                 (19.3, 0.46, -0.87, 1.05), (19.8, 0.38, -0.68, 1.08), (20.1, 0.22, -0.56, 1.0),
                 (20.2, 0.0, 0.2, 0.2)]
-    # Box intake on the wing centre section (mock-up photos): blunt front face with a dark opening.
-    fairing = [(6.22, 1.2, 0.66, 1.4, 6), (6.3, 1.25, 0.6, 1.4, 5), (6.8, 1.3, 0.5, 1.38, 4), (6.6, 1.3, 0.5, 1.36, 4), (9.0, 1.33, 0.5, 1.36, 4),
+    fairing = [(6.3, 1.25, 0.6, 1.3, 4), (6.6, 1.3, 0.5, 1.36, 4), (9.0, 1.33, 0.5, 1.36, 4),
                (11.0, 1.3, 0.5, 1.3, 4), (12.0, 1.1, 0.5, 1.0, 3), (12.8, 0.6, 0.5, 0.75, 2.5),
                (13.0, 0.0, 0.6, 0.6, 2.5)]
-    scoop = [(6.19, 1.0, 0.92, 1.3, 8), (6.26, 1.0, 0.92, 1.3, 8)]
+    # Air intake: an oval pod on the centre line ahead of the wing (reference renders), dark mouth at the front.
+    intake = [(4.95, 0.42, 0.74, 1.2, 2.6), (5.5, 0.47, 0.7, 1.25, 2.6), (6.4, 0.46, 0.7, 1.24, 2.6),
+              (7.1, 0.3, 0.78, 1.05, 2.4), (7.4, 0.0, 0.9, 0.9, 2)]
+    scoop = [(4.92, 0.34, 0.81, 1.13, 2.4), (5.0, 0.34, 0.81, 1.13, 2.4)]
+    # Turbine exhaust: a short pipe on the inboard side of each nacelle, under the wing trailing edge.
+    exhaust = [(11.1, 0.0, 0.42, 0.42, 2), (11.3, 0.26, 0.16, 0.68, 2), (12.15, 0.3, 0.12, 0.72, 2),
+               (12.2, 0.3, 0.12, 0.72, 2)]
+    exhaust_mouth = [(12.17, 0.22, 0.2, 0.64, 2), (12.24, 0.22, 0.2, 0.64, 2)]
+    # Teardrop blisters on the nacelle's outer side (reference renders; the 'D' marks on the drawing).
+    blister_hi = [(7.3, 0.0, 0.62, 0.62, 2), (7.5, 0.1, 0.54, 0.7, 2), (8.0, 0.1, 0.54, 0.7, 2), (8.3, 0.0, 0.62, 0.62, 2)]
+    blister_lo = [(8.3, 0.0, -0.12, -0.12, 2), (8.55, 0.1, -0.2, -0.04, 2), (9.2, 0.1, -0.2, -0.04, 2),
+                  (9.5, 0.0, -0.12, -0.12, 2)]
+    # Dark collar between the rear propeller and the nacelle intake.
+    collar = [(6.22, 0.48, -0.28, 0.68, 2), (6.42, 0.57, -0.37, 0.77, 2)]
+    spinner_tip = [(4.1, 0.0, 0.2, 0.2, 2), (4.3, 0.14, 0.06, 0.34, 2)]
+    # Flap-track fairings under the outer wing (two per side).
+    def track(x, d0, d1):
+        return [(d0, 0.0, 0.72, 0.72, 2), (d0 + 0.4, 0.11, 0.5, 0.85, 2.5), (d1 - 0.3, 0.11, 0.52, 0.85, 2.5),
+                (d1, 0.0, 0.7, 0.7, 2)]
     spinner = [(4.15, 0.0, 0.2, 0.2, 2), (4.6, 0.31, -0.11, 0.51, 2), (5.0, 0.39, -0.19, 0.59, 2),
                (5.6, 0.47, -0.27, 0.67, 2), (6.4, 0.55, -0.35, 0.75, 2)]
     nacelle = [(6.4, 0.55, -0.35, 0.75, 2), (6.6, 0.63, -0.45, 0.84, 2), (7.0, 0.7, -0.61, 1.0, 2.1),
@@ -172,8 +189,22 @@ def main():
              'resample': 7, 'stations': panel_rows(fin)},
             {'name': 'Pylon', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 9, 'stations': panel_rows(pylon)},
             {'name': 'Rotodome', 'type': 'loft', 'join': 'separate', 'segments': 18, 'stations': loft_rows(dome)},
+            {'name': 'Intake', 'type': 'loft', 'segments': 14, 'resample': 7, 'stations': loft_rows(intake)},
             {'name': 'Scoop', 'type': 'loft', 'join': 'separate', 'material': dark, 'segments': 12,
              'stations': loft_rows(scoop)},
+            {'name': 'Exhaust', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_rows(exhaust, 3.42)},
+            {'name': 'ExhaustMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': dark,
+             'segments': 10, 'stations': loft_rows(exhaust_mouth, 3.42)},
+            {'name': 'BlisterUpper', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(blister_hi, 4.79)},
+            {'name': 'BlisterLower', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(blister_lo, 4.8)},
+            {'name': 'Collar', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': dark, 'segments': 14,
+             'stations': loft_rows(collar, 4.05)},
+            {'name': 'SpinnerTip', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': dark, 'segments': 10,
+             'stations': loft_rows(spinner_tip, 4.05)},
+            {'name': 'TrackInner', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(track(6.6, 9.4, 12.8), 6.6)},
+            {'name': 'TrackOuter', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(track(8.05, 9.9, 12.7), 8.05)},
+            {'name': 'AntennaTop', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
+             'stations': panel_rows([(0.0, 0.72, 3.62, 0.34, 0.14), (0.0, 1.1, 3.56, 0.24, 0.14)])},
             {'name': 'DomeHub', 'type': 'loft', 'segments': 12, 'stations': loft_rows(dome_hub)},
             {'name': 'NoseGearHousing', 'type': 'loft', 'segments': 12, 'stations': loft_rows(nose_box)},
             {'name': 'GearPod', 'type': 'loft', 'mirror': True, 'segments': 12, 'stations': loft_rows(gear_pod, 4.05)},
@@ -181,9 +212,9 @@ def main():
              'stations': panel_rows([(0.0, -1.8, 3.52, 0.3, 0.14), (0.0, -2.14, 3.62, 0.2, 0.14)])},
             {'name': 'AntennaRear', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
              'stations': panel_rows([(0.0, -1.85, 12.4, 0.3, 0.14), (0.0, -2.15, 12.5, 0.2, 0.14)])},
-            {'name': 'PropFront', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': dark,
+            {'name': 'PropFront', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': TEAL,
              'center': P(4.05, 0.2, 5.55), 'radius': 2.25, 'blades': 8, 'root_r': 0.42, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4},
-            {'name': 'PropRear', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': dark,
+            {'name': 'PropRear', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': TEAL,
              'center': P(4.05, 0.2, 6.15), 'radius': 2.2, 'blades': 6, 'root_r': 0.5, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4,
              'phase_deg': 30, 'hand': -1},
             # Yellow blade tips, as on the mock-up.

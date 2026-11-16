@@ -60,7 +60,13 @@ def check(path: str) -> list[str]:
                 errors.append(f'{name}: material "{mat.get("name")}" is neither a palette name nor #rrggbb')
         return g
 
-    glb(m['body'], 'body')
+    body = glb(m['body'], 'body')
+    if body is not None:
+        # A failed boolean leaves the cutting prism (hundreds of metres tall) in the mesh.
+        lo, hi = position_bounds(body)
+        size = [h - l for l, h in zip(lo, hi)]
+        if max(size) > 3 * max(size[0], size[2]) or max(size) > 200:
+            errors.append(f'body: bounding box {[round(v, 1) for v in size]} m looks wrong (leftover cutter?)')
     glb(m['shadow'], 'shadow')
     if not m['shadow'].endswith('_shadow.glb'):
         errors.append('shadow file name must end in _shadow.glb')
@@ -96,6 +102,8 @@ def check(path: str) -> list[str]:
             lo, hi = position_bounds(g)
             size = max(h - l for l, h in zip(lo, hi))
             off = max(max(abs(l), abs(h)) for l, h in zip(lo, hi))
+            if size > 100:
+                errors.append(f'{s["role"]}: model is {size:.0f} m across (leftover cutter from a failed boolean?)')
             if off > 3 * size + 0.5:
                 errors.append(f'{s["role"]}: model is {off:.1f} m from its pivot; it should sit about the hinge')
     return errors
