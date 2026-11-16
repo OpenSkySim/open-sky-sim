@@ -191,18 +191,15 @@ def keep_skin(part: bpy.types.Object, skin: BVHTree, tol: float = 0.015):
     return bounds_body(part)
 
 
-def drop_off_skin(obj: bpy.types.Object, skin: BVHTree, lo, hi, tol: float = 0.015) -> None:
-    """Delete the faces of *obj* inside the body-frame box lo..hi that are not on *skin*."""
-    lo, hi = np.asarray(lo), np.asarray(hi)
+def drop_off_skin(obj: bpy.types.Object, skin: BVHTree, cutter: BVHTree, tol: float = 0.015) -> None:
+    """Delete the faces of *obj* that lie on *cutter*'s surface but not on *skin* (cut walls)."""
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     bm.transform(obj.matrix_world)
     bmesh.ops.triangulate(bm, faces=bm.faces)
-    doomed = []
-    for f in _off_skin_faces(bm, skin, tol):
-        c = np.asarray(from_bl(f.calc_center_median()))
-        if np.all(c >= lo) and np.all(c <= hi):
-            doomed.append(f)
+    doomed = [f for f in _off_skin_faces(bm, skin, tol)
+              if all(cutter.find_nearest(p)[3] < tol
+                     for p in [f.calc_center_median()] + [v.co for v in f.verts])]
     bmesh.ops.delete(bm, geom=doomed, context='FACES')
     bm.transform(obj.matrix_world.inverted())
     bm.to_mesh(obj.data)
@@ -228,8 +225,12 @@ def underside_y(tree: BVHTree, x: float, z: float, y_from: float) -> float | Non
 
 def cut_part(hull: bpy.types.Object, name: str, view: str, poly_body2: np.ndarray,
              material: str, collection: str, depth=(-EXTRUDE, EXTRUDE),
-             smooth_deg: float | None = None) -> bpy.types.Object | None:
-    """Split the region under a view polygon (or a list of polygons) off the hull; returns the part (or None)."""
+             smooth_deg: float | None = None, cutters: list | None = None) -> bpy.types.Object | None:
+    """Split the region under a view polygon (or a list of polygons) off the hull; returns the part (or None).
+
+    With *cutters* (a list) the cutter's surface is appended to it as a BVH tree: the walls
+    the cut leaves in the hull lie on it (see drop_off_skin).
+    """
     loops = poly_body2 if isinstance(poly_body2, list) else [poly_body2]
     cutter = prism(f'Cut_{name}', view, loops, depth=depth)
     part = copy_object(hull, name, collection)
@@ -248,6 +249,8 @@ def cut_part(hull: bpy.types.Object, name: str, view: str, poly_body2: np.ndarra
         bpy.data.objects.remove(cutter)
         bpy.data.objects.remove(part)
         return None
+    if cutters is not None:
+        cutters.append(bvh_of(cutter))
     boolean(hull, cutter, 'DIFFERENCE', solver=solver)
     bpy.data.objects.remove(cutter)
     tidy(part, material, smooth_deg)
