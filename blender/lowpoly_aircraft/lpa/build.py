@@ -330,9 +330,40 @@ def _add_gear(views, hull, spec) -> None:
                 o.keyframe_insert('rotation_quaternion', frame=GEAR_FRAMES[1])
                 o.animation_data.action.name = f'{o.name}Action'
             print(f'[lpa] gear {name}: pivot {np.round(top, 2).tolist()} retracts {leg.get("retract", "aft")}')
+    _add_gear_doors(gear)
     sc = bpy.context.scene
     sc.frame_start, sc.frame_end = GEAR_FRAMES
     sc.frame_set(GEAR_FRAMES[1])
+
+
+def _add_gear_doors(gear: dict) -> None:
+    """Bay doors that hang open with the gear down and fold flat under the bay with it up.
+
+    Each door is given by its hinge (x, y), its z range and its height; 'side' says which
+    edge of the bay it sits on (+1: the +X edge, so it folds towards -X to close) and
+    'splay_deg' tilts the open door outwards. Doors animate with the gear (same frames,
+    one '<name>Action' clip each), so the sim swings them with the legs.
+    """
+    for door in gear.get('doors', []):
+        x, y = (float(c) for c in door['hinge_m'])
+        z0, z1 = (float(c) for c in door['z_m'])
+        side = float(door.get('side', 1.0))
+        variants = [(x, side, '')]
+        if door.get('mirror'):
+            variants = [(x, side, 'Left'), (-x, -side, 'Right')]
+        for xi, si, suffix in variants:
+            name = f"2_Door_{door.get('name', 'Bay')}{suffix}"
+            obj = geo.gear_door(name, xi, y, z0, z1, float(door['height_m']), 'Gear',
+                                thickness=float(door.get('thickness_m', 0.03)))
+            axis = geo.to_bl((0.0, 0.0, 1.0))
+            q_closed = Quaternion(axis, -si * math.radians(90.0))
+            q_open = Quaternion(axis, si * math.radians(float(door.get('splay_deg', 0.0))))
+            obj.rotation_mode = 'QUATERNION'
+            for frame, q in ((GEAR_FRAMES[0], q_closed), (GEAR_FRAMES[1], q_open)):
+                obj.rotation_quaternion = q
+                obj.keyframe_insert('location', frame=frame)
+                obj.keyframe_insert('rotation_quaternion', frame=frame)
+            obj.animation_data.action.name = f'{obj.name}Action'
 
 
 def _wingtips(hull) -> list:

@@ -1218,93 +1218,6 @@
    ]
   },
   {
-   "name": "NoseGearHousing",
-   "type": "loft",
-   "segments": 12,
-   "stations": [
-    [
-     11.384,
-     0.0,
-     -1.84,
-     0.2,
-     0.14,
-     0.14,
-     3
-    ],
-    [
-     11.234,
-     0.0,
-     -1.89,
-     0.33,
-     0.23,
-     0.23,
-     4
-    ],
-    [
-     9.934,
-     0.0,
-     -1.94,
-     0.33,
-     0.24,
-     0.24,
-     4
-    ],
-    [
-     9.784,
-     0.0,
-     -1.9,
-     0.22,
-     0.18,
-     0.18,
-     3
-    ]
-   ]
-  },
-  {
-   "name": "GearPod",
-   "type": "loft",
-   "mirror": true,
-   "segments": 12,
-   "stations": [
-    [
-     2.684,
-     4.05,
-     -1.0,
-     0.22,
-     0.15,
-     0.15,
-     3
-    ],
-    [
-     2.484,
-     4.05,
-     -1.075,
-     0.4,
-     0.275,
-     0.275,
-     4
-    ],
-    [
-     0.934,
-     4.05,
-     -1.075,
-     0.4,
-     0.275,
-     0.275,
-     4
-    ],
-    [
-     0.734,
-     4.05,
-     -1.025,
-     0.24,
-     0.175,
-     0.175,
-     3
-    ]
-   ]
-  },
-  {
    "name": "AntennaFront",
    "type": "panel",
    "normal": [
@@ -2073,6 +1986,7 @@
      11.024
     ],
     "retract": "aft",
+    "retract_deg": 115,
     "wheel_radius_m": 0.31,
     "twin": true
    },
@@ -2085,8 +1999,56 @@
     ],
     "mirror": true,
     "retract": "aft",
+    "retract_deg": 118,
     "wheel_radius_m": 0.46,
     "twin": true
+   }
+  ],
+  "doors": [
+   {
+    "name": "Nose",
+    "hinge_m": [
+     0.3,
+     -1.85
+    ],
+    "z_m": [
+     9.834,
+     11.334
+    ],
+    "height_m": 0.32,
+    "side": 1,
+    "mirror": true,
+    "splay_deg": 18
+   },
+   {
+    "name": "MainOuter",
+    "hinge_m": [
+     4.5,
+     -0.97
+    ],
+    "z_m": [
+     0.784,
+     2.534
+    ],
+    "height_m": 0.46,
+    "side": 1,
+    "mirror": true,
+    "splay_deg": 4
+   },
+   {
+    "name": "MainInner",
+    "hinge_m": [
+     3.6,
+     -0.97
+    ],
+    "z_m": [
+     0.784,
+     2.534
+    ],
+    "height_m": 0.44,
+    "side": -1,
+    "mirror": true,
+    "splay_deg": 4
    }
   ]
  },

@@ -167,12 +167,6 @@ def main():
     # Teardrop hub under the rotodome where the pylon meets it (mock-up photo).
     dome_hub = [(12.3, 0.0, 3.62, 3.62, 2), (12.6, 0.35, 3.45, 3.74, 2.5), (13.6, 0.42, 3.42, 3.76, 2.5),
                 (14.5, 0.3, 3.5, 3.72, 2.5), (14.9, 0.0, 3.62, 3.62, 2)]
-    # Nose gear housing below the cockpit floor (side view: d 0.9..2.4, down to y -2.15).
-    nose_box = [(0.85, 0.2, -1.98, -1.7, 3), (1.0, 0.33, -2.12, -1.66, 4), (2.3, 0.33, -2.18, -1.7, 4),
-                (2.45, 0.22, -2.08, -1.72, 3)]
-    # Main gear bay under each nacelle (side view: d 9.7..11.45, y -1.35..-0.8).
-    gear_pod = [(9.55, 0.22, -1.15, -0.85, 3), (9.75, 0.4, -1.35, -0.8, 4), (11.3, 0.4, -1.35, -0.8, 4),
-                (11.5, 0.24, -1.2, -0.85, 3)]
     spec = {
         'id': 'lp_yak44',
         'name': 'Yak-44E (Lowpoly)',
@@ -211,8 +205,6 @@ def main():
             {'name': 'AntennaTop', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
              'stations': panel_rows([(0.0, 0.72, 3.62, 0.34, 0.14), (0.0, 1.1, 3.56, 0.24, 0.14)])},
             {'name': 'DomeHub', 'type': 'loft', 'segments': 12, 'stations': loft_rows(dome_hub)},
-            {'name': 'NoseGearHousing', 'type': 'loft', 'segments': 12, 'stations': loft_rows(nose_box)},
-            {'name': 'GearPod', 'type': 'loft', 'mirror': True, 'segments': 12, 'stations': loft_rows(gear_pod, 4.05)},
             {'name': 'AntennaFront', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
              'stations': panel_rows([(0.0, -1.8, 3.52, 0.3, 0.14), (0.0, -2.14, 3.62, 0.2, 0.14)])},
             {'name': 'AntennaRear', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
@@ -250,9 +242,19 @@ def main():
                             side_m([(19.3, 0.82), (19.3, -1.1), (20.4, -1.1), (20.4, 0.82)])]},
         ],
         'gear': {'legs': [
-            {'name': 'Nose', 'pos_m': P(0.0, -2.83, 1.21), 'retract': 'aft', 'wheel_radius_m': 0.31, 'twin': True},
-            {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'wheel_radius_m': 0.46, 'twin': True},
-        ]},
+            {'name': 'Nose', 'pos_m': P(0.0, -2.83, 1.21), 'retract': 'aft', 'retract_deg': 115, 'wheel_radius_m': 0.31, 'twin': True},
+            {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'retract_deg': 118, 'wheel_radius_m': 0.46, 'twin': True},
+        ],
+            # Thin bay doors (drawing: nose doors d 0.9..2.4 splayed in the front view; main doors d 9.7..11.45
+            # under each nacelle). They hang open with the gear down and fold shut under the bay with it up.
+            'doors': [
+                {'name': 'Nose', 'hinge_m': [0.3, -1.85], 'z_m': [round(Z0 - 2.4, 3), round(Z0 - 0.9, 3)],
+                 'height_m': 0.32, 'side': 1, 'mirror': True, 'splay_deg': 18},
+                {'name': 'MainOuter', 'hinge_m': [4.5, -0.97], 'z_m': [round(Z0 - 11.45, 3), round(Z0 - 9.7, 3)],
+                 'height_m': 0.46, 'side': 1, 'mirror': True, 'splay_deg': 4},
+                {'name': 'MainInner', 'hinge_m': [3.6, -0.97], 'z_m': [round(Z0 - 11.45, 3), round(Z0 - 9.7, 3)],
+                 'height_m': 0.44, 'side': -1, 'mirror': True, 'splay_deg': 4},
+            ]},
         'cockpit_m': P(0.0, 0.1, 2.4),
     }
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:

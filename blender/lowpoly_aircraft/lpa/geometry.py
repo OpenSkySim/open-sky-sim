@@ -293,6 +293,39 @@ def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: flo
     return parts
 
 
+def gear_door(name: str, hinge_x: float, hinge_y: float, z0: float, z1: float, height: float,
+              collection: str, thickness: float = 0.03, chamfer: float = 0.12) -> bpy.types.Object:
+    """A thin gear door hanging straight down from a fore-and-aft hinge line (its open pose).
+
+    The plate runs from z0 to z1 along the hinge and *height* downwards; its lower
+    corners are cut back by *chamfer* so it reads as a door, not a slab. The origin
+    sits on the hinge so the door can swing shut about body Z.
+    """
+    za, zb = min(z0, z1), max(z0, z1)
+    c = min(chamfer, 0.4 * height, 0.25 * (zb - za))
+    outline = [(za, 0.0), (zb, 0.0), (zb, -height + c), (zb - c, -height), (za + c, -height), (za, -height + c)]
+    bm = bmesh.new()
+    rings = []
+    for dx in (-thickness / 2, thickness / 2):
+        rings.append([bm.verts.new(to_bl((hinge_x + dx, hinge_y + dy, z))) for z, dy in outline])
+    a, b = rings
+    bm.faces.new(a)
+    bm.faces.new(list(reversed(b)))
+    n = len(outline)
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((a[i], a[j], b[j], b[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.append(get_material('VEHICLE_PLANE_GREY'))
+    obj = bpy.data.objects.new(name, me)
+    _link(obj, collection)
+    set_origin(obj, (hinge_x, hinge_y, 0.5 * (za + zb)))
+    return obj
+
+
 def disc(name: str, center, radius: float, normal_axis: str, material: str, collection: str,
          sides: int = 12, thickness: float = 0.06) -> bpy.types.Object:
     """A thin n-gon disc (a propeller's blur) facing along a body axis."""
