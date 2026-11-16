@@ -299,6 +299,12 @@ def _add_surfaces(views, hull, spec) -> None:
                 print(f'[lpa] surface {role}: polygon does not touch the hull, skipped')
                 continue
             pivot, axis = _hinge_3d(part, view, h, item.get('hinge_skin', 0.0))
+            if 'axis_yaw_deg' in item:
+                # Turn the hinge axis about the vertical, away from the drawn cut line: more skew
+                # (tips fold further forward) where the cut itself can't move (nacelle in the way).
+                a = math.radians(item['axis_yaw_deg']) * (1.0 if axis[2] >= 0 else -1.0)
+                c, s_ = math.cos(a), math.sin(a)
+                axis = np.array([c * axis[0] + s_ * axis[2], axis[1], -s_ * axis[0] + c * axis[2]])
             geo.set_origin(part, pivot)
             ctl = item.get('control', control)
             if ctl == 'stabilator':
