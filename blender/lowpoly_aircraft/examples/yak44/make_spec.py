@@ -118,10 +118,14 @@ def main():
     fairing = [(6.3, 1.25, 0.6, 1.3, 4), (6.6, 1.3, 0.5, 1.36, 4), (9.0, 1.33, 0.5, 1.36, 4),
                (11.0, 1.3, 0.5, 1.3, 4), (12.0, 1.1, 0.5, 1.0, 3), (12.8, 0.6, 0.5, 0.75, 2.5),
                (13.0, 0.0, 0.6, 0.6, 2.5)]
-    # Air intake: an oval pod on the centre line ahead of the wing (reference renders), dark mouth at the front.
-    intake = [(4.95, 0.42, 0.74, 1.2, 2.6), (5.5, 0.47, 0.7, 1.25, 2.6), (6.4, 0.46, 0.7, 1.24, 2.6),
-              (7.1, 0.3, 0.78, 1.05, 2.4), (7.4, 0.0, 0.9, 0.9, 2)]
-    scoop = [(4.92, 0.34, 0.81, 1.13, 2.4), (5.0, 0.34, 0.81, 1.13, 2.4)]
+    # Air intake: an oval duct on the centre line ahead of the wing (mock-up photo): round sides, a thin
+    # rounded lip around a large open mouth, and a smooth taper aft into the wing fairing.
+    intake = [(4.78, 0.38, 0.78, 1.18, 2.1), (4.86, 0.43, 0.74, 1.23, 2.1), (5.05, 0.47, 0.7, 1.27, 2.15),
+              (5.6, 0.48, 0.7, 1.27, 2.2), (6.4, 0.46, 0.7, 1.24, 2.2), (7.1, 0.3, 0.78, 1.05, 2.2),
+              (7.4, 0.0, 0.9, 0.9, 2)]
+    # The mouth: a dark-lined duct sunk 0.6 m into the pod, narrowing inside.
+    intake_mouth = [(4.6, 0.35, 0.83, 1.15, 2.1), (4.9, 0.35, 0.83, 1.15, 2.1), (5.2, 0.32, 0.86, 1.12, 2.1),
+                    (5.4, 0.18, 0.93, 1.05, 2)]
     # Turbine exhaust: a round pipe ending aft-facing where the nacelle's upper half stops (drawing step at
     # d 13.1, y -0.12..0.57); the lower nacelle continues as the tail cone (reference renders).
     # Fairing that tapers the nacelle's upper half smoothly into the round nozzle.
@@ -198,8 +202,8 @@ def main():
             {'name': 'Pylon', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 9, 'stations': panel_rows(pylon)},
             {'name': 'Rotodome', 'type': 'loft', 'join': 'separate', 'segments': 18, 'stations': loft_rows(dome)},
             {'name': 'Intake', 'type': 'loft', 'segments': 14, 'resample': 7, 'stations': loft_rows(intake)},
-            {'name': 'Scoop', 'type': 'loft', 'join': 'separate', 'material': dark, 'segments': 12,
-             'stations': loft_rows(scoop)},
+            {'name': 'IntakeMouth', 'type': 'loft', 'join': 'cut', 'material': dark, 'segments': 14,
+             'stations': loft_rows(intake_mouth)},
             {'name': 'Exhaust', 'type': 'loft', 'mirror': True, 'segments': 14, 'resample': 8, 'stations': loft_rows(exhaust, 4.05)},
             {'name': 'ExhaustMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': dark,
              'segments': 10, 'stations': loft_rows(exhaust_mouth, 4.05)},
