@@ -4,7 +4,7 @@
  "length_m": 20.39,
  "span_m": 25.7,
  "material": "VEHICLE_PLANE_GREY",
- "smooth_deg": 35,
+ "smooth_deg": 0,
  "parts": [
   {
    "name": "Fuselage",
@@ -2463,7 +2463,6 @@
   }
  ],
  "ground_y": -2.0,
- "planar_deg": 0,
  "decimate": 0.5,
  "open_cabin": {
   "lo": [

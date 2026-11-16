@@ -201,7 +201,7 @@ def main():
         'length_m': LENGTH,
         'span_m': SPAN,
         'material': 'VEHICLE_PLANE_GREY',
-        'smooth_deg': 35,
+        'smooth_deg': 0,  # flat shaded; the game adds smooth normals itself when the player picks smooth shading
         'parts': [
             {'name': 'Fuselage', 'type': 'loft', 'segments': 20, 'resample': 10, 'stations': fus_rows(fuselage)},
             {'name': 'Fairing', 'type': 'loft', 'segments': 8, 'resample': 6, 'stations': loft_rows(fairing)},
