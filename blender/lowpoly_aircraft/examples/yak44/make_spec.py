@@ -75,21 +75,17 @@ def circle(d, y, r, n=8):
 def windows_and_doors():
     """Cockpit glazing and doors, measured off the nose zooms of the three-view and the mock-up photos.
 
-    Front view: two flat windscreen panes either side of a centre post (x 0.05..0.72).
-    Side view: a corner pane wrapping round from the windscreen, then one side window
-    (d 2.27..3.05), both mirrored. Left side: crew door behind the cockpit and the rear
+    Four panes (top view): a windscreen half either side of the centre post, each
+    wrapping round to a slanted post, then one side window per side (d 2.13..3.05). Left side: crew door behind the cockpit and the rear
     door aft of the wing fairing, each with a round porthole; a roof hatch above the
     cockpit. Portholes are cut before their doors so the door panel keeps the hole.
     """
     side_skin = [0.76, 1.6]          # depth (x) reaching only the left fuselage skin
-    nose = [round(Z0 - 2.3, 3), round(Z0 - 1.2, 3)]
     return [
-        {'name': 'Windscreen', 'view': 'front', 'mirror': True, 'depth_m': nose,
-         'polygon_m': [[0.05, -0.13], [0.72, -0.11], [0.70, 0.30], [0.05, 0.32]]},
-        {'name': 'CornerWindow', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
-         'polygon_m': side_m([(1.47, -0.17), (1.97, 0.38), (2.2, 0.38), (2.2, -0.2), (1.55, -0.2)])},
-        {'name': 'SideWindow', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
-         'polygon_m': side_m([(2.27, -0.2), (2.27, 0.4), (2.95, 0.4), (3.05, 0.3), (3.05, -0.2)])},
+        {'name': 'Windscreen', 'view': 'side', 'mirror': True, 'depth_m': [0.04, 1.6],
+         'polygon_m': side_m([(1.2, -0.17), (1.2, 0.4), (2.17, 0.4), (2.06, -0.17)])},
+        {'name': 'SideWindow', 'view': 'side', 'mirror': True, 'depth_m': [0.5, 1.6],
+         'polygon_m': side_m([(2.13, -0.2), (2.25, 0.4), (2.95, 0.4), (3.05, 0.3), (3.05, -0.2)])},
         {'name': 'DoorPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(3.97, -0.02, 0.15))},
         {'name': 'CrewDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,
          'polygon_m': side_m(rounded_rect(3.55, 4.4, -1.35, 0.4))},
