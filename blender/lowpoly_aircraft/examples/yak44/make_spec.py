@@ -250,6 +250,9 @@ def main():
                                     (2.86, 0.08, 0.36, 0.5, 2), (2.9, 0.0, 0.43, 0.43, 2)], 0.45)},
             {'name': 'PilotVisor', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#101215', 'segments': 8,
              'stations': loft_rows([(2.6, 0.08, 0.4, 0.47, 3), (2.66, 0.1, 0.39, 0.48, 3)], 0.45)},
+            # Black bulkhead behind the seats: closes the open cabin off from the empty fuselage (user).
+            {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': True, 'material': '#121314',
+             'segments': 8, 'stations': loft_rows([(3.22, 2.5, -2.0, 2.0, 8), (3.28, 2.5, -2.0, 2.0, 8)])},
             # Recess under the tail cone that takes the stowed arrestor hook (E-2 Hawkeye style).
             {'name': 'HookWell', 'type': 'loft', 'join': 'cut', 'segments': 10,
              'stations': loft_rows([(15.8, 0.26, -1.74, -1.46, 4), (16.6, 0.24, -1.62, -1.33, 4),

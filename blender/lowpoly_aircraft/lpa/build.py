@@ -491,6 +491,28 @@ def _fcurves(action):
     return out
 
 
+def _fill_section(obj, hull) -> None:
+    """Cut a slab part down to the hull section it spans, keeping only its fore and aft faces.
+
+    The rim the cut leaves lies on the skin and would fight with it, so it goes; what stays is
+    a flat wall that fills the fuselage there (a bulkhead seen through the glazing).
+    """
+    import bmesh  # type: ignore  # (needs bpy loaded first)
+    from mathutils import Vector  # type: ignore
+    geo.boolean(obj, hull, 'INTERSECT')
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    rim = [f for f in bm.faces if abs(f.normal.y) < 0.9]   # Blender Y is the body's fore-aft axis
+    bmesh.ops.delete(bm, geom=rim, context='FACES')
+    # Pull the edge 2 % in off the skin so it cannot show through it as a seam.
+    centre = sum((v.co for v in bm.verts), Vector()) / max(len(bm.verts), 1)
+    for v in bm.verts:
+        v.co.x = centre.x + 0.98 * (v.co.x - centre.x)
+        v.co.z = centre.z + 0.98 * (v.co.z - centre.z)
+    bm.to_mesh(obj.data)
+    bm.free()
+
+
 def _stand_on_wheels(ground_y: float | None, dz: float = 0.0) -> None:
     """Raise or lower the whole aircraft so the wheels (gear down) touch body y = ground_y,
     and move it dz along body Z (to put the origin, the sim's centre of gravity, where it belongs).
@@ -562,6 +584,7 @@ def build_parts(spec: dict) -> None:
     hull = None
     separate = []
     wells = []
+    fills = []
     for item in spec['parts']:
         for mirrored in ([False, True] if item.get('mirror') else [False]):
             obj = parts.build_part(item, mirrored)
@@ -593,6 +616,9 @@ def build_parts(spec: dict) -> None:
                 obj.name = f'1_{obj.name}'
                 geo._link(obj, 'Body')
                 geo.tidy(obj, material, smooth)
+                if item.get('fill_hull'):
+                    # A bulkhead: the part is cut down to the fuselage section it spans (below).
+                    fills.append(obj)
                 if item.get('inside_out'):
                     # Seen from within (a cockpit tub behind the glazing): faces point inwards.
                     obj.data.flip_normals()
@@ -604,6 +630,8 @@ def build_parts(spec: dict) -> None:
         _, skin = geo.recess(hull, obj, f'1_{well_name}', material, 'Body')
         if skin is not None:
             _WELL_SKINS[well_name] = (skin, centre_x)
+    for obj in fills:
+        _fill_section(obj, hull)
     wingtips = _wingtips(hull)
     see_through = []
     for i, item in enumerate(spec.get('regions', [])):
