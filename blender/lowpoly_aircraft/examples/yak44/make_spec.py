@@ -115,7 +115,10 @@ def main():
                 (16.5, 0.92, -1.52, 0.72), (17.5, 0.72, -1.29, 0.88), (18.5, 0.56, -1.05, 0.98),
                 (19.3, 0.46, -0.87, 1.05), (19.8, 0.38, -0.68, 1.08), (20.1, 0.22, -0.56, 1.0),
                 (20.2, 0.0, 0.2, 0.2)]
-    fairing = [(6.3, 1.25, 0.6, 1.3, 4), (6.6, 1.3, 0.5, 1.36, 4), (9.0, 1.33, 0.5, 1.36, 4),
+    # The wing-root fairing ramps up smoothly from the fuselage top ahead of the wing (no blunt front),
+    # so the intake duct flows into it (mock-up photo).
+    fairing = [(5.0, 0.8, 0.6, 0.8, 2.5), (5.6, 1.1, 0.55, 1.02, 3), (6.2, 1.25, 0.5, 1.22, 3.5),
+               (6.8, 1.31, 0.5, 1.35, 4), (9.0, 1.33, 0.5, 1.36, 4),
                (11.0, 1.3, 0.5, 1.3, 4), (12.0, 1.1, 0.5, 1.0, 3), (12.8, 0.6, 0.5, 0.75, 2.5),
                (13.0, 0.0, 0.6, 0.6, 2.5)]
     # Air intake: an oval duct on the centre line ahead of the wing (mock-up photo): round sides, a thin
