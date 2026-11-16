@@ -41,6 +41,17 @@ def wing_te(x):
     return 12.27 - 0.0619 * (x - 6.0)
 
 
+def wing_le(x):
+    """Leading edge d at span x (the wing rows: x 1.0 -> 6.5, 5.2 -> 8.41, 12.3 -> 10.14)."""
+    return 6.5 + 0.4548 * (x - 1.0) if x < 5.2 else 8.41 + 0.2437 * (x - 5.2)
+
+
+def slat_m(x0, x1, depth0, depth1, ahead=0.4):
+    """Top-view cut for a leading-edge slat; the aft edge comes first (it is the hinge)."""
+    return top_m([(x0, wing_le(x0) + depth0), (x1, wing_le(x1) + depth1),
+                  (x1, wing_le(x1) - ahead), (x0, wing_le(x0) - ahead)])
+
+
 def fus_rows(rows, n_of=lambda d: 2.8):
     """(d, half_width, y_bottom, y_top): widest at 60 % of the height, as in the front view."""
     out = []
@@ -240,15 +251,22 @@ def main():
         ],
         'regions': windows_and_doors(),
         'surfaces': [
+            # Trailing edge as on the drawing's top view: aileron x 9.5..12.2 (front at d 11.3), double flaps
+            # x 4.85..6.9 and 6.9..9.5 (front at d 11.5), and the inner flap between fuselage and nacelle.
             {'type': 'aileron', 'view': 'top', 'mirror': True,
-             'polygon_m': top_m([(8.6, wing_te(8.6) - 0.45), (12.3, wing_te(12.3) - 0.35),
-                                 (12.3, wing_te(12.3) + 0.4), (8.6, wing_te(8.6) + 0.4)])},
+             'polygon_m': top_m([(9.5, 11.27), (12.2, 11.3), (12.2, wing_te(12.2) + 0.4), (9.5, wing_te(9.5) + 0.4)])},
             {'type': 'flap', 'view': 'top', 'mirror': True,
-             'polygon_m': top_m([(5.6, wing_te(5.6) - 0.9), (8.5, wing_te(8.5) - 0.85),
-                                 (8.5, wing_te(8.5) + 0.4), (5.6, wing_te(5.6) + 0.4)])},
+             'polygon_m': top_m([(6.9, 11.49), (9.45, 11.49), (9.45, wing_te(9.45) + 0.4), (6.9, wing_te(6.9) + 0.4)])},
+            {'type': 'flap', 'role': 'flapMid', 'view': 'top', 'mirror': True,
+             'polygon_m': top_m([(4.9, 11.49), (6.85, 11.49), (6.85, wing_te(6.85) + 0.4), (4.9, wing_te(4.9) + 0.4)])},
             {'type': 'flap', 'role': 'flapInner', 'view': 'top', 'mirror': True,
              'polygon_m': top_m([(1.45, wing_te(1.45) - 0.95), (3.25, wing_te(3.25) - 0.9),
                                  (3.25, wing_te(3.25) + 0.4), (1.45, wing_te(1.45) + 0.4)])},
+            # Leading-edge slats (drawing: x 5..9.35 and 9.45..12.2, 0.6 m deep tapering to 0.25 m outboard;
+            # an inner one between fuselage and nacelle). They droop with the flaps.
+            {'type': 'slat', 'view': 'top', 'mirror': True, 'polygon_m': slat_m(9.45, 12.2, 0.4, 0.25)},
+            {'type': 'slat', 'role': 'slatMid', 'view': 'top', 'mirror': True, 'polygon_m': slat_m(5.0, 9.35, 0.6, 0.4)},
+            {'type': 'slat', 'role': 'slatInner', 'view': 'top', 'mirror': True, 'polygon_m': slat_m(1.5, 3.2, 0.6, 0.6)},
             # Kept clear of the inward-leaning fins: stops short of them and only cuts the tailplane's height.
             {'type': 'elevator', 'view': 'top', 'mirror': True, 'depth_m': [0.3, 1.3],
              'polygon_m': top_m([(0.6, 19.1), (5.2, 19.1), (5.2, 20.1), (0.6, 20.1)])},
