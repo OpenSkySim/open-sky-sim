@@ -1,7 +1,9 @@
 """Write spec.json for the Yak-44E as shaped parts (about 5,000 triangles).
 
-Measurements were read off the owner's three-view (Drive: 26-4906609-yak-44-f.gif,
-not kept in this repository) on a one-metre grid: length 20.39 m, span 25.7 m.
+Contours were measured off the owner's three-view (Drive: 26-4906609-yak-44-f.gif,
+not kept in this repository) station by station, scaled to length 20.39 m and
+span 25.7 m; details (wing-top intake scoop, wrap-around windows, rotodome
+lens, scimitar props) follow the mock-up photos in the same Drive folder.
 Owner's answers: the dash-dot lines (folded wing, lowered rotodome) are
 ignored, all gear retracts aft, two end-plate fins with rudders, grey with
 glass windows.   python make_spec.py
@@ -36,34 +38,51 @@ def top_m(pts):
 
 
 def wing_te(x):
-    return 11.4 - (x - 0.8) * 0.6 / 11.8
+    return 12.27 - 0.0619 * (x - 6.0)
+
+
+def fus_rows(rows, n_of=lambda d: 2.8):
+    """(d, half_width, y_bottom, y_top): widest at 60 % of the height, as in the front view."""
+    out = []
+    for d, a, yb, yt in rows:
+        cy = yb + 0.6 * (yt - yb)
+        out.append([round(Z0 - d, 3), 0.0, round(cy, 3), a, round(yt - cy, 3), round(cy - yb, 3), n_of(d)])
+    return out
 
 
 def main():
-    fuselage = [(0.0, 0.0, -1.38, -1.32, 2), (0.25, 0.45, -1.7, -0.95, 2), (0.7, 0.8, -1.85, -0.55, 2),
-                (1.4, 1.1, -1.9, 0.0, 2.2), (2.3, 1.28, -1.92, 0.75, 2.4), (3.2, 1.33, -1.92, 0.86, 2.5),
-                (6.0, 1.33, -1.92, 0.86, 2.5), (9.0, 1.33, -1.92, 0.86, 2.5), (12.5, 1.30, -1.92, 0.82, 2.5),
-                (14.3, 1.2, -1.85, 0.8, 2.4), (16.0, 0.95, -1.5, 0.78, 2.3), (17.5, 0.7, -1.2, 0.7, 2.2),
-                (18.8, 0.45, -0.95, 0.5, 2), (19.6, 0.25, -0.6, 0.25, 2), (20.0, 0.0, -0.2, -0.2, 2)]
-    fairing = [(6.4, 0.0, 0.8, 0.8, 2.5), (7.4, 0.9, 0.7, 1.3, 2.5), (9.5, 1.0, 0.7, 1.48, 2.5),
-               (11.8, 0.9, 0.7, 1.35, 2.5), (12.8, 0.0, 0.8, 0.8, 2.5)]
-    nacelle = [(6.0, 0.6, -0.55, 0.8, 2), (6.5, 0.72, -0.8, 1.05, 2), (7.5, 0.78, -1.1, 1.35, 2.2),
-               (9.5, 0.8, -1.2, 1.45, 2.3), (11.5, 0.72, -1.15, 1.35, 2.2), (13.0, 0.45, -0.95, 0.9, 2),
-               (14.0, 0.0, -0.6, -0.6, 2)]
-    spinner = [(4.2, 0.0, 0.12, 0.12, 2), (4.5, 0.28, -0.16, 0.4, 2), (5.0, 0.45, -0.33, 0.57, 2),
-               (5.6, 0.54, -0.42, 0.66, 2), (6.05, 0.58, -0.46, 0.7, 2)]
-    r_dome, d_dome, y_dome, t_dome = 3.65, 12.85, 3.5, 0.42
+    # Read off the drawing station by station (top-view half-width, side-view bottom and top).
+    fuselage = [(0.0, 0.05, -1.32, -1.26), (0.05, 0.21, -1.45, -1.14), (0.2, 0.39, -1.59, -0.97),
+                (0.4, 0.58, -1.68, -0.8), (0.7, 0.73, -1.75, -0.58), (1.0, 0.9, -1.77, -0.41),
+                (1.4, 1.07, -1.79, -0.21), (1.8, 1.18, -1.81, 0.16), (2.3, 1.28, -1.83, 0.62),
+                (2.8, 1.32, -1.86, 0.79), (3.5, 1.33, -1.87, 0.8), (8.0, 1.34, -1.9, 0.8),
+                (13.0, 1.33, -1.94, 0.68), (14.3, 1.25, -1.9, 0.66), (15.5, 1.08, -1.75, 0.7),
+                (16.5, 0.92, -1.52, 0.72), (17.5, 0.72, -1.29, 0.88), (18.5, 0.56, -1.05, 0.98),
+                (19.3, 0.46, -0.87, 1.05), (19.8, 0.38, -0.68, 1.08), (20.1, 0.22, -0.56, 1.0),
+                (20.2, 0.0, 0.2, 0.2)]
+    fairing = [(6.3, 1.25, 0.6, 1.3, 4), (6.6, 1.3, 0.5, 1.36, 4), (9.0, 1.33, 0.5, 1.36, 4),
+               (11.0, 1.3, 0.5, 1.3, 4), (12.0, 1.1, 0.5, 1.0, 3), (12.8, 0.6, 0.5, 0.75, 2.5),
+               (13.0, 0.0, 0.6, 0.6, 2.5)]
+    scoop = [(6.24, 0.95, 0.95, 1.24, 6), (6.36, 0.95, 0.95, 1.24, 6)]
+    spinner = [(4.15, 0.0, 0.2, 0.2, 2), (4.6, 0.31, -0.11, 0.51, 2), (5.0, 0.39, -0.19, 0.59, 2),
+               (5.6, 0.47, -0.27, 0.67, 2), (6.4, 0.55, -0.35, 0.75, 2)]
+    nacelle = [(6.4, 0.55, -0.35, 0.75, 2), (6.6, 0.63, -0.45, 0.84, 2), (7.0, 0.7, -0.61, 1.0, 2.1),
+               (7.5, 0.77, -0.75, 1.15, 2.2), (8.5, 0.78, -0.91, 1.25, 2.3), (9.5, 0.78, -0.95, 1.25, 2.3),
+               (10.5, 0.75, -0.95, 1.15, 2.3), (11.5, 0.68, -0.95, 1.0, 2.2), (12.5, 0.57, -0.95, 0.81, 2.1),
+               (13.5, 0.43, -0.87, 0.56, 2), (14.0, 0.3, -0.78, 0.3, 2), (14.35, 0.0, -0.55, -0.55, 2)]
+    d_dome, r_dome, y_dome, t_dome = 13.4, 3.65, 4.06, 0.39
     dome = []
     for k in range(11):
         t = -1 + 2 * k / 10
         a = r_dome * math.sqrt(max(0.0, 1 - t * t))
-        h = t_dome * math.sqrt(max(0.0, 1 - t * t)) + (0.04 if abs(t) < 1 else 0.0)
+        h = t_dome * math.sqrt(max(0.0, 1 - t * t)) + (0.03 if abs(t) < 1 else 0.0)
         dome.append((d_dome + t * r_dome, a, y_dome - h, y_dome + h, 1.7))
-    wing = [(0.8, 1.15, 7.6, 3.8, 0.14), (12.6, 1.2, 9.75, 1.05, 0.12)]
-    winglet = [(12.55, 1.2, 9.8, 0.95, 0.1), (12.9, 2.3, 10.25, 0.45, 0.08)]
-    tail = [(0.3, 0.6, 17.0, 2.75, 0.1), (5.75, 0.85, 17.6, 2.0, 0.1)]
-    fin = [(5.75, -0.95, 18.3, 1.8, 0.1), (5.75, 0.8, 16.9, 3.2, 0.1), (5.75, 3.85, 18.1, 1.95, 0.08)]
-    pylon = [(0.0, 0.7, 11.0, 3.0, 0.12), (0.0, 3.3, 11.3, 2.7, 0.12)]
+    wing = [(1.0, 0.95, 6.5, 6.1, 0.14), (5.2, 0.9, 8.41, 3.92, 0.15), (12.3, 0.92, 10.14, 1.74, 0.12),
+            (12.6, 0.95, 10.38, 1.55, 0.11)]
+    winglet = [(12.55, 0.95, 10.4, 1.5, 0.1), (12.78, 1.9, 11.3, 0.75, 0.08), (12.85, 2.3, 11.6, 0.4, 0.08)]
+    tail = [(0.4, 0.95, 16.5, 3.38, 0.1), (5.8, 1.15, 18.0, 1.85, 0.1)]
+    fin = [(5.8, -0.95, 18.45, 1.55, 0.08), (5.8, 1.0, 17.25, 2.85, 0.08), (5.8, 2.95, 18.2, 1.9, 0.08)]
+    pylon = [(0.0, 0.6, 12.6, 2.3, 0.32), (0.0, 3.8, 12.7, 2.2, 0.32)]
     dark = 'VEHICLE_PLANE_ENGINE'
     spec = {
         'id': 'lp_yak44',
@@ -73,12 +92,12 @@ def main():
         'material': 'VEHICLE_PLANE_GREY',
         'smooth_deg': 35,
         'parts': [
-            {'name': 'Fuselage', 'type': 'loft', 'segments': 20, 'resample': 22, 'stations': loft_rows(fuselage)},
+            {'name': 'Fuselage', 'type': 'loft', 'segments': 18, 'resample': 24, 'stations': fus_rows(fuselage)},
             {'name': 'Fairing', 'type': 'loft', 'segments': 16, 'resample': 10, 'stations': loft_rows(fairing)},
-            {'name': 'Nacelle', 'type': 'loft', 'mirror': True, 'segments': 14, 'resample': 10,
-             'stations': loft_rows(nacelle, 4.65)},
-            {'name': 'Spinner', 'type': 'loft', 'mirror': True, 'segments': 16, 'resample': 8,
-             'stations': loft_rows(spinner, 4.65)},
+            {'name': 'Nacelle', 'type': 'loft', 'mirror': True, 'segments': 14, 'resample': 12,
+             'stations': loft_rows(nacelle, 4.05)},
+            {'name': 'Spinner', 'type': 'loft', 'mirror': True, 'segments': 14, 'resample': 7,
+             'stations': loft_rows(spinner, 4.05)},
             {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 9, 'stations': panel_rows(wing)},
             {'name': 'Winglet', 'type': 'panel', 'mirror': True, 'chord_points': 7, 'stations': panel_rows(winglet)},
             {'name': 'Tailplane', 'type': 'panel', 'mirror': True, 'chord_points': 9, 'stations': panel_rows(tail)},
@@ -86,15 +105,17 @@ def main():
              'resample': 7, 'stations': panel_rows(fin)},
             {'name': 'Pylon', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 9, 'stations': panel_rows(pylon)},
             {'name': 'Rotodome', 'type': 'loft', 'join': 'separate', 'segments': 18, 'stations': loft_rows(dome)},
+            {'name': 'Scoop', 'type': 'loft', 'join': 'separate', 'material': dark, 'segments': 12,
+             'stations': loft_rows(scoop)},
             {'name': 'PropFront', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': dark,
-             'center': P(4.65, 0.12, 5.35), 'radius': 2.23, 'blades': 6, 'root_r': 0.45, 'chord': 0.42},
+             'center': P(4.05, 0.2, 5.55), 'radius': 2.25, 'blades': 8, 'root_r': 0.42, 'chord': 0.55},
             {'name': 'PropRear', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': dark,
-             'center': P(4.65, 0.12, 5.8), 'radius': 2.15, 'blades': 6, 'root_r': 0.5, 'chord': 0.4,
+             'center': P(4.05, 0.2, 6.15), 'radius': 2.2, 'blades': 6, 'root_r': 0.5, 'chord': 0.55,
              'phase_deg': 30, 'hand': -1},
         ],
         'regions': [
             {'name': 'Windows', 'view': 'side', 'material': 'GLASS',
-             'polygon_m': [[round(Z0 - d, 3), y] for d, y in ((1.45, 0.02), (2.25, 0.8), (3.1, 0.8), (3.1, 0.02))]},
+             'polygon_m': [[round(Z0 - d, 3), y] for d, y in ((1.45, -0.26), (2.05, 0.42), (3.05, 0.42), (3.05, -0.26))]},
         ],
         'surfaces': [
             {'type': 'aileron', 'view': 'top', 'mirror': True,
@@ -104,18 +125,18 @@ def main():
              'polygon_m': top_m([(5.6, wing_te(5.6) - 0.9), (8.5, wing_te(8.5) - 0.85),
                                  (8.5, wing_te(8.5) + 0.4), (5.6, wing_te(5.6) + 0.4)])},
             {'type': 'flap', 'role': 'flapInner', 'view': 'top', 'mirror': True,
-             'polygon_m': top_m([(1.45, wing_te(1.45) - 0.95), (3.8, wing_te(3.8) - 0.9),
-                                 (3.8, wing_te(3.8) + 0.4), (1.45, wing_te(1.45) + 0.4)])},
+             'polygon_m': top_m([(1.45, wing_te(1.45) - 0.95), (3.25, wing_te(3.25) - 0.9),
+                                 (3.25, wing_te(3.25) + 0.4), (1.45, wing_te(1.45) + 0.4)])},
             {'type': 'elevator', 'view': 'top', 'mirror': True,
-             'polygon_m': top_m([(0.5, 19.05), (5.4, 19.05), (5.4, 20.0), (0.5, 20.0)])},
-            {'type': 'rudder', 'view': 'side', 'mirror': True, 'depth_m': [5.3, 6.2],
-             'polygon_m': [[round(Z0 - d, 3), y] for d, y in ((19.2, 4.0), (19.2, -1.1), (20.4, -1.1), (20.4, 4.0))]},
+             'polygon_m': top_m([(0.6, 19.1), (5.45, 19.1), (5.45, 20.1), (0.6, 20.1)])},
+            {'type': 'rudder', 'view': 'side', 'mirror': True, 'depth_m': [5.4, 6.2],
+             'polygon_m': [[round(Z0 - d, 3), y] for d, y in ((19.3, 3.2), (19.3, -1.1), (20.4, -1.1), (20.4, 3.2))]},
         ],
         'gear': {'legs': [
-            {'name': 'Nose', 'pos_m': P(0.0, -2.6, 1.25), 'retract': 'aft', 'wheel_radius_m': 0.3},
-            {'name': 'Main', 'pos_m': P(4.65, -2.6, 10.9), 'mirror': True, 'retract': 'aft', 'wheel_radius_m': 0.45},
+            {'name': 'Nose', 'pos_m': P(0.0, -2.83, 1.21), 'retract': 'aft', 'wheel_radius_m': 0.31},
+            {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'wheel_radius_m': 0.46},
         ]},
-        'cockpit_m': P(0.0, 0.4, 2.0),
+        'cockpit_m': P(0.0, 0.1, 2.4),
     }
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:
         json.dump(spec, f, indent=1)
