@@ -97,6 +97,18 @@ describe('poseSurface', () => {
         const flap = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, -1), 0.4);
         assert.ok(quat.angleTo(flap.multiply(sweep)) < 1e-6);
     });
+    it('slides a sliding part along its offset without turning it', () => {
+        // Rotodome lowered for parking: 1.5 m down at full travel, half way at 0.5.
+        const dome = {
+            pivot: new THREE.Vector3(0, 4, -1),
+            axis: new THREE.Vector3(0, 1, 0),
+            deflection: 0.5,
+            slide: new THREE.Vector3(0, -1.5, 0),
+        };
+        poseSurface(dome, undefined, origin, identity, pos, quat);
+        assert.ok(pos.distanceTo(new THREE.Vector3(0, 3.25, -1)) < 1e-9);
+        assert.ok(quat.angleTo(identity) < 1e-9);
+    });
 });
 
 describe('wingtip trails on swing wings', () => {

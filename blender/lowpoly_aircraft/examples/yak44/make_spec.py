@@ -42,8 +42,8 @@ def wing_te(x):
 
 
 def wing_le(x):
-    """Leading edge d at span x (the wing rows: x 1.0 -> 6.5, 5.2 -> 8.41, 12.3 -> 10.14)."""
-    return 6.5 + 0.4548 * (x - 1.0) if x < 5.2 else 8.41 + 0.2437 * (x - 5.2)
+    """Leading edge d at span x: one straight line from root to tip (x 5.2 -> 8.41, 12.3 -> 10.14)."""
+    return 8.41 + 0.2437 * (x - 5.2)
 
 
 def slat_m(x0, x1, depth0, depth1, ahead=0.4):
@@ -169,14 +169,18 @@ def main():
         a = r_dome * math.sqrt(max(0.0, 1 - t * t))
         h = t_dome * math.sqrt(max(0.0, 1 - t * t)) + (0.03 if abs(t) < 1 else 0.0)
         dome.append((d_dome + t * r_dome, a, y_dome - h, y_dome + h, 1.7))
-    wing = [(1.0, 0.95, 6.5, 6.1, 0.14), (5.2, 0.9, 8.41, 3.92, 0.15), (12.3, 0.92, 10.14, 1.74, 0.12),
+    wing = [(1.0, 0.95, 7.386, 5.214, 0.14),  # LE straight on from the outer wing, TE kept at d 12.6
+            (5.2, 0.9, 8.41, 3.92, 0.15), (12.3, 0.92, 10.14, 1.74, 0.12),
             (12.6, 0.95, 10.38, 1.55, 0.11)]
     winglet = [(12.55, 0.95, 10.4, 1.5, 0.1), (12.78, 1.9, 11.3, 0.75, 0.08), (12.85, 2.3, 11.6, 0.4, 0.08)]
     # Slight dihedral (about 5.5 deg): the root sits on the fuselage side (side view: root LE d 16.6, y 0.55).
     tail = [(0.5, 0.52, 16.55, 3.35, 0.1), (5.55, 1.0, 18.0, 1.85, 0.1)]
     # Fins lean inward (front view: x 5.6 at the root, 5.3 at the tip).
     fin = [(5.62, -0.95, 18.45, 1.55, 0.08), (5.47, 1.0, 17.25, 2.85, 0.08), (5.32, 2.95, 18.2, 1.9, 0.08)]
-    pylon = [(0.0, 0.6, 12.6, 2.3, 0.32), (0.0, 3.8, 12.7, 2.2, 0.32)]
+    # Telescopic rotodome mast: the upper part slides down into the lower one when parked (drawing:
+    # rotodome lowered 1.5 m, dash-dot).
+    pylon = [(0.0, 0.6, 12.6, 2.3, 0.32), (0.0, 2.4, 12.656, 2.26, 0.32)]
+    pylon_upper = [(0.0, 2.25, 12.7, 2.1, 0.27), (0.0, 3.8, 12.75, 2.05, 0.27)]
     dark = 'VEHICLE_PLANE_ENGINE'
     # Wheel wells sunk into the nacelle bellies and the nose (all gear folds aft into the airframe);
     # cut as boxy lofts, lined dark, and closed by the doors under 'gear'.
@@ -210,7 +214,10 @@ def main():
             {'name': 'Fin', 'type': 'panel', 'mirror': True, 'normal': [1, 0, 0], 'chord_points': 9,
              'resample': 7, 'stations': panel_rows(fin)},
             {'name': 'Pylon', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 9, 'stations': panel_rows(pylon)},
-            {'name': 'Rotodome', 'type': 'loft', 'join': 'separate', 'segments': 18, 'stations': loft_rows(dome)},
+            {'name': 'PylonUpper', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 9, 'join': 'slide',
+             'slide_m': [0.0, -1.5, 0.0], 'stations': panel_rows(pylon_upper)},
+            {'name': 'Rotodome', 'type': 'loft', 'join': 'slide', 'slide_m': [0.0, -1.5, 0.0], 'segments': 18,
+             'stations': loft_rows(dome)},
             {'name': 'IntakeMouth', 'type': 'loft', 'join': 'cut', 'material': dark, 'segments': 14,
              'stations': loft_rows(intake_mouth)},
             {'name': 'Exhaust', 'type': 'loft', 'mirror': True, 'segments': 14, 'resample': 8, 'stations': loft_rows(exhaust, 4.05)},
@@ -229,7 +236,8 @@ def main():
             {'name': 'MainWell', 'type': 'loft', 'mirror': True, 'join': 'cut', 'segments': 12,
              'stations': loft_rows(main_well, 4.05)},
             {'name': 'NoseWell', 'type': 'loft', 'join': 'cut', 'segments': 12, 'stations': loft_rows(nose_well)},
-            {'name': 'DomeHub', 'type': 'loft', 'segments': 12, 'stations': loft_rows(dome_hub)},
+            {'name': 'DomeHub', 'type': 'loft', 'join': 'slide', 'slide_m': [0.0, -1.5, 0.0], 'segments': 12,
+             'stations': loft_rows(dome_hub)},
             {'name': 'AntennaFront', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
              'stations': panel_rows([(0.0, -1.8, 3.52, 0.3, 0.14), (0.0, -2.14, 3.62, 0.2, 0.14)])},
             {'name': 'AntennaRear', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
@@ -253,20 +261,31 @@ def main():
         'surfaces': [
             # Trailing edge as on the drawing's top view: aileron x 9.5..12.2 (front at d 11.3), double flaps
             # x 4.85..6.9 and 6.9..9.5 (front at d 11.5), and the inner flap between fuselage and nacelle.
-            {'type': 'aileron', 'view': 'top', 'mirror': True,
+            {'type': 'aileron', 'view': 'top', 'mirror': True, 'sweep_parent': 'wingFold',
              'polygon_m': top_m([(9.5, 11.27), (12.2, 11.3), (12.2, wing_te(12.2) + 0.4), (9.5, wing_te(9.5) + 0.4)])},
-            {'type': 'flap', 'view': 'top', 'mirror': True,
+            {'type': 'flap', 'view': 'top', 'mirror': True, 'sweep_parent': 'wingFold',
              'polygon_m': top_m([(6.9, 11.49), (9.45, 11.49), (9.45, wing_te(9.45) + 0.4), (6.9, wing_te(6.9) + 0.4)])},
-            {'type': 'flap', 'role': 'flapMid', 'view': 'top', 'mirror': True,
-             'polygon_m': top_m([(4.9, 11.49), (6.85, 11.49), (6.85, wing_te(6.85) + 0.4), (4.9, wing_te(4.9) + 0.4)])},
+            # Starts just outboard of the wing-fold line, so it folds with the outer wing.
+            {'type': 'flap', 'role': 'flapMid', 'view': 'top', 'mirror': True, 'sweep_parent': 'wingFold',
+             'polygon_m': top_m([(5.3, 11.49), (6.85, 11.49), (6.85, wing_te(6.85) + 0.4), (5.3, wing_te(5.3) + 0.4)])},
             {'type': 'flap', 'role': 'flapInner', 'view': 'top', 'mirror': True,
              'polygon_m': top_m([(1.45, wing_te(1.45) - 0.95), (3.25, wing_te(3.25) - 0.9),
                                  (3.25, wing_te(3.25) + 0.4), (1.45, wing_te(1.45) + 0.4)])},
             # Leading-edge slats (drawing: x 5..9.35 and 9.45..12.2, 0.6 m deep tapering to 0.25 m outboard;
             # an inner one between fuselage and nacelle). They droop with the flaps.
-            {'type': 'slat', 'view': 'top', 'mirror': True, 'polygon_m': slat_m(9.45, 12.2, 0.4, 0.25)},
-            {'type': 'slat', 'role': 'slatMid', 'view': 'top', 'mirror': True, 'polygon_m': slat_m(5.0, 9.35, 0.6, 0.4)},
+            {'type': 'slat', 'view': 'top', 'mirror': True, 'sweep_parent': 'wingFold',
+             'polygon_m': slat_m(9.45, 12.2, 0.4, 0.25)},
+            {'type': 'slat', 'role': 'slatMid', 'view': 'top', 'mirror': True, 'sweep_parent': 'wingFold',
+             'polygon_m': slat_m(6.05, 9.35, 0.55, 0.4)},
             {'type': 'slat', 'role': 'slatInner', 'view': 'top', 'mirror': True, 'polygon_m': slat_m(1.5, 3.2, 0.6, 0.6)},
+            # Parking: the outer wings fold up and over the fuselage about a skewed hinge just outboard of
+            # the nacelles (drawing, dash-dot: hinge x 5.94 at the leading edge to 5.18 at the trailing edge;
+            # folded, the panels cross above the fuselage). Cut after the surfaces that ride on it.
+            {'type': 'wingFold', 'role': 'wingFold', 'control': 'fold', 'view': 'top', 'mirror': True,
+             # Hinged on the upper skin; the left panel folds a little further than the right so the
+             # two lie one above the other where they cross.
+             'sign': 1.0, 'range_deg_sides': [170.0, 164.0], 'hinge_skin': 1.0,
+             'polygon_m': top_m([(6.10, 8.2), (4.736, 13.0), (13.6, 13.0), (13.6, 8.2)])},
             # Kept clear of the inward-leaning fins: stops short of them and only cuts the tailplane's height.
             {'type': 'elevator', 'view': 'top', 'mirror': True, 'depth_m': [0.3, 1.3],
              'polygon_m': top_m([(0.6, 19.1), (5.2, 19.1), (5.2, 20.1), (0.6, 20.1)])},

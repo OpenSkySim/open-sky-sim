@@ -83,6 +83,7 @@ interface AircraftManifest {
         role: string; path: string;
         pivot: [number, number, number]; axis: [number, number, number];
         control: string; sign: number; rangeRad: number; sweepParent?: string;
+        slide?: [number, number, number];
     }[];
     swingWings?: SwingWingsConfig | null;
     fx?: { wingtips?: [[number, number, number], [number, number, number]] | null; nozzles?: [number, number, number][] | null; nozzleRadius?: number | null };
@@ -195,6 +196,7 @@ function manifestToDef(id: string, m: AircraftManifest): FlyableAircraftDef {
                 sign: s.sign,
                 rangeRad: s.rangeRad,
                 sweepParent: s.sweepParent,
+                slide: s.slide,
             };
         }),
     };

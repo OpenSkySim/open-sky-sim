@@ -74,6 +74,8 @@ interface ControlSurfaceDescriptor {
     range: number;
     /** Signed spin rate (rad/s) of a propeller ('spin' control), else 0. */
     spin: number;
+    /** Sliding part's offset at full travel (see ControlSurfaceConfig.slide). */
+    slide?: THREE.Vector3;
     /** Index of the sweep surface this one rides on, or -1. */
     parentIndex: number;
     /** Current deflection (rad), refreshed each frame before posing. */
@@ -353,6 +355,7 @@ export class PlayerEntity implements Entity {
                 value: () => surfaceValue(this.surfaceInputs, s.control, s.sign),
                 range: s.rangeRad,
                 spin: s.control === 'spin' ? s.sign * s.rangeRad : 0,
+                slide: s.slide ? new THREE.Vector3().fromArray(s.slide) : undefined,
                 parentIndex: s.sweepParent ? def.surfaces.findIndex(o => o.role === s.sweepParent) : -1,
                 deflection: 0,
             };

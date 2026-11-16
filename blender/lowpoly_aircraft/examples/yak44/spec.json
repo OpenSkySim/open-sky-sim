@@ -517,8 +517,8 @@
     [
      1.0,
      0.95,
-     5.734,
-     6.1,
+     4.848,
+     5.214,
      0.14
     ],
     [
@@ -649,17 +649,54 @@
     ],
     [
      0.0,
-     3.8,
-     -0.466,
-     2.2,
+     2.4,
+     -0.422,
+     2.26,
      0.32
+    ]
+   ]
+  },
+  {
+   "name": "PylonUpper",
+   "type": "panel",
+   "normal": [
+    1,
+    0,
+    0
+   ],
+   "chord_points": 9,
+   "join": "slide",
+   "slide_m": [
+    0.0,
+    -1.5,
+    0.0
+   ],
+   "stations": [
+    [
+     0.0,
+     2.25,
+     -0.466,
+     2.1,
+     0.27
+    ],
+    [
+     0.0,
+     3.8,
+     -0.516,
+     2.05,
+     0.27
     ]
    ]
   },
   {
    "name": "Rotodome",
    "type": "loft",
-   "join": "separate",
+   "join": "slide",
+   "slide_m": [
+    0.0,
+    -1.5,
+    0.0
+   ],
    "segments": 18,
    "stations": [
     [
@@ -1249,6 +1286,12 @@
   {
    "name": "DomeHub",
    "type": "loft",
+   "join": "slide",
+   "slide_m": [
+    0.0,
+    -1.5,
+    0.0
+   ],
    "segments": 12,
    "stations": [
     [
@@ -1918,6 +1961,7 @@
    "type": "aileron",
    "view": "top",
    "mirror": true,
+   "sweep_parent": "wingFold",
    "polygon_m": [
     [
      9.5,
@@ -1941,6 +1985,7 @@
    "type": "flap",
    "view": "top",
    "mirror": true,
+   "sweep_parent": "wingFold",
    "polygon_m": [
     [
      6.9,
@@ -1965,9 +2010,10 @@
    "role": "flapMid",
    "view": "top",
    "mirror": true,
+   "sweep_parent": "wingFold",
    "polygon_m": [
     [
-     4.9,
+     5.3,
      0.744
     ],
     [
@@ -1979,8 +2025,8 @@
      -0.383
     ],
     [
-     4.9,
-     -0.504
+     5.3,
+     -0.479
     ]
    ]
   },
@@ -2012,6 +2058,7 @@
    "type": "slat",
    "view": "top",
    "mirror": true,
+   "sweep_parent": "wingFold",
    "polygon_m": [
     [
      9.45,
@@ -2036,10 +2083,11 @@
    "role": "slatMid",
    "view": "top",
    "mirror": true,
+   "sweep_parent": "wingFold",
    "polygon_m": [
     [
-     5.0,
-     3.315
+     6.05,
+     3.067
     ],
     [
      9.35,
@@ -2050,8 +2098,8 @@
      3.213
     ],
     [
-     5.0,
-     4.315
+     6.05,
+     4.017
     ]
    ]
   },
@@ -2063,19 +2111,50 @@
    "polygon_m": [
     [
      1.5,
-     4.907
+     4.126
     ],
     [
      3.2,
-     4.133
+     3.711
     ],
     [
      3.2,
-     5.133
+     4.711
     ],
     [
      1.5,
-     5.907
+     5.126
+    ]
+   ]
+  },
+  {
+   "type": "wingFold",
+   "role": "wingFold",
+   "control": "fold",
+   "view": "top",
+   "mirror": true,
+   "sign": 1.0,
+   "range_deg_sides": [
+    170.0,
+    164.0
+   ],
+   "hinge_skin": 1.0,
+   "polygon_m": [
+    [
+     6.1,
+     4.034
+    ],
+    [
+     4.736,
+     -0.766
+    ],
+    [
+     13.6,
+     -0.766
+    ],
+    [
+     13.6,
+     4.034
     ]
    ]
   },

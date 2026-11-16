@@ -39,6 +39,11 @@ export interface ControlSurfaceConfig {
     sign: number;
     /** Maximum deflection scale (rad) applied to the control value. */
     rangeRad: number;
+    /**
+     * Body-frame offset (m) at full deflection for a part that slides instead of
+     * turning (a rotodome lowered for parking); it moves by slide * deflection.
+     */
+    slide?: [number, number, number];
 }
 
 /** When and how fast a variable-geometry wing sweeps (from the mod's SwingWings). */

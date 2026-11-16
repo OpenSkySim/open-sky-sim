@@ -42,6 +42,8 @@ interface AiControlSurface {
     control: ControlAxis;
     sign: number;
     range: number;
+    /** Sliding part's offset at full travel (see ControlSurfaceConfig.slide). */
+    slide?: THREE.Vector3;
     /** Index of the sweep surface this one rides on, or -1. */
     parentIndex: number;
     /** Current deflection (rad), refreshed each frame before posing. */
@@ -230,6 +232,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             control: s.control,
             sign: s.sign,
             range: s.rangeRad,
+            slide: s.slide ? new THREE.Vector3().fromArray(s.slide) : undefined,
             parentIndex: s.sweepParent ? def.surfaces.findIndex(o => o.role === s.sweepParent) : -1,
             deflection: 0,
         }));

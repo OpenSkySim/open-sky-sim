@@ -80,7 +80,8 @@ def _mid_through(tree, view: str, ab, fallback: float) -> tuple[float, float]:
     return 0.5 * (lo + hi), hi - lo
 
 
-def _hinge_3d(part, view: str, hinge2: np.ndarray):
+def _hinge_3d(part, view: str, hinge2: np.ndarray, skin: float = 0.0):
+    """*skin* moves the hinge off the mid-thickness: +1 onto the upper (+axis) skin, -1 the lower."""
     mn, mx = geo.bounds_body(part)
     center = 0.5 * (mn + mx)
     third_axis = {'top': 1, 'side': 0, 'front': 2}[view]
@@ -103,9 +104,9 @@ def _hinge_3d(part, view: str, hinge2: np.ndarray):
     thick = np.array([th for _, th in samples])
     keep = thick <= 1.5 * thick.min() + 1e-6
     if keep.sum() >= 2:
-        slope, icpt = np.polyfit(ts[keep], mids[keep], 1)
+        slope, icpt = np.polyfit(ts[keep], mids[keep] + 0.5 * skin * thick[keep], 1)
     else:
-        slope, icpt = 0.0, float(mids[keep].mean()) if keep.any() else center[third_axis]
+        slope, icpt = 0.0, float((mids + 0.5 * skin * thick)[keep].mean()) if keep.any() else center[third_axis]
     ends = [icpt, icpt + slope]
     p = [geo.view_point_3d(view, hinge2[i], ends[i]) for i in range(2)]
     p0, p1 = np.array(p[0]), np.array(p[1])
@@ -247,6 +248,24 @@ def _spinning(obj, item: dict, side_name: str, mirrored: bool, material: str) ->
     print(f'[lpa] spinning {role}: centre {np.round(centre, 3).tolist()} hand {obj["lpa_sign"]:+.0f}')
 
 
+def _sliding(obj, item: dict, side_name: str, material: str, smooth_deg: float | None) -> None:
+    """A part that moves in a straight line by 'slide_m' (body metres) with its control
+    (default 'fold': a rotodome lowered for parking). Exported as a surface with 'slide'."""
+    role = item.get('name', 'part') + side_name
+    obj.name = role
+    geo._link(obj, 'Surfaces')
+    geo.tidy(obj, material, smooth_deg)
+    mn, mx = geo.bounds_body(obj)
+    geo.set_origin(obj, (0.5 * (mn + mx)).tolist())
+    obj['lpa_role'] = role
+    obj['lpa_control'] = item.get('control', 'fold')
+    obj['lpa_sign'] = 1.0
+    obj['lpa_range_deg'] = math.degrees(1.0)  # rangeRad 1: the deflection is the travel fraction
+    obj['lpa_axis'] = [0.0, 1.0, 0.0]
+    obj['lpa_slide'] = [float(c) for c in item['slide_m']]
+    print(f'[lpa] sliding {role}: by {item["slide_m"]} with {obj["lpa_control"]}')
+
+
 def _add_surfaces(views, hull, spec) -> None:
     for item in spec.get('surfaces', []):
         kind = item['type']
@@ -279,7 +298,7 @@ def _add_surfaces(views, hull, spec) -> None:
             if part is None:
                 print(f'[lpa] surface {role}: polygon does not touch the hull, skipped')
                 continue
-            pivot, axis = _hinge_3d(part, view, h)
+            pivot, axis = _hinge_3d(part, view, h, item.get('hinge_skin', 0.0))
             geo.set_origin(part, pivot)
             ctl = item.get('control', control)
             if ctl == 'stabilator':
@@ -287,8 +306,13 @@ def _add_surfaces(views, hull, spec) -> None:
             part['lpa_role'] = role
             part['lpa_control'] = ctl
             part['lpa_sign'] = float(item.get('sign', signs[side_ix]))
-            part['lpa_range_deg'] = float(item.get('range_deg', rng))
+            # range_deg_sides [left, right]: folding wings stop at different angles so they stack.
+            sides_rng = item.get('range_deg_sides')
+            part['lpa_range_deg'] = float(sides_rng[side_ix] if sides_rng and side_name else item.get('range_deg', rng))
             part['lpa_axis'] = [float(c) for c in axis]
+            if 'sweep_parent' in item:
+                # Mounted on a moving wing panel (sweep or fold): carried along with it.
+                part['lpa_sweep_parent'] = item['sweep_parent'] + side_name
             print(f'[lpa] surface {role}: pivot {np.round(pivot, 3).tolist()} axis {np.round(axis, 3).tolist()} -> {ctl}')
 
 
@@ -483,6 +507,9 @@ def build_parts(spec: dict) -> None:
             bpy.data.collections['Construction'].objects.unlink(obj)
             if join == 'spin':
                 _spinning(obj, item, side_name, mirrored, material)
+                continue
+            if join == 'slide':
+                _sliding(obj, item, side_name, material, smooth)
                 continue
             if join == 'surface':
                 _all_moving(None, obj, item['surface'], side_name, mirrored, material, smooth)

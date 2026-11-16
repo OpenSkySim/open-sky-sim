@@ -83,11 +83,11 @@ def prism(name: str, view: str, loops_body2: list[np.ndarray], collection: str =
     return obj
 
 
-def boolean(target: bpy.types.Object, operand: bpy.types.Object, op: str) -> None:
-    """Apply an exact boolean in place (INTERSECT / DIFFERENCE / UNION)."""
+def boolean(target: bpy.types.Object, operand: bpy.types.Object, op: str, solver: str = 'EXACT') -> None:
+    """Apply a boolean in place (INTERSECT / DIFFERENCE / UNION); exact by default."""
     mod = target.modifiers.new('bool', 'BOOLEAN')
     mod.operation = op
-    mod.solver = 'EXACT'
+    mod.solver = solver
     mod.object = operand
     deps = bpy.context.evaluated_depsgraph_get()
     deps.update()
@@ -198,12 +198,22 @@ def cut_part(hull: bpy.types.Object, name: str, view: str, poly_body2: np.ndarra
     loops = poly_body2 if isinstance(poly_body2, list) else [poly_body2]
     cutter = prism(f'Cut_{name}', view, loops, depth=depth)
     part = copy_object(hull, name, collection)
+    solver = 'EXACT'
     boolean(part, cutter, 'INTERSECT')
+    if is_empty(part):
+        # The exact solver now and then returns nothing for a valid cut (seen on one flap after
+        # unrelated parts changed); the manifold solver does it, the hull being closed.
+        bpy.data.objects.remove(part)
+        part = copy_object(hull, name, collection)
+        solver = 'MANIFOLD'
+        boolean(part, cutter, 'INTERSECT', solver=solver)
+        if not is_empty(part):
+            print(f'[lpa] {name}: exact boolean came back empty, used the manifold solver')
     if is_empty(part):
         bpy.data.objects.remove(cutter)
         bpy.data.objects.remove(part)
         return None
-    boolean(hull, cutter, 'DIFFERENCE')
+    boolean(hull, cutter, 'DIFFERENCE', solver=solver)
     bpy.data.objects.remove(cutter)
     tidy(part, material, smooth_deg)
     return part

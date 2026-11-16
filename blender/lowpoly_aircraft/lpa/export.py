@@ -104,7 +104,7 @@ def export_pack(out_dir: str, pack: bool = True) -> dict:
             obj.location = loc
             bpy.context.view_layer.update()
         files.append(fname)
-        surfaces.append({
+        surface = {
             'role': role,
             'path': fname,
             'pivot': _vec(from_bl(obj.location)),
@@ -112,7 +112,12 @@ def export_pack(out_dir: str, pack: bool = True) -> dict:
             'control': obj.get('lpa_control', 'pitch'),
             'sign': float(obj.get('lpa_sign', 1.0)),
             'rangeRad': round(math.radians(float(obj.get('lpa_range_deg', 25.0))), 4),
-        })
+        }
+        if obj.get('lpa_sweep_parent'):
+            surface['sweepParent'] = obj['lpa_sweep_parent']
+        if obj.get('lpa_slide') is not None:
+            surface['slide'] = _vec(obj['lpa_slide'])
+        surfaces.append(surface)
 
     manifest = {
         'id': aid,
