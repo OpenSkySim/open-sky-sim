@@ -2,7 +2,7 @@
 
 Contours were measured off the owner's three-view (Drive: 26-4906609-yak-44-f.gif,
 not kept in this repository) station by station, scaled to length 20.39 m and
-span 25.7 m; details (chin intakes under the nacelles, wrap-around windows, rotodome
+span 25.7 m; details (wing-top intake scoop, wrap-around windows, rotodome
 lens, scimitar props) follow the mock-up photos in the same Drive folder.
 Owner's answers: the dash-dot lines (folded wing, lowered rotodome) are
 ignored, all gear retracts aft, two end-plate fins with rudders, grey with
@@ -118,13 +118,14 @@ def main():
     fairing = [(6.3, 1.25, 0.6, 1.3, 4), (6.6, 1.3, 0.5, 1.36, 4), (9.0, 1.33, 0.5, 1.36, 4),
                (11.0, 1.3, 0.5, 1.3, 4), (12.0, 1.1, 0.5, 1.0, 3), (12.8, 0.6, 0.5, 0.75, 2.5),
                (13.0, 0.0, 0.6, 0.6, 2.5)]
-    # Engine air intakes: an oval chin scoop under each nacelle just behind the propellers (mock-up
-    # photo): a thin rounded lip around an open dark duct, the fairing blending aft into the nacelle belly.
-    # There is no intake on the fuselage.
-    intake = [(6.45, 0.3, -0.8, -0.15, 2.1), (6.55, 0.34, -0.85, -0.1, 2.1), (7.0, 0.37, -0.9, -0.05, 2.2),
-              (7.8, 0.34, -0.95, -0.1, 2.2), (8.6, 0.2, -0.97, -0.4, 2.2), (9.0, 0.0, -0.93, -0.93, 2)]
-    intake_mouth = [(6.3, 0.27, -0.76, -0.33, 2.1), (6.75, 0.27, -0.76, -0.33, 2.1), (7.05, 0.2, -0.7, -0.4, 2.1),
-                    (7.25, 0.1, -0.6, -0.48, 2)]
+    # Air intake: an oval duct on the centre line ahead of the wing (mock-up photo): round sides, a thin
+    # rounded lip around a large open mouth, and a smooth taper aft into the wing fairing.
+    intake = [(4.78, 0.38, 0.78, 1.18, 2.1), (4.86, 0.43, 0.74, 1.23, 2.1), (5.05, 0.47, 0.7, 1.27, 2.15),
+              (5.6, 0.48, 0.7, 1.27, 2.2), (6.4, 0.46, 0.7, 1.24, 2.2), (7.1, 0.3, 0.78, 1.05, 2.2),
+              (7.4, 0.0, 0.9, 0.9, 2)]
+    # The mouth: a dark-lined duct sunk 0.6 m into the pod, narrowing inside.
+    intake_mouth = [(4.6, 0.35, 0.83, 1.15, 2.1), (4.9, 0.35, 0.83, 1.15, 2.1), (5.2, 0.32, 0.86, 1.12, 2.1),
+                    (5.4, 0.18, 0.93, 1.05, 2)]
     # Turbine exhaust: a round pipe ending aft-facing where the nacelle's upper half stops (drawing step at
     # d 13.1, y -0.12..0.57); the lower nacelle continues as the tail cone (reference renders).
     # Fairing that tapers the nacelle's upper half smoothly into the round nozzle.
@@ -200,10 +201,9 @@ def main():
              'resample': 7, 'stations': panel_rows(fin)},
             {'name': 'Pylon', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 9, 'stations': panel_rows(pylon)},
             {'name': 'Rotodome', 'type': 'loft', 'join': 'separate', 'segments': 18, 'stations': loft_rows(dome)},
-            {'name': 'Intake', 'type': 'loft', 'mirror': True, 'segments': 14, 'resample': 7,
-             'stations': loft_rows(intake, 4.05)},
-            {'name': 'IntakeMouth', 'type': 'loft', 'mirror': True, 'join': 'cut', 'material': dark, 'segments': 14,
-             'stations': loft_rows(intake_mouth, 4.05)},
+            {'name': 'Intake', 'type': 'loft', 'segments': 14, 'resample': 7, 'stations': loft_rows(intake)},
+            {'name': 'IntakeMouth', 'type': 'loft', 'join': 'cut', 'material': dark, 'segments': 14,
+             'stations': loft_rows(intake_mouth)},
             {'name': 'Exhaust', 'type': 'loft', 'mirror': True, 'segments': 14, 'resample': 8, 'stations': loft_rows(exhaust, 4.05)},
             {'name': 'ExhaustMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': dark,
              'segments': 10, 'stations': loft_rows(exhaust_mouth, 4.05)},
