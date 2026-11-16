@@ -392,11 +392,16 @@ def build_parts(spec: dict) -> None:
     wingtips = _wingtips(hull)
     for i, item in enumerate(spec.get('regions', [])):
         view = item.get('view', 'side')
-        poly, depth = _poly_body2(None, item), _depth(None, item)
+        depth = _depth(None, item)
+        if 'polygons_m' in item:
+            poly = [np.asarray(lp, dtype=np.float64) for lp in item['polygons_m']]
+        else:
+            poly = [_poly_body2(None, item)]
         sides = [('', poly, depth)]
         if item.get('mirror'):
             # Windows and doors on both sides: mirror the polygon (top/front) or the depth (side).
-            other = (poly, (-depth[1], -depth[0])) if view == 'side' else (_mirror_x(view, poly), depth)
+            other = ((poly, (-depth[1], -depth[0])) if view == 'side'
+                     else ([_mirror_x(view, lp) for lp in poly], depth))
             sides = [('L', poly, depth), ('R', *other)]
         for suffix, p, dep in sides:
             part = geo.cut_part(hull, f"{i + 1}_{item.get('name', 'Region')}{suffix}", view, p,

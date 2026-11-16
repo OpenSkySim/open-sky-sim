@@ -92,6 +92,15 @@ def windows_and_doors():
         {'name': 'RearPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(13.61, -0.05, 0.15))},
         {'name': 'RearDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,
          'polygon_m': side_m(rounded_rect(13.17, 14.05, -1.35, 0.36))},
+        {'name': 'Radome', 'view': 'side', 'material': '#8d969f',
+         'polygon_m': side_m([(-0.2, -2.5), (-0.2, 0.5), (0.95, 0.5), (0.95, -2.5)])},
+        {'name': 'NacelleScoops', 'view': 'side', 'mirror': True, 'depth_m': [4.3, 5.3], 'material': 'VEHICLE_PLANE_ENGINE',
+         'polygons_m': [side_m(circle(7.56, 0.82, 0.1, 6)), side_m(circle(8.75, 0.41, 0.1, 6)),
+                        side_m(circle(7.56, -0.07, 0.1, 6)), side_m(circle(7.96, 0.54, 0.07, 6)),
+                        side_m([(9.25, -0.31), (9.62, -0.37), (9.62, -0.29)])]},
+        {'name': 'BellyPorts', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
+         'polygons_m': [side_m(circle(8.38, -1.21, 0.09, 6)), side_m(circle(8.75, -1.2, 0.15)),
+                        side_m(circle(9.16, -1.2, 0.15))]},
         {'name': 'RoofHatch', 'view': 'top', 'depth_m': [0.3, 1.6], 'material': DOOR,
          'polygon_m': top_m([(-0.4, 2.62), (0.4, 2.62), (0.4, 3.2), (-0.4, 3.2)])},
     ]
@@ -106,10 +115,11 @@ def main():
                 (16.5, 0.92, -1.52, 0.72), (17.5, 0.72, -1.29, 0.88), (18.5, 0.56, -1.05, 0.98),
                 (19.3, 0.46, -0.87, 1.05), (19.8, 0.38, -0.68, 1.08), (20.1, 0.22, -0.56, 1.0),
                 (20.2, 0.0, 0.2, 0.2)]
-    fairing = [(6.3, 1.25, 0.6, 1.3, 4), (6.6, 1.3, 0.5, 1.36, 4), (9.0, 1.33, 0.5, 1.36, 4),
+    # Box intake on the wing centre section (mock-up photos): blunt front face with a dark opening.
+    fairing = [(6.22, 1.2, 0.66, 1.4, 6), (6.3, 1.25, 0.6, 1.4, 5), (6.8, 1.3, 0.5, 1.38, 4), (6.6, 1.3, 0.5, 1.36, 4), (9.0, 1.33, 0.5, 1.36, 4),
                (11.0, 1.3, 0.5, 1.3, 4), (12.0, 1.1, 0.5, 1.0, 3), (12.8, 0.6, 0.5, 0.75, 2.5),
                (13.0, 0.0, 0.6, 0.6, 2.5)]
-    scoop = [(6.24, 0.95, 0.95, 1.24, 6), (6.36, 0.95, 0.95, 1.24, 6)]
+    scoop = [(6.19, 1.0, 0.92, 1.3, 8), (6.26, 1.0, 0.92, 1.3, 8)]
     spinner = [(4.15, 0.0, 0.2, 0.2, 2), (4.6, 0.31, -0.11, 0.51, 2), (5.0, 0.39, -0.19, 0.59, 2),
                (5.6, 0.47, -0.27, 0.67, 2), (6.4, 0.55, -0.35, 0.75, 2)]
     nacelle = [(6.4, 0.55, -0.35, 0.75, 2), (6.6, 0.63, -0.45, 0.84, 2), (7.0, 0.7, -0.61, 1.0, 2.1),
@@ -118,8 +128,8 @@ def main():
                (13.5, 0.43, -0.87, 0.56, 2), (14.0, 0.3, -0.78, 0.3, 2), (14.35, 0.0, -0.55, -0.55, 2)]
     d_dome, r_dome, y_dome, t_dome = 13.4, 3.65, 4.06, 0.39
     dome = []
-    for k in range(11):
-        t = -1 + 2 * k / 10
+    for k in range(13):
+        t = math.sin(math.pi / 2 * (-1 + 2 * k / 12))   # denser towards the rim, so it reads round in side view
         a = r_dome * math.sqrt(max(0.0, 1 - t * t))
         h = t_dome * math.sqrt(max(0.0, 1 - t * t)) + (0.03 if abs(t) < 1 else 0.0)
         dome.append((d_dome + t * r_dome, a, y_dome - h, y_dome + h, 1.7))
@@ -132,6 +142,15 @@ def main():
     fin = [(5.62, -0.95, 18.45, 1.55, 0.08), (5.47, 1.0, 17.25, 2.85, 0.08), (5.32, 2.95, 18.2, 1.9, 0.08)]
     pylon = [(0.0, 0.6, 12.6, 2.3, 0.32), (0.0, 3.8, 12.7, 2.2, 0.32)]
     dark = 'VEHICLE_PLANE_ENGINE'
+    # Teardrop hub under the rotodome where the pylon meets it (mock-up photo).
+    dome_hub = [(12.3, 0.0, 3.62, 3.62, 2), (12.6, 0.35, 3.45, 3.74, 2.5), (13.6, 0.42, 3.42, 3.76, 2.5),
+                (14.5, 0.3, 3.5, 3.72, 2.5), (14.9, 0.0, 3.62, 3.62, 2)]
+    # Nose gear housing below the cockpit floor (side view: d 0.9..2.4, down to y -2.15).
+    nose_box = [(0.85, 0.2, -1.98, -1.7, 3), (1.0, 0.33, -2.12, -1.66, 4), (2.3, 0.33, -2.18, -1.7, 4),
+                (2.45, 0.22, -2.08, -1.72, 3)]
+    # Main gear bay under each nacelle (side view: d 9.7..11.45, y -1.35..-0.8).
+    gear_pod = [(9.55, 0.22, -1.15, -0.85, 3), (9.75, 0.4, -1.35, -0.8, 4), (11.3, 0.4, -1.35, -0.8, 4),
+                (11.5, 0.24, -1.2, -0.85, 3)]
     spec = {
         'id': 'lp_yak44',
         'name': 'Yak-44E (Lowpoly)',
@@ -155,11 +174,25 @@ def main():
             {'name': 'Rotodome', 'type': 'loft', 'join': 'separate', 'segments': 18, 'stations': loft_rows(dome)},
             {'name': 'Scoop', 'type': 'loft', 'join': 'separate', 'material': dark, 'segments': 12,
              'stations': loft_rows(scoop)},
+            {'name': 'DomeHub', 'type': 'loft', 'segments': 12, 'stations': loft_rows(dome_hub)},
+            {'name': 'NoseGearHousing', 'type': 'loft', 'segments': 12, 'stations': loft_rows(nose_box)},
+            {'name': 'GearPod', 'type': 'loft', 'mirror': True, 'segments': 12, 'stations': loft_rows(gear_pod, 4.05)},
+            {'name': 'AntennaFront', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
+             'stations': panel_rows([(0.0, -1.8, 3.52, 0.3, 0.14), (0.0, -2.14, 3.62, 0.2, 0.14)])},
+            {'name': 'AntennaRear', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
+             'stations': panel_rows([(0.0, -1.85, 12.4, 0.3, 0.14), (0.0, -2.15, 12.5, 0.2, 0.14)])},
             {'name': 'PropFront', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': dark,
-             'center': P(4.05, 0.2, 5.55), 'radius': 2.25, 'blades': 8, 'root_r': 0.42, 'chord': 0.62, 'sweep': 0.22},
+             'center': P(4.05, 0.2, 5.55), 'radius': 2.25, 'blades': 8, 'root_r': 0.42, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4},
             {'name': 'PropRear', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': dark,
-             'center': P(4.05, 0.2, 6.15), 'radius': 2.2, 'blades': 6, 'root_r': 0.5, 'chord': 0.62, 'sweep': 0.22,
+             'center': P(4.05, 0.2, 6.15), 'radius': 2.2, 'blades': 6, 'root_r': 0.5, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4,
              'phase_deg': 30, 'hand': -1},
+            # Yellow blade tips, as on the mock-up.
+            {'name': 'PropFrontTips', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': '#e8c227',
+             'center': P(4.05, 0.2, 5.55), 'radius': 2.25, 'blades': 8, 'root_r': 0.42, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4,
+             'span_range': [0.86, 1.0]},
+            {'name': 'PropRearTips', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': '#e8c227',
+             'center': P(4.05, 0.2, 6.15), 'radius': 2.2, 'blades': 6, 'root_r': 0.5, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4,
+             'phase_deg': 30, 'hand': -1, 'span_range': [0.86, 1.0]},
         ],
         'regions': windows_and_doors(),
         'surfaces': [

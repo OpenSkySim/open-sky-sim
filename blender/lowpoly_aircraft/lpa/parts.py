@@ -160,20 +160,28 @@ def _panel_into(bm, rows, chord_points, normal=None, chord_dir=None) -> None:
 
 def prop(name: str, center, radius: float, blades: int = 6, root_r: float = 0.4, chord: float = 0.4,
          pitch_deg: float = 30.0, phase_deg: float = 0.0, hand: float = 1.0, material: str = 'VEHICLE_PLANE_ENGINE',
-         collection: str = 'Construction', sweep: float = 0.0) -> bpy.types.Object:
+         collection: str = 'Construction', sweep: float = 0.0, span_range=(0.0, 1.0),
+         chord_points: int = 5) -> bpy.types.Object:
     """Propeller blades about the +Z axis through *center*, one object.
 
     *sweep* bends each blade back against its rotation (a scimitar blade): the
     tip trails the straight line by sweep * radius, growing with the square of
     the span; chord peaks at about two thirds of the span and rounds off at the tip.
+    *span_range* (fractions of root..tip) builds only part of each blade, e.g. (0.85, 1)
+    for painted tips as their own object.
     """
     c = np.asarray(center, dtype=np.float64)
     bm = bmesh.new()
     pitch = math.radians(pitch_deg)
-    span = [(root_r, 0.65), (root_r + 0.4 * (radius - root_r), 1.0), (root_r + 0.8 * (radius - root_r), 0.9),
+    span = [(root_r, 0.65), (root_r + 0.45 * (radius - root_r), 1.0), (root_r + 0.86 * (radius - root_r), 0.85),
             (radius, 0.3)]
     if not sweep:
         span = [(root_r, 0.75), (0.55 * radius, 1.0), (radius, 0.35)]
+    s0, s1 = span_range
+    if (s0, s1) != (0.0, 1.0):
+        rs, fs = [r for r, _ in span], [f for _, f in span]
+        r0, r1 = root_r + s0 * (radius - root_r), root_r + s1 * (radius - root_r)
+        span = [(r, float(np.interp(r, rs, fs))) for r in [r0] + [r for r in rs if r0 < r < r1] + [r1]]
     for k in range(blades):
         th = math.radians(phase_deg) + 2 * math.pi * k / blades
         rows = []
@@ -188,7 +196,7 @@ def prop(name: str, center, radius: float, blades: int = 6, root_r: float = 0.4,
             le = c + radial * r - cd * ch * 0.35
             rows.append([*le, ch, 0.08])
         # One chord direction per blade (the mid station's) keeps the sections parallel.
-        _panel_into(bm, np.array(rows), 5, chord_dir=_prop_chord_dir(th, hand, pitch))
+        _panel_into(bm, np.array(rows), chord_points, chord_dir=_prop_chord_dir(th, hand, pitch))
     return _object(bm, name, material, collection)
 
 
@@ -230,7 +238,8 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
                     float(spec_part.get('root_r', 0.4)), float(spec_part.get('chord', 0.4)),
                     float(spec_part.get('pitch_deg', 30)), float(spec_part.get('phase_deg', 0)),
                     float(spec_part.get('hand', 1.0)) * (-1.0 if mirrored else 1.0), material,
-                    sweep=float(spec_part.get('sweep', 0.0)))
+                    sweep=float(spec_part.get('sweep', 0.0)), span_range=tuple(spec_part.get('span_range', (0.0, 1.0))),
+                    chord_points=int(spec_part.get('chord_points', 5)))
     raise ValueError(f'unknown part type {kind!r}')
 
 
