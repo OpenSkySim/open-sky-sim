@@ -50,6 +50,56 @@ def fus_rows(rows, n_of=lambda d: 2.8):
     return out
 
 
+
+DOOR = '#7b828a'      # door and hatch panels: a shade darker than the skin so their outlines read
+
+
+def side_m(pts):
+    return [[round(Z0 - d, 3), round(y, 3)] for d, y in pts]
+
+
+def rounded_rect(d0, d1, y0, y1, r=0.14, k=3):
+    """Side-view rounded rectangle (d, y), corner radius r with k segments per corner."""
+    pts = []
+    for cd, cy, a0 in ((d1 - r, y1 - r, 0), (d0 + r, y1 - r, 90), (d0 + r, y0 + r, 180), (d1 - r, y0 + r, 270)):
+        for j in range(k + 1):
+            t = math.radians(a0 + 90 * j / k)
+            pts.append((cd + r * math.cos(t), cy + r * math.sin(t)))
+    return pts
+
+
+def circle(d, y, r, n=8):
+    return [(d + r * math.cos(2 * math.pi * k / n), y + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+
+
+def windows_and_doors():
+    """Cockpit glazing and doors, measured off the nose zooms of the three-view and the mock-up photos.
+
+    Front view: two flat windscreen panes either side of a centre post (x 0.05..0.72).
+    Side view: a corner pane wrapping round from the windscreen, then one side window
+    (d 2.27..3.05), both mirrored. Left side: crew door behind the cockpit and the rear
+    door aft of the wing fairing, each with a round porthole; a roof hatch above the
+    cockpit. Portholes are cut before their doors so the door panel keeps the hole.
+    """
+    side_skin = [0.76, 1.6]          # depth (x) reaching only the left fuselage skin
+    nose = [round(Z0 - 2.3, 3), round(Z0 - 1.2, 3)]
+    return [
+        {'name': 'Windscreen', 'view': 'front', 'mirror': True, 'depth_m': nose,
+         'polygon_m': [[0.05, -0.13], [0.72, -0.11], [0.70, 0.30], [0.05, 0.32]]},
+        {'name': 'CornerWindow', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
+         'polygon_m': side_m([(1.47, -0.17), (1.97, 0.38), (2.2, 0.38), (2.2, -0.2), (1.55, -0.2)])},
+        {'name': 'SideWindow', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
+         'polygon_m': side_m([(2.27, -0.2), (2.27, 0.4), (2.95, 0.4), (3.05, 0.3), (3.05, -0.2)])},
+        {'name': 'DoorPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(3.97, -0.02, 0.15))},
+        {'name': 'CrewDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,
+         'polygon_m': side_m(rounded_rect(3.55, 4.4, -1.35, 0.4))},
+        {'name': 'RearPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(13.61, -0.05, 0.15))},
+        {'name': 'RearDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,
+         'polygon_m': side_m(rounded_rect(13.17, 14.05, -1.35, 0.36))},
+        {'name': 'RoofHatch', 'view': 'top', 'depth_m': [0.3, 1.6], 'material': DOOR,
+         'polygon_m': top_m([(-0.4, 2.62), (0.4, 2.62), (0.4, 3.2), (-0.4, 3.2)])},
+    ]
+
 def main():
     # Read off the drawing station by station (top-view half-width, side-view bottom and top).
     fuselage = [(0.0, 0.05, -1.32, -1.26), (0.05, 0.21, -1.45, -1.14), (0.2, 0.39, -1.59, -0.97),
@@ -113,10 +163,7 @@ def main():
              'center': P(4.05, 0.2, 6.15), 'radius': 2.2, 'blades': 6, 'root_r': 0.5, 'chord': 0.55,
              'phase_deg': 30, 'hand': -1},
         ],
-        'regions': [
-            {'name': 'Windows', 'view': 'side', 'material': 'GLASS',
-             'polygon_m': [[round(Z0 - d, 3), y] for d, y in ((1.45, -0.26), (2.05, 0.42), (3.05, 0.42), (3.05, -0.26))]},
-        ],
+        'regions': windows_and_doors(),
         'surfaces': [
             {'type': 'aileron', 'view': 'top', 'mirror': True,
              'polygon_m': top_m([(8.6, wing_te(8.6) - 0.45), (12.3, wing_te(12.3) - 0.35),

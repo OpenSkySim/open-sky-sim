@@ -384,11 +384,18 @@ def build_parts(spec: dict) -> None:
                 separate.append(obj)
     wingtips = _wingtips(hull)
     for i, item in enumerate(spec.get('regions', [])):
-        part = geo.cut_part(hull, f"{i + 1}_{item.get('name', 'Region')}", item.get('view', 'side'),
-                            _poly_body2(None, item), item.get('material', 'GLASS'), 'Body',
-                            depth=_depth(None, item), smooth_deg=smooth)
-        if part is not None:
-            part['lpa_region'] = item.get('name', 'Region')
+        view = item.get('view', 'side')
+        poly, depth = _poly_body2(None, item), _depth(None, item)
+        sides = [('', poly, depth)]
+        if item.get('mirror'):
+            # Windows and doors on both sides: mirror the polygon (top/front) or the depth (side).
+            other = (poly, (-depth[1], -depth[0])) if view == 'side' else (_mirror_x(view, poly), depth)
+            sides = [('L', poly, depth), ('R', *other)]
+        for suffix, p, dep in sides:
+            part = geo.cut_part(hull, f"{i + 1}_{item.get('name', 'Region')}{suffix}", view, p,
+                                item.get('material', 'GLASS'), 'Body', depth=dep, smooth_deg=smooth)
+            if part is not None:
+                part['lpa_region'] = item.get('name', 'Region')
     _add_surfaces(None, hull, spec)
     _add_gear(None, hull, spec)
 
