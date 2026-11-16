@@ -94,9 +94,9 @@ def windows_and_doors():
     """
     side_skin = [0.76, 1.6]          # depth (x) reaching only the left fuselage skin
     return [
-        {'name': 'Windscreen', 'view': 'side', 'mirror': True, 'depth_m': [0.04, 1.6],
+        {'name': 'Windscreen', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.04, 1.6],
          'polygon_m': side_m([(1.2, -0.17), (1.2, 0.4), (2.17, 0.4), (2.06, -0.17)])},
-        {'name': 'SideWindow', 'view': 'side', 'mirror': True, 'depth_m': [0.5, 1.6],
+        {'name': 'SideWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.5, 1.6],
          'polygon_m': side_m([(2.13, -0.2), (2.25, 0.4), (2.95, 0.4), (3.05, 0.3), (3.05, -0.2)])},
         {'name': 'DoorPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(3.97, -0.02, 0.15))},
         {'name': 'CrewDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,

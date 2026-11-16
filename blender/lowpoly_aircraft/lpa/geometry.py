@@ -174,6 +174,41 @@ def visual_hull(views: dict[str, View]) -> bpy.types.Object:
     return hull
 
 
+def _off_skin_faces(bm, skin: BVHTree, tol: float):
+    return [f for f in bm.faces if skin.find_nearest(f.calc_center_median())[3] > tol]
+
+
+def keep_skin(part: bpy.types.Object, skin: BVHTree, tol: float = 0.015):
+    """Reduce a cut-out part to its outer skin (a pane, not a block); returns its bounds (body frame)."""
+    bm = bmesh.new()
+    bm.from_mesh(part.data)
+    bm.transform(part.matrix_world)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    bmesh.ops.delete(bm, geom=_off_skin_faces(bm, skin, tol), context='FACES')
+    bm.transform(part.matrix_world.inverted())
+    bm.to_mesh(part.data)
+    bm.free()
+    return bounds_body(part)
+
+
+def drop_off_skin(obj: bpy.types.Object, skin: BVHTree, lo, hi, tol: float = 0.015) -> None:
+    """Delete the faces of *obj* inside the body-frame box lo..hi that are not on *skin*."""
+    lo, hi = np.asarray(lo), np.asarray(hi)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.transform(obj.matrix_world)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    doomed = []
+    for f in _off_skin_faces(bm, skin, tol):
+        c = np.asarray(from_bl(f.calc_center_median()))
+        if np.all(c >= lo) and np.all(c <= hi):
+            doomed.append(f)
+    bmesh.ops.delete(bm, geom=doomed, context='FACES')
+    bm.transform(obj.matrix_world.inverted())
+    bm.to_mesh(obj.data)
+    bm.free()
+
+
 def bvh_of(obj: bpy.types.Object) -> BVHTree:
     bm = bmesh.new()
     bm.from_mesh(obj.data)

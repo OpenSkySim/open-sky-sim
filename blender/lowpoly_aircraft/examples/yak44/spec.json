@@ -1714,6 +1714,7 @@
    "name": "Windscreen",
    "view": "side",
    "mirror": true,
+   "see_through": true,
    "depth_m": [
     0.04,
     1.6
@@ -1741,6 +1742,7 @@
    "name": "SideWindow",
    "view": "side",
    "mirror": true,
+   "see_through": true,
    "depth_m": [
     0.5,
     1.6

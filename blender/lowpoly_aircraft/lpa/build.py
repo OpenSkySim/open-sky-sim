@@ -605,6 +605,7 @@ def build_parts(spec: dict) -> None:
         if skin is not None:
             _WELL_SKINS[well_name] = (skin, centre_x)
     wingtips = _wingtips(hull)
+    see_through = []
     for i, item in enumerate(spec.get('regions', [])):
         view = item.get('view', 'side')
         depth = _depth(None, item)
@@ -619,12 +620,18 @@ def build_parts(spec: dict) -> None:
                      else ([_mirror_x(view, lp) for lp in poly], depth))
             sides = [('L', poly, depth), ('R', *other)]
         for suffix, p, dep in sides:
+            skin = geo.bvh_of(hull) if item.get('see_through') else None
             part = geo.cut_part(hull, f"{i + 1}_{item.get('name', 'Region')}{suffix}", view, p,
                                 item.get('material', 'GLASS'), 'Body', depth=dep, smooth_deg=smooth)
             if part is not None:
                 part['lpa_region'] = item.get('name', 'Region')
+                if skin is not None:
+                    see_through.append((skin, geo.keep_skin(part, skin)))
     _add_surfaces(None, hull, spec)
     _add_gear(None, hull, spec)
+    for skin, (lo, hi) in see_through:
+        # The cut walls behind a see-through pane go too: the cabin behind it is open.
+        geo.drop_off_skin(hull, skin, lo - 0.05, hi + 0.05)
     for skin, _ in _WELL_SKINS.values():
         bpy.data.objects.remove(skin)
     _WELL_SKINS.clear()
