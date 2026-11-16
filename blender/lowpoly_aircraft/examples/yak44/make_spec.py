@@ -221,18 +221,20 @@ def main():
              'stations': panel_rows([(0.0, -1.8, 3.52, 0.3, 0.14), (0.0, -2.14, 3.62, 0.2, 0.14)])},
             {'name': 'AntennaRear', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
              'stations': panel_rows([(0.0, -1.85, 12.4, 0.3, 0.14), (0.0, -2.15, 12.5, 0.2, 0.14)])},
-            {'name': 'PropFront', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': TEAL,
-             'center': P(4.05, 0.2, 5.55), 'radius': 2.25, 'blades': 8, 'root_r': 0.42, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4},
-            {'name': 'PropRear', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': TEAL,
+            # Contra-rotating props, the same on both engines: the front one turns left (anticlockwise
+            # seen from behind, hand -1), the rear one right (hand 1). They spin in the sim ('spin').
+            {'name': 'PropFront', 'type': 'prop', 'join': 'spin', 'mirror': True, 'material': TEAL,
+             'center': P(4.05, 0.2, 5.55), 'radius': 2.25, 'blades': 8, 'root_r': 0.42, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4, 'hand': -1},
+            {'name': 'PropRear', 'type': 'prop', 'join': 'spin', 'mirror': True, 'material': TEAL,
              'center': P(4.05, 0.2, 6.15), 'radius': 2.2, 'blades': 6, 'root_r': 0.5, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4,
-             'phase_deg': 30, 'hand': -1},
+             'phase_deg': 30, 'hand': 1},
             # Yellow blade tips, as on the mock-up.
-            {'name': 'PropFrontTips', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': '#e8c227',
+            {'name': 'PropFrontTips', 'type': 'prop', 'join': 'spin', 'mirror': True, 'material': '#e8c227',
              'center': P(4.05, 0.2, 5.55), 'radius': 2.25, 'blades': 8, 'root_r': 0.42, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4,
-             'span_range': [0.86, 1.0]},
-            {'name': 'PropRearTips', 'type': 'prop', 'join': 'separate', 'mirror': True, 'material': '#e8c227',
+             'hand': -1, 'span_range': [0.86, 1.0]},
+            {'name': 'PropRearTips', 'type': 'prop', 'join': 'spin', 'mirror': True, 'material': '#e8c227',
              'center': P(4.05, 0.2, 6.15), 'radius': 2.2, 'blades': 6, 'root_r': 0.5, 'chord': 0.62, 'sweep': 0.22, 'chord_points': 4,
-             'phase_deg': 30, 'hand': -1, 'span_range': [0.86, 1.0]},
+             'phase_deg': 30, 'hand': 1, 'span_range': [0.86, 1.0]},
         ],
         'regions': windows_and_doors(),
         'surfaces': [

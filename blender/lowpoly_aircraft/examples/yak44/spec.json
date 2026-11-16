@@ -1352,7 +1352,7 @@
   {
    "name": "PropFront",
    "type": "prop",
-   "join": "separate",
+   "join": "spin",
    "mirror": true,
    "material": "#3a8f8c",
    "center": [
@@ -1365,12 +1365,13 @@
    "root_r": 0.42,
    "chord": 0.62,
    "sweep": 0.22,
-   "chord_points": 4
+   "chord_points": 4,
+   "hand": -1
   },
   {
    "name": "PropRear",
    "type": "prop",
-   "join": "separate",
+   "join": "spin",
    "mirror": true,
    "material": "#3a8f8c",
    "center": [
@@ -1385,12 +1386,12 @@
    "sweep": 0.22,
    "chord_points": 4,
    "phase_deg": 30,
-   "hand": -1
+   "hand": 1
   },
   {
    "name": "PropFrontTips",
    "type": "prop",
-   "join": "separate",
+   "join": "spin",
    "mirror": true,
    "material": "#e8c227",
    "center": [
@@ -1404,6 +1405,7 @@
    "chord": 0.62,
    "sweep": 0.22,
    "chord_points": 4,
+   "hand": -1,
    "span_range": [
     0.86,
     1.0
@@ -1412,7 +1414,7 @@
   {
    "name": "PropRearTips",
    "type": "prop",
-   "join": "separate",
+   "join": "spin",
    "mirror": true,
    "material": "#e8c227",
    "center": [
@@ -1427,7 +1429,7 @@
    "sweep": 0.22,
    "chord_points": 4,
    "phase_deg": 30,
-   "hand": -1,
+   "hand": 1,
    "span_range": [
     0.86,
     1.0

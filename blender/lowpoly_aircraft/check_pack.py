@@ -16,7 +16,7 @@ import zipfile
 
 PALETTE_HINT = re.compile(r'^(#[0-9a-fA-F]{6}|[A-Z][A-Z0-9_]+)$')
 CONTROLS = {'pitch', 'roll', 'yaw', 'flaps', 'slats', 'airbrake', 'sweep', 'fold',
-            'flaperonLeft', 'flaperonRight', 'stabilatorLeft', 'stabilatorRight'}
+            'flaperonLeft', 'flaperonRight', 'stabilatorLeft', 'stabilatorRight', 'spin'}
 
 
 def read_glb(data: bytes) -> dict:

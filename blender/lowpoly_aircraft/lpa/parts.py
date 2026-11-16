@@ -164,7 +164,9 @@ def prop(name: str, center, radius: float, blades: int = 6, root_r: float = 0.4,
          chord_points: int = 5) -> bpy.types.Object:
     """Propeller blades about the +Z axis through *center*, one object.
 
-    *sweep* bends each blade back against its rotation (a scimitar blade): the
+    *hand* is the turn about +Z (body): +1 turns the top of the disc towards -X, which is
+    clockwise seen from behind (a right-hand prop); -1 the other way. The leading edges lead
+    that turn. *sweep* bends each blade back against its rotation (a scimitar blade): the
     tip trails the straight line by sweep * radius, growing with the square of
     the span; chord peaks at about two thirds of the span and rounds off at the tip.
     *span_range* (fractions of root..tip) builds only part of each blade, e.g. (0.85, 1)
@@ -190,7 +192,8 @@ def prop(name: str, center, radius: float, blades: int = 6, root_r: float = 0.4,
             # Swept blades: the station moves back along the arc, so its own radial line turns too.
             phi = th - hand * sweep * s * s * radius / max(r, 1e-6)
             radial = np.array([math.cos(phi), math.sin(phi), 0.0])
-            tangent = hand * np.array([-math.sin(phi), math.cos(phi), 0.0])
+            # Chord runs from the leading edge back against the turn and aft (tractor pitch).
+            tangent = -hand * np.array([-math.sin(phi), math.cos(phi), 0.0])
             cd = tangent * math.cos(pitch) + np.array([0.0, 0.0, -1.0]) * math.sin(pitch)
             ch = f * chord
             le = c + radial * r - cd * ch * 0.35
@@ -201,7 +204,7 @@ def prop(name: str, center, radius: float, blades: int = 6, root_r: float = 0.4,
 
 
 def _prop_chord_dir(th: float, hand: float, pitch: float) -> np.ndarray:
-    tangent = hand * np.array([-math.sin(th), math.cos(th), 0.0])
+    tangent = -hand * np.array([-math.sin(th), math.cos(th), 0.0])
     return tangent * math.cos(pitch) + np.array([0.0, 0.0, -1.0]) * math.sin(pitch)
 
 
@@ -237,7 +240,9 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
         return prop(name, c, float(spec_part['radius']), int(spec_part.get('blades', 6)),
                     float(spec_part.get('root_r', 0.4)), float(spec_part.get('chord', 0.4)),
                     float(spec_part.get('pitch_deg', 30)), float(spec_part.get('phase_deg', 0)),
-                    float(spec_part.get('hand', 1.0)) * (-1.0 if mirrored else 1.0), material,
+                    # Both engines turn the same way unless the spec says otherwise per side.
+                    float(spec_part.get('hand', 1.0)) * (-1.0 if mirrored and spec_part.get('mirror_hand') else 1.0),
+                    material,
                     sweep=float(spec_part.get('sweep', 0.0)), span_range=tuple(spec_part.get('span_range', (0.0, 1.0))),
                     chord_points=int(spec_part.get('chord_points', 5)))
     raise ValueError(f'unknown part type {kind!r}')

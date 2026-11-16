@@ -40,7 +40,7 @@ import {
     latchedHookTipWorld,
 } from './arrestorCables';
 import { LAND_WIRE_ID_BASE, LandArrestorWire } from './landArrestorWires';
-import { copySurfaceInputs, newSurfaceInputs, slatDeployment, SurfaceInputs, surfaceValue } from './surfaceInputs';
+import { copySurfaceInputs, newSurfaceInputs, slatDeployment, spinAngle, SurfaceInputs, surfaceValue } from './surfaceInputs';
 
 const ENGINE_LOWEST_VOLUME = 0.05; // [0,1]
 
@@ -72,6 +72,8 @@ interface ControlSurfaceDescriptor {
     axis: THREE.Vector3;
     value: () => number;
     range: number;
+    /** Signed spin rate (rad/s) of a propeller ('spin' control), else 0. */
+    spin: number;
     /** Index of the sweep surface this one rides on, or -1. */
     parentIndex: number;
     /** Current deflection (rad), refreshed each frame before posing. */
@@ -350,6 +352,7 @@ export class PlayerEntity implements Entity {
                 axis: new THREE.Vector3().fromArray(s.axis),
                 value: () => surfaceValue(this.surfaceInputs, s.control, s.sign),
                 range: s.rangeRad,
+                spin: s.control === 'spin' ? s.sign * s.rangeRad : 0,
                 parentIndex: s.sweepParent ? def.surfaces.findIndex(o => o.role === s.sweepParent) : -1,
                 deflection: 0,
             };
@@ -1022,7 +1025,7 @@ export class PlayerEntity implements Entity {
                     this.captureSurfaceInputs(this.surfaceInputs);
                 }
                 for (const d of this.controlSurfaceDescriptors) {
-                    d.deflection = still ? 0 : d.value() * d.range;
+                    d.deflection = still ? 0 : d.spin !== 0 ? spinAngle(d.spin) : d.value() * d.range;
                 }
                 for (let i = 0; i < this.controlSurfaceDescriptors.length; i++) {
                     const d = this.controlSurfaceDescriptors[i];

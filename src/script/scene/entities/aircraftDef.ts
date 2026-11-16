@@ -13,9 +13,12 @@ import { Fm2AircraftConfig } from '../../physics/fm2/fm2AircraftConfig';
  *   stabilatorLeft/Right : an all-moving tail that combines pitch with a
  *                        differential (taileron) roll deflection, so the roll
  *                        the tail actually flies is visible on the model.
+ *   spin           : a propeller turning about its axis while the aircraft
+ *                    flies; sign is the turn direction, rangeRad the rate
+ *                    (rad/s). Visual only.
  */
 export type ControlAxis = 'pitch' | 'roll' | 'yaw' | 'flaps' | 'slats' | 'airbrake' | 'sweep' | 'fold'
-    | 'flaperonLeft' | 'flaperonRight' | 'stabilatorLeft' | 'stabilatorRight';
+    | 'flaperonLeft' | 'flaperonRight' | 'stabilatorLeft' | 'stabilatorRight' | 'spin';
 
 /** A single animated control surface loaded as its own hinge-pivoted model. */
 export interface ControlSurfaceConfig {

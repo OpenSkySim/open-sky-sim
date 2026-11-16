@@ -24,7 +24,7 @@ import { WreckField, WreckPart, WreckTracker } from './wreckField';
 import { AirframeDamage } from './airframeDamage';
 import { attachToRenderList } from '../../render/renderList';
 import { ActorState } from '../../state/worldRecorder';
-import { newSurfaceInputs, slatDeployment, SurfaceInputs, surfaceValue } from './surfaceInputs';
+import { newSurfaceInputs, slatDeployment, spinAngle, SurfaceInputs, surfaceValue } from './surfaceInputs';
 
 /** Same hit sphere as the player — shared airframe, different input only. */
 const DEFAULT_HIT_RADIUS = 10;
@@ -584,7 +584,9 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
 
             const inputs = replay ? replay.surfaces : this.captureSurfaceInputs(this.surfaceInputs);
             for (const d of this.controlSurfaces) {
-                d.deflection = crashed ? 0 : surfaceValue(inputs, d.control, d.sign) * d.range;
+                d.deflection = crashed ? 0
+                    : d.control === 'spin' ? spinAngle(d.sign * d.range)
+                    : surfaceValue(inputs, d.control, d.sign) * d.range;
             }
             for (let i = 0; i < this.controlSurfaces.length; i++) {
                 const d = this.controlSurfaces[i];

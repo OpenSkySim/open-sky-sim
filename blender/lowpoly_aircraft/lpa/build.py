@@ -225,6 +225,28 @@ def _all_moving(views, solid, surf: dict, side_name: str, mirrored: bool, materi
     print(f'[lpa] all-moving {role}: pivot {np.round(pivot, 3).tolist()} axis {np.round(axis, 3).tolist()} -> {ctl}')
 
 
+def _spinning(obj, item: dict, side_name: str, mirrored: bool, material: str) -> None:
+    """A propeller (or its painted tips) that spins about body +Z through its 'center'.
+
+    Exported as a surface with control 'spin': its sign is the prop's hand (the turn
+    direction, see parts.prop) and its range is the spin rate in deg/s.
+    """
+    role = item.get('name', 'prop') + side_name
+    obj.name = role
+    geo._link(obj, 'Surfaces')
+    geo.tidy(obj, material)
+    centre = [float(c) for c in item['center']]
+    if mirrored:
+        centre[0] = -centre[0]
+    geo.set_origin(obj, centre)
+    obj['lpa_role'] = role
+    obj['lpa_control'] = 'spin'
+    obj['lpa_sign'] = float(item.get('hand', 1.0))
+    obj['lpa_range_deg'] = float(item.get('spin_deg_s', 700.0))
+    obj['lpa_axis'] = [0.0, 0.0, 1.0]
+    print(f'[lpa] spinning {role}: centre {np.round(centre, 3).tolist()} hand {obj["lpa_sign"]:+.0f}')
+
+
 def _add_surfaces(views, hull, spec) -> None:
     for item in spec.get('surfaces', []):
         kind = item['type']
@@ -459,6 +481,9 @@ def build_parts(spec: dict) -> None:
                     bpy.data.objects.remove(obj)
                 continue
             bpy.data.collections['Construction'].objects.unlink(obj)
+            if join == 'spin':
+                _spinning(obj, item, side_name, mirrored, material)
+                continue
             if join == 'surface':
                 _all_moving(None, obj, item['surface'], side_name, mirrored, material, smooth)
             else:

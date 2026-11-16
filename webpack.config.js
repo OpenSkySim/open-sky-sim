@@ -117,6 +117,8 @@ module.exports = (_env, argv) => ({
                 // production build copies it into dist/ (see the note above).
                 // The planet's colour map from orbit, tiled (tools/prep_earth_tiles.py).
                 { from: 'assets/earth', to: 'assets/earth', noErrorOnMissing: true },
+                // Aircraft packs that ship with the game (src/script/state/builtinPacks.ts).
+                { from: 'assets/packs', to: 'assets/packs', noErrorOnMissing: true },
                 // TERRAIN_DIR ships another tree under the same URL, e.g. one
                 // area cut out by tools/extract_area_tree.py.
                 ...(argv && argv.mode === 'production' && !process.env.TERRAIN_URL
