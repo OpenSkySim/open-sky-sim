@@ -276,16 +276,16 @@ def main():
             {'type': 'slat', 'view': 'top', 'mirror': True, 'sweep_parent': 'wingFold',
              'polygon_m': slat_m(9.45, 12.2, 0.4, 0.25)},
             {'type': 'slat', 'role': 'slatMid', 'view': 'top', 'mirror': True, 'sweep_parent': 'wingFold',
-             'polygon_m': slat_m(6.35, 9.35, 0.55, 0.4)},
+             'polygon_m': slat_m(6.25, 9.35, 0.55, 0.4)},
             {'type': 'slat', 'role': 'slatInner', 'view': 'top', 'mirror': True, 'polygon_m': slat_m(1.5, 3.2, 0.6, 0.6)},
             # Parking: the outer wings fold up and over the fuselage about a skewed hinge just outboard of
-            # the nacelles (drawing: hinge x 5.94 at the LE to 5.18 at the TE; user: angled ~19 deg so the tips fold further forward;
+            # the nacelles (drawing: hinge x 5.94 at the LE to 5.18 at the TE; user: angled ~19 deg so the tips fold further forward, and as far inboard as the nacelle and exhaust allow;
             # folded, the panels cross above the fuselage). Cut after the surfaces that ride on it.
             {'type': 'wingFold', 'role': 'wingFold', 'control': 'fold', 'view': 'top', 'mirror': True,
              # Hinged on the upper skin; the left panel folds a little further than the right so the
              # two lie one above the other where they cross.
              'sign': 1.0, 'range_deg_sides': [177.0, 171.0], 'hinge_skin': 1.0,
-             'polygon_m': top_m([(6.40, 8.2), (4.736, 13.0), (13.6, 13.0), (13.6, 8.2)])},
+             'polygon_m': top_m([(6.25, 8.2), (4.60, 13.0), (13.6, 13.0), (13.6, 8.2)])},
             # Kept clear of the inward-leaning fins: stops short of them and only cuts the tailplane's height.
             {'type': 'elevator', 'view': 'top', 'mirror': True, 'depth_m': [0.3, 1.3],
              'polygon_m': top_m([(0.6, 19.1), (5.2, 19.1), (5.2, 20.1), (0.6, 20.1)])},
