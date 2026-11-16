@@ -164,6 +164,12 @@ def main():
     fin = [(5.62, -0.95, 18.45, 1.55, 0.08), (5.47, 1.0, 17.25, 2.85, 0.08), (5.32, 2.95, 18.2, 1.9, 0.08)]
     pylon = [(0.0, 0.6, 12.6, 2.3, 0.32), (0.0, 3.8, 12.7, 2.2, 0.32)]
     dark = 'VEHICLE_PLANE_ENGINE'
+    # Gear bays: streamlined boxes the wheels fold into (reference renders: under each nacelle d 9.7..12.6,
+    # under the nose d 0.85..2.45); their doors are gear parts (see 'doors' below).
+    main_bay = [(9.5, 0.0, -1.0, -1.0, 2), (9.85, 0.4, -1.42, -0.8, 3), (10.35, 0.47, -1.56, -0.7, 4),
+                (12.55, 0.47, -1.56, -0.7, 4), (12.85, 0.37, -1.42, -0.78, 3), (13.1, 0.0, -1.05, -1.05, 2)]
+    nose_bay = [(0.75, 0.0, -1.9, -1.9, 2), (0.95, 0.3, -2.1, -1.68, 3), (1.3, 0.36, -2.16, -1.66, 3.5),
+                (2.25, 0.36, -2.16, -1.7, 3.5), (2.5, 0.26, -2.06, -1.74, 3), (2.7, 0.0, -1.9, -1.9, 2)]
     # Teardrop hub under the rotodome where the pylon meets it (mock-up photo).
     dome_hub = [(12.3, 0.0, 3.62, 3.62, 2), (12.6, 0.35, 3.45, 3.74, 2.5), (13.6, 0.42, 3.42, 3.76, 2.5),
                 (14.5, 0.3, 3.5, 3.72, 2.5), (14.9, 0.0, 3.62, 3.62, 2)]
@@ -204,6 +210,9 @@ def main():
             {'name': 'TrackOuter', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(track(8.05, 9.9, 12.7), 8.05)},
             {'name': 'AntennaTop', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
              'stations': panel_rows([(0.0, 0.72, 3.62, 0.34, 0.14), (0.0, 1.1, 3.56, 0.24, 0.14)])},
+            {'name': 'MainGearBay', 'type': 'loft', 'mirror': True, 'segments': 14, 'resample': 9,
+             'stations': loft_rows(main_bay, 4.05)},
+            {'name': 'NoseGearBay', 'type': 'loft', 'segments': 14, 'resample': 9, 'stations': loft_rows(nose_bay)},
             {'name': 'DomeHub', 'type': 'loft', 'segments': 12, 'stations': loft_rows(dome_hub)},
             {'name': 'AntennaFront', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 5,
              'stations': panel_rows([(0.0, -1.8, 3.52, 0.3, 0.14), (0.0, -2.14, 3.62, 0.2, 0.14)])},
@@ -242,18 +251,18 @@ def main():
                             side_m([(19.3, 0.82), (19.3, -1.1), (20.4, -1.1), (20.4, 0.82)])]},
         ],
         'gear': {'legs': [
-            {'name': 'Nose', 'pos_m': P(0.0, -2.83, 1.21), 'retract': 'aft', 'retract_deg': 115, 'wheel_radius_m': 0.31, 'twin': True},
-            {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'retract_deg': 118, 'wheel_radius_m': 0.46, 'twin': True},
+            {'name': 'Nose', 'pos_m': P(0.0, -2.83, 1.21), 'retract': 'aft', 'retract_deg': 95, 'strut_top_y_m': -1.8, 'wheel_radius_m': 0.31, 'twin': True},
+            {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'retract_deg': 90, 'strut_top_y_m': -1.0, 'wheel_radius_m': 0.46, 'twin': True},
         ],
             # Thin bay doors (drawing: nose doors d 0.9..2.4 splayed in the front view; main doors d 9.7..11.45
             # under each nacelle). They hang open with the gear down and fold shut under the bay with it up.
             'doors': [
-                {'name': 'Nose', 'hinge_m': [0.3, -1.85], 'z_m': [round(Z0 - 2.4, 3), round(Z0 - 0.9, 3)],
-                 'height_m': 0.32, 'side': 1, 'mirror': True, 'splay_deg': 18},
-                {'name': 'MainOuter', 'hinge_m': [4.5, -0.97], 'z_m': [round(Z0 - 11.45, 3), round(Z0 - 9.7, 3)],
-                 'height_m': 0.46, 'side': 1, 'mirror': True, 'splay_deg': 4},
-                {'name': 'MainInner', 'hinge_m': [3.6, -0.97], 'z_m': [round(Z0 - 11.45, 3), round(Z0 - 9.7, 3)],
-                 'height_m': 0.44, 'side': -1, 'mirror': True, 'splay_deg': 4},
+                {'name': 'Nose', 'hinge_m': [0.3, -2.17], 'z_m': [round(Z0 - 2.3, 3), round(Z0 - 1.0, 3)],
+                 'height_m': 0.31, 'side': 1, 'mirror': True, 'splay_deg': 18},
+                {'name': 'MainOuter', 'hinge_m': [4.41, -1.53], 'z_m': [round(Z0 - 12.55, 3), round(Z0 - 9.95, 3)],
+                 'height_m': 0.36, 'side': 1, 'mirror': True, 'splay_deg': 4},
+                {'name': 'MainInner', 'hinge_m': [3.69, -1.53], 'z_m': [round(Z0 - 12.55, 3), round(Z0 - 9.95, 3)],
+                 'height_m': 0.36, 'side': -1, 'mirror': True, 'splay_deg': 4},
             ]},
         'cockpit_m': P(0.0, 0.1, 2.4),
     }

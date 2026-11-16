@@ -306,7 +306,8 @@ def _add_gear(views, hull, spec) -> None:
         for xi in xs:
             side_name = '' if len(xs) == 1 else ('Left' if xi > 0 else 'Right')
             name = f"LG_{leg.get('name', 'Leg')}{side_name}"
-            y_top = geo.underside_y(tree, xi, z, y_ground)
+            # A gear bay box below the skin would stop the cast short; 'strut_top_y_m' pins the pivot inside it.
+            y_top = float(leg['strut_top_y_m']) if 'strut_top_y_m' in leg else geo.underside_y(tree, xi, z, y_ground)
             if y_top is None:
                 y_top = y_ground + 2.5 * radius
                 print(f'[lpa] gear {name}: nothing above the wheel, strut top guessed at y={y_top:.2f}')
