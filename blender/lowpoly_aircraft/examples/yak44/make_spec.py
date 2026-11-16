@@ -124,7 +124,9 @@ def main():
     scoop = [(4.92, 0.34, 0.81, 1.13, 2.4), (5.0, 0.34, 0.81, 1.13, 2.4)]
     # Turbine exhaust: a round pipe ending aft-facing where the nacelle's upper half stops (drawing step at
     # d 13.1, y -0.12..0.57); the lower nacelle continues as the tail cone (reference renders).
-    exhaust = [(12.0, 0.3, -0.08, 0.52, 2), (12.8, 0.34, -0.12, 0.56, 2), (13.12, 0.34, -0.12, 0.56, 2)]
+    # Fairing that tapers the nacelle's upper half smoothly into the round nozzle.
+    exhaust = [(11.3, 0.66, -0.2, 1.02, 2.2), (11.9, 0.62, -0.16, 0.92, 2.15), (12.4, 0.53, -0.14, 0.78, 2.1),
+               (12.8, 0.42, -0.12, 0.64, 2.05), (13.12, 0.35, -0.12, 0.57, 2)]
     exhaust_mouth = [(13.08, 0.27, -0.05, 0.49, 2), (13.16, 0.27, -0.05, 0.49, 2)]
     # Teardrop blisters on the nacelle's outer side (reference renders; the 'D' marks on the drawing).
     blister_hi = [(7.3, 0.0, 0.62, 0.62, 2), (7.5, 0.1, 0.54, 0.7, 2), (8.0, 0.1, 0.54, 0.7, 2), (8.3, 0.0, 0.62, 0.62, 2)]
@@ -141,12 +143,11 @@ def main():
                (5.6, 0.47, -0.27, 0.67, 2), (6.4, 0.55, -0.35, 0.75, 2)]
     nacelle = [(6.4, 0.55, -0.35, 0.75, 2), (6.6, 0.63, -0.45, 0.84, 2), (7.0, 0.7, -0.61, 1.0, 2.1),
                (7.5, 0.77, -0.75, 1.15, 2.2), (8.5, 0.78, -0.91, 1.25, 2.3), (9.5, 0.78, -0.95, 1.25, 2.3),
-               (10.5, 0.75, -0.95, 1.15, 2.3), (11.5, 0.68, -0.95, 1.0, 2.2), (12.5, 0.57, -0.95, 0.81, 2.1),
-               (13.05, 0.5, -0.91, 0.62, 2),
-               # Behind the exhaust step (drawing: d 13.1, under the pylon's front edge) the nacelle
-               # continues as a lower tail cone.
-               (13.15, 0.44, -0.9, -0.12, 2), (13.7, 0.33, -0.82, -0.25, 2), (14.1, 0.2, -0.7, -0.4, 2),
-               (14.3, 0.0, -0.56, -0.56, 2)]
+               (10.5, 0.75, -0.95, 1.15, 2.3), (11.5, 0.68, -0.95, 1.0, 2.2),
+               # From here the upper half hands over to the exhaust fairing (below) and the nacelle itself
+               # sinks into the lower tail cone that runs on past the exhaust (drawing step at d 13.1).
+               (12.2, 0.6, -0.95, 0.62, 2.1), (12.7, 0.52, -0.93, 0.25, 2), (13.15, 0.44, -0.9, -0.1, 2),
+               (13.7, 0.33, -0.82, -0.25, 2), (14.1, 0.2, -0.7, -0.4, 2), (14.3, 0.0, -0.56, -0.56, 2)]
     d_dome, r_dome, y_dome, t_dome = 13.4, 3.65, 4.06, 0.39
     dome = []
     for k in range(13):
@@ -196,7 +197,7 @@ def main():
             {'name': 'Intake', 'type': 'loft', 'segments': 14, 'resample': 7, 'stations': loft_rows(intake)},
             {'name': 'Scoop', 'type': 'loft', 'join': 'separate', 'material': dark, 'segments': 12,
              'stations': loft_rows(scoop)},
-            {'name': 'Exhaust', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_rows(exhaust, 4.05)},
+            {'name': 'Exhaust', 'type': 'loft', 'mirror': True, 'segments': 14, 'resample': 8, 'stations': loft_rows(exhaust, 4.05)},
             {'name': 'ExhaustMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': dark,
              'segments': 10, 'stations': loft_rows(exhaust_mouth, 4.05)},
             {'name': 'BlisterUpper', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(blister_hi, 4.79)},
