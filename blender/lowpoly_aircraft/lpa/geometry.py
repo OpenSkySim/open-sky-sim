@@ -210,13 +210,29 @@ def cut_part(hull: bpy.types.Object, name: str, view: str, poly_body2: np.ndarra
 
 
 def recess(hull: bpy.types.Object, cutter: bpy.types.Object, name: str, material: str,
-           collection: str, inset: float = 0.012) -> bpy.types.Object | None:
-    """Sink a well (wheel bay) into the hull with *cutter*; returns its dark lining (or None).
+           collection: str, inset: float = 0.012):
+    """Sink a well (wheel bay) into the hull with *cutter*; returns (lining, skin) (either may be None).
 
     The hull keeps the cavity walls; the lining is the cutter's own skin inside the
     hull, pulled *inset* inwards and facing into the well, so the well reads dark
-    while the body keeps one material. The cutter is consumed.
+    while the body keeps one material. The skin is the patch of hull surface the
+    well removes (hidden, in Construction): doors cut from it close flush. The
+    cutter is consumed.
     """
+    skin_patch = copy_object(hull, f'{name}_Skin', 'Construction')
+    outer = bvh_of(hull)
+    boolean(skin_patch, cutter, 'INTERSECT')
+    bm = bmesh.new()
+    bm.from_mesh(skin_patch.data)
+    bmesh.ops.triangulate(bm, faces=bm.faces)  # loft quads are not planar: test triangle centres
+    inner = [f for f in bm.faces if outer.find_nearest(f.calc_center_median())[3] > 0.015]
+    bmesh.ops.delete(bm, geom=inner, context='FACES')
+    bm.to_mesh(skin_patch.data)
+    bm.free()
+    skin_patch.hide_render = True
+    if is_empty(skin_patch):
+        bpy.data.objects.remove(skin_patch)
+        skin_patch = None
     liner = copy_object(cutter, name, collection)
     bm = bmesh.new()
     bm.from_mesh(liner.data)
@@ -239,7 +255,7 @@ def recess(hull: bpy.types.Object, cutter: bpy.types.Object, name: str, material
     bm.free()
     if is_empty(liner):
         bpy.data.objects.remove(liner)
-        return None
+        return None, skin_patch
     tidy(liner, material)
     # tidy cannot orient an open shell: point every face into the well.
     centre = sum((v.co for v in liner.data.vertices), Vector()) / len(liner.data.vertices)
@@ -250,7 +266,44 @@ def recess(hull: bpy.types.Object, cutter: bpy.types.Object, name: str, material
     bmesh.ops.reverse_faces(bm, faces=flip)
     bm.to_mesh(liner.data)
     bm.free()
-    return liner
+    return liner, skin_patch
+
+
+def skin_door(name: str, skin_patch: bpy.types.Object, split_x: float, side: float,
+              collection: str, thickness: float = 0.025) -> bpy.types.Object | None:
+    """One half of a well's skin patch (the +X half for side +1) as a door, closed and flush.
+
+    The half is given *thickness* inwards; its origin sits on its outer edge (the hinge).
+    """
+    obj = copy_object(skin_patch, name, collection)
+    obj.hide_render = False
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
+    bmesh.ops.bisect_plane(bm, geom=geom, plane_co=to_bl((split_x, 0.0, 0.0)),
+                           plane_no=to_bl((1.0, 0.0, 0.0)), clear_inner=side > 0, clear_outer=side < 0)
+    bm.to_mesh(obj.data)
+    bm.free()
+    if is_empty(obj):
+        bpy.data.objects.remove(obj)
+        return None
+    pts = np.array([from_bl(v.co) for v in obj.data.vertices])
+    edge_x = pts[:, 0].max() if side > 0 else pts[:, 0].min()
+    rim = pts[np.abs(pts[:, 0] - edge_x) < 0.03]
+    mod = obj.modifiers.new('solid', 'SOLIDIFY')
+    mod.thickness = thickness
+    mod.offset = -1.0
+    deps = bpy.context.evaluated_depsgraph_get()
+    deps.update()
+    new_mesh = bpy.data.meshes.new_from_object(obj.evaluated_get(deps))
+    obj.modifiers.remove(mod)
+    old = obj.data
+    obj.data = new_mesh
+    new_mesh.name = name
+    bpy.data.meshes.remove(old)
+    tidy(obj, 'VEHICLE_PLANE_GREY')
+    set_origin(obj, (float(edge_x), float(rim[:, 1].mean()), float(rim[:, 2].mean())))
+    return obj
 
 
 def flat_shape(name: str, loops_body2: list[np.ndarray], material: str, collection: str) -> bpy.types.Object:

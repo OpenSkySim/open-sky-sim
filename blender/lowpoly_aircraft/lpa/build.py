@@ -37,6 +37,9 @@ GEAR_RETRACT_AXES = {
     'outward': ((0.0, 0.0, 1.0), 1.0),
 }
 GEAR_FRAMES = (1, 30)
+# Retraction runs end -> start: the legs fold up over the first half, then the doors shut.
+# Extension mirrors it: doors open over the first half, then the legs come down.
+GEAR_MID = 0.5 * (GEAR_FRAMES[0] + GEAR_FRAMES[1])
 
 
 def _poly_body2(views: dict[str, View], item: dict) -> np.ndarray:
@@ -324,8 +327,9 @@ def _add_gear(views, hull, spec) -> None:
                 o.name = f'{i}_{o.name}'
                 o.rotation_mode = 'QUATERNION'
                 o.rotation_quaternion = q_up
-                o.keyframe_insert('location', frame=GEAR_FRAMES[0])
-                o.keyframe_insert('rotation_quaternion', frame=GEAR_FRAMES[0])
+                for frame in (GEAR_FRAMES[0], GEAR_MID):
+                    o.keyframe_insert('location', frame=frame)
+                    o.keyframe_insert('rotation_quaternion', frame=frame)
                 o.rotation_quaternion = Quaternion()
                 o.keyframe_insert('location', frame=GEAR_FRAMES[1])
                 o.keyframe_insert('rotation_quaternion', frame=GEAR_FRAMES[1])
@@ -337,6 +341,37 @@ def _add_gear(views, hull, spec) -> None:
     sc.frame_set(GEAR_FRAMES[1])
 
 
+_WELL_SKINS: dict = {}  # well part name -> (removed skin patch, well centre x), set by build_parts
+
+
+def _add_well_doors(door: dict) -> None:
+    """Two doors cut from a well's own skin (split down the middle), hinged on its outer edges.
+
+    They sit flush when closed (gear up) and swing open by 'open_deg' (gear down).
+    """
+    wells = [(door['well'], '')]
+    if door.get('mirror'):
+        wells = [(f"{door['well']}Left", 'Left'), (f"{door['well']}Right", 'Right')]
+    for well, suffix in wells:
+        if well not in _WELL_SKINS:
+            print(f'[lpa] door {door.get("name")}: no well {well}')
+            continue
+        skin, centre_x = _WELL_SKINS[well]
+        for side, part in ((1.0, 'A'), (-1.0, 'B')):
+            obj = geo.skin_door(f"2_Door_{door.get('name', 'Bay')}{part}{suffix}", skin, centre_x, side, 'Gear',
+                                thickness=float(door.get('thickness_m', 0.025)))
+            if obj is None:
+                continue
+            axis = geo.to_bl((0.0, 0.0, 1.0))
+            q_open = Quaternion(axis, side * math.radians(float(door.get('open_deg', 90.0))))
+            obj.rotation_mode = 'QUATERNION'
+            for frame, q in ((GEAR_FRAMES[0], Quaternion()), (GEAR_MID, q_open), (GEAR_FRAMES[1], q_open)):
+                obj.rotation_quaternion = q
+                obj.keyframe_insert('location', frame=frame)
+                obj.keyframe_insert('rotation_quaternion', frame=frame)
+            obj.animation_data.action.name = f'{obj.name}Action'
+
+
 def _add_gear_doors(gear: dict) -> None:
     """Bay doors that hang open with the gear down and fold flat under the bay with it up.
 
@@ -344,9 +379,13 @@ def _add_gear_doors(gear: dict) -> None:
     edge of the bay it sits on (+1: the +X edge, so it folds towards -X to close) and
     'closed_deg' is the swing to shut (90 = flat; less for a door that follows a
     rounded skin) and 'splay_deg' tilts the open door outwards. Doors animate with the gear (same frames,
-    one '<name>Action' clip each), so the sim swings them with the legs.
+    one '<name>Action' clip each), so the sim swings them with the legs. A door with
+    'well' is cut from that well's skin instead (see _add_well_doors).
     """
     for door in gear.get('doors', []):
+        if 'well' in door:
+            _add_well_doors(door)
+            continue
         x, y = (float(c) for c in door['hinge_m'])
         z0, z1 = (float(c) for c in door['z_m'])
         side = float(door.get('side', 1.0))
@@ -361,7 +400,7 @@ def _add_gear_doors(gear: dict) -> None:
             q_closed = Quaternion(axis, -si * math.radians(float(door.get('closed_deg', 90.0))))
             q_open = Quaternion(axis, si * math.radians(float(door.get('splay_deg', 0.0))))
             obj.rotation_mode = 'QUATERNION'
-            for frame, q in ((GEAR_FRAMES[0], q_closed), (GEAR_FRAMES[1], q_open)):
+            for frame, q in ((GEAR_FRAMES[0], q_closed), (GEAR_MID, q_open), (GEAR_FRAMES[1], q_open)):
                 obj.rotation_quaternion = q
                 obj.keyframe_insert('location', frame=frame)
                 obj.keyframe_insert('rotation_quaternion', frame=frame)
@@ -427,8 +466,13 @@ def build_parts(spec: dict) -> None:
                 geo._link(obj, 'Body')
                 geo.tidy(obj, material, smooth)
                 separate.append(obj)
+    _WELL_SKINS.clear()
     for obj, material in wells:
-        geo.recess(hull, obj, f'1_{obj.name}', material, 'Body')
+        well_name = obj.name
+        centre_x = float(np.mean([geo.from_bl(v.co)[0] for v in obj.data.vertices]))
+        _, skin = geo.recess(hull, obj, f'1_{well_name}', material, 'Body')
+        if skin is not None:
+            _WELL_SKINS[well_name] = (skin, centre_x)
     wingtips = _wingtips(hull)
     for i, item in enumerate(spec.get('regions', [])):
         view = item.get('view', 'side')
@@ -450,6 +494,9 @@ def build_parts(spec: dict) -> None:
                 part['lpa_region'] = item.get('name', 'Region')
     _add_surfaces(None, hull, spec)
     _add_gear(None, hull, spec)
+    for skin, _ in _WELL_SKINS.values():
+        bpy.data.objects.remove(skin)
+    _WELL_SKINS.clear()
 
     geo.tidy(hull, spec.get('material', 'VEHICLE_PLANE_GREY'), smooth)
     hull.name = hull.data.name = '0_Body'
@@ -459,6 +506,7 @@ def build_parts(spec: dict) -> None:
     for o in list(construction.objects):
         bpy.data.objects.remove(o)
     bpy.data.collections.remove(construction)
+    bpy.context.view_layer.update()  # drop removed objects from the view layer before export
 
     footprint = [o for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name in ('Body', 'Surfaces')]
     parts.shadow_from_mesh(footprint, '0_Shadow')

@@ -166,8 +166,12 @@ def main():
     dark = 'VEHICLE_PLANE_ENGINE'
     # Wheel wells sunk into the nacelle bellies and the nose (all gear folds aft into the airframe);
     # cut as boxy lofts, lined dark, and closed by the doors under 'gear'.
-    main_well = [(10.7, 0.44, -1.4, 0.22, 5), (11.6, 0.44, -1.4, 0.22, 5), (12.45, 0.44, -1.4, 0.22, 5)]
-    nose_well = [(1.0, 0.3, -2.3, -0.85, 5), (1.7, 0.3, -2.3, -0.85, 5), (2.35, 0.3, -2.3, -0.85, 5)]
+    # 20 cm of clearance around the folded wheels where the skin allows (the nacelle narrows aft).
+    # The main wells follow the round nacelle section (about 12 cm inside its skin) so they open
+    # only on the belly.
+    main_well = [(10.4, 0.6, -1.35, 0.45, 2.4), (11.5, 0.58, -1.35, 0.45, 2.3), (12.1, 0.52, -1.35, 0.4, 2.2),
+                 (12.5, 0.45, -1.35, 0.3, 2.1), (12.7, 0.3, -1.3, 0.1, 2)]
+    nose_well = [(0.8, 0.5, -2.3, -1.2, 5), (1.4, 0.5, -2.3, -0.65, 5), (2.55, 0.5, -2.3, -0.65, 5)]
     # Teardrop hub under the rotodome where the pylon meets it (mock-up photo).
     dome_hub = [(12.3, 0.0, 3.62, 3.62, 2), (12.6, 0.35, 3.45, 3.74, 2.5), (13.6, 0.42, 3.42, 3.76, 2.5),
                 (14.5, 0.3, 3.5, 3.72, 2.5), (14.9, 0.0, 3.62, 3.62, 2)]
@@ -253,15 +257,10 @@ def main():
             {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -0.9, 'wheel_radius_m': 0.46, 'twin': True},
         ],
             # Thin bay doors (drawing: nose doors d 0.9..2.4 splayed in the front view; main doors d 9.7..11.45
-            # under each nacelle). They hang open with the gear down and shut over the wells with it up.
+            # under each nacelle). Cut from each well's own skin, so they close flush with the gear up.
             'doors': [
-                {'name': 'Nose', 'hinge_m': [0.3, -1.79], 'z_m': [round(Z0 - 2.33, 3), round(Z0 - 1.02, 3)],
-                 'height_m': 0.29, 'side': 1, 'mirror': True, 'splay_deg': 18},
-                # The nacelle belly is round: the doors shut at 67 deg to follow it.
-                {'name': 'MainOuter', 'hinge_m': [4.49, -0.74], 'z_m': [round(Z0 - 12.43, 3), round(Z0 - 10.72, 3)],
-                 'height_m': 0.47, 'side': 1, 'mirror': True, 'splay_deg': 4, 'closed_deg': 67},
-                {'name': 'MainInner', 'hinge_m': [3.61, -0.74], 'z_m': [round(Z0 - 12.43, 3), round(Z0 - 10.72, 3)],
-                 'height_m': 0.47, 'side': -1, 'mirror': True, 'splay_deg': 4, 'closed_deg': 67},
+                {'name': 'Nose', 'well': 'NoseWell', 'open_deg': 100},
+                {'name': 'Main', 'well': 'MainWell', 'mirror': True, 'open_deg': 95},
             ]},
         'cockpit_m': P(0.0, 0.1, 2.4),
     }
