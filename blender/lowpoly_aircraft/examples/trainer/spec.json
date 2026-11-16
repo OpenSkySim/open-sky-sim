@@ -1,0 +1,183 @@
+{
+  "id": "lp_trainer",
+  "name": "Lowpoly Trainer",
+  "image": "trainer_3view.png",
+  "length_m": 9.0,
+  "span_m": 10.0,
+  "detail_px": 4,
+  "material": "VEHICLE_PLANE_GREY",
+  "views": {
+    "top": {
+      "crop": [
+        60,
+        40,
+        540,
+        465
+      ],
+      "nose": "up"
+    },
+    "side": {
+      "crop": [
+        600,
+        250,
+        1040,
+        462
+      ],
+      "nose": "left"
+    },
+    "front": {
+      "crop": [
+        1080,
+        250,
+        1520,
+        462
+      ],
+      "facing": "front"
+    }
+  },
+  "regions": [
+    {
+      "name": "Canopy",
+      "view": "side",
+      "material": "GLASS",
+      "polygon_px": [
+        [
+          738.0,
+          364.4
+        ],
+        [
+          768.0,
+          336.0
+        ],
+        [
+          826.0,
+          336.0
+        ],
+        [
+          856.0,
+          366.4
+        ]
+      ]
+    }
+  ],
+  "surfaces": [
+    {
+      "type": "aileron",
+      "view": "top",
+      "mirror": true,
+      "polygon_px": [
+        [
+          420.0,
+          234.0
+        ],
+        [
+          492.0,
+          231.2
+        ],
+        [
+          492.0,
+          260.0
+        ],
+        [
+          420.0,
+          264.0
+        ]
+      ]
+    },
+    {
+      "type": "flap",
+      "view": "top",
+      "mirror": true,
+      "polygon_px": [
+        [
+          328.0,
+          238.0
+        ],
+        [
+          416.0,
+          236.0
+        ],
+        [
+          416.0,
+          264.0
+        ],
+        [
+          328.0,
+          268.0
+        ]
+      ]
+    },
+    {
+      "type": "elevator",
+      "view": "top",
+      "mirror": true,
+      "polygon_px": [
+        [
+          308.0,
+          414.0
+        ],
+        [
+          372.0,
+          414.0
+        ],
+        [
+          372.0,
+          444.0
+        ],
+        [
+          308.0,
+          444.0
+        ]
+      ]
+    },
+    {
+      "type": "rudder",
+      "view": "side",
+      "polygon_px": [
+        [
+          976.0,
+          367.2
+        ],
+        [
+          984.0,
+          302.0
+        ],
+        [
+          1012.0,
+          302.0
+        ],
+        [
+          1012.0,
+          367.2
+        ]
+      ]
+    }
+  ],
+  "gear": {
+    "legs": [
+      {
+        "name": "Nose",
+        "side_px": [
+          692.0,
+          450.0
+        ],
+        "retract": "aft",
+        "wheel_radius_m": 0.2
+      },
+      {
+        "name": "Main",
+        "side_px": [
+          800.0,
+          452.0
+        ],
+        "top_px": [
+          364.0,
+          240.0
+        ],
+        "mirror": true,
+        "retract": "inward",
+        "wheel_radius_m": 0.28
+      }
+    ]
+  }
+}
