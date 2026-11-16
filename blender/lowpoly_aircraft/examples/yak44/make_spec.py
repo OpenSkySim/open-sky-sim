@@ -115,20 +115,16 @@ def main():
                 (16.5, 0.92, -1.52, 0.72), (17.5, 0.72, -1.29, 0.88), (18.5, 0.56, -1.05, 0.98),
                 (19.3, 0.46, -0.87, 1.05), (19.8, 0.38, -0.68, 1.08), (20.1, 0.22, -0.56, 1.0),
                 (20.2, 0.0, 0.2, 0.2)]
-    # The wing-root fairing ramps up smoothly from the fuselage top ahead of the wing (no blunt front),
-    # so the intake duct flows into it (mock-up photo).
-    fairing = [(5.0, 0.8, 0.6, 0.8, 2.5), (5.6, 1.1, 0.55, 1.02, 3), (6.2, 1.25, 0.5, 1.22, 3.5),
-               (6.8, 1.31, 0.5, 1.35, 4), (9.0, 1.33, 0.5, 1.36, 4),
+    # Air intake and wing-root fairing are one shape (top view: a flat mouth at d 5.43, x +-0.57, widening
+    # smoothly to the fuselage width by d 7.8; side view: mouth y 0.9..1.3, top line y 1.36 running aft).
+    fairing = [(5.4, 0.57, 0.75, 1.3, 2.6), (5.6, 0.66, 0.7, 1.34, 2.8), (6.0, 0.81, 0.6, 1.36, 3.0),
+               (6.6, 0.97, 0.5, 1.36, 3.3), (7.2, 1.15, 0.5, 1.36, 3.6), (7.8, 1.3, 0.5, 1.36, 4),
+               (9.0, 1.33, 0.5, 1.36, 4),
                (11.0, 1.3, 0.5, 1.3, 4), (12.0, 1.1, 0.5, 1.0, 3), (12.8, 0.6, 0.5, 0.75, 2.5),
                (13.0, 0.0, 0.6, 0.6, 2.5)]
-    # Air intake: an oval duct on the centre line ahead of the wing (mock-up photo): round sides, a thin
-    # rounded lip around a large open mouth, and a smooth taper aft into the wing fairing.
-    intake = [(4.78, 0.38, 0.78, 1.18, 2.1), (4.86, 0.43, 0.74, 1.23, 2.1), (5.05, 0.47, 0.7, 1.27, 2.15),
-              (5.6, 0.48, 0.7, 1.27, 2.2), (6.4, 0.46, 0.7, 1.24, 2.2), (7.1, 0.3, 0.78, 1.05, 2.2),
-              (7.4, 0.0, 0.9, 0.9, 2)]
-    # The mouth: a dark-lined duct sunk 0.6 m into the pod, narrowing inside.
-    intake_mouth = [(4.6, 0.35, 0.83, 1.15, 2.1), (4.9, 0.35, 0.83, 1.15, 2.1), (5.2, 0.32, 0.86, 1.12, 2.1),
-                    (5.4, 0.18, 0.93, 1.05, 2)]
+    # The mouth: a dark-lined duct sunk 0.7 m into the fairing, narrowing inside.
+    intake_mouth = [(5.2, 0.5, 0.86, 1.24, 2.6), (5.6, 0.5, 0.86, 1.24, 2.6), (5.95, 0.42, 0.9, 1.2, 2.4),
+                    (6.15, 0.22, 0.98, 1.12, 2)]
     # Turbine exhaust: a round pipe ending aft-facing where the nacelle's upper half stops (drawing step at
     # d 13.1, y -0.12..0.57); the lower nacelle continues as the tail cone (reference renders).
     # Fairing that tapers the nacelle's upper half smoothly into the round nozzle.
@@ -204,7 +200,6 @@ def main():
              'resample': 7, 'stations': panel_rows(fin)},
             {'name': 'Pylon', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 9, 'stations': panel_rows(pylon)},
             {'name': 'Rotodome', 'type': 'loft', 'join': 'separate', 'segments': 18, 'stations': loft_rows(dome)},
-            {'name': 'Intake', 'type': 'loft', 'segments': 14, 'resample': 7, 'stations': loft_rows(intake)},
             {'name': 'IntakeMouth', 'type': 'loft', 'join': 'cut', 'material': dark, 'segments': 14,
              'stations': loft_rows(intake_mouth)},
             {'name': 'Exhaust', 'type': 'loft', 'mirror': True, 'segments': 14, 'resample': 8, 'stations': loft_rows(exhaust, 4.05)},
