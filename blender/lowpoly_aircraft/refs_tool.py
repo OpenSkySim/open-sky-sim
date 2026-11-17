@@ -112,12 +112,20 @@ def cmd_from_hangar(a) -> int:
         meta = {}
     out = {'aircraft': a.aircraft or meta.get('aircraft'), 'length_m': meta.get('length_m'),
            'span_m': meta.get('span_m'), 'ground_y': meta.get('ground_y'), 'images': []}
+    old_images = []
     if os.path.exists(a.out):
         with open(a.out) as f:
             old = json.load(f)
         for k in ('aircraft', 'length_m', 'span_m', 'ground_y'):
             out[k] = out[k] if out[k] is not None else old.get(k)
-    for d in sorted(docs, key=lambda d: (d.get('priority', 9), d.get('id', ''))):
+        old_images = old.get('images', [])
+    # Hangar docs override the images already listed (same id); a doc marked 'removed' drops one.
+    by_id = {i['id']: i for i in old_images}
+    for d in docs:
+        by_id[d['id']] = {**by_id.get(d['id'], {}), **d}
+    for d in sorted(by_id.values(), key=lambda d: (d.get('priority', 9), d.get('id', ''))):
+        if d.get('removed'):
+            continue
         out['images'].append({k: d[k] for k in IMAGE_KEYS if k in d})
     if not out['aircraft']:
         print('aircraft id unknown: pass --aircraft', file=sys.stderr)

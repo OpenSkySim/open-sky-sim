@@ -99,6 +99,11 @@ dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); }
 .editor { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .ed-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.ed-bar .chip { display: inline-flex; }
+.ed-bar .chip button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ed-bar .chip button.x { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 5px 7px; color: var(--muted); }
+.ed-bar .chip button.x:hover { color: var(--ref-ink); }
+button.danger { color: var(--ref-ink); }
 .ed-bar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
 .ed-main { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; }
 @media (max-width: 860px) { .ed-main { grid-template-columns: minmax(0, 1fr); } }
@@ -184,6 +189,7 @@ dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
               <label class="check"><input type="checkbox" id="fRepo"> may go into the repo</label>
               <label>Notes <textarea id="fNotes"></textarea></label>
             </fieldset>
+            <div class="row"><button type="button" id="delImage" class="danger">Remove image</button></div>
             <p class="cal-out" id="saveState"></p>
           </div>
         </div>
@@ -683,7 +689,7 @@ requestAnimationFrame(tick);
 // published Hangar, uploads and edits live in the artifact's storage
 // (assets for the files, db docs at aircraft/<id>/refs/<imageId>).
 // ---------------------------------------------------------------------------
-const IMAGE_KEYS = ['id', 'file', 'asset', 'url', 'kind', 'title', 'source', 'repo_ok', 'priority', 'notes', 'views', 'size'];
+const IMAGE_KEYS = ['id', 'file', 'asset', 'url', 'kind', 'title', 'source', 'repo_ok', 'priority', 'notes', 'views', 'size', 'removed'];
 const NOSE_DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const VIEW_AXES = { top: ['d', 'x'], bottom: ['d', 'x'], side: ['d', 'y'], front: ['x', 'y'], rear: ['x', 'y'] };
 const TOOL_HELP = {
@@ -794,7 +800,8 @@ async function loadRefs(entry, stale, force = false) {
   }
   if (stale()) return;
   R.meta.aircraft = R.meta.aircraft || entry.id;
-  R.images = images.sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9));
+  // An image removed in the Hangar stays as a 'removed' doc, so a file listed in refs.json stays hidden too.
+  R.images = images.filter(i => !i.removed).sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9));
   for (const img of R.images) img.views = img.views || [];
   renderThumbs();
   showReference3d();
@@ -861,6 +868,8 @@ function renderViews() {
   const bar = $('edViews');
   bar.textContent = '';
   R.sel.views.forEach((v, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
     const b = document.createElement('button');
     b.type = 'button';
     b.setAttribute('aria-pressed', i === R.viewIdx);
@@ -868,7 +877,14 @@ function renderViews() {
     b.innerHTML = `${v.view} <span class="tag ${st.ok ? 'ok' : 'warn'}">${st.ok ? '✓' : '…'}</span>`;
     b.title = st.text;
     b.addEventListener('click', () => { R.viewIdx = i; R.pts = []; renderViews(); fillForm(); drawMarks(); });
-    bar.appendChild(b);
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'x';
+    x.textContent = '×';
+    x.title = x.ariaLabel = `Remove this ${v.view} view`;
+    x.addEventListener('click', () => deleteView(i));
+    chip.append(b, x);
+    bar.appendChild(chip);
   });
   const add = document.createElement('button');
   add.type = 'button';
@@ -877,7 +893,7 @@ function renderViews() {
     const guess = R.sel.views.length ? 'top' : 'side';
     R.sel.views.push({ view: guess, cal: { nose_dir: guess === 'top' ? 'up' : 'left' } });
     R.viewIdx = R.sel.views.length - 1;
-    renderViews(); fillForm(); setTool('crop'); save();
+    renderViews(); fillForm(); setTool('crop');
   });
   bar.appendChild(add);
   $('viewFields').disabled = !curView();
@@ -1156,6 +1172,36 @@ $('delView').addEventListener('click', () => {
   R.viewIdx = Math.max(0, R.viewIdx - 1);
   changed();
 });
+// Remove image: two clicks (no browser dialogs in the Hangar frame). Uploads are deleted from storage;
+// an image listed in refs.json is marked removed, so it stays hidden here and leaves the exported refs.json.
+{
+  const btn = $('delImage');
+  let armed = null;
+  btn.addEventListener('click', async () => {
+    const img = R.sel;
+    if (!img) return;
+    if (armed !== img) {
+      armed = img;
+      btn.textContent = 'Click again to remove';
+      setTimeout(() => { if (armed === img) { armed = null; btn.textContent = 'Remove image'; } }, 3000);
+      return;
+    }
+    armed = null;
+    btn.textContent = 'Remove image';
+    R.images = R.images.filter(i => i !== img);
+    R.sel = null;
+    $('editor').hidden = true;
+    renderThumbs(); showReference3d();
+    if (!cap.db || !R.entry) { refsNote.textContent = 'Removed here only (no storage): use Copy refs.json.'; return; }
+    try {
+      const ref = cap.db.collection(`aircraft/${R.entry.id}/refs`).doc(img.id);
+      if (img.static) await ref.set({ id: img.id, removed: true });
+      else await ref.delete();
+      if (img.asset && cap.assets) await cap.assets.delete(img.asset).catch(() => {});
+      refsNote.textContent = noteText();
+    } catch (e) { refsNote.textContent = 'Could not remove it: ' + (e.message || e.code); }
+  });
+}
 $('show3d').addEventListener('click', () => {
   const v = curView(); if (!v) return;
   const key = v.view === 'rear' ? 'front' : v.view;
