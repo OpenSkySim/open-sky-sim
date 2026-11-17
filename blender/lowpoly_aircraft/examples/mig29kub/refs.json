@@ -12,14 +12,105 @@
    "source": "scalemodels.ru, uploaded by the owner 2026-11-17",
    "repo_ok": false,
    "priority": 1,
-   "size": [856, 1200],
+   "size": [
+    856,
+    1200
+   ],
    "notes": "Base drawing. Scale 41.5 px/m fits the model's side view; the sheet's 3 m bar reads 42.3 px/m (scan about 2 % off). The lower side view (gear down) is drawn about 3 % shorter.",
    "views": [
-    {"view": "side", "crop": [25, 40, 800, 215], "cal": {"nose": [80, 161.5], "nose_dir": "left", "px_per_m": 41.5, "nose_y_m": 0.0}},
-    {"view": "top", "crop": [100, 205, 845, 740], "cal": {"nose": [131, 474], "nose_dir": "left", "px_per_m": 41.5}},
-    {"view": "front", "crop": [0, 200, 505, 412], "cal": {"nose": [250, 324], "px_per_m": 41.5, "ground": [250, 406]}},
-    {"view": "bottom", "crop": [25, 510, 800, 1012], "cal": {"nose": [729, 766.3], "nose_dir": "right", "px_per_m": 41.5}},
-    {"view": "side", "crop": [15, 965, 800, 1185], "cal": {"nose": [700, 1108.8], "nose_dir": "right", "px_per_m": 41.5, "ground": [520, 1179]}}
+    {
+     "view": "side",
+     "crop": [
+      25,
+      40,
+      800,
+      215
+     ],
+     "cal": {
+      "nose": [
+       80,
+       161.5
+      ],
+      "nose_dir": "left",
+      "px_per_m": 41.5,
+      "nose_y_m": 0.0
+     }
+    },
+    {
+     "view": "top",
+     "crop": [
+      100,
+      205,
+      845,
+      740
+     ],
+     "cal": {
+      "nose": [
+       131,
+       474
+      ],
+      "nose_dir": "left",
+      "px_per_m": 41.5
+     }
+    },
+    {
+     "view": "front",
+     "crop": [
+      0,
+      200,
+      505,
+      412
+     ],
+     "cal": {
+      "nose": [
+       250,
+       324
+      ],
+      "px_per_m": 41.5,
+      "ground": [
+       250,
+       406
+      ]
+     }
+    },
+    {
+     "view": "bottom",
+     "crop": [
+      25,
+      510,
+      800,
+      1012
+     ],
+     "cal": {
+      "nose": [
+       729,
+       766.3
+      ],
+      "nose_dir": "right",
+      "px_per_m": 41.5
+     }
+    },
+    {
+     "view": "side",
+     "crop": [
+      15,
+      965,
+      800,
+      1185
+     ],
+     "cal": {
+      "nose": [
+       700,
+       1108.8
+      ],
+      "nose_dir": "right",
+      "px_per_m": 41.5,
+      "ground": [
+       520,
+       1179
+      ]
+     }
+    }
    ]
   },
   {
@@ -30,8 +121,1001 @@
    "source": "uploaded by the owner 2026-11-17",
    "repo_ok": false,
    "priority": 2,
-   "size": [1054, 532],
+   "size": [
+    1054,
+    532
+   ],
    "notes": "Earlier base drawing, 40 px/m in all views. Views not marked yet."
   }
- ]
+ ],
+ "areas": {
+  "ailerons": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "top",
+     "pts": [
+      [
+       630.0,
+       633.0
+      ],
+      [
+       655.0,
+       707.0
+      ],
+      [
+       671.0,
+       709.0
+      ],
+      [
+       657.0,
+       633.0
+      ]
+     ],
+     "conf": "check",
+     "by": "agent",
+     "why": "aileron: hinge line to trailing edge, spanwise split to tip; proposed by Claude, snapped to the ink"
+    }
+   ]
+  },
+  "canopy": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "side",
+     "pts": [
+      [
+       208.0,
+       118.1
+      ],
+      [
+       208.0,
+       115.5
+      ],
+      [
+       211.0,
+       115.5
+      ],
+      [
+       217.0,
+       109.5
+      ],
+      [
+       220.0,
+       109.5
+      ],
+      [
+       242.0,
+       95.5
+      ],
+      [
+       253.0,
+       93.5
+      ],
+      [
+       260.0,
+       89.5
+      ],
+      [
+       281.0,
+       87.5
+      ],
+      [
+       282.0,
+       85.5
+      ],
+      [
+       324.0,
+       85.5
+      ],
+      [
+       325.0,
+       87.5
+      ],
+      [
+       349.0,
+       89.5
+      ],
+      [
+       350.0,
+       91.5
+      ],
+      [
+       364.0,
+       93.5
+      ],
+      [
+       365.0,
+       95.5
+      ],
+      [
+       370.0,
+       95.5
+      ],
+      [
+       377.0,
+       99.5
+      ],
+      [
+       384.0,
+       99.5
+      ],
+      [
+       391.0,
+       103.5
+      ],
+      [
+       400.0,
+       104.5
+      ],
+      [
+       404.0,
+       107.5
+      ],
+      [
+       409.0,
+       107.5
+      ],
+      [
+       409.0,
+       109.4
+      ]
+     ],
+     "conf": "check",
+     "by": "outline",
+     "why": "the bump above the forward fuselage"
+    }
+   ]
+  },
+  "fin": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "side",
+     "pts": [
+      [
+       560.0,
+       124.8
+      ],
+      [
+       560.0,
+       123.5
+      ],
+      [
+       568.0,
+       123.5
+      ],
+      [
+       575.0,
+       119.5
+      ],
+      [
+       586.0,
+       117.5
+      ],
+      [
+       645.0,
+       61.5
+      ],
+      [
+       657.0,
+       52.5
+      ],
+      [
+       669.0,
+       39.5
+      ],
+      [
+       678.0,
+       39.5
+      ],
+      [
+       679.0,
+       45.5
+      ],
+      [
+       691.0,
+       47.5
+      ],
+      [
+       692.0,
+       54.5
+      ],
+      [
+       696.0,
+       46.5
+      ],
+      [
+       705.0,
+       45.5
+      ],
+      [
+       707.0,
+       39.5
+      ],
+      [
+       715.0,
+       39.5
+      ],
+      [
+       716.0,
+       47.5
+      ],
+      [
+       720.0,
+       48.5
+      ],
+      [
+       721.0,
+       55.5
+      ],
+      [
+       725.0,
+       57.5
+      ],
+      [
+       726.0,
+       141.5
+      ],
+      [
+       731.0,
+       143.5
+      ],
+      [
+       731.0,
+       148.9
+      ]
+     ],
+     "conf": "check",
+     "by": "outline",
+     "why": "the tallest bump above the aft fuselage"
+    }
+   ]
+  },
+  "flaps": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "top",
+     "pts": [
+      [
+       604.0,
+       551.0
+      ],
+      [
+       630.0,
+       633.0
+      ],
+      [
+       657.0,
+       633.0
+      ],
+      [
+       641.0,
+       550.0
+      ]
+     ],
+     "conf": "check",
+     "by": "agent",
+     "why": "inboard flap: between the hinge line and the trailing edge, root to the spanwise split; proposed by Claude, snapped to the ink"
+    }
+   ]
+  },
+  "fuse_bottom": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "side",
+     "pts": [
+      [
+       80.0,
+       162.5
+      ],
+      [
+       96.0,
+       165.5
+      ],
+      [
+       97.0,
+       167.5
+      ],
+      [
+       107.0,
+       167.5
+      ],
+      [
+       108.0,
+       169.5
+      ],
+      [
+       162.0,
+       169.5
+      ],
+      [
+       165.0,
+       173.5
+      ],
+      [
+       174.0,
+       173.5
+      ],
+      [
+       175.0,
+       169.5
+      ],
+      [
+       185.0,
+       169.5
+      ],
+      [
+       186.0,
+       171.5
+      ],
+      [
+       204.0,
+       169.5
+      ],
+      [
+       207.0,
+       173.5
+      ],
+      [
+       218.0,
+       173.5
+      ],
+      [
+       219.0,
+       167.5
+      ],
+      [
+       235.0,
+       167.5
+      ],
+      [
+       236.0,
+       173.5
+      ],
+      [
+       264.0,
+       173.5
+      ],
+      [
+       265.0,
+       171.5
+      ],
+      [
+       269.0,
+       171.5
+      ],
+      [
+       273.0,
+       165.5
+      ],
+      [
+       323.0,
+       165.5
+      ],
+      [
+       327.0,
+       169.5
+      ],
+      [
+       332.0,
+       170.5
+      ],
+      [
+       334.0,
+       173.5
+      ],
+      [
+       337.0,
+       173.5
+      ],
+      [
+       348.0,
+       181.5
+      ],
+      [
+       351.0,
+       181.5
+      ],
+      [
+       355.0,
+       185.5
+      ],
+      [
+       368.0,
+       191.5
+      ],
+      [
+       372.0,
+       195.5
+      ],
+      [
+       440.0,
+       195.5
+      ],
+      [
+       441.0,
+       170.5
+      ],
+      [
+       473.0,
+       170.5
+      ],
+      [
+       474.0,
+       164.5
+      ],
+      [
+       491.0,
+       164.5
+      ],
+      [
+       493.0,
+       169.5
+      ],
+      [
+       511.0,
+       169.5
+      ],
+      [
+       512.0,
+       176.5
+      ],
+      [
+       515.0,
+       176.5
+      ],
+      [
+       516.0,
+       183.5
+      ],
+      [
+       530.0,
+       181.5
+      ],
+      [
+       531.0,
+       190.5
+      ],
+      [
+       579.0,
+       190.5
+      ],
+      [
+       645.0,
+       185.5
+      ],
+      [
+       711.0,
+       185.5
+      ],
+      [
+       714.0,
+       158.5
+      ],
+      [
+       761.0,
+       158.5
+      ],
+      [
+       777.0,
+       157.5
+      ],
+      [
+       780.0,
+       155.5
+      ]
+     ],
+     "conf": "check",
+     "by": "outline",
+     "why": "lower edge of the side view"
+    }
+   ]
+  },
+  "fuse_plan": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "top",
+     "pts": [
+      [
+       100.0,
+       474.0
+      ],
+      [
+       123.0,
+       476.0
+      ],
+      [
+       131.0,
+       475.0
+      ],
+      [
+       157.0,
+       485.0
+      ],
+      [
+       186.0,
+       491.0
+      ],
+      [
+       202.0,
+       493.0
+      ],
+      [
+       212.0,
+       492.0
+      ],
+      [
+       214.0,
+       494.0
+      ],
+      [
+       223.0,
+       494.0
+      ],
+      [
+       225.0,
+       496.0
+      ],
+      [
+       228.0,
+       494.0
+      ],
+      [
+       234.0,
+       494.0
+      ],
+      [
+       241.0,
+       497.0
+      ],
+      [
+       269.0,
+       496.0
+      ],
+      [
+       390.0,
+       533.0
+      ],
+      [
+       428.0,
+       542.0
+      ],
+      [
+       432.0,
+       541.0
+      ],
+      [
+       440.0,
+       544.0
+      ],
+      [
+       444.0,
+       543.0
+      ],
+      [
+       446.0,
+       545.0
+      ],
+      [
+       642.0,
+       552.0
+      ],
+      [
+       655.0,
+       550.0
+      ],
+      [
+       779.0,
+       550.0
+      ]
+     ],
+     "conf": "check",
+     "by": "outline",
+     "why": "half width across the centreline, wing and tailplane roots bridged"
+    }
+   ]
+  },
+  "fuse_top": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "side",
+     "pts": [
+      [
+       80.0,
+       157.5
+      ],
+      [
+       85.0,
+       153.5
+      ],
+      [
+       106.0,
+       145.5
+      ],
+      [
+       107.0,
+       143.5
+      ],
+      [
+       111.0,
+       143.5
+      ],
+      [
+       112.0,
+       141.5
+      ],
+      [
+       140.0,
+       135.5
+      ],
+      [
+       141.0,
+       133.5
+      ],
+      [
+       153.0,
+       132.5
+      ],
+      [
+       157.0,
+       129.5
+      ],
+      [
+       173.0,
+       127.5
+      ],
+      [
+       180.0,
+       123.5
+      ],
+      [
+       186.0,
+       123.5
+      ],
+      [
+       189.0,
+       118.5
+      ],
+      [
+       204.0,
+       119.5
+      ],
+      [
+       206.0,
+       117.5
+      ],
+      [
+       259.0,
+       111.4
+      ],
+      [
+       326.0,
+       107.6
+      ],
+      [
+       427.0,
+       109.5
+      ],
+      [
+       428.0,
+       111.5
+      ],
+      [
+       457.0,
+       113.5
+      ],
+      [
+       465.0,
+       101.5
+      ],
+      [
+       474.0,
+       101.5
+      ],
+      [
+       475.0,
+       115.5
+      ],
+      [
+       484.0,
+       115.5
+      ],
+      [
+       485.0,
+       117.5
+      ],
+      [
+       554.0,
+       122.5
+      ],
+      [
+       560.0,
+       124.8
+      ],
+      [
+       732.0,
+       149.5
+      ],
+      [
+       746.0,
+       149.5
+      ],
+      [
+       747.0,
+       151.5
+      ],
+      [
+       774.0,
+       153.5
+      ],
+      [
+       775.0,
+       155.5
+      ],
+      [
+       780.0,
+       155.5
+      ]
+     ],
+     "conf": "check",
+     "by": "outline",
+     "why": "upper edge of the side view, canopy and fin left out"
+    }
+   ]
+  },
+  "gear_main": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "side",
+     "pts": [
+      [
+       282.0,
+       1179.0
+      ],
+      [
+       282.0,
+       1140.1
+      ]
+     ],
+     "conf": "check",
+     "by": "outline",
+     "why": "the wheel on the ground line behind the nose gear; this view is -4.6% off the length"
+    }
+   ]
+  },
+  "gear_nose": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "side",
+     "pts": [
+      [
+       432.5,
+       1179.0
+      ],
+      [
+       432.5,
+       1128.6
+      ]
+     ],
+     "conf": "check",
+     "by": "outline",
+     "why": "the foremost wheel on the ground line; this view is -4.6% off the length"
+    }
+   ]
+  },
+  "ground_stance": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "side",
+     "pts": [
+      [
+       720.8,
+       1179.0
+      ],
+      [
+       -5.8,
+       1179.0
+      ]
+     ],
+     "conf": "sure",
+     "by": "outline",
+     "why": "the calibrated ground point"
+    }
+   ]
+  },
+  "htail": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "top",
+     "pts": [
+      [
+       655.0,
+       550.0
+      ],
+      [
+       687.0,
+       557.0
+      ],
+      [
+       722.0,
+       587.0
+      ],
+      [
+       729.0,
+       594.0
+      ],
+      [
+       727.0,
+       596.0
+      ],
+      [
+       741.0,
+       608.0
+      ],
+      [
+       780.0,
+       639.0
+      ],
+      [
+       788.0,
+       642.0
+      ],
+      [
+       835.0,
+       631.0
+      ],
+      [
+       828.0,
+       628.0
+      ],
+      [
+       794.0,
+       554.0
+      ],
+      [
+       672.0,
+       553.0
+      ],
+      [
+       788.0,
+       552.0
+      ],
+      [
+       779.0,
+       550.0
+      ]
+     ],
+     "conf": "check",
+     "by": "outline",
+     "why": "the surface behind the wing"
+    }
+   ]
+  },
+  "nose_tip": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "side",
+     "pts": [
+      [
+       80.0,
+       161.5
+      ]
+     ],
+     "conf": "sure",
+     "by": "outline",
+     "why": "the calibrated nose tip"
+    }
+   ]
+  },
+  "rudder": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "side",
+     "pts": [
+      [
+       691.0,
+       68.0
+      ],
+      [
+       709.0,
+       70.0
+      ],
+      [
+       709.0,
+       125.0
+      ],
+      [
+       679.0,
+       125.0
+      ]
+     ],
+     "conf": "check",
+     "by": "agent",
+     "why": "rudder: behind the hinge line of the fin, top cap to the fin root fairing; proposed by Claude, snapped to the ink"
+    }
+   ]
+  },
+  "wing_le": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "top",
+     "pts": [
+      [
+       457.6,
+       546.0
+      ],
+      [
+       617.7,
+       726.0
+      ]
+     ],
+     "conf": "sure",
+     "by": "outline",
+     "why": "straight line fitted to the front edge of the wing; semi-span 6.07 m vs 6.00 m; left and right mirror each other"
+    }
+   ]
+  },
+  "wing_te": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "top",
+     "pts": [
+      [
+       642.5,
+       552.0
+      ],
+      [
+       674.9,
+       726.0
+      ]
+     ],
+     "conf": "sure",
+     "by": "outline",
+     "why": "straight line fitted to the rear edge of the wing; semi-span 6.07 m vs 6.00 m; left and right mirror each other"
+    }
+   ]
+  },
+  "wing_tip": {
+   "suggest": [
+    {
+     "img": "mig29m2-sheet",
+     "view": "top",
+     "pts": [
+      [
+       606.6,
+       713.6
+      ],
+      [
+       607.0,
+       726.0
+      ],
+      [
+       674.0,
+       726.0
+      ],
+      [
+       672.6,
+       713.6
+      ]
+     ],
+     "conf": "sure",
+     "by": "outline",
+     "why": "outermost chord of the wing; semi-span 6.07 m vs 6.00 m; left and right mirror each other"
+    }
+   ]
+  }
+ }
 }

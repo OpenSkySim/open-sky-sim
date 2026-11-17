@@ -9,11 +9,14 @@ reference image; the calibrated view whose box holds the mark turns it into metr
       "canopy": {"marks": [{"img": "mig29m2-sheet", "view": "side", "pts": [[u, v], ...]}]},
       "canards": {"status": "absent"},           # the type has none
       "fuse_sections": {"marks": [{"img": "...", "view": "front", "pts": [...], "station_d": 4.2}]},
-      "spine": {"status": "unseen"}               # in no reference: estimate it, and say so
+      "spine": {"status": "unseen"},              # in no reference: estimate it, and say so
+      "fin": {"suggest": [{"img": "...", "view": "side", "pts": [...], "conf": "check", "by": "outline"}]}
     }
 
 Status of an area: marked (has marks), absent (not on this type), unseen (in no
-reference) or missing (still to do). Pure Python + numpy, no bpy.
+reference), suggested (found by lpa/detect.py or proposed by Claude, waiting to be
+confirmed in the Hangar) or missing (still to do). "dismissed": true keeps a
+rejected suggestion from coming back. Pure Python + numpy, no bpy.
 """
 from __future__ import annotations
 
@@ -28,7 +31,7 @@ from . import refs as R
 HERE = os.path.dirname(os.path.abspath(__file__))
 AREAS_PATH = os.path.join(HERE, 'areas.json')
 SHAPES = ('point', 'line', 'area')
-STATUSES = ('marked', 'absent', 'unseen', 'missing')
+STATUSES = ('marked', 'absent', 'unseen', 'suggested', 'missing')
 
 
 def load_catalog(path: str = AREAS_PATH) -> list[dict]:
@@ -41,7 +44,9 @@ def status(entry: dict | None) -> str:
         return 'missing'
     if entry.get('marks'):
         return 'marked'
-    return entry.get('status') if entry.get('status') in ('absent', 'unseen') else 'missing'
+    if entry.get('status') in ('absent', 'unseen'):
+        return entry['status']
+    return 'suggested' if entry.get('suggest') else 'missing'
 
 
 def view_for_mark(rs: R.RefSet, mark: dict) -> R.RefView | None:
@@ -95,5 +100,6 @@ def coverage(rs: R.RefSet, marks: dict, catalog: list[dict] | None = None) -> li
         meas = measure(rs, a['id'], e) if st == 'marked' else []
         rows.append({'id': a['id'], 'name': a['name'], 'group': a['group'], 'need': a['need'], 'status': st,
                      'marks': len(e.get('marks', [])) if e else 0, 'measured': len(meas),
+                     'suggest': [x.get('conf', 'check') for x in e.get('suggest', [])] if e and st == 'suggested' else [],
                      'views': sorted({m.view for m in meas})})
     return rows

@@ -225,11 +225,11 @@ def _flood(seed: np.ndarray, free: np.ndarray) -> np.ndarray:
         filled = nxt
 
 
-def extent_m(view: RefView, mask: np.ndarray, bridge_px: int = 2) -> tuple[np.ndarray, np.ndarray]:
-    """Min and max metres (both view axes) of the drawing inside the view's crop.
+def view_part(view: RefView, mask: np.ndarray, bridge_px: int = 2) -> np.ndarray:
+    """The ink inside the view's crop that is connected to the nose tip (image-sized mask).
 
-    Only ink connected to the nose tip counts (gaps up to `bridge_px` bridged), so
-    labels, section cuts and neighbouring views that reach into the crop are left out.
+    Gaps up to `bridge_px` are bridged, so labels, section cuts and neighbouring
+    views that reach into the crop are left out.
     """
     from .silhouette import dilate
     h, w = mask.shape
@@ -240,7 +240,7 @@ def extent_m(view: RefView, mask: np.ndarray, bridge_px: int = 2) -> tuple[np.nd
     seed = np.zeros_like(free)
     nu, nv = int(round(view.nose[0])) - u0, int(round(view.nose[1])) - v0
     r = bridge_px + 3
-    seed[max(nv - r, 0):nv + r + 1, max(nu - r, 0):nu + r + 1] = True
+    seed[max(nv - r, 0):max(nv + r + 1, 0), max(nu - r, 0):max(nu + r + 1, 0)] = True
     if not (seed & free).any():
         # The nose may sit inside an outline (a radome seen head-on): start at the nearest ink.
         vs, us = np.nonzero(free)
@@ -249,8 +249,15 @@ def extent_m(view: RefView, mask: np.ndarray, bridge_px: int = 2) -> tuple[np.nd
         k = int(np.argmin((us - nu) ** 2 + (vs - nv) ** 2))
         seed[vs[k], us[k]] = True
     part = _flood(seed, free) & ink
-    vs, us = np.nonzero(part)
-    if len(us) == 0:
+    if not part.any():
         raise RefError(f'{view.image_id}/{view.view}: no ink at the nose tip inside the crop')
-    m = view.to_m(np.stack([us + u0, vs + v0], axis=-1))
+    out = np.zeros_like(mask, dtype=bool)
+    out[v0:v1, u0:u1] = part
+    return out
+
+
+def extent_m(view: RefView, mask: np.ndarray, bridge_px: int = 2) -> tuple[np.ndarray, np.ndarray]:
+    """Min and max metres (both view axes) of the drawing connected to the nose tip inside the view's crop."""
+    vs, us = np.nonzero(view_part(view, mask, bridge_px))
+    m = view.to_m(np.stack([us, vs], axis=-1))
     return m.min(axis=0), m.max(axis=0)

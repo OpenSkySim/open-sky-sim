@@ -79,7 +79,7 @@ dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .chips button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card .note { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
 /* References: thumbnails of the aircraft's drawings and photos, and the calibration editor. */
-:root { --ref-ink: #d0342c; --ok: #2f8a4c; --warn: #b7791f; }
+:root { --ref-ink: #d0342c; --ok: #2f8a4c; --warn: #b7791f; --sug: #e07b00; }
 .refs { margin-top: 16px; }
 .refs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
 .refs-head h2 { margin: 0; }
@@ -135,6 +135,11 @@ button.danger { color: var(--ref-ink); }
 .area-list .st-marked .ic { color: var(--ok); }
 .area-list .st-absent, .area-list .st-unseen { color: var(--muted); }
 .area-list .needed .ic { color: var(--warn); }
+.area-list .st-suggested .ic { color: var(--accent); }
+.area-list .st-suggested.sug-check .ic { color: var(--warn); }
+.sug-box { border: 1px dashed var(--accent); border-radius: 5px; padding: 6px 8px; display: grid; gap: 6px; }
+.sug-box p { margin: 0; }
+button.ok { color: var(--ok); }
 .area-hint { margin: 0; color: var(--muted); line-height: 1.4; }
 .ed-side [hidden] { display: none; }
 .editor.marking .ed-help { min-height: 2.9em; }   /* no jump while clicking */
@@ -197,6 +202,10 @@ button.danger { color: var(--ref-ink); }
               <legend id="areaTitle">Area</legend>
               <p class="area-hint" id="areaHint"></p>
               <label id="stationRow" hidden>Station (m) <input type="number" id="fStation" step="0.01" placeholder="metres aft of the nose"></label>
+              <div class="sug-box" id="sugBox" hidden>
+                <p class="area-hint" id="sugText"></p>
+                <div class="row"><button type="button" id="sugAccept" class="ok">Looks right</button><button type="button" id="sugReject" class="danger">Wrong</button></div>
+              </div>
               <pre class="cal-out" id="areaMarks"></pre>
               <div class="row"><button type="button" id="markFinish" hidden>Finish shape</button><button type="button" id="markUndo">Undo last mark</button><button type="button" id="markClear" class="danger">Clear on this image</button></div>
               <div class="row"><button type="button" id="markAbsent" aria-pressed="false">Not on this aircraft</button><button type="button" id="markUnseen" aria-pressed="false">Not in any reference</button></div>
@@ -732,7 +741,7 @@ const TOOL_HELP = {
 };
 const refsNote = document.getElementById('refsNote');
 const R = { entry: null, meta: {}, images: [], sel: null, viewIdx: 0, tool: null, pts: [], zoom: 1, show3d: {}, plane: null, drag: null,
-            mode: 'cal', areas: {}, area: null, catalog: null, marks3d: null };
+            mode: 'cal', areas: {}, area: null, catalog: null, marks3d: null, mdrag: null };
 const cap = { db: null, assets: null };
 const srcCache = new Map();
 
@@ -840,7 +849,9 @@ async function loadRefs(entry, stale, force = false) {
         const e = {};
         if (data.marks && data.marks.length) e.marks = data.marks;
         else if (data.status) e.status = data.status;
-        if (e.marks || e.status) R.areas[d.id] = e; else delete R.areas[d.id];
+        if (data.suggest && data.suggest.length) e.suggest = data.suggest;
+        if (data.dismissed) e.dismissed = true;
+        if (Object.keys(e).length) R.areas[d.id] = e; else delete R.areas[d.id];
       }
     } catch (e) { refsNote.textContent = 'Could not read saved area marks: ' + (e.message || e.code); }
   }
@@ -1296,7 +1307,7 @@ function refsJson() {
   const out = { aircraft: R.meta.aircraft || (R.entry && R.entry.id), length_m: R.meta.length_m ?? null, span_m: R.meta.span_m ?? null,
                 ground_y: R.meta.ground_y ?? null, images: R.images.map(cleanDoc) };
   const areas = {};
-  for (const id of Object.keys(R.areas).sort()) { const d = areaDoc(id); delete d.id; if (d.marks || d.status) areas[id] = d; }
+  for (const id of Object.keys(R.areas).sort()) { const d = areaDoc(id); delete d.id; if (Object.keys(d).length) areas[id] = d; }
   if (Object.keys(areas).length) out.areas = areas;
   return JSON.stringify(out, null, 1);
 }
@@ -1367,7 +1378,7 @@ async function addImages(all) {
 // ---- Mark areas: the 50 key areas (models/areas.json, same as lpa/areas.json) located on the references ----
 // A mark is image pixels on one image; the calibrated view whose box holds it turns it into metres.
 // Saved per area at aircraft/<id>/areas/<areaId> as { id, marks: [{ img, view, pts, station_d? }], status? }.
-const AREA_ICON = { marked: '✓', absent: '–', unseen: '?', missing: '○' };
+const AREA_ICON = { marked: '✓', absent: '–', unseen: '?', suggested: '◇', missing: '○' };
 async function loadCatalog() {
   if (R.catalog) return R.catalog;
   try {
@@ -1381,13 +1392,16 @@ const curArea = () => areaDef(R.area);
 function areaStatus(e) {
   if (!e) return 'missing';
   if (e.marks && e.marks.length) return 'marked';
-  return e.status === 'absent' || e.status === 'unseen' ? e.status : 'missing';
+  if (e.status === 'absent' || e.status === 'unseen') return e.status;
+  return e.suggest && e.suggest.length ? 'suggested' : 'missing';
 }
+const sugSure = e => !!(e && e.suggest && e.suggest.length && e.suggest.every(x => x.conf === 'sure'));
 function areaCounts() {
   if (!R.catalog) return null;
   const st = R.catalog.areas.map(a => [a, areaStatus(R.areas[a.id])]);
-  return { done: st.filter(([, s]) => s !== 'missing').length, total: st.length,
-           need: st.filter(([a, s]) => s === 'missing' && a.need === 'always').length };
+  return { done: st.filter(([, s]) => s === 'marked' || s === 'absent' || s === 'unseen').length, total: st.length,
+           sug: st.filter(([, s]) => s === 'suggested').length,
+           need: st.filter(([a, s]) => (s === 'missing' || s === 'suggested') && a.need === 'always').length };
 }
 // The calibrated view on the image whose box holds most of the mark (its own view type preferred).
 function viewForMark(img, mark) {
@@ -1442,7 +1456,7 @@ function renderAreas() {
   list.textContent = '';
   if (!R.catalog) { $('areaSum').textContent = 'Area list not found (models/areas.json).'; return; }
   const n = areaCounts();
-  $('areaSum').textContent = `${n.done} / ${n.total} done` + (n.need ? ` · ${n.need} needed for every aircraft still to do` : ' · all needed areas done');
+  $('areaSum').textContent = `${n.done} / ${n.total} done` + (n.sug ? ` · ${n.sug} suggested, to confirm` : '') + (n.need ? ` · ${n.need} needed for every aircraft still open` : ' · all needed areas done');
   let group = null;
   for (const a of R.catalog.areas) {
     if (a.group !== group) {
@@ -1457,11 +1471,11 @@ function renderAreas() {
     b.type = 'button';
     b.dataset.area = a.id;
     b.setAttribute('aria-pressed', a.id === R.area);
-    b.className = 'st-' + st + (st === 'missing' && a.need === 'always' ? ' needed' : '');
+    b.className = 'st-' + st + (st === 'missing' && a.need === 'always' ? ' needed' : '') + (st === 'suggested' ? (sugSure(R.areas[a.id]) ? ' sug-sure' : ' sug-check') : '');
     b.title = `${a.name}: ${st}${a.need === 'always' ? ' (needed for every aircraft)' : ' (if the aircraft has it)'}`;
     const i = document.createElement('span');
     i.className = 'ic';
-    i.textContent = AREA_ICON[st];
+    i.textContent = st === 'suggested' && sugSure(R.areas[a.id]) ? '◆' : AREA_ICON[st];
     b.append(i, document.createTextNode(a.name));
     b.addEventListener('click', () => pickArea(a.id));
     list.appendChild(b);
@@ -1471,6 +1485,11 @@ function renderAreas() {
 }
 function pickArea(id) {
   R.area = id; R.pts = [];
+  const e = R.areas[id], all = e ? (e.marks || []).concat(e.suggest || []) : [];
+  if (R.sel && all.length && !all.some(m => m.img === R.sel.id)) {
+    const img = R.images.find(i => all.some(m => m.img === i.id));
+    if (img) { selectImage(img).then(() => { renderAreas(); setTool(null); drawMarks(); drawMarks3d(); }); return; }
+  }
   renderAreas(); setTool(null); drawMarks(); drawMarks3d();
 }
 function areaInfo() {
@@ -1487,6 +1506,15 @@ function areaInfo() {
   $('markUndo').disabled = !marks.length;
   $('markClear').disabled = !marks.some(m => R.sel && m.img === R.sel.id);
   $('markFinish').hidden = !R.pts.length;
+  const sug = (e && e.suggest) || [];
+  $('sugBox').hidden = !sug.length || st !== 'suggested';
+  if (sug.length) {
+    const by = [...new Set(sug.map(x => x.by === 'agent' ? 'Claude' : 'the drawing\'s outline'))].join(' and ');
+    const sure = sug.every(x => x.conf === 'sure');
+    const where = sug.map(x => { const mm = markMetres(x); return mm ? `${mm.v.view} on ${mm.img.title || mm.img.id}` : `${x.img} (not in a calibrated view)`; });
+    $('sugText').textContent = `Suggested by ${by} (${sure ? 'looks sure' : 'please check'}): dashed on the drawing, ${[...new Set(where)].join('; ')}. ` +
+      `${sug[0].why ? sug[0].why.charAt(0).toUpperCase() + sug[0].why.slice(1) + '. ' : ''}Drag its points to fix it, then confirm.`;
+  }
   const lines = marks.map((m, k) => {
     const mm = markMetres(m), img = R.images.find(i => i.id === m.img);
     const where = img ? (img.title || img.id) : `${m.img} (image not here)`;
@@ -1499,7 +1527,7 @@ function areaInfo() {
     });
     return `${k + 1}. ${mm.v.view} on ${where}: ${m.pts.length} pt, ${rng.join(', ')} m`;
   });
-  $('areaMarks').textContent = a ? (lines.length ? lines.join('\n') : st === 'missing' ? 'No marks yet.' : st === 'absent' ? 'Not on this aircraft.' : 'In no reference: Claude estimates it.') : '';
+  $('areaMarks').textContent = a ? (lines.length ? lines.join('\n') : st === 'missing' || st === 'suggested' ? 'No marks yet.' : st === 'absent' ? 'Not on this aircraft.' : 'In no reference: Claude estimates it.') : '';
 }
 function finishMark() {
   const a = curArea();
@@ -1531,6 +1559,14 @@ function areaChanged(id) {
 }
 edSvg.addEventListener('dblclick', e => { if (R.mode === 'mark' && R.pts.length) { e.preventDefault(); finishMark(); } });
 function markPointer(e) {
+  const mp = e.target.dataset && e.target.dataset.mp;
+  if (mp && !R.pts.length) {
+    const [kind, mi, pi] = mp.split(':');
+    R.mdrag = { kind, mi: +mi, pi: +pi, moved: false };
+    edSvg.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    return;
+  }
   const a = curArea();
   if (!a) { $('edHelp').innerHTML = markHelp(); return; }
   R.pts.push(imgPx(e));
@@ -1552,6 +1588,37 @@ document.addEventListener('keydown', e => {
   drawMarks();
 });
 $('markFinish').addEventListener('click', finishMark);
+edSvg.addEventListener('pointermove', e => {
+  const D = R.mdrag, ent = D && R.areas[R.area];
+  if (!ent || !ent[D.kind] || !ent[D.kind][D.mi]) return;
+  ent[D.kind][D.mi].pts[D.pi] = imgPx(e);
+  D.moved = true;
+  drawMarks();
+});
+edSvg.addEventListener('pointerup', () => {
+  const D = R.mdrag;
+  R.mdrag = null;
+  if (D && D.moved) areaChanged(R.area);
+});
+$('sugAccept').addEventListener('click', () => {
+  const a = curArea(), e = a && R.areas[a.id];
+  if (!e || !e.suggest || !e.suggest.length) return;
+  e.marks = (e.marks || []).concat(e.suggest.map(x => {
+    const m = { img: x.img, pts: x.pts };
+    if (x.view) m.view = x.view;
+    if (x.station_d != null) m.station_d = x.station_d;
+    return m;
+  }));
+  delete e.suggest; delete e.status;
+  areaChanged(a.id);
+});
+$('sugReject').addEventListener('click', () => {
+  const a = curArea(), e = a && R.areas[a.id];
+  if (!e || !e.suggest) return;
+  delete e.suggest;
+  e.dismissed = true;   // a new detection run leaves it alone
+  areaChanged(a.id);
+});
 $('markUndo').addEventListener('click', () => {
   const a = curArea(), e = a && R.areas[a.id];
   if (!e || !e.marks || !e.marks.length) return;
@@ -1588,7 +1655,7 @@ for (const [id, st] of [['markAbsent', 'absent'], ['markUnseen', 'unseen']]) {
 $('markNext').addEventListener('click', () => {
   if (!R.catalog) return;
   const all = R.catalog.areas, i = all.findIndex(a => a.id === R.area);
-  const next = all.slice(i + 1).concat(all.slice(0, i + 1)).find(a => areaStatus(R.areas[a.id]) === 'missing');
+  const next = all.slice(i + 1).concat(all.slice(0, i + 1)).find(a => ['missing', 'suggested'].includes(areaStatus(R.areas[a.id])));
   if (next) {
     pickArea(next.id);
     const b = $('areaList').querySelector(`[data-area="${next.id}"]`);
@@ -1615,6 +1682,37 @@ function drawAreaMarks(k, lw) {
       }
     }
   }
+  for (const [id, e] of Object.entries(R.areas)) {
+    const a = areaDef(id);
+    if (!a || !e.suggest || areaStatus(e) !== 'suggested') continue;
+    const on = id === R.area, col = on ? 'var(--sug)' : 'var(--accent)';
+    const g = el('g', { opacity: on ? 1 : 0.4, 'pointer-events': 'none' }, edSvg);
+    for (const m of e.suggest) {
+      if (m.img !== R.sel.id) continue;
+      const pts = m.pts.map(p => p.join(',')).join(' ');
+      const dash = `${5 * k} ${3 * k}`;
+      if (a.shape === 'area') el('polygon', { points: pts, fill: col, 'fill-opacity': 0.08, stroke: col, 'stroke-width': lw, 'stroke-dasharray': dash }, g);
+      else if (a.shape === 'line') el('polyline', { points: pts, fill: 'none', stroke: col, 'stroke-width': lw, 'stroke-dasharray': dash }, g);
+      if (a.shape === 'point' || m.pts.length === 1) for (const p of m.pts) el('circle', { cx: p[0], cy: p[1], r: 4 * k, fill: 'none', stroke: col, 'stroke-width': lw }, g);
+      if (on) {
+        const t = el('text', { x: m.pts[0][0] + 5 * k, y: m.pts[0][1] - 5 * k, fill: col, 'font-size': 11 * k }, g);
+        t.textContent = a.name + ' (suggested)';
+      }
+    }
+  }
+  // The picked area's points (marks and suggestions on this image) can be dragged.
+  const pa = R.area && R.areas[R.area];
+  if (pa && !R.pts.length) {
+    const g = el('g', {}, edSvg);
+    for (const kind of ['marks', 'suggest']) {
+      if (kind === 'suggest' && areaStatus(pa) !== 'suggested') continue;
+      (pa[kind] || []).forEach((m, mi) => {
+        if (m.img !== R.sel.id) return;
+        m.pts.forEach((p, pi) => el('circle', { cx: p[0], cy: p[1], r: 6 * k, fill: 'transparent', stroke: kind === 'suggest' ? 'var(--sug)' : 'var(--ref-ink)',
+          'stroke-width': 0.8 * k, 'data-mp': `${kind}:${mi}:${pi}`, style: 'cursor: grab' }, g));
+      });
+    }
+  }
   if (R.pts.length) {
     const g = el('g', { 'pointer-events': 'none' }, edSvg);
     const a = curArea();
@@ -1630,6 +1728,8 @@ function areaDoc(id) {
   const out = { id };
   if (e.marks && e.marks.length) out.marks = e.marks;
   else if (e.status) out.status = e.status;
+  if (e.suggest && e.suggest.length) out.suggest = e.suggest;
+  if (e.dismissed) out.dismissed = true;
   return JSON.parse(JSON.stringify(out));
 }
 function saveArea(id) {
@@ -1663,19 +1763,23 @@ function drawMarks3d() {
   const group = new THREE.Group();
   for (const [id, e] of Object.entries(R.areas)) {
     const a = areaDef(id);
-    if (!a || !e.marks) continue;
+    if (!a) continue;
     const on = id === R.area;
-    for (const m of e.marks) {
+    const list = (e.marks || []).map(m => [m, false]);
+    if (areaStatus(e) === 'suggested' && (on || R.mode === 'mark')) list.push(...e.suggest.map(m => [m, true]));
+    for (const [m, sug] of list) {
       const mm = markMetres(m);
       if (!mm || !types.includes(mm.v.view)) continue;
       const toBody = bodyMapper(mm.v, mm.c);
       const pos = m.pts.flatMap(toBody);
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      const look = { color: on ? 0xff8a00 : 0x2f6db5, transparent: true, opacity: on ? 1 : 0.55, depthTest: false, depthWrite: false };
+      const look = { color: on ? 0xff8a00 : 0x2f6db5, transparent: true, opacity: on ? 1 : sug ? 0.35 : 0.55, depthTest: false, depthWrite: false };
       const obj = a.shape === 'point' || m.pts.length === 1
         ? new THREE.Points(geo, new THREE.PointsMaterial({ ...look, size: on ? 9 : 6, sizeAttenuation: false }))
-        : new (a.shape === 'area' ? THREE.LineLoop : THREE.Line)(geo, new THREE.LineBasicMaterial(look));
+        : new (a.shape === 'area' ? THREE.LineLoop : THREE.Line)(geo, sug
+          ? new THREE.LineDashedMaterial({ ...look, dashSize: 0.25, gapSize: 0.15 }) : new THREE.LineBasicMaterial(look));
+      if (sug && obj.computeLineDistances) obj.computeLineDistances();
       obj.renderOrder = on ? 12 : 11;
       group.add(obj);
     }

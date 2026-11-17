@@ -9,7 +9,18 @@
 
     python3 refs_tool.py areas examples/mig29kub/refs.json
         Coverage of the 50 key areas (lpa/areas.json): which are marked, absent on
-        this type, in no reference, or still to do, and which views measure them.
+        this type, in no reference, suggested (to confirm), or still to do, and which
+        views measure them.
+
+    python3 refs_tool.py detect examples/mig29kub/refs.json --images DIR [--write] [--force]
+        Suggests the outline areas (nose, fuselage lines, canopy, fin, wing edges and tip,
+        tailplane, gear, ground) from the calibrated side and top views, with a
+        confidence from cross-checks. --write puts them under "areas" (areas already
+        marked, set absent/unseen or dismissed are left alone unless --force).
+
+    python3 refs_tool.py snap examples/mig29kub/refs.json IMAGE_ID AREA U V [U V ...] [--write]
+        Pulls a proposed outline onto the nearest ink lines and, with --write, adds it
+        to the area as a suggestion to confirm in the Hangar.
 
     python3 refs_tool.py from-hangar DUMP.json --out examples/<id>/refs.json
         Turns the Hangar's database docs (a JSON list of image docs, as read from
@@ -32,6 +43,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 from lpa import areas as A  # noqa: E402
+from lpa import detect as D  # noqa: E402
 from lpa import refs as R  # noqa: E402
 from lpa import silhouette as sil  # noqa: E402
 
@@ -112,7 +124,7 @@ def cmd_point(a) -> int:
 def cmd_areas(a) -> int:
     rs = R.load(a.refs)
     rows = A.coverage(rs, rs.areas or {})
-    icon = {'marked': 'x', 'absent': '-', 'unseen': '?', 'missing': ' '}
+    icon = {'marked': 'x', 'absent': '-', 'unseen': '?', 'suggested': '~', 'missing': ' '}
     group = None
     for r in rows:
         if r['group'] != group:
@@ -121,16 +133,82 @@ def cmd_areas(a) -> int:
         line = f'  [{icon[r["status"]]}] {r["id"]:<15} {r["name"]}'
         if r['status'] == 'marked':
             line += f'  ({r["measured"]}/{r["marks"]} marks in {", ".join(r["views"]) or "no calibrated view"})'
+        elif r['status'] == 'suggested':
+            line += f'  (suggested: {", ".join(r["suggest"])}; confirm in the Hangar)'
         elif r['status'] != 'missing':
             line += f'  ({r["status"]})'
         print(line)
-    done = sum(r['status'] != 'missing' for r in rows)
-    todo = [r['id'] for r in rows if r['status'] == 'missing' and r['need'] == 'always']
+    done = sum(r['status'] in ('marked', 'absent', 'unseen') for r in rows)
+    todo = [r['id'] for r in rows if r['status'] in ('missing', 'suggested') and r['need'] == 'always']
     print(f'{done} / {len(rows)} done' + (f'; still needed: {", ".join(todo)}' if todo else ''))
     lost = [r['id'] for r in rows if r['marks'] and r['measured'] < r['marks']]
     if lost:
         print(f'marks outside any calibrated view: {", ".join(lost)}')
     return 1 if todo or lost else 0
+
+
+def _masks(a, rs) -> dict:
+    out = {}
+    for img in rs.images:
+        path = _image_path(a.refs, a.images, img)
+        if path:
+            th = max([float(v.get('threshold', 0.5)) for v in img.get('views', [])] or [0.5])
+            out[img['id']] = sil.ink_mask(sil.load_rgba(path), th)
+    return out
+
+
+def _write_areas(path: str, areas: dict) -> None:
+    with open(path) as f:
+        data = json.load(f)
+    data['areas'] = {k: v for k, v in sorted(areas.items()) if v}
+    with open(path, 'w') as f:
+        json.dump(data, f, indent=1)
+        f.write('\n')
+
+
+def cmd_detect(a) -> int:
+    rs = R.load(a.refs)
+    masks = _masks(a, rs)
+    if not masks:
+        print('no image files found: pass --images', file=sys.stderr)
+        return 1
+    sugs, notes = D.detect(rs, masks)
+    for n in notes:
+        print(f'  {n}')
+    for s in sorted(sugs, key=lambda s: s['area']):
+        print(f'  {s["area"]:<15} {s["conf"]:<5} {s["img"]}/{s["view"]}: {len(s["pts"])} pt  ({s["why"]})')
+    if a.write:
+        areas = dict(rs.areas or {})
+        done = D.merge_into(areas, sugs, a.force)
+        _write_areas(a.refs, areas)
+        print(f'wrote {len(done)} suggestions to {a.refs}')
+    return 0
+
+
+def cmd_snap(a) -> int:
+    rs = R.load(a.refs)
+    img = next((i for i in rs.images if i['id'] == a.image), None)
+    path = img and _image_path(a.refs, a.images, img)
+    if not path:
+        print(f'image file of {a.image} not found', file=sys.stderr)
+        return 1
+    ink = sil.ink_mask(sil.load_rgba(path), 0.5)
+    pts = D.snap(list(zip(a.uv[0::2], a.uv[1::2])), ink, a.radius)
+    mark = {'img': a.image, 'pts': pts}
+    v = A.view_for_mark(rs, mark)
+    for (u0, v0), p in zip(zip(a.uv[0::2], a.uv[1::2]), pts):
+        print(f'({u0:g}, {v0:g}) -> ({p[0]:g}, {p[1]:g})')
+    print(f'in view: {v.view if v else "none (outside every calibrated view)"}')
+    if a.write:
+        areas = dict(rs.areas or {})
+        s = {'area': a.area, 'img': a.image, 'view': v.view if v else None, 'pts': pts, 'conf': 'check', 'by': 'agent',
+             'why': a.why or 'proposed by Claude from the drawing, snapped to the ink lines'}
+        e = areas.setdefault(a.area, {})
+        e['suggest'] = [x for x in e.get('suggest', []) if not (x.get('by') == 'agent' and x['img'] == a.image)] + \
+            [{k: s[k] for k in ('img', 'view', 'pts', 'conf', 'by', 'why')}]
+        _write_areas(a.refs, areas)
+        print(f'added to {a.area}')
+    return 0
 
 
 def cmd_from_hangar(a) -> int:
@@ -162,7 +240,7 @@ def cmd_from_hangar(a) -> int:
         out['images'].append({k: d[k] for k in IMAGE_KEYS if k in d})
     # Area docs ({'id': areaId, 'marks': [...], 'status': ...}) replace the area as a whole.
     for d in area_docs:
-        e = {k: d[k] for k in ('marks', 'status') if d.get(k)}
+        e = {k: d[k] for k in ('marks', 'status', 'suggest', 'dismissed') if d.get(k)}
         areas = out.setdefault('areas', {})
         if e:
             areas[d['id']] = e
@@ -194,13 +272,29 @@ def main() -> int:
     r = sub.add_parser('areas')
     r.add_argument('refs')
     r.set_defaults(fn=cmd_areas)
+    d = sub.add_parser('detect')
+    d.add_argument('refs')
+    d.add_argument('--images', help='folder holding the image files (default: next to refs.json)')
+    d.add_argument('--write', action='store_true')
+    d.add_argument('--force', action='store_true')
+    d.set_defaults(fn=cmd_detect)
+    s = sub.add_parser('snap')
+    s.add_argument('refs')
+    s.add_argument('image')
+    s.add_argument('area')
+    s.add_argument('uv', type=float, nargs='+')
+    s.add_argument('--images')
+    s.add_argument('--radius', type=float, default=6.0)
+    s.add_argument('--why')
+    s.add_argument('--write', action='store_true')
+    s.set_defaults(fn=cmd_snap)
     h = sub.add_parser('from-hangar')
     h.add_argument('dump')
     h.add_argument('--out', required=True)
     h.add_argument('--aircraft')
     h.set_defaults(fn=cmd_from_hangar)
     a = ap.parse_args()
-    if a.cmd == 'point' and len(a.uv) % 2:
+    if a.cmd in ('point', 'snap') and len(a.uv) % 2:
         ap.error('pixels come in pairs: U V')
     return a.fn(a)
 

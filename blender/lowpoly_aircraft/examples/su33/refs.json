@@ -1,0 +1,15 @@
+{
+ "aircraft": "lp_su33",
+ "length_m": 21.19,
+ "span_m": 14.7,
+ "ground_y": null,
+ "images": [
+  {"id": "su33-3view", "file": "su33_3view.png", "kind": "sheet", "title": "Su-33 three-view (make_drawing.py)",
+   "source": "drawn by examples/su33/make_drawing.py", "repo_ok": true, "priority": 1, "size": [1300, 520],
+   "views": [
+    {"view": "top", "crop": [30, 40, 350, 480], "cal": {"nose": [190, 50], "px_per_m": 20, "nose_dir": "up"}},
+    {"view": "side", "crop": [410, 230, 850, 340], "cal": {"nose": [420, 299], "px_per_m": 20, "nose_dir": "left"}},
+    {"view": "front", "crop": [925, 235, 1235, 335], "cal": {"nose": [1080, 299], "px_per_m": 20}}
+   ]}
+ ]
+}
