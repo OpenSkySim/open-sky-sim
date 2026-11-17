@@ -152,8 +152,9 @@ def main():
     spinner_tip = [(4.1, 0.0, 0.2, 0.2, 2), (4.3, 0.14, 0.06, 0.34, 2)]
     # Flap-track fairings under the outer wing (two per side).
     def track(x, d0, d1):
-        return [(d0, 0.0, 0.72, 0.72, 2), (d0 + 0.4, 0.11, 0.5, 0.85, 2.5), (d1 - 0.3, 0.11, 0.52, 0.85, 2.5),
-                (d1, 0.0, 0.7, 0.7, 2)]
+        # Flap-track fairings, kept slim (user: smaller): 0.13 m wide, hanging 0.2 m below the wing.
+        return [(d0, 0.0, 0.74, 0.74, 2), (d0 + 0.35, 0.065, 0.6, 0.85, 2.5), (d1 - 0.25, 0.065, 0.62, 0.85, 2.5),
+                (d1, 0.0, 0.74, 0.74, 2)]
     spinner = [(4.15, 0.0, 0.2, 0.2, 2), (4.6, 0.31, -0.11, 0.51, 2), (5.0, 0.39, -0.19, 0.59, 2),
                (5.6, 0.47, -0.27, 0.67, 2), (6.4, 0.55, -0.35, 0.75, 2)]
     nacelle = [(6.4, 0.55, -0.35, 0.75, 2), (6.6, 0.63, -0.45, 0.84, 2), (7.0, 0.7, -0.61, 1.0, 2.1),
@@ -230,8 +231,8 @@ def main():
              'stations': loft_rows(collar, 4.05)},
             {'name': 'SpinnerTip', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': dark, 'segments': 6,
              'stations': loft_rows(spinner_tip, 4.05)},
-            {'name': 'TrackInner', 'type': 'loft', 'mirror': True, 'segments': 6, 'stations': loft_rows(track(6.6, 9.4, 12.8), 6.6)},
-            {'name': 'TrackOuter', 'type': 'loft', 'mirror': True, 'segments': 6, 'stations': loft_rows(track(8.05, 9.9, 12.7), 8.05)},
+            {'name': 'TrackInner', 'type': 'loft', 'mirror': True, 'segments': 6, 'stations': loft_rows(track(6.6, 9.8, 12.6), 6.6)},
+            {'name': 'TrackOuter', 'type': 'loft', 'mirror': True, 'segments': 6, 'stations': loft_rows(track(8.05, 10.2, 12.5), 8.05)},
             {'name': 'AntennaTop', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 3,
              'stations': panel_rows([(0.0, 0.72, 3.62, 0.34, 0.14), (0.0, 1.1, 3.56, 0.24, 0.14)])},
             {'name': 'MainWell', 'type': 'loft', 'mirror': True, 'join': 'cut', 'segments': 8,
