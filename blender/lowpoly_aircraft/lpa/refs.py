@@ -171,6 +171,7 @@ class RefSet:
     length_m: float | None = None
     span_m: float | None = None
     ground_y: float | None = None
+    areas: dict | None = None
 
     def views(self, view: str | None = None) -> list[RefView]:
         """Calibrated views, best first (lower 'priority' wins), optionally of one type."""
@@ -208,7 +209,8 @@ def load(path: str) -> RefSet:
 
 def from_json(data: dict) -> RefSet:
     return RefSet(aircraft=data['aircraft'], images=list(data.get('images', [])),
-                  length_m=data.get('length_m'), span_m=data.get('span_m'), ground_y=data.get('ground_y'))
+                  length_m=data.get('length_m'), span_m=data.get('span_m'), ground_y=data.get('ground_y'),
+                  areas=dict(data.get('areas') or {}))
 
 
 def _flood(seed: np.ndarray, free: np.ndarray) -> np.ndarray:

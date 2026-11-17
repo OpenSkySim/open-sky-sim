@@ -7,10 +7,15 @@
     python3 refs_tool.py point examples/mig29kub/refs.json IMAGE_ID VIEW U V [U V ...]
         Image pixels -> (d, x, y) metres in the drawing frame.
 
+    python3 refs_tool.py areas examples/mig29kub/refs.json
+        Coverage of the 50 key areas (lpa/areas.json): which are marked, absent on
+        this type, in no reference, or still to do, and which views measure them.
+
     python3 refs_tool.py from-hangar DUMP.json --out examples/<id>/refs.json
         Turns the Hangar's database docs (a JSON list of image docs, as read from
-        the artifact's 'aircraft/<id>/refs' collection) into refs.json. Images
-        stored only in the Hangar are referenced by their asset id.
+        the artifact's 'aircraft/<id>/refs' collection, or {"images": [...],
+        "areas": [...]} with the 'aircraft/<id>/areas' docs too) into refs.json.
+        Images stored only in the Hangar are referenced by their asset id.
 
 Images are found by their 'file' name under --images (default: the refs.json folder),
 so third-party drawings can stay outside the repo.
@@ -26,6 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+from lpa import areas as A  # noqa: E402
 from lpa import refs as R  # noqa: E402
 from lpa import silhouette as sil  # noqa: E402
 
@@ -103,11 +109,36 @@ def cmd_point(a) -> int:
     return 0
 
 
+def cmd_areas(a) -> int:
+    rs = R.load(a.refs)
+    rows = A.coverage(rs, rs.areas or {})
+    icon = {'marked': 'x', 'absent': '-', 'unseen': '?', 'missing': ' '}
+    group = None
+    for r in rows:
+        if r['group'] != group:
+            group = r['group']
+            print(group)
+        line = f'  [{icon[r["status"]]}] {r["id"]:<15} {r["name"]}'
+        if r['status'] == 'marked':
+            line += f'  ({r["measured"]}/{r["marks"]} marks in {", ".join(r["views"]) or "no calibrated view"})'
+        elif r['status'] != 'missing':
+            line += f'  ({r["status"]})'
+        print(line)
+    done = sum(r['status'] != 'missing' for r in rows)
+    todo = [r['id'] for r in rows if r['status'] == 'missing' and r['need'] == 'always']
+    print(f'{done} / {len(rows)} done' + (f'; still needed: {", ".join(todo)}' if todo else ''))
+    lost = [r['id'] for r in rows if r['marks'] and r['measured'] < r['marks']]
+    if lost:
+        print(f'marks outside any calibrated view: {", ".join(lost)}')
+    return 1 if todo or lost else 0
+
+
 def cmd_from_hangar(a) -> int:
     with open(a.dump) as f:
         docs = json.load(f)
+    area_docs = []
     if isinstance(docs, dict):
-        meta, docs = docs.get('meta', {}), docs.get('images', [])
+        meta, area_docs, docs = docs.get('meta', {}), docs.get('areas', []), docs.get('images', [])
     else:
         meta = {}
     out = {'aircraft': a.aircraft or meta.get('aircraft'), 'length_m': meta.get('length_m'),
@@ -119,6 +150,8 @@ def cmd_from_hangar(a) -> int:
         for k in ('aircraft', 'length_m', 'span_m', 'ground_y'):
             out[k] = out[k] if out[k] is not None else old.get(k)
         old_images = old.get('images', [])
+        if old.get('areas'):
+            out['areas'] = dict(old['areas'])
     # Hangar docs override the images already listed (same id); a doc marked 'removed' drops one.
     by_id = {i['id']: i for i in old_images}
     for d in docs:
@@ -127,13 +160,21 @@ def cmd_from_hangar(a) -> int:
         if d.get('removed'):
             continue
         out['images'].append({k: d[k] for k in IMAGE_KEYS if k in d})
+    # Area docs ({'id': areaId, 'marks': [...], 'status': ...}) replace the area as a whole.
+    for d in area_docs:
+        e = {k: d[k] for k in ('marks', 'status') if d.get(k)}
+        areas = out.setdefault('areas', {})
+        if e:
+            areas[d['id']] = e
+        else:
+            areas.pop(d['id'], None)
     if not out['aircraft']:
         print('aircraft id unknown: pass --aircraft', file=sys.stderr)
         return 1
     with open(a.out, 'w') as f:
         json.dump(out, f, indent=1)
         f.write('\n')
-    print(f'wrote {len(out["images"])} images to {a.out}')
+    print(f'wrote {len(out["images"])} images and {len(out.get("areas") or {})} areas to {a.out}')
     return 0
 
 
@@ -150,6 +191,9 @@ def main() -> int:
     p.add_argument('view', choices=R.VIEW_TYPES)
     p.add_argument('uv', type=float, nargs='+')
     p.set_defaults(fn=cmd_point)
+    r = sub.add_parser('areas')
+    r.add_argument('refs')
+    r.set_defaults(fn=cmd_areas)
     h = sub.add_parser('from-hangar')
     h.add_argument('dump')
     h.add_argument('--out', required=True)

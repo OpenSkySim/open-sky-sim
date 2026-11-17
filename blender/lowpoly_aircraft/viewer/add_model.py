@@ -7,7 +7,8 @@
 Writes viewer/models/<id>/ (each GLB as a self-contained .gltf.json, plus manifest.json), the shared pilot
 model, and an entry in viewer/models/index.json. With --refs, the reference set and the
 image files it names (found next to refs.json or in --refs-images) go to models/<id>/refs/, so
-the References panel and the Top/Side/Front/Bottom overlays have them. Then serve the folder and open it:
+the References panel and the Top/Side/Front/Bottom overlays have them. The area
+catalogue (lpa/areas.json) goes to models/areas.json for the Mark areas mode. Then serve the folder and open it:
 
     python3 -m http.server -d viewer 8000   ->   http://localhost:8000/
 """
@@ -81,6 +82,8 @@ def main() -> None:
     pilot = REPO / 'assets' / 'pilot.glb'
     if pilot.exists():
         (HERE / 'models' / 'pilot.gltf.json').write_text(glb_to_gltf_json(pilot.read_bytes()))
+    # The 50 key areas, for the References panel's Mark areas mode.
+    shutil.copy(HERE.parent / 'lpa' / 'areas.json', HERE / 'models' / 'areas.json')
     index_path = HERE / 'models' / 'index.json'
     index = json.loads(index_path.read_text()) if index_path.exists() else []
     index = [e for e in index if e['id'] != mid]

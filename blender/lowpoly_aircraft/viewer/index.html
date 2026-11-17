@@ -125,6 +125,19 @@ button.danger { color: var(--ref-ink); }
 .drop-hint { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
 .export { margin-top: 10px; }
 .export textarea { width: 100%; box-sizing: border-box; height: 160px; font: 11px var(--font-mono); }
+.editor.marking .cal-only, .editor:not(.marking) .mark-only { display: none; }
+.ed-bar.mode button { font-weight: 600; }
+.area-list { display: grid; gap: 2px; max-height: 360px; overflow: auto; padding-right: 2px; }
+.area-group { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 6px 0 2px; }
+.refs .area-list button { text-align: left; padding: 3px 6px; border-color: transparent; display: flex; gap: 6px; align-items: baseline; }
+.refs .area-list button[aria-pressed="true"] { border-color: var(--accent); }
+.area-list .ic { font: 11px var(--font-mono); width: 1em; flex: none; text-align: center; }
+.area-list .st-marked .ic { color: var(--ok); }
+.area-list .st-absent, .area-list .st-unseen { color: var(--muted); }
+.area-list .needed .ic { color: var(--warn); }
+.area-hint { margin: 0; color: var(--muted); line-height: 1.4; }
+.ed-side [hidden] { display: none; }
+.editor.marking .ed-help { min-height: 2.9em; }   /* no jump while clicking */
 .refctl { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px 10px; margin-top: 10px; font-size: 12px; }
 .refctl input[type="range"] { width: 100%; accent-color: var(--ref-ink); }
 </style>
@@ -156,13 +169,17 @@ button.danger { color: var(--ref-ink); }
         <textarea id="exportText" readonly aria-label="refs.json"></textarea>
       </div>
       <div class="editor" id="editor" hidden>
-        <div class="ed-bar" id="edViews" aria-label="Views on this image"></div>
+        <div class="ed-bar mode" role="group" aria-label="Mode">
+          <button type="button" data-mode="cal" aria-pressed="true">Calibrate</button>
+          <button type="button" data-mode="mark" aria-pressed="false">Mark areas</button>
+        </div>
+        <div class="ed-bar cal-only" id="edViews" aria-label="Views on this image"></div>
         <div class="ed-bar" aria-label="Tools">
-          <button type="button" data-tool="crop">Crop</button>
-          <button type="button" data-tool="nose">Nose tip</button>
-          <button type="button" data-tool="scale">Scale</button>
-          <button type="button" data-tool="ground">Ground</button>
-          <span class="sep"></span>
+          <button type="button" class="cal-only" data-tool="crop">Crop</button>
+          <button type="button" class="cal-only" data-tool="nose">Nose tip</button>
+          <button type="button" class="cal-only" data-tool="scale">Scale</button>
+          <button type="button" class="cal-only" data-tool="ground">Ground</button>
+          <span class="sep cal-only"></span>
           <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
           <button type="button" id="zoomFit">Fit</button>
           <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
@@ -171,7 +188,21 @@ button.danger { color: var(--ref-ink); }
         <div class="ed-main">
           <div class="ed-wrap" id="edWrap"><div class="ed-inner" id="edInner"><img id="edImg" alt="Reference image being calibrated"><svg id="edSvg" aria-hidden="true"></svg></div></div>
           <div class="ed-side">
-            <fieldset id="viewFields">
+            <fieldset class="mark-only">
+              <legend>Areas</legend>
+              <p class="cal-out" id="areaSum"></p>
+              <div class="area-list" id="areaList" aria-label="Key areas"></div>
+            </fieldset>
+            <fieldset class="mark-only" id="areaInfo" disabled>
+              <legend id="areaTitle">Area</legend>
+              <p class="area-hint" id="areaHint"></p>
+              <label id="stationRow" hidden>Station (m) <input type="number" id="fStation" step="0.01" placeholder="metres aft of the nose"></label>
+              <pre class="cal-out" id="areaMarks"></pre>
+              <div class="row"><button type="button" id="markFinish" hidden>Finish shape</button><button type="button" id="markUndo">Undo last mark</button><button type="button" id="markClear" class="danger">Clear on this image</button></div>
+              <div class="row"><button type="button" id="markAbsent" aria-pressed="false">Not on this aircraft</button><button type="button" id="markUnseen" aria-pressed="false">Not in any reference</button></div>
+              <div class="row"><button type="button" id="markNext">Next to do ›</button></div>
+            </fieldset>
+            <fieldset id="viewFields" class="cal-only">
               <legend>View</legend>
               <label>Type <select id="fView"><option value="side">side</option><option value="top">top</option><option value="bottom">bottom</option><option value="front">front</option><option value="rear">rear</option></select></label>
               <label>Nose points <select id="fNoseDir"><option value="left">left</option><option value="right">right</option><option value="up">up</option><option value="down">down</option></select></label>
@@ -180,7 +211,7 @@ button.danger { color: var(--ref-ink); }
               <pre class="cal-out" id="calOut"></pre>
               <div class="row"><button type="button" id="show3d">Show in 3D</button><button type="button" id="delView">Remove view</button></div>
             </fieldset>
-            <fieldset>
+            <fieldset class="cal-only">
               <legend>Image</legend>
               <label>Kind <select id="fKind"><option>sheet</option><option>view</option><option>section</option><option>photo</option><option>detail</option><option>model-shot</option></select></label>
               <label>Title <input type="text" id="fTitle"></label>
@@ -189,7 +220,7 @@ button.danger { color: var(--ref-ink); }
               <label class="check"><input type="checkbox" id="fRepo"> may go into the repo</label>
               <label>Notes <textarea id="fNotes"></textarea></label>
             </fieldset>
-            <div class="row"><button type="button" id="delImage" class="danger">Remove image</button></div>
+            <div class="row cal-only"><button type="button" id="delImage" class="danger">Remove image</button></div>
             <p class="cal-out" id="saveState"></p>
           </div>
         </div>
@@ -225,6 +256,7 @@ button.danger { color: var(--ref-ink); }
       </div>
       <div class="refctl">
         <label for="refOn">Reference</label><span><input type="checkbox" id="refOn" checked> lines over the model in Top/Side/Front/Bottom</span>
+        <label for="marksOn">Areas</label><span><input type="checkbox" id="marksOn" checked> marked key areas in those views</span>
         <label for="refOpacity">Opacity</label><input type="range" id="refOpacity" min="0.1" max="1" step="0.05" value="0.8">
       </div>
     </div>
@@ -699,7 +731,8 @@ const TOOL_HELP = {
   ground: '<b>Ground:</b> click where a wheel touches the ground (side, front and rear views, gear down).',
 };
 const refsNote = document.getElementById('refsNote');
-const R = { entry: null, meta: {}, images: [], sel: null, viewIdx: 0, tool: null, pts: [], zoom: 1, show3d: {}, plane: null, drag: null };
+const R = { entry: null, meta: {}, images: [], sel: null, viewIdx: 0, tool: null, pts: [], zoom: 1, show3d: {}, plane: null, drag: null,
+            mode: 'cal', areas: {}, area: null, catalog: null, marks3d: null };
 const cap = { db: null, assets: null };
 const srcCache = new Map();
 
@@ -769,7 +802,7 @@ async function srcFor(img) {
 async function loadRefs(entry, stale, force = false) {
   // Reloading the same model (Edges, Wireframe) keeps the references and any unsaved edits.
   if (!force && R.entry && R.entry.id === entry.id && R.images.length) { renderThumbs(); showReference3d(); return; }
-  R.entry = entry; R.meta = {}; R.images = []; R.sel = null; R.show3d = {};
+  R.entry = entry; R.meta = {}; R.images = []; R.sel = null; R.show3d = {}; R.areas = {}; R.pts = [];
   document.getElementById('editor').hidden = true;
   document.getElementById('exportBox').hidden = true;
   renderThumbs();
@@ -781,6 +814,7 @@ async function loadRefs(entry, stale, force = false) {
       const j = await r.json();
       R.meta = { aircraft: j.aircraft, length_m: j.length_m, span_m: j.span_m, ground_y: j.ground_y };
       images = (j.images || []).map(i => ({ ...i, static: i.file ? base + 'refs/' + i.file : null }));
+      R.areas = JSON.parse(JSON.stringify(j.areas || {}));
     } else if ((await fetch(base + 'drawing.png', { method: 'HEAD' })).ok) {
       // Older entries: one drawing.png, not calibrated yet.
       images = [{ id: 'drawing', kind: 'sheet', title: 'Reference drawing', source: entry.source || '', priority: 5, views: [], static: base + 'drawing.png' }];
@@ -798,7 +832,19 @@ async function loadRefs(entry, stale, force = false) {
         else images.push({ ...data, id: d.id, saved: true });
       }
     } catch (e) { refsNote.textContent = 'Could not read saved references: ' + (e.message || e.code); }
+    try {
+      // Area docs replace the area as a whole (an empty doc clears one listed in refs.json).
+      const snap = await cap.db.collection(`aircraft/${entry.id}/areas`).get();
+      for (const d of snap.docs) {
+        const data = JSON.parse(JSON.stringify(d.data() || {}));
+        const e = {};
+        if (data.marks && data.marks.length) e.marks = data.marks;
+        else if (data.status) e.status = data.status;
+        if (e.marks || e.status) R.areas[d.id] = e; else delete R.areas[d.id];
+      }
+    } catch (e) { refsNote.textContent = 'Could not read saved area marks: ' + (e.message || e.code); }
   }
+  await loadCatalog();
   if (stale()) return;
   R.meta.aircraft = R.meta.aircraft || entry.id;
   // An image removed in the Hangar stays as a 'removed' doc, so a file listed in refs.json stays hidden too.
@@ -806,13 +852,15 @@ async function loadRefs(entry, stale, force = false) {
   for (const img of R.images) img.views = img.views || [];
   renderThumbs();
   showReference3d();
+  if (R.mode === 'mark') renderAreas();
 }
 
 function noteText() {
   const n = R.images.length, cal = R.images.reduce((k, i) => k + i.views.filter(v => calibrate(v)).length, 0);
   const how = cap.db ? 'Changes are saved here for Claude to pick up.'
     : 'Changes stay in this browser tab; open the published Hangar to keep them, or copy refs.json.';
-  return `${n} image${n === 1 ? '' : 's'}, ${cal} calibrated view${cal === 1 ? '' : 's'}. ${how}`;
+  const ac = areaCounts();
+  return `${n} image${n === 1 ? '' : 's'}, ${cal} calibrated view${cal === 1 ? '' : 's'}${ac ? `, ${ac.done} / ${ac.total} areas` : ''}. ${how}`;
 }
 
 function renderThumbs() {
@@ -862,7 +910,8 @@ async function selectImage(img) {
   if (u) edImg.src = u;
   fillForm();
   renderViews();
-  setTool(img.views.length ? null : 'crop');
+  setTool(img.views.length || R.mode === 'mark' ? null : 'crop');
+  if (R.mode === 'mark') { renderAreas(); drawMarks(); }
 }
 function curView() { return R.sel && R.sel.views[R.viewIdx]; }
 function renderViews() {
@@ -944,11 +993,12 @@ function calOut() {
 function setTool(t) {
   R.tool = t; R.pts = [];
   document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool === t));
+  if (R.mode === 'mark') { $('edHelp').innerHTML = markHelp(); edSvg.style.cursor = curArea() ? 'crosshair' : 'default'; return; }
   $('edHelp').innerHTML = t ? TOOL_HELP[t] : (curView() ? 'Drag the box handles or the marked points to adjust; × or Delete removes the view. Click another box\'s label to switch views.' : 'Add a view for each drawing on this image (a three-view sheet has several).');
   edSvg.style.cursor = t ? 'crosshair' : 'default';
 }
 document.addEventListener('keydown', e => {
-  if ((e.key !== 'Delete' && e.key !== 'Backspace') || $('editor').hidden || !curView()) return;
+  if ((e.key !== 'Delete' && e.key !== 'Backspace') || R.mode === 'mark' || $('editor').hidden || !curView()) return;
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
   if (!edWrap.matches(':hover')) return;
@@ -986,6 +1036,7 @@ function deleteView(i) {
 }
 edSvg.addEventListener('pointerdown', e => {
   if (e.button !== 0 || !R.sel) return;
+  if (R.mode === 'mark') { markPointer(e); return; }
   const h = e.target.dataset && e.target.dataset.h;
   const sel = e.target.dataset && e.target.dataset.sel;
   if (!R.tool && sel !== undefined) {
@@ -1077,11 +1128,11 @@ function drawMarks() {
   if (!R.sel || !R.sel.size) return;
   const k = R.sel.size[0] / Math.max(edSvg.getBoundingClientRect().width, 1);   // image px per screen px
   const lw = 1.6 * k, fs = 12 * k;
-  const free = !R.tool;   // handles work when no tool is picked
+  const free = !R.tool && R.mode !== 'mark';   // handles work when no tool is picked (and not while marking)
   const order = R.sel.views.map((v, i) => i).filter(i => i !== R.viewIdx).concat(R.sel.views[R.viewIdx] ? [R.viewIdx] : []);
   order.forEach(i => {
     const v = R.sel.views[i];
-    const on = i === R.viewIdx, col = on ? 'var(--ref-ink)' : 'var(--accent)';
+    const on = i === R.viewIdx && R.mode !== 'mark', col = on ? 'var(--ref-ink)' : 'var(--accent)';
     const g = el('g', { opacity: on ? 1 : 0.55 }, edSvg);
     if (v.crop) {
       const [u0, v0, u1, v1] = v.crop;
@@ -1142,7 +1193,8 @@ function drawMarks() {
     const [u0, v0, u1, v1] = R.dragBox;
     el('rect', { x: u0, y: v0, width: u1 - u0, height: v1 - v0, fill: 'none', stroke: 'var(--ref-ink)', 'stroke-width': lw }, edSvg);
   }
-  for (const p of R.pts) el('circle', { cx: p[0], cy: p[1], r: 3 * k, fill: 'var(--ref-ink)' }, edSvg);
+  if (R.mode === 'mark') drawAreaMarks(k, lw);
+  else for (const p of R.pts) el('circle', { cx: p[0], cy: p[1], r: 3 * k, fill: 'var(--ref-ink)' }, edSvg);
 }
 
 function changed() {
@@ -1243,6 +1295,9 @@ function save() {
 function refsJson() {
   const out = { aircraft: R.meta.aircraft || (R.entry && R.entry.id), length_m: R.meta.length_m ?? null, span_m: R.meta.span_m ?? null,
                 ground_y: R.meta.ground_y ?? null, images: R.images.map(cleanDoc) };
+  const areas = {};
+  for (const id of Object.keys(R.areas).sort()) { const d = areaDoc(id); delete d.id; if (d.marks || d.status) areas[id] = d; }
+  if (Object.keys(areas).length) out.areas = areas;
   return JSON.stringify(out, null, 1);
 }
 $('exportBtn').addEventListener('click', async () => {
@@ -1309,6 +1364,329 @@ async function addImages(all) {
   renderThumbs();
 }
 
+// ---- Mark areas: the 50 key areas (models/areas.json, same as lpa/areas.json) located on the references ----
+// A mark is image pixels on one image; the calibrated view whose box holds it turns it into metres.
+// Saved per area at aircraft/<id>/areas/<areaId> as { id, marks: [{ img, view, pts, station_d? }], status? }.
+const AREA_ICON = { marked: '✓', absent: '–', unseen: '?', missing: '○' };
+async function loadCatalog() {
+  if (R.catalog) return R.catalog;
+  try {
+    const r = await fetch('models/areas.json');
+    if (r.ok) R.catalog = await r.json();
+  } catch (e) { /* shown in the panel */ }
+  return R.catalog;
+}
+const areaDef = id => R.catalog && R.catalog.areas.find(a => a.id === id);
+const curArea = () => areaDef(R.area);
+function areaStatus(e) {
+  if (!e) return 'missing';
+  if (e.marks && e.marks.length) return 'marked';
+  return e.status === 'absent' || e.status === 'unseen' ? e.status : 'missing';
+}
+function areaCounts() {
+  if (!R.catalog) return null;
+  const st = R.catalog.areas.map(a => [a, areaStatus(R.areas[a.id])]);
+  return { done: st.filter(([, s]) => s !== 'missing').length, total: st.length,
+           need: st.filter(([a, s]) => s === 'missing' && a.need === 'always').length };
+}
+// The calibrated view on the image whose box holds most of the mark (its own view type preferred).
+function viewForMark(img, mark) {
+  let best = null;
+  img.views.forEach(v => {
+    const c = calibrate(v);
+    if (!c || !mark.pts.length) return;
+    let inside = 0.5;
+    if (v.crop) {
+      const [u0, v0, u1, v1] = v.crop;
+      inside = mark.pts.filter(p => p[0] >= u0 && p[0] <= u1 && p[1] >= v0 && p[1] <= v1).length / mark.pts.length;
+    }
+    const score = inside + (v.view === mark.view ? 0.5 : 0);
+    if (inside > 0.5 && (!best || score > best.score)) best = { score, v, c };
+  });
+  return best;
+}
+function markMetres(mark) {
+  const img = R.images.find(i => i.id === mark.img);
+  const b = img && viewForMark(img, mark);
+  if (!b) return null;
+  const ax = VIEW_AXES[b.v.view], cal = b.v.cal || {};
+  const pts = mark.pts.map(p => {
+    const [a, bb] = b.c.raw(p);
+    const m = { [ax[0]]: a, [ax[1]]: bb };
+    if (ax[1] === 'y') m.y = b.c.hasGround && R.meta.ground_y != null ? R.meta.ground_y + (bb - b.c.groundB) : bb + (cal.nose_y_m || 0);
+    if (mark.station_d != null) m.d = mark.station_d;
+    return m;
+  });
+  return { img, v: b.v, c: b.c, pts };
+}
+
+function setMode(m) {
+  R.mode = m; R.pts = []; R.tool = null; R.edit = null; R.drag = null; R.dragBox = null;
+  $('editor').classList.toggle('marking', m === 'mark');
+  document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
+  setTool(null);
+  if (m === 'mark') loadCatalog().then(() => { renderAreas(); setTool(null); });
+  drawMarks(); drawMarks3d();
+}
+document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+function markHelp() {
+  const a = curArea();
+  if (!R.catalog) return 'The area list (models/areas.json) is not in this Hangar.';
+  if (!a) return 'Pick an area on the right, then click on the drawing where it is.';
+  if (R.pts.length) return `<b>${a.name}:</b> ${R.pts.length} point${R.pts.length === 1 ? '' : 's'}. Enter or double-click finishes, Backspace removes the last point, Esc cancels.`;
+  return `<b>${a.name}</b> (${a.shape}): ${R.catalog.shapes[a.shape]}.`;
+}
+function renderAreas() {
+  const list = $('areaList');
+  list.textContent = '';
+  if (!R.catalog) { $('areaSum').textContent = 'Area list not found (models/areas.json).'; return; }
+  const n = areaCounts();
+  $('areaSum').textContent = `${n.done} / ${n.total} done` + (n.need ? ` · ${n.need} needed for every aircraft still to do` : ' · all needed areas done');
+  let group = null;
+  for (const a of R.catalog.areas) {
+    if (a.group !== group) {
+      group = a.group;
+      const h = document.createElement('div');
+      h.className = 'area-group';
+      h.textContent = group;
+      list.appendChild(h);
+    }
+    const st = areaStatus(R.areas[a.id]);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.area = a.id;
+    b.setAttribute('aria-pressed', a.id === R.area);
+    b.className = 'st-' + st + (st === 'missing' && a.need === 'always' ? ' needed' : '');
+    b.title = `${a.name}: ${st}${a.need === 'always' ? ' (needed for every aircraft)' : ' (if the aircraft has it)'}`;
+    const i = document.createElement('span');
+    i.className = 'ic';
+    i.textContent = AREA_ICON[st];
+    b.append(i, document.createTextNode(a.name));
+    b.addEventListener('click', () => pickArea(a.id));
+    list.appendChild(b);
+  }
+  areaInfo();
+  if (R.entry) refsNote.textContent = noteText();
+}
+function pickArea(id) {
+  R.area = id; R.pts = [];
+  renderAreas(); setTool(null); drawMarks(); drawMarks3d();
+}
+function areaInfo() {
+  const a = curArea(), e = a && R.areas[a.id];
+  $('areaInfo').disabled = !a;
+  $('areaTitle').textContent = a ? a.name : 'Area';
+  $('areaHint').textContent = a ? `${a.hint} Seen best in: ${a.views.join(', ')}.${a.need === 'always' ? '' : ' Only if the aircraft has it.'}` : 'Pick an area from the list.';
+  $('stationRow').hidden = !(a && a.station);
+  const st = areaStatus(e), marks = (e && e.marks) || [];
+  $('markAbsent').setAttribute('aria-pressed', st === 'absent');
+  $('markUnseen').setAttribute('aria-pressed', st === 'unseen');
+  $('markAbsent').disabled = $('markUnseen').disabled = !a || marks.length > 0;
+  $('markAbsent').title = $('markUnseen').title = marks.length ? 'Clear its marks first' : '';
+  $('markUndo').disabled = !marks.length;
+  $('markClear').disabled = !marks.some(m => R.sel && m.img === R.sel.id);
+  $('markFinish').hidden = !R.pts.length;
+  const lines = marks.map((m, k) => {
+    const mm = markMetres(m), img = R.images.find(i => i.id === m.img);
+    const where = img ? (img.title || img.id) : `${m.img} (image not here)`;
+    if (!mm) return `${k + 1}. ${m.pts.length} pt on ${where}: in no calibrated view`;
+    const ax = VIEW_AXES[mm.v.view].concat(m.station_d != null ? ['d'] : []);
+    const rng = [...new Set(ax)].map(q => {
+      const vals = mm.pts.map(p => p[q]);
+      const lo = Math.min(...vals), hi = Math.max(...vals);
+      return `${q} ${lo.toFixed(2)}${hi - lo > 0.005 ? '…' + hi.toFixed(2) : ''}`;
+    });
+    return `${k + 1}. ${mm.v.view} on ${where}: ${m.pts.length} pt, ${rng.join(', ')} m`;
+  });
+  $('areaMarks').textContent = a ? (lines.length ? lines.join('\n') : st === 'missing' ? 'No marks yet.' : st === 'absent' ? 'Not on this aircraft.' : 'In no reference: Claude estimates it.') : '';
+}
+function finishMark() {
+  const a = curArea();
+  if (!a || !R.sel) return;
+  // A double-click lands twice on the same spot: drop points that repeat the one before.
+  const k = R.sel.size[0] / Math.max(edSvg.getBoundingClientRect().width, 1);
+  const pts = R.pts.filter((p, i) => i === 0 || Math.hypot(p[0] - R.pts[i - 1][0], p[1] - R.pts[i - 1][1]) > 3 * k);
+  const need = a.shape === 'area' ? 3 : a.shape === 'line' ? 2 : 1;
+  if (pts.length < need) { $('edHelp').innerHTML = `<b>${a.name}</b> needs at least ${need} points.`; R.pts = pts; drawMarks(); return; }
+  const mark = { img: R.sel.id, pts };
+  const best = viewForMark(R.sel, mark);
+  if (best) mark.view = best.v.view;
+  if (a.station) {
+    const s = parseFloat($('fStation').value);
+    if (Number.isFinite(s)) mark.station_d = s;
+  }
+  const e = R.areas[a.id] || (R.areas[a.id] = {});
+  (e.marks || (e.marks = [])).push(mark);
+  delete e.status;
+  R.pts = [];
+  areaChanged(a.id);
+  let msg = markHelp();
+  if (!best) msg = `<b>Saved, but outside every calibrated view</b> on this image: it turns into metres once a view's box holds it.`;
+  else if (a.station && mark.station_d == null) msg = `<b>Saved without a station:</b> type the section's distance aft of the nose, then mark it again for it to count.`;
+  $('edHelp').innerHTML = msg;
+}
+function areaChanged(id) {
+  renderAreas(); drawMarks(); drawMarks3d(); saveArea(id);
+}
+edSvg.addEventListener('dblclick', e => { if (R.mode === 'mark' && R.pts.length) { e.preventDefault(); finishMark(); } });
+function markPointer(e) {
+  const a = curArea();
+  if (!a) { $('edHelp').innerHTML = markHelp(); return; }
+  R.pts.push(imgPx(e));
+  if (a.shape === 'point') { finishMark(); return; }
+  $('edHelp').innerHTML = markHelp();
+  $('markFinish').hidden = false;
+  drawMarks();
+}
+document.addEventListener('keydown', e => {
+  if (R.mode !== 'mark' || $('editor').hidden || !R.pts.length) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  if (e.key === 'Enter') finishMark();
+  else if (e.key === 'Escape') R.pts = [];
+  else if (e.key === 'Backspace' || e.key === 'Delete') R.pts.pop();
+  else return;
+  e.preventDefault();
+  $('edHelp').innerHTML = markHelp(); $('markFinish').hidden = !R.pts.length;
+  drawMarks();
+});
+$('markFinish').addEventListener('click', finishMark);
+$('markUndo').addEventListener('click', () => {
+  const a = curArea(), e = a && R.areas[a.id];
+  if (!e || !e.marks || !e.marks.length) return;
+  e.marks.pop();
+  areaChanged(a.id);
+});
+{
+  const btn = $('markClear');
+  let armed = null;
+  btn.addEventListener('click', () => {
+    const a = curArea(), e = a && R.areas[a.id];
+    if (!e || !R.sel) return;
+    const key = a.id + '/' + R.sel.id;
+    if (armed !== key) {
+      armed = key; btn.textContent = 'Click again to clear';
+      setTimeout(() => { if (armed === key) { armed = null; btn.textContent = 'Clear on this image'; } }, 3000);
+      return;
+    }
+    armed = null; btn.textContent = 'Clear on this image';
+    e.marks = (e.marks || []).filter(m => m.img !== R.sel.id);
+    areaChanged(a.id);
+  });
+}
+for (const [id, st] of [['markAbsent', 'absent'], ['markUnseen', 'unseen']]) {
+  $(id).addEventListener('click', () => {
+    const a = curArea();
+    if (!a) return;
+    const e = R.areas[a.id] || (R.areas[a.id] = {});
+    if (e.marks && e.marks.length) return;
+    if (e.status === st) delete e.status; else e.status = st;
+    areaChanged(a.id);
+  });
+}
+$('markNext').addEventListener('click', () => {
+  if (!R.catalog) return;
+  const all = R.catalog.areas, i = all.findIndex(a => a.id === R.area);
+  const next = all.slice(i + 1).concat(all.slice(0, i + 1)).find(a => areaStatus(R.areas[a.id]) === 'missing');
+  if (next) {
+    pickArea(next.id);
+    const b = $('areaList').querySelector(`[data-area="${next.id}"]`);
+    if (b) b.scrollIntoView({ block: 'nearest' });
+  }
+});
+// The area's marks on this image: the picked area in red, the others faint.
+function drawAreaMarks(k, lw) {
+  if (!R.catalog) return;
+  for (const [id, e] of Object.entries(R.areas)) {
+    const a = areaDef(id);
+    if (!a || !e.marks) continue;
+    const on = id === R.area, col = on ? 'var(--ref-ink)' : 'var(--accent)';
+    const g = el('g', { opacity: on ? 1 : 0.45, 'pointer-events': 'none' }, edSvg);
+    for (const m of e.marks) {
+      if (m.img !== R.sel.id) continue;
+      const pts = m.pts.map(p => p.join(',')).join(' ');
+      if (a.shape === 'area') el('polygon', { points: pts, fill: col, 'fill-opacity': 0.12, stroke: col, 'stroke-width': lw }, g);
+      else if (a.shape === 'line') el('polyline', { points: pts, fill: 'none', stroke: col, 'stroke-width': lw }, g);
+      for (const p of m.pts) el('circle', { cx: p[0], cy: p[1], r: (a.shape === 'point' ? 4 : 2.2) * k, fill: col }, g);
+      if (on || a.shape === 'point') {
+        const t = el('text', { x: m.pts[0][0] + 5 * k, y: m.pts[0][1] - 5 * k, fill: col, 'font-size': 11 * k }, g);
+        t.textContent = a.name + (m.station_d != null ? ` @ ${m.station_d} m` : '');
+      }
+    }
+  }
+  if (R.pts.length) {
+    const g = el('g', { 'pointer-events': 'none' }, edSvg);
+    const a = curArea();
+    const pts = (a && a.shape === 'area' && R.pts.length > 2 ? R.pts.concat([R.pts[0]]) : R.pts).map(p => p.join(',')).join(' ');
+    el('polyline', { points: pts, fill: 'none', stroke: 'var(--ref-ink)', 'stroke-width': lw, 'stroke-dasharray': `${4 * k} ${3 * k}` }, g);
+    for (const p of R.pts) el('circle', { cx: p[0], cy: p[1], r: 3 * k, fill: 'var(--ref-ink)' }, g);
+  }
+}
+
+// Saving: one doc per area, one write at a time per doc (same queue as the images).
+function areaDoc(id) {
+  const e = R.areas[id] || {};
+  const out = { id };
+  if (e.marks && e.marks.length) out.marks = e.marks;
+  else if (e.status) out.status = e.status;
+  return JSON.parse(JSON.stringify(out));
+}
+function saveArea(id) {
+  if (!cap.db || !R.entry) { $('saveState').textContent = 'Not saved (no storage here): use Copy refs.json.'; return; }
+  const path = `aircraft/${R.entry.id}/areas`;
+  const key = path + '/' + id;
+  const st = saving.get(key) || { busy: false, again: false };
+  saving.set(key, st);
+  if (st.busy) { st.again = true; return; }
+  st.busy = true;
+  $('saveState').textContent = 'Saving …';
+  (async () => {
+    try {
+      do { st.again = false; await cap.db.collection(path).doc(id).set(areaDoc(id)); } while (st.again);
+      $('saveState').textContent = 'Saved.';
+    } catch (e) {
+      $('saveState').textContent = 'Not saved: ' + (e.code === 'not_granted' || e.code === 'permission_denied' ? 'you can view but not edit this Hangar.' : (e.message || e.code));
+    } finally { st.busy = false; }
+  })();
+}
+
+// The marks in the 3D view (Top/Side/Front/Bottom), on the reference's plane.
+function drawMarks3d() {
+  if (R.marks3d) {
+    R.marks3d.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    R.marks3d.removeFromParent();
+    R.marks3d = null;
+  }
+  if (!current || viewName === 'persp' || !$('marksOn').checked || !R.catalog) return;
+  const types = viewName === 'front' ? ['front', 'rear'] : [viewName];
+  const group = new THREE.Group();
+  for (const [id, e] of Object.entries(R.areas)) {
+    const a = areaDef(id);
+    if (!a || !e.marks) continue;
+    const on = id === R.area;
+    for (const m of e.marks) {
+      const mm = markMetres(m);
+      if (!mm || !types.includes(mm.v.view)) continue;
+      const toBody = bodyMapper(mm.v, mm.c);
+      const pos = m.pts.flatMap(toBody);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const look = { color: on ? 0xff8a00 : 0x2f6db5, transparent: true, opacity: on ? 1 : 0.55, depthTest: false, depthWrite: false };
+      const obj = a.shape === 'point' || m.pts.length === 1
+        ? new THREE.Points(geo, new THREE.PointsMaterial({ ...look, size: on ? 9 : 6, sizeAttenuation: false }))
+        : new (a.shape === 'area' ? THREE.LineLoop : THREE.Line)(geo, new THREE.LineBasicMaterial(look));
+      obj.renderOrder = on ? 12 : 11;
+      group.add(obj);
+    }
+  }
+  if (!group.children.length) return;
+  group.userData.reference = true;
+  scene.add(group);
+  R.marks3d = group;
+}
+$('marksOn').addEventListener('change', drawMarks3d);
+
 // ---- The calibrated drawing in the 3D view ----
 // The model's nose tip (the radome's, not a pitot probe's) anchors d = 0 and x = 0; a marked
 // ground point puts the ground under the model's wheels, else the nose tip's height is the model's.
@@ -1348,6 +1726,7 @@ let refSeq = 0;
 async function showReference3d() {
   const seq = ++refSeq;
   if (R.plane) { R.plane.removeFromParent(); R.plane.geometry.dispose(); R.plane = null; }
+  drawMarks3d();
   if (!current || viewName === 'persp' || !$('refOn').checked) return;
   const pick = pickView(viewName);
   if (!pick) { statusEl.textContent = `${current.manifest.id} · no calibrated ${viewName} view`; return; }
@@ -1360,22 +1739,7 @@ async function showReference3d() {
   const W = tex.image.width, H = tex.image.height;
   const c = calibrate(v);
   const [u0, v0, u1, v1] = v.crop || [0, 0, W, H];
-  const N = current.nose, G = current.groundY, box = current.box;
-  const toBody = px => {
-    const [a, b] = c.raw(px);
-    const m = { d: 0, x: 0, y: 0 };
-    const ax = VIEW_AXES[v.view];
-    m[ax[0]] = a; m[ax[1]] = b;
-    let y = N.y + m.y;
-    if (c.hasGround) y = G + (b - c.groundB);
-    if (v.view === 'top') y = box.min.y - 0.2;
-    if (v.view === 'bottom') y = box.max.y + 0.2;
-    let x = m.x;
-    if (v.view === 'side') x = box.max.x + 0.2;
-    let z = N.z - m.d;
-    if (v.view === 'front' || v.view === 'rear') z = box.min.z - 0.2;
-    return [x, y, z];
-  };
+  const toBody = bodyMapper(v, c);
   const corners = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
   const pos = corners.flatMap(toBody);
   const uv = corners.flatMap(([u, w]) => [u / W, 1 - w / H]);
@@ -1393,6 +1757,25 @@ async function showReference3d() {
   scene.add(mesh);
   R.plane = mesh;
   statusEl.textContent = `${current.manifest.id} · ${viewName}: ${img.title || img.id}`;
+}
+// Image px on a calibrated view -> model coordinates, on a plane just outside the model facing the camera.
+function bodyMapper(v, c) {
+  const N = current.nose, G = current.groundY, box = current.box;
+  return px => {
+    const [a, b] = c.raw(px);
+    const m = { d: 0, x: 0, y: 0 };
+    const ax = VIEW_AXES[v.view];
+    m[ax[0]] = a; m[ax[1]] = b;
+    let y = N.y + m.y;
+    if (c.hasGround) y = G + (b - c.groundB);
+    if (v.view === 'top') y = box.min.y - 0.2;
+    if (v.view === 'bottom') y = box.max.y + 0.2;
+    let x = m.x;
+    if (v.view === 'side') x = box.max.x + 0.2;
+    let z = N.z - m.d;
+    if (v.view === 'front' || v.view === 'rear') z = box.min.z - 0.2;
+    return [x, y, z];
+  };
 }
 $('refOn').addEventListener('change', showReference3d);
 $('refOpacity').addEventListener('input', () => { if (R.plane) R.plane.material.uniforms.opacity.value = parseFloat($('refOpacity').value); });
