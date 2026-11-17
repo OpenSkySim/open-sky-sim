@@ -178,7 +178,10 @@ def main():
     # Slight dihedral (about 5.5 deg): the root sits on the fuselage side (side view: root LE d 16.6, y 0.55).
     tail = [(0.5, 0.52, 16.55, 3.35, 0.1), (5.55, 1.0, 18.0, 1.85, 0.1)]
     # Fins lean inward (front view: x 5.6 at the root, 5.3 at the tip).
-    fin = [(5.62, -0.95, 18.45, 1.55, 0.08), (5.47, 1.0, 17.25, 2.85, 0.08), (5.32, 2.95, 18.2, 1.9, 0.08)]
+    # Side view (user: match the drawing): leading edge kinked forward at y 1.09 (d 17.31), straight
+    # trailing edge at d 20.31, the bottom edge rising aft from d 18.33/y -0.96 to y -0.5 at the TE.
+    fin = [(5.62, -0.96, 18.33, 1.2, 0.08), (5.59, -0.6, 18.15, 2.16, 0.08),
+           (5.46, 1.09, 17.31, 3.0, 0.08), (5.32, 2.95, 18.33, 1.98, 0.08)]
     # Telescopic rotodome mast: the upper part slides down into the lower one when parked (drawing:
     # rotodome lowered 1.5 m, dash-dot).
     pylon = [(0.0, 0.6, 12.6, 2.3, 0.32), (0.0, 2.4, 12.656, 2.26, 0.32)]
@@ -340,10 +343,11 @@ def main():
             # Kept clear of the inward-leaning fins: stops short of them and only cuts the tailplane's height.
             {'type': 'elevator', 'view': 'top', 'mirror': True, 'depth_m': [0.3, 1.3],
              'polygon_m': top_m([(0.6, 19.1), (5.2, 19.1), (5.2, 20.1), (0.6, 20.1)])},
-            # Upper and lower rudder, split where the tailplane passes through the fin (y 0.82..1.17).
+            # Upper and lower rudder as drawn: hinged at d 19.31, full height of the fin, split at y 1.09
+            # where the tailplane's trailing edge passes through (y 0.92..1.1).
             {'type': 'rudder', 'view': 'side', 'mirror': True, 'depth_m': [5.0, 6.0],
-             'polygons_m': [side_m([(19.3, 3.2), (19.3, 1.17), (20.4, 1.17), (20.4, 3.2)]),
-                            side_m([(19.3, 0.82), (19.3, -1.1), (20.4, -1.1), (20.4, 0.82)])]},
+             'polygons_m': [side_m([(19.31, 3.2), (19.31, 1.1), (20.5, 1.1), (20.5, 3.2)]),
+                            side_m([(19.31, 0.92), (19.31, -1.1), (20.5, -1.1), (20.5, 0.92)])]},
         ],
         'gear': {'wheel_sides': 10, 'legs': [
             {'name': 'Nose', 'pos_m': P(0.0, -2.58, 1.21), 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -1.65, 'wheel_radius_m': 0.31, 'twin': True},
