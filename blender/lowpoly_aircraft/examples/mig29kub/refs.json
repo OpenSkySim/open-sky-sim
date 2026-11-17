@@ -1,0 +1,37 @@
+{
+ "aircraft": "lp_mig29kub",
+ "length_m": 17.3,
+ "span_m": 11.99,
+ "ground_y": -2.0,
+ "images": [
+  {
+   "id": "mig29m2-sheet",
+   "file": "mig29m2_kollmann.png",
+   "kind": "sheet",
+   "title": "MiG-29M2 three-view (Kollmann 2004)",
+   "source": "scalemodels.ru, uploaded by the owner 2026-11-17",
+   "repo_ok": false,
+   "priority": 1,
+   "size": [856, 1200],
+   "notes": "Base drawing. Scale 41.5 px/m fits the model's side view; the sheet's 3 m bar reads 42.3 px/m (scan about 2 % off). The lower side view (gear down) is drawn about 3 % shorter.",
+   "views": [
+    {"view": "side", "crop": [25, 40, 800, 215], "cal": {"nose": [80, 161.5], "nose_dir": "left", "px_per_m": 41.5, "nose_y_m": 0.0}},
+    {"view": "top", "crop": [100, 205, 845, 740], "cal": {"nose": [131, 474], "nose_dir": "left", "px_per_m": 41.5}},
+    {"view": "front", "crop": [0, 200, 505, 412], "cal": {"nose": [250, 324], "px_per_m": 41.5, "ground": [250, 406]}},
+    {"view": "bottom", "crop": [25, 510, 800, 1012], "cal": {"nose": [729, 766.3], "nose_dir": "right", "px_per_m": 41.5}},
+    {"view": "side", "crop": [15, 965, 800, 1185], "cal": {"nose": [700, 1108.8], "nose_dir": "right", "px_per_m": 41.5, "ground": [520, 1179]}}
+   ]
+  },
+  {
+   "id": "mig29kub-blueprint",
+   "file": "mig29kub_blueprint.png",
+   "kind": "sheet",
+   "title": "MiG-29KUB three-view (the-blueprints.com)",
+   "source": "uploaded by the owner 2026-11-17",
+   "repo_ok": false,
+   "priority": 2,
+   "size": [1054, 532],
+   "notes": "Earlier base drawing, 40 px/m in all views. Views not marked yet."
+  }
+ ]
+}

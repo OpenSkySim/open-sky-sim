@@ -78,9 +78,48 @@ dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .chips button[aria-pressed="true"] { background: var(--hl); border-color: var(--hl); color: #1a1206; }
 .chips button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card .note { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
-.drawing { margin-top: 16px; }
-.drawing img { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
-.drawing p { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+/* References: thumbnails of the aircraft's drawings and photos, and the calibration editor. */
+:root { --ref-ink: #d0342c; --ok: #2f8a4c; --warn: #b7791f; }
+.refs { margin-top: 16px; }
+.refs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.refs-head h2 { margin: 0; }
+.refs-head .note { margin: 0; flex: 1 1 200px; }
+.btn, .refs button, .refs select, .refs input, .refs textarea {
+  font: 12px var(--font-ui); color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 5px 9px;
+}
+.btn, .refs button { cursor: pointer; }
+.refs button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.refs button:focus-visible, .refs select:focus-visible, .refs input:focus-visible, .btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.thumbs button { display: grid; gap: 4px; text-align: left; padding: 6px; }
+.thumbs img { width: 100%; height: 90px; object-fit: contain; background: #fff; border-radius: 3px; }
+.thumbs b { font-weight: 500; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thumbs span { font-size: 11px; color: var(--muted); }
+.tag { display: inline-block; font: 10.5px var(--font-mono); padding: 1px 5px; border-radius: 3px; border: 1px solid currentColor; }
+.tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); }
+.editor { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.ed-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.ed-bar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+.ed-main { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; }
+@media (max-width: 860px) { .ed-main { grid-template-columns: minmax(0, 1fr); } }
+.ed-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.ed-inner { position: relative; }
+.ed-inner img { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
+.ed-inner svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.ed-side { display: flex; flex-direction: column; gap: 10px; font-size: 12px; min-width: 0; }
+.ed-side fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 0; display: grid; gap: 6px; }
+.ed-side legend { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; padding: 0 4px; }
+.ed-side label { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 6px; }
+.ed-side label.check { grid-template-columns: auto 1fr; }
+.ed-side input[type="text"], .ed-side input[type="number"], .ed-side select, .ed-side textarea { width: 100%; box-sizing: border-box; min-width: 0; }
+.ed-side textarea { resize: vertical; min-height: 44px; }
+.ed-help { font-size: 12px; color: var(--muted); margin: 0 0 8px; min-height: 1.4em; }
+.ed-help b { color: var(--ink); }
+.cal-out { font: 11.5px var(--font-mono); color: var(--muted); white-space: pre-wrap; margin: 0; }
+.export { margin-top: 10px; }
+.export textarea { width: 100%; box-sizing: border-box; height: 160px; font: 11px var(--font-mono); }
+.refctl { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px 10px; margin-top: 10px; font-size: 12px; }
+.refctl input[type="range"] { width: 100%; accent-color: var(--ref-ink); }
 </style>
 </head>
 <body>
@@ -96,10 +135,57 @@ dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
       <div class="status" id="status">loading …</div>
       <div class="hint">Drag to rotate, scroll to zoom, right-drag to pan</div>
     </div>
-    <div class="drawing">
-      <img id="drawing" alt="Reference the model was built from">
-      <p id="drawingNote"></p>
-    </div>
+    <section class="card refs" id="refs" aria-label="References">
+      <div class="refs-head">
+        <h2>References</h2>
+        <p class="note" id="refsNote"></p>
+        <label class="btn" id="addLabel" hidden>Add images<input type="file" id="addFile" accept="image/png,image/jpeg,image/webp" multiple hidden></label>
+        <button type="button" id="exportBtn">Copy refs.json</button>
+      </div>
+      <div class="thumbs" id="thumbs"></div>
+      <div class="export" id="exportBox" hidden>
+        <p class="ed-help">refs.json for this aircraft (select all and copy if the clipboard is blocked):</p>
+        <textarea id="exportText" readonly aria-label="refs.json"></textarea>
+      </div>
+      <div class="editor" id="editor" hidden>
+        <div class="ed-bar" id="edViews" aria-label="Views on this image"></div>
+        <div class="ed-bar" aria-label="Tools">
+          <button type="button" data-tool="crop">Crop</button>
+          <button type="button" data-tool="nose">Nose tip</button>
+          <button type="button" data-tool="scale">Scale</button>
+          <button type="button" data-tool="ground">Ground</button>
+          <span class="sep"></span>
+          <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
+          <button type="button" id="zoomFit">Fit</button>
+          <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
+        </div>
+        <p class="ed-help" id="edHelp"></p>
+        <div class="ed-main">
+          <div class="ed-wrap" id="edWrap"><div class="ed-inner" id="edInner"><img id="edImg" alt="Reference image being calibrated"><svg id="edSvg" aria-hidden="true"></svg></div></div>
+          <div class="ed-side">
+            <fieldset id="viewFields">
+              <legend>View</legend>
+              <label>Type <select id="fView"><option value="side">side</option><option value="top">top</option><option value="bottom">bottom</option><option value="front">front</option><option value="rear">rear</option></select></label>
+              <label>Nose points <select id="fNoseDir"><option value="left">left</option><option value="right">right</option><option value="up">up</option><option value="down">down</option></select></label>
+              <label>Scale (m) <input type="number" id="fScaleM" min="0" step="0.01" placeholder="distance"></label>
+              <label>Rotate (°) <input type="number" id="fRot" step="0.1" value="0"></label>
+              <pre class="cal-out" id="calOut"></pre>
+              <div class="row"><button type="button" id="show3d">Show in 3D</button><button type="button" id="delView">Remove view</button></div>
+            </fieldset>
+            <fieldset>
+              <legend>Image</legend>
+              <label>Kind <select id="fKind"><option>sheet</option><option>view</option><option>section</option><option>photo</option><option>detail</option><option>model-shot</option></select></label>
+              <label>Title <input type="text" id="fTitle"></label>
+              <label>Source <input type="text" id="fSource"></label>
+              <label>Priority <input type="number" id="fPrio" min="1" max="9" step="1"></label>
+              <label class="check"><input type="checkbox" id="fRepo"> may go into the repo</label>
+              <label>Notes <textarea id="fNotes"></textarea></label>
+            </fieldset>
+            <p class="cal-out" id="saveState"></p>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
   <aside>
     <div class="card">
@@ -124,8 +210,13 @@ dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
         <button type="button" data-view="top">Top</button>
         <button type="button" data-view="side">Side</button>
         <button type="button" data-view="front">Front</button>
+        <button type="button" data-view="bottom">Bottom</button>
         <button type="button" id="wire">Edges</button>
         <button type="button" id="mesh" aria-pressed="false">Wireframe</button>
+      </div>
+      <div class="refctl">
+        <label for="refOn">Reference</label><span><input type="checkbox" id="refOn" checked> lines over the model in Top/Side/Front/Bottom</span>
+        <label for="refOpacity">Opacity</label><input type="range" id="refOpacity" min="0.1" max="1" step="0.05" value="0.8">
       </div>
     </div>
     <div class="card">
@@ -168,6 +259,9 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 stage.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1.6, 0.1, 2000);
+// Top/Side/Front/Bottom look through an orthographic camera, so a calibrated drawing lines up with the model.
+const ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 2000);
+let cam = camera;
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 scene.add(new THREE.HemisphereLight(0xffffff, 0x6f7a86, 1.6));
@@ -377,7 +471,8 @@ async function showModel(entry) {
     g.scene.position.fromArray(seat);
     root.add(g.scene);
   }
-  current = { root, surfaces, mixers, actions, duration, size, center: box.getCenter(new THREE.Vector3()), manifest, hook };
+  current = { root, surfaces, mixers, actions, duration, size, center: box.getCenter(new THREE.Vector3()), manifest, hook,
+              nose: noseTip(body.scene), groundY: ground.position.y + 0.02, box };
   setView('persp');
   applyControls();
   buildChips();
@@ -389,10 +484,7 @@ async function showModel(entry) {
     <dt>Gear</dt><dd>${manifest.gear ? `${legCount(root)} legs, animated` : 'none'}</dd>
     <dt>Source</dt><dd>${entry.source}</dd>
     <dt>Status</dt><dd>${entry.status}</dd>`;
-  const img = document.getElementById('drawing');
-  img.hidden = true;
-  asDataUrl(base + 'drawing.png').then(u => { if (!stale()) { img.src = u; img.hidden = false; } }).catch(() => {});
-  document.getElementById('drawingNote').textContent = `Reference: ${entry.source}`;
+  loadRefs(entry, stale).catch(err => { refsNote.textContent = 'References failed to load: ' + err.message; });
   statusEl.textContent = manifest.id;
 }
 
@@ -452,14 +544,28 @@ document.getElementById('reset').addEventListener('click', () => {
 let demo = false, t0 = 0;
 document.getElementById('demo').addEventListener('click', () => { demo = !demo; t0 = performance.now(); });
 
+let viewName = 'persp';
 function setView(name) {
   if (!current) return;
+  viewName = name;
   const c = current.center, d = current.size * 1.1;
-  const dirs = { persp: [-0.9, 0.55, 1.0], top: [0, 1, 0.0001], side: [-1, 0.0001, 0], front: [0, 0.0001, 1] };
+  const dirs = { persp: [-0.9, 0.55, 1.0], top: [0, 1, 0.0001], bottom: [0, -1, 0.0001], side: [-1, 0.0001, 0], front: [0, 0.0001, 1] };
+  cam = name === 'persp' ? camera : ortho;
+  controls.object = cam;
   const v = new THREE.Vector3(...dirs[name]).normalize().multiplyScalar(d);
-  camera.position.copy(c).add(v);
+  cam.position.copy(c).add(v);
+  cam.zoom = 1;
+  fitOrtho();
   controls.target.copy(c);
   controls.update();
+  document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', b.dataset.view === name));
+  showReference3d();
+}
+function fitOrtho() {
+  if (!current) return;
+  const half = current.size * 0.42, aspect = camera.aspect;
+  ortho.left = -half * aspect; ortho.right = half * aspect; ortho.top = half; ortho.bottom = -half;
+  ortho.updateProjectionMatrix();
 }
 // Surface highlighting: chosen roles glow orange (kept across reloads of the same model).
 const highlighted = new Set();
@@ -512,8 +618,8 @@ document.getElementById('hlAll').addEventListener('click', () => {
   renderer.domElement.addEventListener('pointerup', e => {
     if (!down || !current || down[2] !== 0 || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
     const r = renderer.domElement.getBoundingClientRect();
-    ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
-    const hit = ray.intersectObject(current.root, true).find(h => h.object.isMesh && h.object.visible);
+    ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam);
+    const hit = ray.intersectObject(current.root, true).find(h => h.object.isMesh && h.object.visible && !h.object.userData.reference);
     if (!hit) return;
     const s = current.surfaces.find(s => { let o = hit.object; while (o) { if (o === s.node) return true; o = o.parent; } return false; });
     if (s) toggleRole(s.cfg.role);
@@ -536,6 +642,7 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  fitOrtho();
 }
 new ResizeObserver(resize).observe(stage);
 resize();
@@ -560,10 +667,560 @@ function tick(now) {
     }
   }
   controls.update();
-  renderer.render(scene, camera);
+  renderer.render(scene, cam);
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
+
+// ---------------------------------------------------------------------------
+// References: the drawings and photos an aircraft is built from, calibrated so
+// each view maps image pixels to metres (same rules as lpa/refs.py):
+//   d metres aft of the nose tip, x towards the left wing, y up.
+// Static references come from models/<id>/refs.json (+ refs/<file>); in the
+// published Hangar, uploads and edits live in the artifact's storage
+// (assets for the files, db docs at aircraft/<id>/refs/<imageId>).
+// ---------------------------------------------------------------------------
+const IMAGE_KEYS = ['id', 'file', 'asset', 'url', 'kind', 'title', 'source', 'repo_ok', 'priority', 'notes', 'views', 'size'];
+const NOSE_DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+const VIEW_AXES = { top: ['d', 'x'], bottom: ['d', 'x'], side: ['d', 'y'], front: ['x', 'y'], rear: ['x', 'y'] };
+const TOOL_HELP = {
+  crop: '<b>Crop:</b> drag a box around this view on the image.',
+  nose: '<b>Nose tip:</b> click the tip of the nose (radome, not a pitot probe). Head-on: the middle of the nose.',
+  scale: '<b>Scale:</b> click two points a known distance apart (a scale bar, or nose and tail), then type the metres.',
+  ground: '<b>Ground:</b> click where a wheel touches the ground (side, front and rear views, gear down).',
+};
+const refsNote = document.getElementById('refsNote');
+const R = { entry: null, meta: {}, images: [], sel: null, viewIdx: 0, tool: null, pts: [], zoom: 1, show3d: {}, plane: null, drag: null };
+const cap = { db: null, assets: null };
+const srcCache = new Map();
+
+const sub2 = (a, b) => [a[0] - b[0], a[1] - b[1]];
+const dot2 = (a, b) => a[0] * b[0] + a[1] * b[1];
+function rot2(p, deg) {
+  const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  return [c * p[0] + s * p[1], -s * p[0] + c * p[1]];
+}
+// A calibrated view: { view, toM(px) -> [a, b] metres on the view's axes, bRel(px) height above the nose }, or null.
+function calibrate(v) {
+  const cal = v.cal || {};
+  if (!VIEW_AXES[v.view] || !cal.nose) return null;
+  let s = cal.px_per_m;
+  if (!s && cal.scale && cal.scale.a && cal.scale.b && cal.scale.m > 0) s = Math.hypot(...sub2(cal.scale.b, cal.scale.a)) / cal.scale.m;
+  if (!(s > 0)) return null;
+  const nd = cal.nose_dir || (v.view === 'top' || v.view === 'bottom' ? 'up' : 'left');
+  const f = NOSE_DIRS[nd] || NOSE_DIRS.left;
+  let e1, e2;
+  if (v.view === 'front') { e1 = [1, 0]; e2 = [0, -1]; }
+  else if (v.view === 'rear') { e1 = [-1, 0]; e2 = [0, -1]; }
+  else if (v.view === 'side') { e1 = f; e2 = [0, -1]; }
+  else if (v.view === 'top') { e1 = f; e2 = [f[1], -f[0]]; }
+  else { e1 = f; e2 = [-f[1], f[0]]; }
+  const raw = px => {
+    const p = rot2(sub2(px, cal.nose), cal.rot_deg || 0);
+    let a = dot2(p, e1) / s, b = dot2(p, e2) / s;
+    if (v.view === 'top' || v.view === 'bottom' || v.view === 'side') a = -a;
+    return [a, b];
+  };
+  return { view: v.view, s, nd, raw, hasGround: !!cal.ground && v.view !== 'top' && v.view !== 'bottom',
+           groundB: cal.ground ? raw(cal.ground)[1] : 0 };
+}
+function viewStatus(v) {
+  const c = calibrate(v);
+  if (c) return { ok: true, text: `${c.s.toFixed(1)} px/m` };
+  const cal = v.cal || {};
+  const miss = [!v.crop && 'crop', !cal.nose && 'nose tip', !(cal.px_per_m || (cal.scale && cal.scale.m)) && 'scale'].filter(Boolean);
+  return { ok: false, text: 'needs ' + miss.join(', ') };
+}
+
+async function srcFor(img) {
+  if (img.url) return img.url;
+  if (img.asset) return '/_blob/' + img.asset;
+  if (!img.static) return null;
+  if (!srcCache.has(img.static)) srcCache.set(img.static, asDataUrl(img.static).catch(() => null));
+  return srcCache.get(img.static);
+}
+
+async function loadRefs(entry, stale, force = false) {
+  // Reloading the same model (Edges, Wireframe) keeps the references and any unsaved edits.
+  if (!force && R.entry && R.entry.id === entry.id && R.images.length) { renderThumbs(); showReference3d(); return; }
+  R.entry = entry; R.meta = {}; R.images = []; R.sel = null; R.show3d = {};
+  document.getElementById('editor').hidden = true;
+  document.getElementById('exportBox').hidden = true;
+  renderThumbs();
+  const base = `models/${entry.id}/`;
+  let images = [];
+  try {
+    const r = await fetch(base + 'refs.json');
+    if (r.ok) {
+      const j = await r.json();
+      R.meta = { aircraft: j.aircraft, length_m: j.length_m, span_m: j.span_m, ground_y: j.ground_y };
+      images = (j.images || []).map(i => ({ ...i, static: i.file ? base + 'refs/' + i.file : null }));
+    } else if ((await fetch(base + 'drawing.png', { method: 'HEAD' })).ok) {
+      // Older entries: one drawing.png, not calibrated yet.
+      images = [{ id: 'drawing', kind: 'sheet', title: 'Reference drawing', source: entry.source || '', priority: 5, views: [], static: base + 'drawing.png' }];
+    }
+  } catch (e) { /* no static references */ }
+  if (stale()) return;
+  if (cap.db) {
+    try {
+      const snap = await cap.db.collection(`aircraft/${entry.id}/refs`).get();
+      for (const d of snap.docs) {
+        const data = d.data() || {};
+        const old = images.find(i => i.id === d.id);
+        if (old) Object.assign(old, data, { saved: true });
+        else images.push({ ...data, id: d.id, saved: true });
+      }
+    } catch (e) { refsNote.textContent = 'Could not read saved references: ' + (e.message || e.code); }
+  }
+  if (stale()) return;
+  R.meta.aircraft = R.meta.aircraft || entry.id;
+  R.images = images.sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9));
+  for (const img of R.images) img.views = img.views || [];
+  renderThumbs();
+  showReference3d();
+}
+
+function noteText() {
+  const n = R.images.length, cal = R.images.reduce((k, i) => k + i.views.filter(v => calibrate(v)).length, 0);
+  const how = cap.db ? 'Changes are saved here for Claude to pick up.'
+    : 'Changes stay in this browser tab; open the published Hangar to keep them, or copy refs.json.';
+  return `${n} image${n === 1 ? '' : 's'}, ${cal} calibrated view${cal === 1 ? '' : 's'}. ${how}`;
+}
+
+function renderThumbs() {
+  const box = document.getElementById('thumbs');
+  box.textContent = '';
+  refsNote.textContent = R.entry ? noteText() : '';
+  for (const img of R.images) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', img === R.sel);
+    const pic = document.createElement('img');
+    pic.alt = '';
+    srcFor(img).then(u => { if (u) pic.src = u; });
+    const t = document.createElement('b');
+    t.textContent = img.title || img.file || img.id;
+    const info = document.createElement('span');
+    const ok = img.views.filter(v => calibrate(v)).length;
+    const needs = (img.kind === 'sheet' || img.kind === 'view' || img.kind === 'section') && ok === 0;
+    info.innerHTML = `${img.kind || '?'} · ${img.views.length} view${img.views.length === 1 ? '' : 's'} `;
+    const tag = document.createElement('span');
+    tag.className = 'tag ' + (needs ? 'warn' : 'ok');
+    tag.textContent = needs ? 'to calibrate' : ok ? `${ok} calibrated` : 'photo';
+    info.appendChild(tag);
+    b.append(pic, t, info);
+    b.addEventListener('click', () => selectImage(img));
+    box.appendChild(b);
+  }
+}
+
+// ---- Editor ----
+const edImg = document.getElementById('edImg');
+const edSvg = document.getElementById('edSvg');
+const edInner = document.getElementById('edInner');
+const edWrap = document.getElementById('edWrap');
+const $ = id => document.getElementById(id);
+
+async function selectImage(img) {
+  R.sel = img; R.viewIdx = 0; R.tool = null; R.pts = [];
+  renderThumbs();
+  $('editor').hidden = false;
+  const u = await srcFor(img);
+  if (R.sel !== img) return;
+  edImg.onload = () => {
+    if (!img.size) img.size = [edImg.naturalWidth, edImg.naturalHeight];
+    R.zoom = 1; applyZoom(); drawMarks();
+  };
+  if (u) edImg.src = u;
+  fillForm();
+  renderViews();
+  setTool(img.views.length ? null : 'crop');
+}
+function curView() { return R.sel && R.sel.views[R.viewIdx]; }
+function renderViews() {
+  const bar = $('edViews');
+  bar.textContent = '';
+  R.sel.views.forEach((v, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', i === R.viewIdx);
+    const st = viewStatus(v);
+    b.innerHTML = `${v.view} <span class="tag ${st.ok ? 'ok' : 'warn'}">${st.ok ? '✓' : '…'}</span>`;
+    b.title = st.text;
+    b.addEventListener('click', () => { R.viewIdx = i; R.pts = []; renderViews(); fillForm(); drawMarks(); });
+    bar.appendChild(b);
+  });
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.textContent = '+ Add view';
+  add.addEventListener('click', () => {
+    const guess = R.sel.views.length ? 'top' : 'side';
+    R.sel.views.push({ view: guess, cal: { nose_dir: guess === 'top' ? 'up' : 'left' } });
+    R.viewIdx = R.sel.views.length - 1;
+    renderViews(); fillForm(); setTool('crop'); save();
+  });
+  bar.appendChild(add);
+  $('viewFields').disabled = !curView();
+}
+function fillForm() {
+  const img = R.sel, v = curView();
+  $('fKind').value = img.kind || 'sheet';
+  $('fTitle').value = img.title || '';
+  $('fSource').value = img.source || '';
+  $('fPrio').value = img.priority ?? 5;
+  $('fRepo').checked = !!img.repo_ok;
+  $('fNotes').value = img.notes || '';
+  if (v) {
+    const cal = v.cal || (v.cal = {});
+    $('fView').value = v.view;
+    $('fNoseDir').value = cal.nose_dir || (v.view === 'top' || v.view === 'bottom' ? 'up' : 'left');
+    $('fNoseDir').disabled = v.view === 'front' || v.view === 'rear';
+    $('fScaleM').value = cal.scale ? cal.scale.m ?? '' : '';
+    $('fScaleM').placeholder = cal.px_per_m ? `${cal.px_per_m} px/m set` : 'distance';
+    $('fRot').value = cal.rot_deg || 0;
+    const key = v.view === 'rear' ? 'front' : v.view;
+    const on = R.show3d[key] && R.show3d[key].img === img.id && R.show3d[key].idx === R.viewIdx;
+    $('show3d').setAttribute('aria-pressed', !!on);
+  }
+  calOut();
+}
+function calOut() {
+  const v = curView();
+  const out = $('calOut');
+  if (!v) { out.textContent = 'No view yet: add one.'; return; }
+  const c = calibrate(v);
+  if (!c) { out.textContent = viewStatus(v).text; return; }
+  const lines = [`${c.s.toFixed(2)} px/m`];
+  if (v.crop) {
+    const [u0, v0, u1, v1] = v.crop;
+    const pts = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(c.raw);
+    const ax = VIEW_AXES[v.view];
+    for (let k = 0; k < 2; k++) {
+      const vals = pts.map(p => p[k]);
+      lines.push(`${ax[k]} ${Math.min(...vals).toFixed(2)} … ${Math.max(...vals).toFixed(2)} m in the crop`);
+    }
+  }
+  if (R.meta.length_m && (v.view === 'side' || v.view === 'top' || v.view === 'bottom'))
+    lines.push(`tail at d ${R.meta.length_m} m = ${(R.meta.length_m * c.s).toFixed(0)} px from the nose`);
+  out.textContent = lines.join('\n');
+}
+function setTool(t) {
+  R.tool = t; R.pts = [];
+  document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool === t));
+  $('edHelp').innerHTML = t ? TOOL_HELP[t] : (curView() ? 'Pick a tool to mark this view, or switch views above.' : 'Add a view for each drawing on this image (a three-view sheet has several).');
+  edSvg.style.cursor = t ? 'crosshair' : 'default';
+}
+document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => {
+  if (!curView()) return;
+  setTool(R.tool === b.dataset.tool ? null : b.dataset.tool);
+}));
+function applyZoom() {
+  if (!R.sel || !R.sel.size) return;
+  const fit = edWrap.clientWidth - 2;
+  edInner.style.width = Math.round(fit * R.zoom) + 'px';
+  edSvg.setAttribute('viewBox', `0 0 ${R.sel.size[0]} ${R.sel.size[1]}`);
+}
+$('zoomIn').addEventListener('click', () => { R.zoom = Math.min(R.zoom * 1.5, 8); applyZoom(); drawMarks(); });
+$('zoomOut').addEventListener('click', () => { R.zoom = Math.max(R.zoom / 1.5, 1); applyZoom(); drawMarks(); });
+$('zoomFit').addEventListener('click', () => { R.zoom = 1; applyZoom(); drawMarks(); });
+new ResizeObserver(() => { if (!$('editor').hidden) applyZoom(); }).observe(edWrap);
+
+function imgPx(e) {
+  const r = edSvg.getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width * R.sel.size[0], (e.clientY - r.top) / r.height * R.sel.size[1]].map(n => Math.round(n * 10) / 10);
+}
+edSvg.addEventListener('pointerdown', e => {
+  const v = curView();
+  if (!v || !R.tool || e.button !== 0) return;
+  const p = imgPx(e);
+  const cal = v.cal || (v.cal = {});
+  if (R.tool === 'crop') { R.drag = p; edSvg.setPointerCapture(e.pointerId); return; }
+  if (R.tool === 'nose') { cal.nose = p; setTool(null); changed(); return; }
+  if (R.tool === 'ground') { cal.ground = p; setTool(null); changed(); return; }
+  if (R.tool === 'scale') {
+    R.pts.push(p);
+    if (R.pts.length === 2) {
+      const m = parseFloat($('fScaleM').value) || (cal.scale && cal.scale.m) || 0;
+      cal.scale = { a: R.pts[0], b: R.pts[1], m };
+      delete cal.px_per_m;
+      setTool(null);
+      if (!m) { $('edHelp').innerHTML = '<b>Scale:</b> now type the distance between the two points in metres.'; $('fScaleM').focus(); }
+      changed();
+    } else drawMarks();
+  }
+});
+edSvg.addEventListener('pointermove', e => {
+  if (!R.drag) return;
+  const p = imgPx(e);
+  R.dragBox = [Math.min(R.drag[0], p[0]), Math.min(R.drag[1], p[1]), Math.max(R.drag[0], p[0]), Math.max(R.drag[1], p[1])];
+  drawMarks();
+});
+edSvg.addEventListener('pointerup', () => {
+  if (!R.drag) return;
+  const box = R.dragBox;
+  R.drag = null; R.dragBox = null;
+  if (box && box[2] - box[0] > 4 && box[3] - box[1] > 4) { curView().crop = box; setTool(curView().cal?.nose ? null : 'nose'); changed(); }
+  else drawMarks();
+});
+
+const SVG = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  parent.appendChild(n);
+  return n;
+}
+function drawMarks() {
+  edSvg.textContent = '';
+  if (!R.sel || !R.sel.size) return;
+  const k = R.sel.size[0] / Math.max(edSvg.getBoundingClientRect().width, 1);   // image px per screen px
+  const lw = 1.6 * k, fs = 12 * k;
+  R.sel.views.forEach((v, i) => {
+    const on = i === R.viewIdx, col = on ? 'var(--ref-ink)' : 'var(--accent)';
+    const g = el('g', { opacity: on ? 1 : 0.55 }, edSvg);
+    if (v.crop) {
+      const [u0, v0, u1, v1] = v.crop;
+      el('rect', { x: u0, y: v0, width: u1 - u0, height: v1 - v0, fill: 'none', stroke: col, 'stroke-width': lw, 'stroke-dasharray': `${6 * k} ${4 * k}` }, g);
+      const t = el('text', { x: u0 + 4 * k, y: v0 + fs + 2 * k, fill: col, 'font-size': fs, 'font-weight': 600 }, g);
+      t.textContent = v.view;
+    }
+    if (!on) return;
+    const cal = v.cal || {};
+    if (cal.nose) {
+      el('circle', { cx: cal.nose[0], cy: cal.nose[1], r: 5 * k, fill: 'none', stroke: col, 'stroke-width': lw }, g);
+      const c = calibrate(v);
+      if (c && v.view !== 'front' && v.view !== 'rear') {
+        // Arrow along the aircraft's axis, 2 m aft of the nose: shows the direction and levelling.
+        const f = NOSE_DIRS[c.nd], back = rot2([-f[0] * 2 * c.s, -f[1] * 2 * c.s], -(cal.rot_deg || 0));
+        el('line', { x1: cal.nose[0], y1: cal.nose[1], x2: cal.nose[0] + back[0], y2: cal.nose[1] + back[1], stroke: col, 'stroke-width': lw }, g);
+        const t = el('text', { x: cal.nose[0] + back[0] + 3 * k, y: cal.nose[1] + back[1] - 3 * k, fill: col, 'font-size': fs }, g);
+        t.textContent = '2 m';
+      }
+    }
+    if (cal.scale && cal.scale.a) {
+      const { a, b } = cal.scale;
+      el('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: col, 'stroke-width': lw }, g);
+      for (const p of [a, b]) el('circle', { cx: p[0], cy: p[1], r: 3 * k, fill: col }, g);
+      const t = el('text', { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 - 5 * k, fill: col, 'font-size': fs, 'text-anchor': 'middle' }, g);
+      t.textContent = cal.scale.m ? `${cal.scale.m} m` : '? m';
+    }
+    if (cal.ground) {
+      const w = v.crop ? [v.crop[0], v.crop[2]] : [0, R.sel.size[0]];
+      const dir = rot2([1, 0], -(cal.rot_deg || 0));
+      const t0 = w[0] - cal.ground[0], t1 = w[1] - cal.ground[0];
+      el('line', { x1: cal.ground[0] + dir[0] * t0, y1: cal.ground[1] + dir[1] * t0, x2: cal.ground[0] + dir[0] * t1, y2: cal.ground[1] + dir[1] * t1,
+                   stroke: col, 'stroke-width': lw, 'stroke-dasharray': `${2 * k} ${3 * k}` }, g);
+      const t = el('text', { x: cal.ground[0] + 4 * k, y: cal.ground[1] - 4 * k, fill: col, 'font-size': fs }, g);
+      t.textContent = 'ground';
+    }
+  });
+  if (R.dragBox) {
+    const [u0, v0, u1, v1] = R.dragBox;
+    el('rect', { x: u0, y: v0, width: u1 - u0, height: v1 - v0, fill: 'none', stroke: 'var(--ref-ink)', 'stroke-width': lw }, edSvg);
+  }
+  for (const p of R.pts) el('circle', { cx: p[0], cy: p[1], r: 3 * k, fill: 'var(--ref-ink)' }, edSvg);
+}
+
+function changed() {
+  renderViews(); fillForm(); drawMarks(); renderThumbs(); showReference3d(); save();
+}
+const bind = (id, ev, fn) => $(id).addEventListener(ev, () => { if (R.sel) { fn($(id)); changed(); } });
+bind('fKind', 'change', i => { R.sel.kind = i.value; });
+bind('fTitle', 'change', i => { R.sel.title = i.value; });
+bind('fSource', 'change', i => { R.sel.source = i.value; });
+bind('fPrio', 'change', i => { R.sel.priority = parseInt(i.value, 10) || 5; });
+bind('fRepo', 'change', i => { R.sel.repo_ok = i.checked; });
+bind('fNotes', 'change', i => { R.sel.notes = i.value; });
+bind('fView', 'change', i => {
+  const v = curView(); if (!v) return;
+  v.view = i.value;
+  if ((i.value === 'top' || i.value === 'bottom') && !['up', 'down', 'left', 'right'].includes(v.cal.nose_dir)) v.cal.nose_dir = 'up';
+});
+bind('fNoseDir', 'change', i => { const v = curView(); if (v) v.cal.nose_dir = i.value; });
+bind('fRot', 'change', i => { const v = curView(); if (v) v.cal.rot_deg = parseFloat(i.value) || 0; });
+bind('fScaleM', 'change', i => {
+  const v = curView(); if (!v) return;
+  const m = parseFloat(i.value);
+  if (v.cal.scale) v.cal.scale.m = m > 0 ? m : 0;
+});
+$('delView').addEventListener('click', () => {
+  if (!curView()) return;
+  R.sel.views.splice(R.viewIdx, 1);
+  R.viewIdx = Math.max(0, R.viewIdx - 1);
+  changed();
+});
+$('show3d').addEventListener('click', () => {
+  const v = curView(); if (!v) return;
+  const key = v.view === 'rear' ? 'front' : v.view;
+  R.show3d[key] = { img: R.sel.id, idx: R.viewIdx };
+  fillForm();
+  setView(key);
+});
+
+// Saving: one doc per image; one write at a time per doc, coalesced.
+const saving = new Map();
+function cleanDoc(img) {
+  const out = {};
+  for (const k of IMAGE_KEYS) if (img[k] !== undefined && img[k] !== null) out[k] = img[k];
+  return JSON.parse(JSON.stringify(out));
+}
+function save() {
+  const img = R.sel;
+  if (!img) return;
+  if (!cap.db || !R.entry) { $('saveState').textContent = 'Not saved (no storage here): use Copy refs.json.'; return; }
+  const path = `aircraft/${R.entry.id}/refs`;
+  const key = path + '/' + img.id;
+  const st = saving.get(key) || { busy: false, again: false };
+  saving.set(key, st);
+  if (st.busy) { st.again = true; return; }
+  st.busy = true;
+  $('saveState').textContent = 'Saving …';
+  (async () => {
+    try {
+      do { st.again = false; await cap.db.collection(path).doc(img.id).set(cleanDoc(img)); } while (st.again);
+      img.saved = true;
+      $('saveState').textContent = 'Saved.';
+    } catch (e) {
+      $('saveState').textContent = 'Not saved: ' + (e.code === 'not_granted' || e.code === 'permission_denied' ? 'you can view but not edit this Hangar.' : (e.message || e.code));
+    } finally { st.busy = false; }
+  })();
+}
+
+function refsJson() {
+  const out = { aircraft: R.meta.aircraft || (R.entry && R.entry.id), length_m: R.meta.length_m ?? null, span_m: R.meta.span_m ?? null,
+                ground_y: R.meta.ground_y ?? null, images: R.images.map(cleanDoc) };
+  return JSON.stringify(out, null, 1);
+}
+$('exportBtn').addEventListener('click', async () => {
+  const text = refsJson();
+  $('exportText').value = text;
+  $('exportBox').hidden = false;
+  try { await navigator.clipboard.writeText(text); $('exportBtn').textContent = 'Copied'; }
+  catch (e) { $('exportText').select(); $('exportBtn').textContent = 'Copy refs.json'; }
+  setTimeout(() => { $('exportBtn').textContent = 'Copy refs.json'; }, 2000);
+});
+
+$('addFile').addEventListener('change', async e => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (!cap.assets || !R.entry) return;
+  for (const file of files) {
+    refsNote.textContent = `Uploading ${file.name} …`;
+    try {
+      const up = await cap.assets.upload(file);
+      const size = await new Promise(res => { const i = new Image(); i.onload = () => res([i.naturalWidth, i.naturalHeight]); i.onerror = () => res(null); i.src = up.url; });
+      const img = { id: 'img-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), asset: up.id, url: up.url,
+                    kind: 'sheet', title: file.name.replace(/\.[^.]+$/, ''), source: 'uploaded in the Hangar', repo_ok: false, priority: 5, views: [] };
+      if (size) img.size = size;
+      R.images.push(img);
+      R.sel = img;
+      save();
+      await selectImage(img);
+    } catch (err) {
+      refsNote.textContent = `Upload of ${file.name} failed: ${err.message || err.code}`;
+      return;
+    }
+  }
+  renderThumbs();
+});
+
+// ---- The calibrated drawing in the 3D view ----
+// The model's nose tip (the radome's, not a pitot probe's) anchors d = 0 and x = 0; a marked
+// ground point puts the ground under the model's wheels, else the nose tip's height is the model's.
+function noseTip(obj) {
+  let best = null;
+  const v = new THREE.Vector3();
+  obj.updateMatrixWorld(true);
+  obj.traverse(o => {
+    if (!o.isMesh || /pitot|probe|boom/i.test(o.name)) return;
+    const pos = o.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      if (!best || v.z > best.z) best = v.clone();
+    }
+  });
+  return best || new THREE.Vector3();
+}
+function pickView(key) {
+  const want = R.show3d[key];
+  const types = key === 'front' ? ['front', 'rear'] : [key];
+  if (want) {
+    const img = R.images.find(i => i.id === want.img), v = img && img.views[want.idx];
+    if (v && types.includes(v.view) && calibrate(v)) return { img, v };
+  }
+  for (const img of R.images) for (const v of img.views) if (types.includes(v.view) && calibrate(v)) return { img, v };
+  return null;
+}
+const refMaterial = new THREE.ShaderMaterial({
+  uniforms: { map: { value: null }, opacity: { value: 0.8 }, ink: { value: new THREE.Color(0xd0342c) } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  // Paper drops out, lines stay: alpha from how dark the drawing is.
+  fragmentShader: 'uniform sampler2D map; uniform float opacity; uniform vec3 ink; varying vec2 vUv; void main() { vec4 t = texture2D(map, vUv); float l = dot(t.rgb, vec3(0.2126, 0.7152, 0.0722)); float a = clamp((0.85 - l) / 0.6, 0.0, 1.0) * t.a * opacity; if (a < 0.03) discard; gl_FragColor = vec4(ink, a); }',
+  transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+});
+const texCache = new Map();
+let refSeq = 0;
+async function showReference3d() {
+  const seq = ++refSeq;
+  if (R.plane) { R.plane.removeFromParent(); R.plane.geometry.dispose(); R.plane = null; }
+  if (!current || viewName === 'persp' || !$('refOn').checked) return;
+  const pick = pickView(viewName);
+  if (!pick) { statusEl.textContent = `${current.manifest.id} · no calibrated ${viewName} view`; return; }
+  const { img, v } = pick;
+  const url = await srcFor(img);
+  if (!url || seq !== refSeq) return;
+  if (!texCache.has(url)) texCache.set(url, new THREE.TextureLoader().loadAsync(url).catch(() => null));
+  const tex = await texCache.get(url);
+  if (!tex || seq !== refSeq || !current) return;
+  const W = tex.image.width, H = tex.image.height;
+  const c = calibrate(v);
+  const [u0, v0, u1, v1] = v.crop || [0, 0, W, H];
+  const N = current.nose, G = current.groundY, box = current.box;
+  const toBody = px => {
+    const [a, b] = c.raw(px);
+    const m = { d: 0, x: 0, y: 0 };
+    const ax = VIEW_AXES[v.view];
+    m[ax[0]] = a; m[ax[1]] = b;
+    let y = N.y + m.y;
+    if (c.hasGround) y = G + (b - c.groundB);
+    if (v.view === 'top') y = box.min.y - 0.2;
+    if (v.view === 'bottom') y = box.max.y + 0.2;
+    let x = m.x;
+    if (v.view === 'side') x = box.max.x + 0.2;
+    let z = N.z - m.d;
+    if (v.view === 'front' || v.view === 'rear') z = box.min.z - 0.2;
+    return [x, y, z];
+  };
+  const corners = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+  const pos = corners.flatMap(toBody);
+  const uv = corners.flatMap(([u, w]) => [u / W, 1 - w / H]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+  const mat = refMaterial.clone();
+  mat.uniforms.map.value = tex;
+  mat.uniforms.opacity.value = parseFloat($('refOpacity').value);
+  mat.uniforms.ink.value = refMaterial.uniforms.ink.value;
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 10;
+  mesh.userData.reference = true;
+  scene.add(mesh);
+  R.plane = mesh;
+  statusEl.textContent = `${current.manifest.id} · ${viewName}: ${img.title || img.id}`;
+}
+$('refOn').addEventListener('change', showReference3d);
+$('refOpacity').addEventListener('input', () => { if (R.plane) R.plane.material.uniforms.opacity.value = parseFloat($('refOpacity').value); });
+
+// Storage lights up once the viewer answers (null when served without it, e.g. locally).
+if (window.claude && window.claude.use) {
+  Promise.all([window.claude.use('db'), window.claude.use('assets')]).then(([db, assets]) => {
+    cap.db = db; cap.assets = assets;
+    $('addLabel').hidden = !assets;
+    if (db && active) loadRefs(active, () => false, true);
+    else renderThumbs();
+  }).catch(() => {});
+}
 
 let active = null;
 const list = await (await fetch('models/index.json')).json();

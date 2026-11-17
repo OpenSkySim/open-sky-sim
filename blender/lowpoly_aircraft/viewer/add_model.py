@@ -1,10 +1,13 @@
 """Add a built aircraft pack to the Lowpoly Hangar viewer.
 
     python3 viewer/add_model.py OUT_DIR_OR_PACK --name "Yak-44E" --dims "20.39 m long · 25.7 m span" \
-        [--status "..."] [--source "..."] [--drawing reference.png]
+        [--status "..."] [--source "..."] [--drawing reference.png] \
+        [--refs examples/<id>/refs.json [--refs-images DIR]]
 
 Writes viewer/models/<id>/ (each GLB as a self-contained .gltf.json, plus manifest.json), the shared pilot
-model, and an entry in viewer/models/index.json. Then serve the folder and open it:
+model, and an entry in viewer/models/index.json. With --refs, the reference set and the
+image files it names (found next to refs.json or in --refs-images) go to models/<id>/refs/, so
+the References panel and the Top/Side/Front/Bottom overlays have them. Then serve the folder and open it:
 
     python3 -m http.server -d viewer 8000   ->   http://localhost:8000/
 """
@@ -49,6 +52,8 @@ def main() -> None:
     ap.add_argument('--status', default='')
     ap.add_argument('--source', default='')
     ap.add_argument('--drawing', type=Path, help='reference drawing shown under the 3D view (kept local)')
+    ap.add_argument('--refs', type=Path, help='refs.json of the aircraft (calibrated references)')
+    ap.add_argument('--refs-images', type=Path, help='folder with the reference images (default: next to refs.json)')
     a = ap.parse_args()
     files = read_files(a.src)
     manifest = json.loads(files['manifest.json'])
@@ -62,6 +67,17 @@ def main() -> None:
     (out / 'manifest.json').write_bytes(files['manifest.json'])
     if a.drawing:
         shutil.copy(a.drawing, out / 'drawing.png')
+    if a.refs:
+        refs = json.loads(a.refs.read_text())
+        shutil.copy(a.refs, out / 'refs.json')
+        src = a.refs_images or a.refs.parent
+        (out / 'refs').mkdir()
+        for img in refs.get('images', []):
+            f = img.get('file')
+            if f and (src / f).exists():
+                shutil.copy(src / f, out / 'refs' / f)
+            elif f:
+                print(f'  reference {f} not found in {src}: listed without its image')
     pilot = REPO / 'assets' / 'pilot.glb'
     if pilot.exists():
         (HERE / 'models' / 'pilot.gltf.json').write_text(glb_to_gltf_json(pilot.read_bytes()))
