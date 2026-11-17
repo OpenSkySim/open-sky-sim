@@ -180,8 +180,18 @@ function seatAt(body: BodyTris, eye: V3): V3 | null {
     return seat;
 }
 
-/** An eye point under the canopy glass, or null when the airframe has no canopy glass over a seat. */
-function eyeFromGlass(body: BodyTris): V3 | null {
+/** The box round the front of the canopy glass (the highest glass, its front few metres). */
+interface CanopyBox {
+    xmin: number;
+    xmax: number;
+    zmin: number;
+    zmax: number;
+    /** Top of the highest glass. */
+    ymax: number;
+}
+
+/** The front of the canopy glass, or null without glass. */
+function canopyFront(body: BodyTris): CanopyBox | null {
     const T = body.tri;
     let ymax = -Infinity;
     for (let i = 0; i < body.glass.length; i++) {
@@ -206,6 +216,14 @@ function eyeFromGlass(body: BodyTris): V3 | null {
             zmin = Math.min(zmin, T[j + k + 2]);
         }
     }
+    return { xmin, xmax, zmin, zmax, ymax };
+}
+
+/** An eye point under the canopy glass, or null when the airframe has no canopy glass over a seat. */
+function eyeFromGlass(body: BodyTris): V3 | null {
+    const box = canopyFront(body);
+    if (!box) return null;
+    const { xmin, xmax, zmin, zmax, ymax } = box;
     const x = (xmin + xmax) / 2;
     const headZ = zmax - GLASS_HEAD_BEHIND_FRACTION * (zmax - zmin);
     // The glass over the head, coming down from above it.
@@ -215,13 +233,49 @@ function eyeFromGlass(body: BodyTris): V3 | null {
     return [x, glassY - PILOT_CROWN_M - GLASS_CROWN_HEADROOM_M, headZ - PILOT_HELMET_CENTER[2]];
 }
 
+/** Seat search across the canopy (m): lateral offsets in order, centre first, then left/right seats. */
+const SEARCH_X_M = [0, 0.25, -0.25, 0.45, -0.45, 0.6, -0.6];
+const SEARCH_STEP_M = 0.25;
+const SEARCH_DEPTH_M = 0.8;
+
+/**
+ * Last resort: step an eye point through the space under the front of the
+ * canopy glass and take the first spot where the pilot sits enclosed with
+ * glass to see through. Finds side-by-side cockpits (a centre console where
+ * the canopy-centred guess lands) and flight decks seen through side windows
+ * and windscreen rather than a glass roof.
+ */
+function searchUnderGlass(body: BodyTris): V3 | null {
+    const box = canopyFront(body);
+    if (!box) return null;
+    const cx = (box.xmin + box.xmax) / 2;
+    const halfWidth = (box.xmax - box.xmin) / 2;
+    const top = box.ymax - PILOT_CROWN_M - PILOT_HEADROOM_M;
+    // Head positions along the glass, nearest the usual one (as eyeFromGlass) first.
+    const headZ = box.zmax - GLASS_HEAD_BEHIND_FRACTION * (box.zmax - box.zmin);
+    const zs: number[] = [];
+    for (let z = box.zmax - SEARCH_STEP_M / 2; z >= box.zmin; z -= SEARCH_STEP_M / 2) zs.push(z);
+    zs.sort((a, b) => Math.abs(a - headZ) - Math.abs(b - headZ));
+    for (const dx of SEARCH_X_M) {
+        if (Math.abs(dx) > halfWidth) continue;
+        for (const z of zs) {
+            for (let y = top; y >= top - SEARCH_DEPTH_M; y -= SEARCH_STEP_M / 2) {
+                const seat = seatAt(body, [cx + dx, y, z - PILOT_HELMET_CENTER[2]]);
+                if (seat) return seat;
+            }
+        }
+    }
+    return null;
+}
+
 /** Placements already worked out, per airframe model and eye point. */
 const seatCache = new Map<string, V3 | null>();
 
 /**
  * Where to draw the pilot (its origin, in the aircraft body frame), or null
  * for no pilot: the given eye point when the pilot sits closed in under the
- * canopy glass there, else a seat found under the glass, else none. Cached by
+ * canopy glass there, else a seat found under the glass (first the canopy-centred
+ * guess, then a search across it), else none. Cached by
  * `key` (the body model's URL) since every aircraft of a type shares it.
  */
 export function pilotSeatForBody(model: Model, eye: readonly [number, number, number], key?: string): V3 | null {
@@ -233,6 +287,7 @@ export function pilotSeatForBody(model: Model, eye: readonly [number, number, nu
         const fromGlass = eyeFromGlass(body);
         seat = fromGlass ? seatAt(body, fromGlass) : null;
     }
+    if (!seat) seat = searchUnderGlass(body);
     if (cacheKey !== undefined) seatCache.set(cacheKey, seat);
     return seat;
 }
