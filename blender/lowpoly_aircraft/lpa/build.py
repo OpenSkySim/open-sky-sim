@@ -620,6 +620,9 @@ def _stand_on_wheels(ground_y: float | None, dz: float = 0.0) -> None:
     scene['lpa_wingtips'] = [[w[0], w[1] + dy, w[2] + dz] for w in scene['lpa_wingtips']]
     c = list(scene['lpa_cockpit'])
     scene['lpa_cockpit'] = [c[0], c[1] + dy, c[2] + dz]
+    if scene.get('lpa_pilot_seats'):
+        seats = json.loads(scene['lpa_pilot_seats'])
+        scene['lpa_pilot_seats'] = json.dumps([[s[0], s[1] + dy, s[2] + dz] for s in seats])
     if scene.get('lpa_tailhook'):
         hook = json.loads(scene['lpa_tailhook'])
         for k in ('hinge', 'tip'):
@@ -723,9 +726,16 @@ def build_parts(spec: dict) -> None:
             # block's sides (a door, the hatch, a painted band) would show as walls inside.
             skin = geo.bvh_of(hull) if item.get('see_through', True) else None
             cutters = [] if skin is not None else None
+            clip = None
+            if 'clip' in item:
+                # e.g. a windscreen drawn in the side view whose roof edge follows the top view.
+                cl = [np.asarray(lp, dtype=np.float64) for lp in item['clip']['polygons_m']]
+                if suffix == 'R' and item['clip'].get('view', 'top') != 'side':
+                    cl = [_mirror_x(item['clip'].get('view', 'top'), lp) for lp in cl]
+                clip = (item['clip'].get('view', 'top'), cl)
             part = geo.cut_part(hull, f"{i + 1}_{item.get('name', 'Region')}{suffix}", view, p,
                                 item.get('material', 'GLASS'), 'Body', depth=dep, smooth_deg=smooth,
-                                cutters=cutters)
+                                cutters=cutters, clip=clip)
             if part is not None:
                 part['lpa_region'] = item.get('name', 'Region')
                 if skin is not None:
@@ -760,6 +770,9 @@ def build_parts(spec: dict) -> None:
     scene['lpa_name'] = spec.get('name', spec['id'])
     scene['lpa_wingtips'] = wingtips
     scene['lpa_cockpit'] = [float(c) for c in spec.get('cockpit_m', [0.0, 1.0, 0.25 * float(spec['length_m'])])]
+    if spec.get('pilot_seats_m'):
+        # Eye points of the seats the game puts its pilot figure in (manifest 'pilotSeats').
+        scene['lpa_pilot_seats'] = json.dumps([[float(c) for c in s] for s in spec['pilot_seats_m']])
     hook = build_tailhook(spec, spec['id'])
     if hook:
         scene['lpa_tailhook'] = json.dumps(hook)

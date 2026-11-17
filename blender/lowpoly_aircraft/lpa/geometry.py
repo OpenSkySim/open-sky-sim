@@ -255,14 +255,22 @@ def underside_y(tree: BVHTree, x: float, z: float, y_from: float) -> float | Non
 
 def cut_part(hull: bpy.types.Object, name: str, view: str, poly_body2: np.ndarray,
              material: str, collection: str, depth=(-EXTRUDE, EXTRUDE),
-             smooth_deg: float | None = None, cutters: list | None = None) -> bpy.types.Object | None:
+             smooth_deg: float | None = None, cutters: list | None = None,
+             clip: tuple[str, list] | None = None) -> bpy.types.Object | None:
     """Split the region under a view polygon (or a list of polygons) off the hull; returns the part (or None).
 
-    With *cutters* (a list) the cutter's surface is appended to it as a BVH tree: the walls
+    With *clip* (view, polygons) the region is also limited to those polygons seen in
+    that view. With *cutters* (a list) the cutter's surface is appended to it as a BVH tree: the walls
     the cut leaves in the hull lie on it (see drop_off_skin).
     """
     loops = poly_body2 if isinstance(poly_body2, list) else [poly_body2]
     cutter = prism(f'Cut_{name}', view, loops, depth=depth)
+    if clip is not None:
+        # Shaped in a second view as well: the cutter is the overlap of both prisms.
+        clip_view, clip_loops = clip
+        other = prism(f'Clip_{name}', clip_view, clip_loops)
+        boolean(cutter, other, 'INTERSECT')
+        bpy.data.objects.remove(other)
     part = copy_object(hull, name, collection)
     solver = 'EXACT'
     boolean(part, cutter, 'INTERSECT')
@@ -435,9 +443,12 @@ def box(bm, lo, hi):
     return [bm.faces.new([v[c] for c in q]) for q in quads]
 
 
+TYRE = '#1e1e1e'
+
+
 def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: float,
              collection: str, wheel_sides: int = 8, twin: bool = False) -> list[bpy.types.Object]:
-    """One leg as two objects (strut, wheel), both with their origin at the strut's top.
+    """One leg as three objects (strut, tyre, hub), all with their origin at the strut's top.
 
     The sim animates a gear mesh by its own name, so every animated object
     must stay one mesh with one material; strut and wheel are kept apart.
@@ -446,13 +457,18 @@ def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: flo
     x, y_top, z = top
     axle_y = wheel_bottom[1] + wheel_radius
     strut = max(0.04, wheel_radius * 0.35)
+    offsets = (-0.6 * wheel_width - strut / 2, 0.6 * wheel_width + strut / 2) if twin else (0.0,)
     parts = []
     for suffix, material, build in (
         ('Strut', 'VEHICLE_PLANE_GREY',
          lambda bm: box(bm, (x - strut / 2, axle_y, z - strut / 2), (x + strut / 2, y_top, z + strut / 2))),
-        ('Wheel', 'VEHICLE_PLANE_ENGINE',
+        # Black tyre with a grey hub standing slightly proud of it on both faces, so the tyre reads as a ring.
+        ('Wheel', TYRE,
          lambda bm: [cylinder_x(bm, (x + dx, axle_y, z), wheel_radius, wheel_width, sides=wheel_sides)
-                     for dx in ((-0.6 * wheel_width - strut / 2, 0.6 * wheel_width + strut / 2) if twin else (0.0,))]),
+                     for dx in offsets]),
+        ('Hub', 'VEHICLE_PLANE_GREY',
+         lambda bm: [cylinder_x(bm, (x + dx, axle_y, z), 0.6 * wheel_radius, wheel_width + 0.03,
+                                sides=max(6, wheel_sides - 2)) for dx in offsets]),
     ):
         bm = bmesh.new()
         build(bm)

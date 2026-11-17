@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { Model } from '../models/models';
-import { PILOT_HELMET_CENTER, PILOT_HELMET_RADIUS_M, PILOT_MODEL_URL, pilotDropForBody, pilotSeatForBody } from './pilotFit';
+import { PILOT_HELMET_CENTER, PILOT_HELMET_RADIUS_M, PILOT_MODEL_URL, pilotDropForBody, pilotSeatForBody, pilotSeatsForBody } from './pilotFit';
 
 /** A body model whose only mesh is a flat canopy roof at height y over the cockpit. */
 function roofModel(y: number, parented = false): Model {
@@ -93,6 +93,23 @@ describe('pilotFit', () => {
         assert.deepEqual(pilotSeatForBody(model, [0.4, 1.3, 5]), [0.4, 1.3, 5]);
         // Too far behind the windscreen to be seen through it: no pilot, not a floating guess.
         assert.equal(pilotSeatForBody(model, [0.4, 1.3, 1]), null);
+    });
+
+    it('seats a pilot in every seat the manifest names, each sunk under the roof', () => {
+        const seats = pilotSeatsForBody(roofModel(1.05), {
+            cockpitOffset: [0, 1, 5],
+            pilotSeats: [[0.4, 1, 5], [-0.4, 1, 5]],
+        });
+        assert.equal(seats.length, 2);
+        const drop = pilotDropForBody(roofModel(1.05), [0, 1, 5]);
+        assert.deepEqual(seats.map(s => [s[0], s[2]]), [[0.4, 5], [-0.4, 5]]);
+        for (const s of seats) assert.ok(Math.abs(s[1] - (1 - drop)) < 1e-9);
+    });
+
+    it('falls back to the one cockpit pilot without named seats', () => {
+        assert.deepEqual(pilotSeatsForBody(jetModel(), { cockpitOffset: [0, 1.15, 5.2] }),
+            [pilotSeatForBody(jetModel(), [0, 1.15, 5.2])]);
+        assert.deepEqual(pilotSeatsForBody(jetModel(false), { cockpitOffset: [0, 1.15, 5.2] }), []);
     });
 });
 

@@ -43,14 +43,18 @@ def catmull_rom(rows: np.ndarray, count: int) -> np.ndarray:
     return np.array(out)
 
 
-def _superellipse_ring(cx, cy, a, top, bot, n, segments):
+def _superellipse_ring(cx, cy, a, top, bot, n, segments, n_top=None):
     pts = []
     for k in range(segments):
         t = 2 * math.pi * k / segments
         c, s = math.cos(t), math.sin(t)
-        x = cx + a * math.copysign(abs(c) ** (2.0 / n), c)
+        if n_top is not None and s > 0:
+            n_k = n_top
+        else:
+            n_k = n
+        x = cx + a * math.copysign(abs(c) ** (2.0 / n_k), c)
         h = top if s >= 0 else bot
-        y = cy + h * math.copysign(abs(s) ** (2.0 / n), s)
+        y = cy + h * math.copysign(abs(s) ** (2.0 / n_k), s)
         pts.append((x, y))
     return pts
 
@@ -59,22 +63,25 @@ def loft(name: str, stations, segments: int = 24, resample: int = 0, material: s
          collection: str = 'Construction') -> bpy.types.Object:
     """Closed tube through superellipse sections.
 
-    stations: rows of (z, cx, cy, half_width, above, below, n), nose first.
+    stations: rows of (z, cx, cy, half_width, above, below, n[, n_top]), nose first. The optional n_top
+    gives the upper half its own squareness (lower = sides leaning in more towards the top).
     A station with half_width or height ~0 closes the tube to a point.
     """
     rows = np.asarray(stations, dtype=np.float64)
     if resample:
         rows = catmull_rom(rows, resample)
     rows[:, 3:6] = np.maximum(rows[:, 3:6], 0.0)
-    rows[:, 6] = np.maximum(rows[:, 6], 1.2)
+    rows[:, 6:] = np.maximum(rows[:, 6:], 1.2)
     bm = bmesh.new()
     rings = []
-    for z, cx, cy, a, top, bot, n in rows:
+    for row in rows:
+        z, cx, cy, a, top, bot, n = row[:7]
+        n_top = row[7] if len(row) > 7 else None
         if a < 1e-3 or top + bot < 1e-3:
             rings.append([bm.verts.new(geo.to_bl((cx, cy, z)))])
         else:
             rings.append([bm.verts.new(geo.to_bl((x, y, z))) for x, y in
-                          _superellipse_ring(cx, cy, a, top, bot, n, segments)])
+                          _superellipse_ring(cx, cy, a, top, bot, n, segments, n_top)])
     _skin(bm, rings)
     return _object(bm, name, material, collection)
 

@@ -95,7 +95,8 @@ class AircraftPackStore {
     }
 
     async loadFromUrl(id: string, url: string): Promise<AircraftPack> {
-        const res = await fetch(url);
+        // Always revalidate: a rebuilt pack keeps its URL, so a cached copy would show the old model.
+        const res = await fetch(url, { cache: 'no-cache' });
         if (!res.ok) {
             throw new Error(`HTTP ${res.status}`);
         }

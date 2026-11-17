@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PILOT_MODEL_URL, pilotSeatForBody } from './pilotFit';
+import { PILOT_MODEL_URL, pilotSeatsForBody } from './pilotFit';
 import { FrameShift } from '../../terrain/geodesy';
 import { Palette } from '../../config/palettes/palette';
 import { CanvasPainter } from '../../render/screen/canvasPainter';
@@ -84,8 +84,8 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     private modelLandingGear: LODHelper | undefined;
     /** Rigid seated pilot, origin at its eye point. */
     private modelPilot: LODHelper | undefined;
-    /** Where the pilot sits under this airframe's canopy (body frame); none without a canopy to sit under. */
-    private pilotSeat: THREE.Vector3 | null = null;
+    /** Where the pilots sit under this airframe's canopy (body frame); none without a canopy to sit under. */
+    private pilotSeats: THREE.Vector3[] = [];
     private readonly _pilotPos = new THREE.Vector3();
     private gearAnimated = false;
     private gearAnimReady = false;
@@ -204,11 +204,10 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     private buildFromDef(def: FlyableAircraftDef): void {
         this.fx.configureFromDef(def);
 
-        this.pilotSeat = null; // until the new airframe has loaded
+        this.pilotSeats = []; // until the new airframe has loaded
         this.modelBody = new LODHelper(this.models.getModel(def.body, (_, model) => {
             this.fx.onBodyModelLoaded(model);
-            const seat = pilotSeatForBody(model, def.cockpitOffset, def.body);
-            this.pilotSeat = seat ? new THREE.Vector3(...seat) : null;
+            this.pilotSeats = pilotSeatsForBody(model, def, def.body).map(s => new THREE.Vector3(...s));
         }));
         this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
 
@@ -618,15 +617,17 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
                     SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
             }
 
-            // The pilot, under the canopy glass.
-            if (this.modelPilot && this.pilotSeat && !crashed) {
-                this._pilotPos.copy(this.pilotSeat)
-                    .multiply(this.scale)
-                    .applyQuaternion(this.displayQuaternion).add(this.displayPosition);
-                this.modelPilot.addToRenderList(
-                    this._pilotPos, this.displayQuaternion, this.scale,
-                    targetWidth, camera, palette,
-                    SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
+            // The pilots, under the canopy glass.
+            if (this.modelPilot && !crashed) {
+                for (const seat of this.pilotSeats) {
+                    this._pilotPos.copy(seat)
+                        .multiply(this.scale)
+                        .applyQuaternion(this.displayQuaternion).add(this.displayPosition);
+                    this.modelPilot.addToRenderList(
+                        this._pilotPos, this.displayQuaternion, this.scale,
+                        targetWidth, camera, palette,
+                        SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
+                }
             }
         }
 
