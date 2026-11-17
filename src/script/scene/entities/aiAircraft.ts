@@ -82,8 +82,8 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     private modelBody!: LODHelper;
     private modelShadow!: LODHelper;
     private modelLandingGear: LODHelper | undefined;
-    /** Rigid seated pilot, origin at its eye point. */
-    private modelPilot: LODHelper | undefined;
+    /** Rigid seated pilots (origin at the eye point), one per crew seat: a model instance is drawn at one place per frame. */
+    private modelPilots: LODHelper[] = [];
     /** Where the pilots sit under this airframe's canopy (body frame); none without a canopy to sit under. */
     private pilotSeats: THREE.Vector3[] = [];
     private readonly _pilotPos = new THREE.Vector3();
@@ -201,6 +201,10 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         this.enabled = true;
     }
 
+    private newPilotModel(): LODHelper {
+        return new LODHelper(this.models.getModel(PILOT_MODEL_URL));
+    }
+
     private buildFromDef(def: FlyableAircraftDef): void {
         this.fx.configureFromDef(def);
 
@@ -216,7 +220,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             this.models.getModel(def.collision);
         }
 
-        this.modelPilot = new LODHelper(this.models.getModel(PILOT_MODEL_URL));
+        this.modelPilots = [this.newPilotModel()];
 
         this.modelLandingGear = undefined;
         this.gearAnimated = false;
@@ -618,16 +622,17 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             }
 
             // The pilots, under the canopy glass.
-            if (this.modelPilot && !crashed) {
-                for (const seat of this.pilotSeats) {
+            if (!crashed) {
+                this.pilotSeats.forEach((seat, i) => {
+                    this.modelPilots[i] ??= this.newPilotModel();
                     this._pilotPos.copy(seat)
                         .multiply(this.scale)
                         .applyQuaternion(this.displayQuaternion).add(this.displayPosition);
-                    this.modelPilot.addToRenderList(
+                    this.modelPilots[i].addToRenderList(
                         this._pilotPos, this.displayQuaternion, this.scale,
                         targetWidth, camera, palette,
                         SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
-                }
+                });
             }
         }
 
