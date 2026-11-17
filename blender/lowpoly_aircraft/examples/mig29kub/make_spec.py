@@ -116,9 +116,13 @@ def main():
     # the engines and the tail cone with the hook stub.
     fuselage = [
         (0.0, 0.02, -0.40, -0.35, 2.0, 2.0),
+        (0.15, 0.065, -0.45, -0.27, 2.0, 2.0),
         (0.43, 0.13, -0.525, -0.125, 2.0, 2.0),
+        (0.75, 0.2, -0.58, 0.02, 2.0, 2.0),
         (1.05, 0.26, -0.625, 0.15, 2.0, 2.0),
+        (1.4, 0.35, -0.655, 0.26, 2.0, 2.0),
         (1.73, 0.43, -0.675, 0.35, 2.0, 2.0),
+        (2.05, 0.47, -0.68, 0.43, 2.05, 2.0),
         (2.4, 0.5, -0.68, 0.5, 2.1, 2.0),
         (2.93, 0.54, -0.68, 0.6, 2.3, 2.1),
         (3.6, 0.58, -0.67, 0.68, 2.5, 2.2),
@@ -137,7 +141,7 @@ def main():
     # Tandem canopy (full bubble, owner's MiG-35 pictures) and the broad flat-topped spine hump
     # behind it running back between the fins; top follows the side-view upper line.
     canopy = [
-        (2.93, 0.05, 0.5, 0.66, 2.0), (3.3, 0.3, 0.45, 0.92, 2.0), (3.6, 0.4, 0.45, 1.1, 2.0),
+        (2.93, 0.05, 0.5, 0.66, 2.0), (3.1, 0.2, 0.47, 0.8, 2.0), (3.3, 0.3, 0.45, 0.92, 2.1), (3.6, 0.4, 0.45, 1.1, 2.0),
         (4.18, 0.48, 0.45, 1.3, 2.3), (4.8, 0.5, 0.45, 1.43, 2.4), (5.43, 0.5, 0.45, 1.45, 2.4),
         (6.05, 0.49, 0.45, 1.4, 2.4), (6.35, 0.47, 0.45, 1.33, 2.4), (6.93, 0.46, 0.45, 1.25, 2.5),
         (7.93, 0.45, 0.4, 1.08, 2.7), (9.18, 0.43, 0.35, 0.85, 2.9), (10.18, 0.41, 0.3, 0.68, 2.9),
@@ -148,28 +152,33 @@ def main():
     nacelle = [
         (4.6, 0.8, 0.36, -0.56, -0.03, 5.0), (5.4, 0.84, 0.48, -0.68, 0.0, 5.0),
         (6.5, 0.85, 0.54, -0.9, 0.0, 4.2), (7.7, 0.85, 0.56, -1.12, 0.02, 3.6),
-        (9.4, 0.85, 0.56, -1.1, 0.05, 3.0), (10.4, 0.85, 0.56, -0.98, 0.08, 2.6),
-        (11.7, 0.85, 0.55, -0.88, 0.1, 2.3), (12.9, 0.85, 0.52, -0.82, 0.12, 2.1),
+        (8.6, 0.85, 0.56, -1.12, 0.04, 3.3), (9.4, 0.85, 0.56, -1.1, 0.05, 3.0),
+        (10.4, 0.85, 0.56, -0.98, 0.08, 2.6), (11.7, 0.85, 0.55, -0.88, 0.1, 2.3),
+        (12.9, 0.85, 0.52, -0.82, 0.12, 2.1), (13.6, 0.85, 0.51, -0.82, 0.12, 2.0),
         (14.2, 0.85, 0.5, -0.82, 0.12, 2.0),
     ]
     # Bulge under the wing root outboard of each nacelle that takes the folded main wheel.
-    gear_bulge = [(7.9, 0.05, -0.4, -0.05, 2.5), (8.3, 0.27, -1.02, 0.05, 3.0), (9.9, 0.27, -1.02, 0.05, 3.0),
-                  (10.8, 0.1, -0.7, 0.0, 2.5)]
-    intake_mouth = [(4.55, 0.8, 0.31, -0.5, -0.08, 5.0), (5.0, 0.82, 0.34, -0.56, -0.08, 5.0),
-                    (5.6, 0.85, 0.34, -0.62, -0.12, 4.0), (6.3, 0.85, 0.22, -0.6, -0.22, 3.0),
+    gear_bulge = [(7.8, 0.03, -0.3, -0.05, 2.5), (8.05, 0.2, -0.85, 0.03, 2.8), (8.4, 0.27, -1.02, 0.05, 3.0),
+                  (9.8, 0.27, -1.02, 0.05, 3.0), (10.35, 0.2, -0.88, 0.03, 2.8), (10.8, 0.06, -0.6, 0.0, 2.5)]
+    intake_mouth = [(4.55, 0.8, 0.31, -0.5, -0.08, 4.0), (5.0, 0.82, 0.34, -0.56, -0.08, 4.0),
+                    (5.6, 0.85, 0.34, -0.62, -0.12, 3.6), (6.3, 0.85, 0.22, -0.6, -0.22, 3.0),
                     (6.6, 0.85, 0.05, -0.45, -0.35, 2.0)]
     # Nozzles (pictures): short grey shroud, then long convergent dark petals.
     nozzle = [(14.15, 0.5, -0.85, 0.15, 2.0), (14.45, 0.49, -0.84, 0.14, 2.0)]
-    petals = [(14.43, 0.47, -0.82, 0.12, 2.0), (15.05, 0.4, -0.75, 0.05, 2.0)]
+    petals = [(14.43, 0.47, -0.82, 0.12, 2.0), (14.75, 0.445, -0.795, 0.095, 2.0), (15.05, 0.4, -0.75, 0.05, 2.0)]
     nozzle_mouth = [(15.0, 0.36, -0.71, 0.01, 2.0), (15.06, 0.36, -0.71, 0.01, 2.0)]
     # Flat tail booms outboard of the engines (body edge x 1.56-1.88) carrying fin and stabilator.
     # Booms end in pointed tail stingers beside the nozzles (pictures).
-    boom = [(7.6, 0.03, -0.1, 0.05, 2.0), (8.4, 0.16, -0.22, 0.14, 2.5), (14.7, 0.16, -0.22, 0.14, 2.5),
+    boom = [(7.6, 0.03, -0.1, 0.05, 2.0), (8.0, 0.12, -0.18, 0.11, 2.3), (8.4, 0.16, -0.22, 0.14, 2.5),
+            (12.0, 0.17, -0.23, 0.15, 2.5), (14.7, 0.16, -0.22, 0.14, 2.5),
             (15.3, 0.07, -0.12, 0.06, 2.0), (15.65, 0.01, -0.04, -0.02, 2.0)]
     # LERX: sharp strake from beside the windscreen (x 0.5, d 2.63) to the wing root (x 1.75, d 7.58).
-    lerx = [(0.45, 0.0, 2.6, 6.0, 0.025), (1.1, 0.02, 5.0, 3.4, 0.03), (1.8, 0.05, 7.75, 1.0, 0.04)]
+    lerx = [(0.45, 0.0, 2.6, 6.0, 0.025), (0.8, 0.01, 3.98, 4.65, 0.027), (1.1, 0.02, 5.0, 3.4, 0.03),
+            (1.45, 0.035, 6.38, 2.2, 0.035), (1.8, 0.05, 7.75, 1.0, 0.04)]
     wing = [(0.8, 0.05, 7.4, 5.25, 0.05),
             (WING_ROOT_X, 0.05, wing_le(WING_ROOT_X), wing_te(WING_ROOT_X) - wing_le(WING_ROOT_X), 0.05),
+            (FOLD_X, 0.05 - 0.25 * (FOLD_X - WING_ROOT_X) / (WING_TIP_X - WING_ROOT_X), wing_le(FOLD_X),
+             wing_te(FOLD_X) - wing_le(FOLD_X), 0.048),
             (WING_TIP_X, -0.2, wing_le(WING_TIP_X), wing_te(WING_TIP_X) - wing_le(WING_TIP_X), 0.045)]
     wing_tip = [(WING_TIP_X - 0.02, -0.2, wing_le(WING_TIP_X) - 0.02, 1.12, 0.06),
                 (WING_TIP_X + 0.05, -0.2, wing_le(WING_TIP_X) + 0.06, 0.98, 0.06)]
@@ -177,7 +186,9 @@ def main():
     cant = math.radians(6.0)
     fin = [(1.8, 0.05, 12.13, 2.92, 0.045), (1.8 + 2.33 * math.tan(cant), 2.38, 14.3, 0.75, 0.04),
            (1.8 + 2.57 * math.tan(cant), 2.62, 14.42, 0.55, 0.035)]
-    stab = [(1.85, -0.03, 13.08, 2.8, 0.045), (3.88, -0.12, 15.38, 1.02, 0.04)]
+    # Stabilators with the MiG-29K/M dogtooth: the outer leading edge steps 0.13 m forward at x 2.9.
+    stab = [(1.85, -0.03, 13.08, 2.8, 0.045), (2.9, -0.077, 14.27, 1.88, 0.045),
+            (2.92, -0.078, 14.14, 2.01, 0.045), (3.88, -0.12, 15.24, 1.16, 0.04)]
     # Pitot: long thin probe on a thicker tapered base (pictures).
     pitot = [(-1.08, 0.0, -0.39, -0.37, 2.0), (-1.0, 0.012, -0.392, -0.368, 2.0), (-0.42, 0.016, -0.396, -0.364, 2.0),
              (-0.36, 0.032, -0.412, -0.348, 2.0), (0.1, 0.05, -0.43, -0.33, 2.0)]
@@ -188,16 +199,19 @@ def main():
     ifr = [(1.6, 0.02, 0.12, 0.16, 2.0), (2.0, 0.07, 0.22, 0.38, 2.0), (2.9, 0.07, 0.42, 0.58, 2.0),
            (3.3, 0.02, 0.5, 0.56, 2.0)]
     # Wingtip pods (navigation lights / RWR) and the RWR pods near each fin tip (pictures).
-    tip_pod = [(11.1, 0.02, -0.21, -0.19, 2.0), (11.4, 0.07, -0.27, -0.13, 2.0), (12.6, 0.07, -0.27, -0.13, 2.0),
-               (12.9, 0.02, -0.21, -0.19, 2.0)]
-    fin_pod = [(13.75, 0.01, 2.19, 2.21, 2.0), (13.95, 0.05, 2.15, 2.25, 2.0), (14.6, 0.05, 2.15, 2.25, 2.0),
-               (14.75, 0.01, 2.19, 2.21, 2.0)]
+    tip_pod = [(10.95, 0.01, -0.205, -0.195, 2.0), (11.15, 0.05, -0.25, -0.15, 2.0), (11.45, 0.07, -0.27, -0.13, 2.0),
+               (12.6, 0.07, -0.27, -0.13, 2.0), (12.85, 0.05, -0.25, -0.15, 2.0), (13.0, 0.015, -0.21, -0.19, 2.0)]
+    fin_pod = [(13.7, 0.01, 2.19, 2.21, 2.0), (13.85, 0.04, 2.16, 2.24, 2.0), (14.0, 0.05, 2.15, 2.25, 2.0),
+               (14.6, 0.05, 2.15, 2.25, 2.0), (14.75, 0.01, 2.19, 2.21, 2.0)]
+    fin_pod_rear = [(14.9, 0.01, 1.99, 2.01, 2.0), (15.0, 0.045, 1.955, 2.045, 2.0), (15.35, 0.04, 1.96, 2.04, 2.0),
+                    (15.5, 0.01, 1.99, 2.01, 2.0)]
     # Two pylons under each inner wing (outer ones would sit on the folding panel).
     def wing_y(x):
         return 0.05 - 0.25 * (x - WING_ROOT_X) / (WING_TIP_X - WING_ROOT_X)
     pylons = []
     for px, pd in ((2.35, 9.0), (3.15, 9.6)):
-        pylons.append([(px, wing_y(px) + 0.02, pd, 1.7, 0.045), (px, wing_y(px) - 0.32, pd + 0.15, 1.45, 0.05)])
+        pylons.append([(px, wing_y(px) + 0.02, pd, 1.7, 0.045), (px, wing_y(px) - 0.3, pd + 0.1, 1.55, 0.05),
+                       (px, wing_y(px) - 0.42, pd + 0.2, 1.35, 0.055)])
 
     # Gear (all wheels touch y = GROUND): twin nose wheels at d 6.48 retract aft into the
     # fuselage, main wheels at d 9.95, x 1.6 (drawn track) retract forward into the wing-root
@@ -222,38 +236,45 @@ def main():
         'material': 'VEHICLE_PLANE_GREY',
         'smooth_deg': 0,
         'parts': [
-            {'name': 'Fuselage', 'type': 'loft', 'segments': 20, 'resample': 26, 'stations': loft_rows(fuselage)},
-            {'name': 'Canopy', 'type': 'loft', 'segments': 16, 'resample': 14, 'stations': loft_rows(canopy)},
-            {'name': 'Nacelle', 'type': 'loft', 'mirror': True, 'segments': 12, 'resample': 12,
+            {'name': 'Fuselage', 'type': 'loft', 'segments': 20, 'resample': 34, 'stations': loft_rows(fuselage)},
+            {'name': 'Canopy', 'type': 'loft', 'segments': 20, 'resample': 18, 'stations': loft_rows(canopy)},
+            {'name': 'Nacelle', 'type': 'loft', 'mirror': True, 'segments': 16, 'resample': 14,
              'stations': loft_rows_cx(nacelle)},
-            {'name': 'GearBulge', 'type': 'loft', 'mirror': True, 'segments': 10, 'resample': 6,
+            {'name': 'GearBulge', 'type': 'loft', 'mirror': True, 'segments': 12, 'resample': 8,
              'stations': loft_rows(gear_bulge, 1.6)},
-            {'name': 'Boom', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(boom, 1.72)},
-            {'name': 'Lerx', 'type': 'panel', 'mirror': True, 'chord_points': 5, 'stations': panel_rows(lerx)},
-            {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 7, 'stations': panel_rows(wing)},
+            {'name': 'Boom', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_rows(boom, 1.72)},
+            {'name': 'Lerx', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(lerx)},
+            {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 9, 'stations': panel_rows(wing)},
             {'name': 'WingTip', 'type': 'panel', 'mirror': True, 'chord_points': 5, 'stations': panel_rows(wing_tip)},
             {'name': 'Fin', 'type': 'panel', 'mirror': True, 'chord_points': 6,
              'normal': [math.cos(cant), -math.sin(cant), 0.0], 'stations': panel_rows(fin)},
             {'name': 'Stabilator', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(stab),
              'surface': {'type': 'stabilator', 'view': 'top', 'hinge_m': top_m([(1.75, 14.4), (3.6, 14.4)])}},
-            {'name': 'IntakeMouth', 'type': 'loft', 'join': 'cut', 'mirror': True, 'material': DARK, 'segments': 8,
+            {'name': 'IntakeMouth', 'type': 'loft', 'join': 'cut', 'mirror': True, 'material': DARK, 'segments': 12,
              'stations': loft_rows_cx(intake_mouth)},
             {'name': 'Nozzle', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#5d6268',
-             'segments': 16, 'stations': loft_rows(nozzle, 0.85)},
+             'segments': 18, 'stations': loft_rows(nozzle, 0.85)},
             {'name': 'NozzleMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#141516',
-             'segments': 16, 'stations': loft_rows(nozzle_mouth, 0.85)},
-            {'name': 'Pitot', 'type': 'loft', 'join': 'separate', 'segments': 6, 'stations': loft_rows(pitot)},
+             'segments': 18, 'stations': loft_rows(nozzle_mouth, 0.85)},
+            {'name': 'Pitot', 'type': 'loft', 'join': 'separate', 'segments': 8, 'stations': loft_rows(pitot)},
             {'name': 'NozzlePetals', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3b3e42',
-             'segments': 16, 'stations': loft_rows(petals, 0.85)},
+             'segments': 18, 'stations': loft_rows(petals, 0.85)},
             {'name': 'Irst', 'type': 'loft', 'join': 'separate', 'material': '#1e2a33', 'segments': 8,
              'stations': loft_rows(irst, -0.22)},
             {'name': 'ProbeFairing', 'type': 'loft', 'segments': 8, 'stations': loft_rows(ifr, 0.32)},
-            {'name': 'TipPod', 'type': 'loft', 'mirror': True, 'segments': 6, 'stations': loft_rows(tip_pod, WING_TIP_X)},
+            {'name': 'TipPod', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(tip_pod, WING_TIP_X)},
             {'name': 'FinPod', 'type': 'loft', 'mirror': True, 'segments': 6,
              'stations': loft_rows(fin_pod, 1.8 + 2.2 * math.tan(cant) + 0.04)},
-            {'name': 'PylonInner', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4, 'normal': [1.0, 0.0, 0.0],
+            {'name': 'FinPodRear', 'type': 'loft', 'mirror': True, 'segments': 6,
+             'stations': loft_rows(fin_pod_rear, 1.8 + 2.0 * math.tan(cant) + 0.035)},
+            # Blade antennas: on the spine behind the hump and under the nose (pictures).
+            {'name': 'AntennaTop', 'type': 'panel', 'join': 'separate', 'chord_points': 4, 'normal': [1.0, 0.0, 0.0],
+             'stations': panel_rows([(0.0, 0.9, 8.6, 0.42, 0.08), (0.0, 1.16, 8.8, 0.2, 0.1)])},
+            {'name': 'AntennaBottom', 'type': 'panel', 'join': 'separate', 'chord_points': 4, 'normal': [1.0, 0.0, 0.0],
+             'stations': panel_rows([(0.0, -0.62, 3.2, 0.36, 0.08), (0.0, -0.85, 3.37, 0.18, 0.1)])},
+            {'name': 'PylonInner', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 5, 'normal': [1.0, 0.0, 0.0],
              'stations': panel_rows(pylons[0])},
-            {'name': 'PylonOuter', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4, 'normal': [1.0, 0.0, 0.0],
+            {'name': 'PylonOuter', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 5, 'normal': [1.0, 0.0, 0.0],
              'stations': panel_rows(pylons[1])},
             {'name': 'NoseWell', 'type': 'loft', 'join': 'cut', 'segments': 8, 'stations': loft_rows(nose_well)},
             {'name': 'MainWell', 'type': 'loft', 'mirror': True, 'join': 'cut', 'segments': 8,
@@ -314,7 +335,7 @@ def main():
             {'type': 'airbrake', 'view': 'top', 'mirror': False, 'depth_m': [0.0, 1.2],
              'polygon_m': top_m([(0.28, 11.9), (-0.28, 11.9), (-0.3, 13.2), (0.3, 13.2)])},
         ],
-        'gear': {'wheel_sides': 12, 'legs': [
+        'gear': {'wheel_sides': 16, 'legs': [
             {'name': 'Nose', 'pos_m': P(0.0, GROUND, nose_d), 'retract': 'aft', 'retract_deg': 90,
              'strut_top_y_m': nose_top, 'wheel_radius_m': nose_r, 'twin': True},
             {'name': 'Main', 'pos_m': P(main_x, GROUND, main_d), 'mirror': True, 'retract': 'forward',
