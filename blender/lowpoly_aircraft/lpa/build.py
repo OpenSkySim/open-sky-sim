@@ -371,6 +371,13 @@ def _add_gear(views, hull, spec) -> None:
             objs = geo.gear_leg(name, top, (xi, y_ground, z), radius, width, 'Gear',
                                 wheel_sides=int(gear.get('wheel_sides', 16 if 'parts' in spec else 8)),
                                 twin=bool(leg.get('twin', False)))
+            if 'leg_door' in leg:
+                # Door on the leg (e.g. MiG-29 mains): the side that faces down once retracted.
+                ld = leg['leg_door']
+                ahead = 1.0 if leg.get('retract', 'aft') == 'forward' else -1.0
+                objs.append(geo.leg_door(name, top, ahead * float(ld.get('offset_m', radius + 0.05)),
+                                         float(ld.get('width_m', 2 * width)), float(ld.get('length_m', 1.0)),
+                                         'Gear', thickness=float(ld.get('thickness_m', 0.03))))
             axis_body, sgn = GEAR_RETRACT_AXES[leg.get('retract', 'aft')]
             if axis_body[2] != 0 and xi < 0:
                 sgn = -sgn  # inward/outward mirror across the plane of symmetry

@@ -139,8 +139,10 @@ def main():
         (11.7, 0.4, -0.42, 0.38, 2.6, 2.5),
         (12.9, 0.36, -0.4, 0.18, 2.6, 2.4),
         (13.9, 0.32, -0.4, 0.1, 2.4, 2.2),
-        (14.8, 0.22, -0.36, 0.02, 2.2, 2.0),
-        (15.25, 0.0, -0.2, -0.2, 2.0, 2.0),
+        # Blunt brake-chute housing between the nozzles (Drive photo rXtwVyWPOdQ).
+        (14.8, 0.27, -0.36, 0.06, 2.4, 2.2),
+        (15.1, 0.24, -0.33, 0.03, 2.4, 2.2),
+        (15.25, 0.12, -0.25, -0.05, 2.2, 2.0),
     ]
     # Tandem canopy (full bubble, owner's MiG-35 pictures) and the broad flat-topped spine hump
     # behind it running back between the fins; top follows the side-view upper line.
@@ -207,8 +209,8 @@ def main():
     irst = [(2.5, 0.02, 0.5, 0.52, 2.0), (2.58, 0.1, 0.44, 0.66, 2.0), (2.76, 0.1, 0.44, 0.66, 2.0),
             (2.85, 0.02, 0.52, 0.6, 2.0)]
     # Fairing of the retractable refuelling probe along the left side of the nose (side pictures).
-    ifr = [(1.6, 0.02, 0.12, 0.16, 2.0), (2.0, 0.07, 0.22, 0.38, 2.0), (2.9, 0.07, 0.42, 0.58, 2.0),
-           (3.3, 0.02, 0.5, 0.56, 2.0)]
+    ifr = [(1.85, 0.015, 0.33, 0.37, 2.0), (1.95, 0.06, 0.29, 0.41, 2.0), (2.1, 0.08, 0.27, 0.43, 2.0),
+           (3.4, 0.08, 0.3, 0.46, 2.0), (3.7, 0.05, 0.35, 0.45, 2.0)]
     # Wingtip pods (navigation lights / RWR) and the RWR pods near each fin tip (pictures).
     tip_pod = [(10.95, 0.01, -0.205, -0.195, 2.0), (11.15, 0.05, -0.25, -0.15, 2.0), (11.45, 0.07, -0.27, -0.13, 2.0),
                (12.6, 0.07, -0.27, -0.13, 2.0), (12.85, 0.05, -0.25, -0.15, 2.0), (13.0, 0.015, -0.21, -0.19, 2.0)]
@@ -278,7 +280,7 @@ def main():
              'segments': 18, 'stations': loft_rows(petals, 0.85)},
             {'name': 'Irst', 'type': 'loft', 'join': 'separate', 'material': '#1e2a33', 'segments': 8,
              'stations': loft_rows(irst, -0.22)},
-            {'name': 'ProbeFairing', 'type': 'loft', 'segments': 8, 'stations': loft_rows(ifr, 0.32)},
+            {'name': 'ProbeFairing', 'type': 'loft', 'segments': 10, 'stations': loft_rows(ifr, 0.42)},
             {'name': 'TipPod', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(tip_pod, WING_TIP_X)},
             {'name': 'FinPod', 'type': 'loft', 'mirror': True, 'segments': 6,
              'stations': loft_rows(fin_pod, 1.8 + 2.2 * math.tan(cant) + 0.04)},
@@ -351,7 +353,9 @@ def main():
             {'name': 'Nose', 'pos_m': P(0.0, GROUND, nose_d), 'retract': 'aft', 'retract_deg': 90,
              'strut_top_y_m': nose_top, 'wheel_radius_m': nose_r, 'twin': True},
             {'name': 'Main', 'pos_m': P(main_x, GROUND, main_d), 'mirror': True, 'retract': 'forward',
-             'retract_deg': 90, 'strut_top_y_m': main_top, 'wheel_radius_m': main_r, 'wheel_width_m': 0.26},
+             'retract_deg': 90, 'strut_top_y_m': main_top, 'wheel_radius_m': main_r, 'wheel_width_m': 0.26,
+             # Large door on the front of each main leg (Drive photos 28644252602, mig-29kub_01).
+             'leg_door': {'offset_m': 0.48, 'width_m': 0.4, 'length_m': 1.2}},
         ],
             'doors': [
                 {'name': 'Nose', 'well': 'NoseWell', 'open_deg': 88, 'thickness_m': 0.035},
