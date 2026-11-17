@@ -791,7 +791,8 @@ async function loadRefs(entry, stale, force = false) {
     try {
       const snap = await cap.db.collection(`aircraft/${entry.id}/refs`).get();
       for (const d of snap.docs) {
-        const data = d.data() || {};
+        // Snapshot data may be read-only: take a plain copy, so edits (moving, removing) can change it.
+        const data = JSON.parse(JSON.stringify(d.data() || {}));
         const old = images.find(i => i.id === d.id);
         if (old) Object.assign(old, data, { saved: true });
         else images.push({ ...data, id: d.id, saved: true });
