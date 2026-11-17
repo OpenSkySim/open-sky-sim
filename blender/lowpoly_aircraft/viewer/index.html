@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lowpoly Hangar</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a hangar workbench. 3D view takes the stage, controls in a side rail that stacks under it on phones. */
+:root {
+  --bg: #eef1f4;
+  --panel: #ffffff;
+  --ink: #1b232c;
+  --muted: #5d6b79;
+  --line: #d3dae2;
+  --accent: #2f6db5;
+  --stage: #dfe5ec;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #13181e; --panel: #1b2229; --ink: #e3e9ef; --muted: #93a1af; --line: #2c3742;
+    --accent: #6ea8e8; --stage: #0f1419; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #13181e; --panel: #1b2229; --ink: #e3e9ef; --muted: #93a1af; --line: #2c3742;
+  --accent: #6ea8e8; --stage: #0f1419; color-scheme: dark;
+}
+:root { --hl: #ff9a3c; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-ui);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px;
+  box-sizing: border-box;
+}
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 12px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+.sub { color: var(--muted); font-size: 13px; }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
+@media (max-width: 860px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+.stage { position: relative; background: var(--stage); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; aspect-ratio: 16 / 10; max-width: 100%; min-width: 0; }
+.stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.hint { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted); pointer-events: none; }
+.status { position: absolute; right: 12px; top: 10px; font: 12px var(--font-mono); color: var(--muted); }
+aside { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
+.card h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.models { display: flex; flex-direction: column; gap: 6px; }
+.models button {
+  text-align: left; background: transparent; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 5px; padding: 8px 10px; font: inherit; cursor: pointer; display: grid; gap: 2px;
+}
+.models button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.models button:focus-visible, input:focus-visible, .views button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.models b { font-weight: 600; font-size: 14px; }
+.models span { font-size: 12px; color: var(--muted); }
+.ctl { display: grid; grid-template-columns: 96px minmax(0, 1fr) 44px; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
+.ctl output { font: 12px var(--font-mono); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.ctl input { width: 100%; accent-color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.views button, .row button {
+  background: transparent; border: 1px solid var(--line); color: var(--ink); border-radius: 5px;
+  padding: 5px 10px; font: 12px var(--font-ui); cursor: pointer;
+}
+.views { display: flex; flex-wrap: wrap; gap: 6px; }
+dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: 12px; }
+dt { color: var(--muted); }
+dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chips button {
+  background: transparent; border: 1px solid var(--line); color: var(--ink); border-radius: 4px;
+  padding: 3px 7px; font: 11px var(--font-mono); cursor: pointer;
+}
+.chips button[aria-pressed="true"] { background: var(--hl); border-color: var(--hl); color: #1a1206; }
+.chips button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card .note { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
+.drawing { margin-top: 16px; }
+.drawing img { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.drawing p { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Lowpoly Hangar</h1>
+  <span class="sub" id="subtitle">Models from the image-to-lowpoly builder, as Open Sky Sim loads them</span>
+</header>
+
+<div class="wrap">
+  <div style="min-width:0">
+    <div class="stage" id="stage">
+      <div class="status" id="status">loading …</div>
+      <div class="hint">Drag to rotate, scroll to zoom, right-drag to pan</div>
+    </div>
+    <div class="drawing">
+      <img id="drawing" alt="Reference the model was built from">
+      <p id="drawingNote"></p>
+    </div>
+  </div>
+  <aside>
+    <div class="card">
+      <h2>Aircraft</h2>
+      <div class="models" id="models"></div>
+    </div>
+    <div class="card">
+      <h2>Controls</h2>
+      <div class="ctl"><label for="pitch">Elevator</label><input id="pitch" type="range" min="-1" max="1" step="0.01" value="0"><output for="pitch">0</output></div>
+      <div class="ctl"><label for="roll">Ailerons</label><input id="roll" type="range" min="-1" max="1" step="0.01" value="0"><output for="roll">0</output></div>
+      <div class="ctl"><label for="yaw">Rudder</label><input id="yaw" type="range" min="-1" max="1" step="0.01" value="0"><output for="yaw">0</output></div>
+      <div class="ctl"><label for="flaps">Flaps</label><input id="flaps" type="range" min="0" max="1" step="0.01" value="0"><output for="flaps">0</output></div>
+      <div class="ctl"><label for="gear">Gear</label><input id="gear" type="range" min="0" max="1" step="0.01" value="1"><output for="gear">down</output></div>
+      <div class="ctl"><label for="hook">Tailhook</label><input id="hook" type="range" min="0" max="1" step="0.01" value="0"><output for="hook">0</output></div>
+      <div class="ctl"><label for="fold">Park / fold</label><input id="fold" type="range" min="0" max="1" step="0.01" value="0"><output for="fold">0</output></div>
+      <div class="row"><button id="demo" type="button">Play all</button><button id="reset" type="button">Reset</button></div>
+    </div>
+    <div class="card">
+      <h2>View</h2>
+      <div class="views">
+        <button type="button" data-view="persp">3/4</button>
+        <button type="button" data-view="top">Top</button>
+        <button type="button" data-view="side">Side</button>
+        <button type="button" data-view="front">Front</button>
+        <button type="button" id="wire">Edges</button>
+        <button type="button" id="mesh" aria-pressed="false">Wireframe</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Highlight surfaces</h2>
+      <div class="chips" id="chips"></div>
+      <div class="row"><button id="hlClear" type="button">Clear</button><button id="hlAll" type="button">All</button></div>
+      <p class="note">Click a name, or click a moving part on the model.</p>
+    </div>
+    <div class="card">
+      <h2>Facts</h2>
+      <dl id="facts"></dl>
+    </div>
+  </aside>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// The sim colours meshes by material name: a palette category or a literal #rrggbb.
+const PALETTE = {
+  VEHICLE_PLANE_GREY: 0xa9b4bf, VEHICLE_PLANE_NAVY: 0x55657a, VEHICLE_PLANE_ENGINE: 0x3a3f45,
+  VEHICLE_PLANE_INTAKE: 0x2a2e33, VEHICLE_PLANE_INTERIOR: 0x5b6168, GLASS: 0x2b3b4f,
+  VEHICLE_PILOT_SUIT: 0x6e7558, VEHICLE_PILOT_HELMET: 0xc4c8ca, VEHICLE_PILOT_SKIN: 0xd2a98a, VEHICLE_PILOT_GEAR: 0x7d8083,
+  SCENERY_TREE_SHADOW: 0x000000,
+};
+const ROLL_VIS_TAILERON = 0.5;
+
+const stage = document.getElementById('stage');
+const statusEl = document.getElementById('status');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, 1.6, 0.1, 2000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x6f7a86, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(-30, 50, 40);
+scene.add(sun);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(60, 48), new THREE.MeshBasicMaterial({ color: 0x8a96a3, transparent: true, opacity: 0.18 }));
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+// Ground grid: 50 x 50 m in 1 m squares, centre lines darker, for judging sizes.
+const grid = new THREE.GridHelper(50, 50, 0x55606c, 0x8f9aa6);
+grid.material.transparent = true;
+grid.material.opacity = 0.55;
+scene.add(grid);
+
+function themeColors() {
+  const cs = getComputedStyle(document.documentElement);
+  scene.background = new THREE.Color(cs.getPropertyValue('--stage').trim() || '#dfe5ec');
+}
+themeColors();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', themeColors);
+new MutationObserver(themeColors).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+let wire = false;
+let meshOnly = false;   // all triangle edges, hidden lines hidden (not x-ray)
+const loader = new GLTFLoader();
+let current = null;   // { root, surfaces, mixers, actions, duration, size }
+
+function materialFor(name) {
+  let color = PALETTE[name];
+  if (color === undefined && /^#[0-9a-f]{6}$/i.test(name)) color = parseInt(name.slice(1), 16);
+  if (color === undefined) color = PALETTE.VEHICLE_PLANE_GREY;
+  // Normals come from the model: smooth on rounded parts, hard on sharp edges.
+  const glass = name === 'GLASS';
+  // Glass is see-through (the game dithers it), so the cockpit inside shows; back faces are
+  // culled as in the game, so the cockpit tub (facing inwards) does not hide what is in it.
+  return new THREE.MeshStandardMaterial({ color, roughness: glass ? 0.15 : 0.6, metalness: glass ? 0.3 : 0.1,
+                                          side: glass ? THREE.DoubleSide : THREE.FrontSide, transparent: glass, opacity: glass ? 0.45 : 1,
+                                          depthWrite: !glass });
+}
+
+function restyle(obj) {
+  obj.traverse(o => {
+    if (!o.isMesh) return;
+    if (meshOnly) {
+      // Faces drawn in the stage colour, pushed back a little, so they hide the lines behind them.
+      o.material = new THREE.MeshBasicMaterial({ color: scene.background, side: THREE.DoubleSide,
+                                                 polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+      const ink = new THREE.Color(getComputedStyle(document.body).color);
+      const lines = new THREE.LineSegments(new THREE.WireframeGeometry(o.geometry), new THREE.LineBasicMaterial({ color: ink }));
+      lines.userData.edge = true;
+      o.add(lines);
+      return;
+    }
+    o.material = materialFor(o.material?.name || '');
+    if (wire) {
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 20), new THREE.LineBasicMaterial({ color: 0x1b232c, transparent: true, opacity: 0.5 }));
+      edges.userData.edge = true;
+      o.add(edges);
+    }
+  });
+}
+
+// The page may not fetch data: URIs, so the embedded buffer is decoded here
+// and the model handed to the loader as an in-memory GLB.
+async function load(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  const json = await r.json();
+  let bin = new Uint8Array(0);
+  const buf = json.buffers && json.buffers[0];
+  if (buf && typeof buf.uri === 'string' && buf.uri.startsWith('data:')) {
+    const s = atob(buf.uri.slice(buf.uri.indexOf(',') + 1));
+    bin = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) bin[i] = s.charCodeAt(i);
+    delete buf.uri;
+  }
+  const enc = new TextEncoder().encode(JSON.stringify(json));
+  const jLen = (enc.length + 3) & ~3, bLen = (bin.length + 3) & ~3;
+  const total = 12 + 8 + jLen + (bin.length ? 8 + bLen : 0);
+  const out = new Uint8Array(total);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, 0x46546C67, true); dv.setUint32(4, 2, true); dv.setUint32(8, total, true);
+  dv.setUint32(12, jLen, true); dv.setUint32(16, 0x4E4F534A, true);
+  out.fill(0x20, 20, 20 + jLen); out.set(enc, 20);
+  if (bin.length) {
+    const o = 20 + jLen;
+    dv.setUint32(o, bLen, true); dv.setUint32(o + 4, 0x004E4942, true);
+    out.set(bin, o + 8);
+  }
+  return new Promise((res, rej) => loader.parse(out.buffer, '', res, rej));
+}
+
+async function asDataUrl(url) {
+  const blob = await (await fetch(url)).blob();
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(blob);
+  });
+}
+
+function surfaceValue(c, s, v) {
+  switch (c) {
+    case 'pitch': return s * v.pitch;
+    case 'roll': return s * v.roll;
+    case 'yaw': return s * v.yaw;
+    case 'flaps': return s * v.flaps;
+    case 'slats': return s * v.flaps;
+    case 'airbrake': return 0;
+    case 'fold': return s * v.fold;
+    case 'stabilatorLeft': return s * (v.pitch - ROLL_VIS_TAILERON * v.roll);
+    case 'stabilatorRight': return s * (v.pitch + ROLL_VIS_TAILERON * v.roll);
+    default: return 0;
+  }
+}
+
+let loadSeq = 0;   // only the most recent selection may reach the scene
+
+function legCount(root) {
+  let n = 0;
+  root.traverse(o => { if (o.isMesh && /_Strut$/.test(o.name)) n++; });
+  return n;
+}
+
+async function showModel(entry) {
+  const seq = ++loadSeq;
+  const stale = () => seq !== loadSeq;
+  statusEl.textContent = 'loading …';
+  const base = `models/${entry.id}/`;
+  const manifest = await (await fetch(base + 'manifest.json')).json();
+  if (stale()) return;
+  const root = new THREE.Group();
+  const asJson = p => base + p.replace(/\.glb$/, '.gltf.json');
+  const body = await load(asJson(manifest.body));
+  if (stale()) return;
+  restyle(body.scene);
+  root.add(body.scene);
+  const surfaces = [];
+  for (const s of manifest.surfaces) {
+    const g = await load(asJson(s.path));
+    if (stale()) return;
+    restyle(g.scene);
+    const pivot = new THREE.Group();
+    pivot.position.fromArray(s.pivot);
+    pivot.add(g.scene);
+    root.add(pivot);
+    surfaces.push({ cfg: s, node: pivot, pivot: new THREE.Vector3().fromArray(s.pivot), axis: new THREE.Vector3().fromArray(s.axis).normalize(), defl: 0 });
+  }
+  const mixers = [], actions = [];
+  let duration = 0;
+  if (manifest.gear) {
+    const g = await load(asJson(manifest.gear));
+    if (stale()) return;
+    restyle(g.scene);
+    root.add(g.scene);
+    for (const clip of g.animations) {
+      const node = g.scene.getObjectByName(clip.name.replace(/Action$/, ''));
+      if (!node) continue;
+      const mixer = new THREE.AnimationMixer(node);
+      const action = mixer.clipAction(clip);
+      action.play();
+      action.paused = true;
+      mixers.push(mixer); actions.push(action);
+      duration = Math.max(duration, clip.duration);
+    }
+  }
+  // Swap only now, so a slow load never leaves two aircraft (or parts of both) in the scene.
+  if (current) scene.remove(current.root);
+  scene.add(root);
+  // The ground goes under the wheels with the gear down (the model files rest in any pose).
+  actions.forEach((a, i) => { a.time = a.getClip().duration; mixers[i].update(0); });
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3()).length();
+  ground.position.y = box.min.y - 0.02;
+  grid.position.y = ground.position.y + 0.005;
+  // Arrestor hook: drawn about its hinge with the arm along +Z, swung like the game does it
+  // (shortest turn from +Z onto the stowed direction, blended to the hinge -> tip line).
+  let hook = null;
+  if (manifest.tailhook?.model) {
+    const g = await load(asJson(manifest.tailhook.model));
+    if (stale()) return;
+    restyle(g.scene);
+    const node = new THREE.Group();
+    node.position.fromArray(manifest.tailhook.hinge);
+    node.add(g.scene);
+    root.add(node);
+    const Z = new THREE.Vector3(0, 0, 1);
+    const down = new THREE.Vector3().fromArray(manifest.tailhook.tip).sub(node.position).normalize();
+    const up = new THREE.Vector3().fromArray(manifest.tailhook.stowedDir || [0, 0, -1]).normalize();
+    hook = { node, qDown: new THREE.Quaternion().setFromUnitVectors(Z, down), qUp: new THREE.Quaternion().setFromUnitVectors(Z, up) };
+  }
+  // The game's pilot figure (origin at its eye point) in each seat the manifest names.
+  for (const seat of manifest.pilotSeats || []) {
+    const g = await load('models/pilot.gltf.json');
+    if (stale()) return;
+    // The figure ships without normals; the game gives it flat face normals, as here.
+    g.scene.traverse(o => {
+      if (o.isMesh && !o.geometry.getAttribute('normal')) {
+        o.geometry = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry;
+        o.geometry.computeVertexNormals();
+      }
+    });
+    restyle(g.scene);
+    g.scene.position.fromArray(seat);
+    root.add(g.scene);
+  }
+  current = { root, surfaces, mixers, actions, duration, size, center: box.getCenter(new THREE.Vector3()), manifest, hook };
+  setView('persp');
+  applyControls();
+  buildChips();
+  const tris = countTris(root);
+  document.getElementById('facts').innerHTML = `
+    <dt>Size</dt><dd>${entry.dims}</dd>
+    <dt>Triangles</dt><dd>${tris.toLocaleString('en-US')}</dd>
+    <dt>Surfaces</dt><dd>${manifest.surfaces.length} moving parts</dd>
+    <dt>Gear</dt><dd>${manifest.gear ? `${legCount(root)} legs, animated` : 'none'}</dd>
+    <dt>Source</dt><dd>${entry.source}</dd>
+    <dt>Status</dt><dd>${entry.status}</dd>`;
+  const img = document.getElementById('drawing');
+  img.hidden = true;
+  asDataUrl(base + 'drawing.png').then(u => { if (!stale()) { img.src = u; img.hidden = false; } }).catch(() => {});
+  document.getElementById('drawingNote').textContent = `Reference: ${entry.source}`;
+  statusEl.textContent = manifest.id;
+}
+
+function countTris(obj) {
+  let n = 0;
+  obj.traverse(o => { if (o.isMesh && !o.userData.edge) n += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+  return Math.round(n);
+}
+
+const inputs = ['pitch', 'roll', 'yaw', 'flaps', 'gear', 'hook', 'fold'].map(id => document.getElementById(id));
+function values() {
+  return Object.fromEntries(inputs.map(i => [i.id, parseFloat(i.value)]));
+}
+function applyControls() {
+  if (!current) return;
+  const v = values();
+  for (const s of current.surfaces) {
+    if (s.cfg.control !== 'spin') s.defl = surfaceValue(s.cfg.control, s.cfg.sign, v) * s.cfg.rangeRad;
+  }
+  // Same posing as the game: sliding parts translate; parts on a folding/sweeping
+  // panel (sweepParent) ride along with it, then turn about their own moved hinge.
+  const byRole = Object.fromEntries(current.surfaces.map(s => [s.cfg.role, s]));
+  for (const s of current.surfaces) {
+    if (s.cfg.control === 'spin') continue;
+    const n = s.node;
+    if (s.cfg.slide) {
+      n.position.copy(s.pivot).addScaledVector(new THREE.Vector3().fromArray(s.cfg.slide), s.defl);
+      n.quaternion.identity();
+      continue;
+    }
+    const p = s.cfg.sweepParent && byRole[s.cfg.sweepParent];
+    const own = new THREE.Quaternion();
+    if (p && p.defl !== 0) {
+      const pq = new THREE.Quaternion().setFromAxisAngle(p.axis, p.defl);
+      n.position.copy(s.pivot).sub(p.pivot).applyQuaternion(pq).add(p.pivot);
+      own.setFromAxisAngle(s.axis.clone().applyQuaternion(pq), s.defl).multiply(pq);
+    } else {
+      n.position.copy(s.pivot);
+      own.setFromAxisAngle(s.axis, s.defl);
+    }
+    n.quaternion.copy(own);
+  }
+  if (current.hook) current.hook.node.quaternion.copy(current.hook.qUp).slerp(current.hook.qDown, v.hook);
+  current.actions.forEach((a, i) => { a.time = v.gear * a.getClip().duration; current.mixers[i].update(0); });
+  for (const i of inputs) {
+    const out = document.querySelector(`output[for="${i.id}"]`);
+    out.textContent = i.id === 'gear' ? (v.gear > 0.99 ? 'down' : v.gear < 0.01 ? 'up' : Math.round(v.gear * 100) + '%') : v[i.id].toFixed(2);
+  }
+}
+inputs.forEach(i => i.addEventListener('input', () => { demo = false; applyControls(); }));
+
+document.getElementById('reset').addEventListener('click', () => {
+  demo = false;
+  inputs.forEach(i => { i.value = i.id === 'gear' ? 1 : 0; });
+  applyControls();
+});
+let demo = false, t0 = 0;
+document.getElementById('demo').addEventListener('click', () => { demo = !demo; t0 = performance.now(); });
+
+function setView(name) {
+  if (!current) return;
+  const c = current.center, d = current.size * 1.1;
+  const dirs = { persp: [-0.9, 0.55, 1.0], top: [0, 1, 0.0001], side: [-1, 0.0001, 0], front: [0, 0.0001, 1] };
+  const v = new THREE.Vector3(...dirs[name]).normalize().multiplyScalar(d);
+  camera.position.copy(c).add(v);
+  controls.target.copy(c);
+  controls.update();
+}
+// Surface highlighting: chosen roles glow orange (kept across reloads of the same model).
+const highlighted = new Set();
+const HL = new THREE.Color(0xff9a3c);
+function paintHighlights() {
+  if (!current) return;
+  for (const s of current.surfaces) {
+    const on = highlighted.has(s.cfg.role);
+    s.node.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      const m = o.material;
+      if (m.userData.base === undefined) m.userData.base = m.color.clone();
+      m.color.copy(on ? HL : m.userData.base);
+      if (m.emissive) m.emissive.copy(on ? HL : new THREE.Color(0)).multiplyScalar(on ? 0.45 : 0);
+    });
+  }
+  document.querySelectorAll('#chips button').forEach(b => b.setAttribute('aria-pressed', highlighted.has(b.dataset.role)));
+}
+function toggleRole(role) {
+  if (highlighted.has(role)) highlighted.delete(role); else highlighted.add(role);
+  paintHighlights();
+}
+function buildChips() {
+  const box = document.getElementById('chips');
+  box.textContent = '';
+  const roles = current.surfaces.map(s => s.cfg.role);
+  for (const r of [...highlighted]) if (!roles.includes(r)) highlighted.delete(r);
+  const order = [...current.surfaces].sort((a, b) => (a.cfg.control === 'spin') - (b.cfg.control === 'spin'));
+  for (const s of order) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.role = s.cfg.role;
+    b.textContent = s.cfg.role;
+    b.title = `control: ${s.cfg.control}`;
+    b.addEventListener('click', () => toggleRole(s.cfg.role));
+    box.appendChild(b);
+  }
+  paintHighlights();
+}
+document.getElementById('hlClear').addEventListener('click', () => { highlighted.clear(); paintHighlights(); });
+document.getElementById('hlAll').addEventListener('click', () => {
+  if (current) current.surfaces.forEach(s => highlighted.add(s.cfg.role));
+  paintHighlights();
+});
+// Click (not drag) on the model: toggle the surface under the pointer.
+{
+  const ray = new THREE.Raycaster();
+  let down = null;
+  renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY, e.button]; });
+  renderer.domElement.addEventListener('pointerup', e => {
+    if (!down || !current || down[2] !== 0 || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
+    const r = renderer.domElement.getBoundingClientRect();
+    ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
+    const hit = ray.intersectObject(current.root, true).find(h => h.object.isMesh && h.object.visible);
+    if (!hit) return;
+    const s = current.surfaces.find(s => { let o = hit.object; while (o) { if (o === s.node) return true; o = o.parent; } return false; });
+    if (s) toggleRole(s.cfg.role);
+  });
+}
+document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+document.getElementById('wire').addEventListener('click', e => {
+  wire = !wire;
+  e.currentTarget.setAttribute('aria-pressed', wire);
+  if (current) { const entry = active; showModel(entry); }
+});
+document.getElementById('mesh').addEventListener('click', e => {
+  meshOnly = !meshOnly;
+  e.currentTarget.setAttribute('aria-pressed', meshOnly);
+  if (current) { const entry = active; showModel(entry); }
+});
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+resize();
+
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function tick(now) {
+  if (demo && current) {
+    const t = (now - t0) / 1000;
+    const set = (id, val) => { document.getElementById(id).value = val; };
+    set('pitch', Math.sin(t * 1.3).toFixed(2));
+    set('roll', Math.sin(t * 0.9 + 1).toFixed(2));
+    set('yaw', Math.sin(t * 0.7 + 2).toFixed(2));
+    set('flaps', (0.5 + 0.5 * Math.sin(t * 0.5)).toFixed(2));
+    set('gear', (0.5 + 0.5 * Math.cos(t * 0.4)).toFixed(2));
+    set('fold', 0);
+    applyControls();
+  }
+  if (current && !reduce) {
+    // Propellers ('spin'): turn at their rate (rad/s), front and rear in opposite directions.
+    for (const s of current.surfaces) {
+      if (s.cfg.control === 'spin') s.node.quaternion.setFromAxisAngle(s.axis, (now / 1000 * s.cfg.sign * s.cfg.rangeRad) % (2 * Math.PI));
+    }
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+let active = null;
+const list = await (await fetch('models/index.json')).json();
+const box = document.getElementById('models');
+for (const entry of list) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.innerHTML = `<b>${entry.name}</b><span>${entry.status}</span>`;
+  b.addEventListener('click', () => {
+    active = entry;
+    box.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    showModel(entry).catch(err => { statusEl.textContent = 'Failed to load: ' + err.message; });
+  });
+  box.appendChild(b);
+}
+const first = box.querySelector('button');
+if (first) first.click();
+if (!reduce) { demo = true; t0 = performance.now(); }
+</script>
+</body>
+</html>
