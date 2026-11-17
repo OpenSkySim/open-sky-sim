@@ -190,7 +190,8 @@ def main():
             (12.6, 0.95, 10.38, 1.55, 0.11)]
     winglet = [(12.55, 0.95, 10.4, 1.5, 0.1), (12.78, 1.9, 11.3, 0.75, 0.08), (12.85, 2.3, 11.6, 0.4, 0.08)]
     # Slight dihedral (about 5.5 deg): the root sits on the fuselage side (side view: root LE d 16.6, y 0.55).
-    tail = [(0.5, 0.52, 16.55, 3.35, 0.1), (5.55, 1.0, 18.0, 1.85, 0.1)]
+    # Runs through to the fuselage centre line (user), on the same straight edges and dihedral.
+    tail = [(0.0, 0.472, 16.41, 3.5, 0.1), (5.55, 1.0, 18.0, 1.85, 0.1)]
     # Fins lean inward (front view: x 5.6 at the root, 5.3 at the tip).
     # Side view (user: match the drawing): leading edge kinked forward at y 1.09 (d 17.31), straight
     # trailing edge at d 20.31, the bottom edge rising aft from d 18.33/y -0.96 to y -0.5 at the TE.
