@@ -58,7 +58,7 @@ def side_m(pts):
 
 
 # Wing outboard of the LERX (top view): LE from the root junction x 1.75, d 7.58 to the tip
-# x 6.0, d 11.58; straight unswept trailing edge at d 12.65.
+# x 6.0, d 11.58; trailing edge from d 12.57 at the root to 12.82 at the tip (M2 top view).
 WING_ROOT_X, WING_TIP_X = 1.75, 6.0
 
 
@@ -67,7 +67,8 @@ def wing_le(x):
 
 
 def wing_te(x):
-    return 12.65
+    # M2 top view: the trailing edge sweeps back slightly, d 12.57 at the root to 12.82 at the tip.
+    return 12.57 + 0.25 * (x - WING_ROOT_X) / (WING_TIP_X - WING_ROOT_X)
 
 
 FOLD_X = 3.6                  # streamwise fold line (top view)
@@ -120,12 +121,12 @@ def main():
         # Lower line measured off the drawing's side view (overlay at 40 px/m).
         (0.15, 0.065, -0.43, -0.27, 2.0, 2.0),
         (0.43, 0.13, -0.47, -0.125, 2.0, 2.0),
-        (0.75, 0.2, -0.515, 0.02, 2.0, 2.0),
-        (1.05, 0.26, -0.55, 0.15, 2.0, 2.0),
-        (1.4, 0.35, -0.565, 0.26, 2.0, 2.0),
-        (1.73, 0.43, -0.57, 0.35, 2.0, 2.0),
-        (2.05, 0.47, -0.57, 0.43, 2.05, 2.0),
-        (2.4, 0.5, -0.555, 0.5, 2.1, 2.0),
+        (0.75, 0.2, -0.53, 0.02, 2.0, 2.0),
+        (1.05, 0.26, -0.575, 0.15, 2.0, 2.0),
+        (1.4, 0.35, -0.59, 0.26, 2.0, 2.0),
+        (1.73, 0.43, -0.595, 0.35, 2.0, 2.0),
+        (2.05, 0.47, -0.59, 0.43, 2.05, 2.0),
+        (2.4, 0.5, -0.57, 0.5, 2.1, 2.0),
         (2.93, 0.54, -0.525, 0.6, 2.3, 2.1),
         (3.6, 0.58, -0.49, 0.68, 2.5, 2.2),
         (4.6, 0.6, -0.46, 0.72, 2.2, 2.3),
@@ -151,7 +152,7 @@ def main():
         (2.93, 0.05, 0.5, 0.66, 2.0), (3.1, 0.2, 0.47, 0.8, 2.0), (3.3, 0.3, 0.45, 0.92, 2.1), (3.6, 0.4, 0.45, 1.1, 2.0),
         (4.18, 0.48, 0.45, 1.3, 2.3), (4.8, 0.5, 0.45, 1.43, 2.4), (5.43, 0.5, 0.45, 1.45, 2.4),
         (6.05, 0.49, 0.45, 1.4, 2.4), (6.35, 0.47, 0.45, 1.33, 2.4), (6.93, 0.46, 0.45, 1.17, 2.5),
-        (7.93, 0.45, 0.4, 0.96, 2.7), (9.18, 0.43, 0.35, 0.79, 2.9), (10.18, 0.41, 0.3, 0.69, 2.9),
+        (7.93, 0.45, 0.4, 0.96, 2.7), (9.18, 0.43, 0.35, 0.75, 2.9), (10.18, 0.41, 0.3, 0.66, 2.9),
         (11.68, 0.3, 0.25, 0.6, 2.6), (12.6, 0.2, 0.2, 0.48, 2.4), (13.3, 0.0, 0.15, 0.2, 2.0),
     ]
     # Intake and engine nacelle, one per side, from the MiG-29M2 sheet (side, front and sections D-G,
@@ -187,6 +188,14 @@ def main():
     boom = [(7.6, 1.72, 0.03, -0.1, 0.05, 2.0), (8.0, 1.7, 0.12, -0.18, 0.11, 2.3), (8.4, 1.66, 0.22, -0.22, 0.14, 2.5),
             (12.0, 1.64, 0.25, -0.23, 0.15, 2.5), (14.7, 1.65, 0.24, -0.22, 0.14, 2.5),
             (15.3, 1.72, 0.07, -0.12, 0.06, 2.0), (15.65, 1.72, 0.01, -0.04, -0.02, 2.0)]
+    # LERX shoulders (front view and sections C-E): the upper skin rises from the sharp LERX edge
+    # to the fuselage side (meeting it at y 0.4 in the front view), about 17 deg at D, almost flat by E.
+    # A diamond loft under the LERX edge; its lower half is hidden in the fuselage and nacelles.
+    # Kept separate: the exact union drops its right half.
+    # (d, half width, edge y, rise to the centre line, drop to the centre line)
+    shoulder = [(3.0, 0.5, 0.0, 0.5, 0.4), (4.0, 0.77, 0.0, 1.0, 0.45), (5.1, 1.08, 0.01, 0.84, 0.5),
+                (6.2, 1.34, 0.02, 0.68, 0.45), (7.05, 1.62, 0.04, 0.55, 0.3), (8.0, 1.72, 0.05, 0.4, 0.25),
+                (9.5, 1.72, 0.05, 0.25, 0.2), (11.0, 1.66, 0.05, 0.15, 0.15), (12.4, 1.55, 0.05, 0.08, 0.1)]
     # LERX: sharp strake from beside the windscreen (x 0.5, d 2.63) to the wing root (x 1.75, d 7.58).
     lerx = [(0.45, 0.0, 2.6, 6.0, 0.025), (0.8, 0.01, 3.98, 4.65, 0.027), (1.1, 0.02, 5.0, 3.4, 0.03),
             (1.45, 0.035, 6.38, 2.2, 0.035), (1.8, 0.05, 7.75, 1.0, 0.04)]
@@ -216,8 +225,8 @@ def main():
     ifr = [(1.85, 0.015, 0.33, 0.37, 2.0), (1.95, 0.06, 0.29, 0.41, 2.0), (2.1, 0.08, 0.27, 0.43, 2.0),
            (3.4, 0.08, 0.3, 0.46, 2.0), (3.7, 0.05, 0.35, 0.45, 2.0)]
     # Wingtip pods (navigation lights / RWR) and the RWR pods near each fin tip (pictures).
-    tip_pod = [(10.95, 0.01, -0.205, -0.195, 2.0), (11.15, 0.05, -0.25, -0.15, 2.0), (11.45, 0.07, -0.27, -0.13, 2.0),
-               (12.6, 0.07, -0.27, -0.13, 2.0), (12.85, 0.05, -0.25, -0.15, 2.0), (13.0, 0.015, -0.21, -0.19, 2.0)]
+    tip_pod = [(11.25, 0.01, -0.205, -0.195, 2.0), (11.4, 0.05, -0.25, -0.15, 2.0), (11.6, 0.07, -0.27, -0.13, 2.0),
+               (12.65, 0.07, -0.27, -0.13, 2.0), (12.85, 0.05, -0.25, -0.15, 2.0), (12.95, 0.015, -0.21, -0.19, 2.0)]
     fin_pod = [(13.7, 0.01, 2.410, 2.430, 2.0), (13.85, 0.04, 2.380, 2.460, 2.0), (14.0, 0.05, 2.370, 2.470, 2.0),
                (14.6, 0.05, 2.370, 2.470, 2.0), (14.75, 0.01, 2.410, 2.430, 2.0)]
     fin_pod_rear = [(14.9, 0.01, 2.210, 2.230, 2.0), (15.0, 0.045, 2.175, 2.265, 2.0), (15.35, 0.04, 2.180, 2.260, 2.0),
@@ -258,6 +267,8 @@ def main():
              'stations': loft_rows_cx(nacelle)},
             {'name': 'GearBulge', 'type': 'loft', 'mirror': True, 'segments': 12, 'resample': 8,
              'stations': loft_rows(gear_bulge, 1.5)},
+            {'name': 'Shoulder', 'type': 'loft', 'join': 'separate', 'segments': 16,
+             'stations': [[round(Z0 - d, 3), 0.0, yc, hw, up, dn, 1.15] for d, hw, yc, up, dn in shoulder]},
             {'name': 'Boom', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_rows_cx(boom)},
             {'name': 'Lerx', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(lerx)},
             {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 9, 'stations': panel_rows(wing)},
