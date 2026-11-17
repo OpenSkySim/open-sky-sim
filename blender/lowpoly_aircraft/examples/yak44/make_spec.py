@@ -237,7 +237,7 @@ def main():
             {'name': 'MainWell', 'type': 'loft', 'mirror': True, 'join': 'cut', 'segments': 8,
              'stations': loft_rows(main_well, 4.05)},
             {'name': 'NoseWell', 'type': 'loft', 'join': 'cut', 'segments': 8, 'stations': loft_rows(nose_well)},
-            # Cockpit behind the (see-through) glazing: one open space with two seats and two pilots (user).
+            # Cockpit behind the (see-through) glazing: one open space with two empty seats (user).
             # Cockpit panels (user): instrument panel with screens, glare shield, centre pedestal,
             # side consoles and an overhead panel, all trimmed to the inside of the skin.
             {'name': 'InstrumentPanel', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
@@ -264,14 +264,6 @@ def main():
              'stations': loft_rows([(2.55, 0.22, -0.56, -0.2, 6), (2.95, 0.22, -0.56, -0.2, 6)], 0.45)},
             {'name': 'SeatBack', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 6,
              'stations': loft_rows([(2.95, 0.22, -0.56, 0.4, 6), (3.12, 0.22, -0.56, 0.4, 6)], 0.45)},
-            {'name': 'PilotBody', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#4d5940', 'segments': 6,
-             'stations': loft_rows([(2.55, 0.12, -0.2, 0.2, 2.5), (2.68, 0.2, -0.2, 0.3, 3), (2.9, 0.2, -0.2, 0.3, 3),
-                                    (2.98, 0.14, -0.2, 0.26, 2.5)], 0.45)},
-            {'name': 'PilotHelmet', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#dfe2e5', 'segments': 6,
-             'stations': loft_rows([(2.62, 0.0, 0.43, 0.43, 2), (2.66, 0.08, 0.36, 0.5, 2), (2.76, 0.12, 0.32, 0.54, 2),
-                                    (2.86, 0.08, 0.36, 0.5, 2), (2.9, 0.0, 0.43, 0.43, 2)], 0.45)},
-            {'name': 'PilotVisor', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#101215', 'segments': 6,
-             'stations': loft_rows([(2.6, 0.08, 0.4, 0.47, 3), (2.66, 0.1, 0.39, 0.48, 3)], 0.45)},
             # Black bulkhead behind the seats: closes the open cabin off from the empty fuselage (user).
             {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#121314',
              'segments': 6, 'stations': loft_rows([(3.22, 2.5, -2.0, 2.0, 8), (3.28, 2.5, -2.0, 2.0, 8)])},
