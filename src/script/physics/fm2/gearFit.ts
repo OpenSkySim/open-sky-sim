@@ -8,7 +8,7 @@
  * gear model instead: the lowest vertices of each wheel, grouped by where they
  * stand on the ground.
  */
-import { Fm2GearConfig } from './fm2AircraftConfig';
+import { Fm2AircraftConfig, Fm2GearConfig } from './fm2AircraftConfig';
 
 /** A wheel is the vertices this far above its own lowest one (m). */
 const TYRE_BAND_M = 0.1;
@@ -20,6 +20,16 @@ const WHEEL_LINK_M = 1.0;
 const CENTRELINE_M = 0.5;
 /** Lowest a wheel may stand above the gear's lowest point and still be a leg, not a strut or door (m). */
 const WHEEL_MAX_RISE_M = 0.3;
+/** The step the flight models integrate the gear springs at (s). */
+const GEAR_STEP_S = 1 / 120;
+/**
+ * Most of a roll or pitch rate the legs' dampers may take out in one step. The
+ * springs are integrated explicitly, which diverges past 2: the airframe rocks
+ * harder each step until it turns over.
+ */
+const MAX_DAMPING_PER_STEP = 1.0;
+/** Most the legs' springs may turn the airframe in one step (natural frequency x step). */
+const MAX_SPRING_PER_STEP = 0.5;
 
 /** One wheel: its ground point (x, z) and lowest y, in the body frame. */
 interface Wheel { x: number; y: number; z: number }
@@ -99,6 +109,32 @@ export function fitGearPoints(
     if (points.length === 0) return undefined;
     points.push([-track, y, mainZ], [track, y, mainZ]);
     return points;
+}
+
+/**
+ * The gear for legs fitted to a type: the base springs and dampers, softened
+ * where the legs stand so far out that they would not settle on the airframe's
+ * inertia. The default legs were tuned for a fighter's 2.4 m track; a 40 t
+ * airframe with its mains 8 m apart flying on the default (fighter) inertia, as
+ * a lowpoly pack without a flight config does, rocked itself over on the runway
+ * right after the spawn.
+ */
+export function gearForLegs(
+    base: Fm2GearConfig,
+    points: [number, number, number][],
+    inertia: Fm2AircraftConfig['inertia'],
+): Fm2GearConfig {
+    let rollArm = 0, pitchArm = 0;
+    for (const [x, , z] of points) {
+        rollArm += x * x;
+        pitchArm += z * z;
+    }
+    // Angular acceleration per unit of leg force rate, the stiffer of the two axes.
+    const arm = Math.max(rollArm / inertia.roll, pitchArm / inertia.pitch);
+    if (arm <= 0) return { ...base, points };
+    const damping = Math.min(base.damping, MAX_DAMPING_PER_STEP / (arm * GEAR_STEP_S));
+    const stiffness = Math.min(base.stiffness, (MAX_SPRING_PER_STEP / GEAR_STEP_S) ** 2 / arm);
+    return { ...base, points, stiffness, damping };
 }
 
 /** Fitted legs per aircraft type id; null when its drawn gear had no clear layout (the default legs stay). */

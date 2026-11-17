@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { Fm2AircraftConfig, defaultFm2Config } from '../../physics/fm2/fm2AircraftConfig';
-import { fittedGearPoints } from '../../physics/fm2/gearFit';
+import { fittedGearPoints, gearForLegs } from '../../physics/fm2/gearFit';
 import { DEFAULT_ENGINE_NOZZLES } from './afterburnerCones';
 import {
     ANGLED_DECK_AXIS,
@@ -171,7 +171,7 @@ export function flightConfigWithArrestorHook(def: {
     const base = def.flight ?? defaultFm2Config;
     const { tip } = arrestorHookPlacementForAircraft(def);
     const legs = def.id !== undefined ? fittedGearPoints(def.id) : undefined;
-    return legs ? { ...base, hook: tip, gear: { ...base.gear, points: legs } } : { ...base, hook: tip };
+    return legs ? { ...base, hook: tip, gear: gearForLegs(base.gear, legs, base.inertia) } : { ...base, hook: tip };
 }
 
 import { CARRIER_ORIGIN } from '../../state/worldLayout';
