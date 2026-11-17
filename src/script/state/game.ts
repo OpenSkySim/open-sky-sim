@@ -635,13 +635,14 @@ enum PlayerViewState {
 }
 
 /**
- * Fixed-camera handling: a held arrow / page key starts slow and doubles its
- * speed every second up to the cap; numpad turns ease to a fixed rate.
+ * Fixed-camera handling: a held arrow / page key starts at walking pace (fine
+ * placement on a tap) and grows 2.5x every second, reaching the cap after
+ * ~8 s; numpad turns ease to a fixed rate.
  */
 const FIXED_CAMERA_TUNING: FixedCameraTuning = {
-    startMps: 20,
+    startMps: 2,
     maxMps: 3000,
-    growthPerS: 2,
+    growthPerS: 2.5,
     turnDegPerS: 45,
     easeS: 0.3,
 };
