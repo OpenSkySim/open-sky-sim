@@ -50,7 +50,7 @@ from lpa import silhouette as sil  # noqa: E402
 TOLERANCE = 0.03   # a view's extent may differ from the published size by 3 % before it is flagged
 
 # Keys a Hangar doc carries that refs.json keeps (others, like timestamps, are dropped).
-IMAGE_KEYS = ('id', 'file', 'asset', 'kind', 'title', 'source', 'repo_ok', 'priority', 'notes', 'views', 'size')
+IMAGE_KEYS = ('id', 'file', 'asset', 'kind', 'title', 'source', 'repo_ok', 'priority', 'notes', 'views', 'size', 'points')
 
 
 def _image_path(rs_path: str, images_dir: str | None, img: dict) -> str | None:

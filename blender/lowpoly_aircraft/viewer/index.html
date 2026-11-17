@@ -125,7 +125,7 @@ button.danger { color: var(--ref-ink); }
 .drop-hint { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
 .export { margin-top: 10px; }
 .export textarea { width: 100%; box-sizing: border-box; height: 160px; font: 11px var(--font-mono); }
-.editor.marking .cal-only, .editor:not(.marking) .mark-only { display: none; }
+.editor.marking .cal-only, .editor:not(.marking) .mark-only, .editor.photo .cal-only, .editor:not(.photo) .photo-only, .editor.marking .no-mark { display: none; }
 .ed-bar.mode button { font-weight: 600; }
 .area-list { display: grid; gap: 2px; max-height: 360px; overflow: auto; padding-right: 2px; }
 .area-group { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 6px 0 2px; }
@@ -142,7 +142,7 @@ button.danger { color: var(--ref-ink); }
 button.ok { color: var(--ok); }
 .area-hint { margin: 0; color: var(--muted); line-height: 1.4; }
 .ed-side [hidden] { display: none; }
-.editor.marking .ed-help { min-height: 2.9em; }   /* no jump while clicking */
+.editor.marking .ed-help, .editor.photo .ed-help { min-height: 2.9em; }   /* no jump while clicking */
 .refctl { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px 10px; margin-top: 10px; font-size: 12px; }
 .refctl input[type="range"] { width: 100%; accent-color: var(--ref-ink); }
 </style>
@@ -177,6 +177,7 @@ button.ok { color: var(--ok); }
         <div class="ed-bar mode" role="group" aria-label="Mode">
           <button type="button" data-mode="cal" aria-pressed="true">Calibrate</button>
           <button type="button" data-mode="mark" aria-pressed="false">Mark areas</button>
+          <button type="button" data-mode="photo" aria-pressed="false">Fit photo</button>
         </div>
         <div class="ed-bar cal-only" id="edViews" aria-label="Views on this image"></div>
         <div class="ed-bar" aria-label="Tools">
@@ -193,6 +194,16 @@ button.ok { color: var(--ok); }
         <div class="ed-main">
           <div class="ed-wrap" id="edWrap"><div class="ed-inner" id="edInner"><img id="edImg" alt="Reference image being calibrated"><svg id="edSvg" aria-hidden="true"></svg></div></div>
           <div class="ed-side">
+            <fieldset class="photo-only">
+              <legend>Photo points</legend>
+              <div class="area-list" id="lmList" aria-label="Points on the model"></div>
+              <div class="row"><button type="button" id="lmClear">Clear this point</button></div>
+            </fieldset>
+            <fieldset class="photo-only">
+              <legend>Camera</legend>
+              <p class="area-hint" id="photoOut"></p>
+              <label class="check"><input type="checkbox" id="photoOverlay" checked> model edges over the photo</label>
+            </fieldset>
             <fieldset class="mark-only">
               <legend>Areas</legend>
               <p class="cal-out" id="areaSum"></p>
@@ -220,7 +231,7 @@ button.ok { color: var(--ok); }
               <pre class="cal-out" id="calOut"></pre>
               <div class="row"><button type="button" id="show3d">Show in 3D</button><button type="button" id="delView">Remove view</button></div>
             </fieldset>
-            <fieldset class="cal-only">
+            <fieldset class="no-mark">
               <legend>Image</legend>
               <label>Kind <select id="fKind"><option>sheet</option><option>view</option><option>section</option><option>photo</option><option>detail</option><option>model-shot</option></select></label>
               <label>Title <input type="text" id="fTitle"></label>
@@ -229,7 +240,7 @@ button.ok { color: var(--ok); }
               <label class="check"><input type="checkbox" id="fRepo"> may go into the repo</label>
               <label>Notes <textarea id="fNotes"></textarea></label>
             </fieldset>
-            <div class="row cal-only"><button type="button" id="delImage" class="danger">Remove image</button></div>
+            <div class="row no-mark"><button type="button" id="delImage" class="danger">Remove image</button></div>
             <p class="cal-out" id="saveState"></p>
           </div>
         </div>
@@ -463,12 +474,13 @@ async function showModel(entry) {
     surfaces.push({ cfg: s, node: pivot, pivot: new THREE.Vector3().fromArray(s.pivot), axis: new THREE.Vector3().fromArray(s.axis).normalize(), defl: 0 });
   }
   const mixers = [], actions = [];
-  let duration = 0;
+  let duration = 0, gearScene = null;
   if (manifest.gear) {
     const g = await load(asJson(manifest.gear));
     if (stale()) return;
     restyle(g.scene);
     root.add(g.scene);
+    gearScene = g.scene;
     for (const clip of g.animations) {
       const node = g.scene.getObjectByName(clip.name.replace(/Action$/, ''));
       if (!node) continue;
@@ -486,6 +498,8 @@ async function showModel(entry) {
   // The ground goes under the wheels with the gear down (the model files rest in any pose).
   actions.forEach((a, i) => { a.time = a.getClip().duration; mixers[i].update(0); });
   root.updateMatrixWorld(true);
+  // Landmarks and edges for photo fits, taken now while the gear is down.
+  const photo = photoGeometry(root, body.scene, gearScene);
   const box = new THREE.Box3().setFromObject(root);
   const size = box.getSize(new THREE.Vector3()).length();
   ground.position.y = box.min.y - 0.02;
@@ -522,7 +536,9 @@ async function showModel(entry) {
     root.add(g.scene);
   }
   current = { root, surfaces, mixers, actions, duration, size, center: box.getCenter(new THREE.Vector3()), manifest, hook,
-              nose: noseTip(body.scene), groundY: ground.position.y + 0.02, box };
+              nose: noseTip(body.scene), groundY: ground.position.y + 0.02, box, photo };
+  drawLandmark3d();
+  if (R.mode === 'photo' && R.sel) { renderPhoto(); drawMarks(); }
   setView('persp');
   applyControls();
   buildChips();
@@ -730,7 +746,7 @@ requestAnimationFrame(tick);
 // published Hangar, uploads and edits live in the artifact's storage
 // (assets for the files, db docs at aircraft/<id>/refs/<imageId>).
 // ---------------------------------------------------------------------------
-const IMAGE_KEYS = ['id', 'file', 'asset', 'url', 'kind', 'title', 'source', 'repo_ok', 'priority', 'notes', 'views', 'size', 'removed'];
+const IMAGE_KEYS = ['id', 'file', 'asset', 'url', 'kind', 'title', 'source', 'repo_ok', 'priority', 'notes', 'views', 'size', 'points', 'removed'];
 const NOSE_DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const VIEW_AXES = { top: ['d', 'x'], bottom: ['d', 'x'], side: ['d', 'y'], front: ['x', 'y'], rear: ['x', 'y'] };
 const TOOL_HELP = {
@@ -741,7 +757,7 @@ const TOOL_HELP = {
 };
 const refsNote = document.getElementById('refsNote');
 const R = { entry: null, meta: {}, images: [], sel: null, viewIdx: 0, tool: null, pts: [], zoom: 1, show3d: {}, plane: null, drag: null,
-            mode: 'cal', areas: {}, area: null, catalog: null, marks3d: null, mdrag: null };
+            mode: 'cal', areas: {}, area: null, catalog: null, marks3d: null, mdrag: null, lm: null, ldrag: null, lm3d: null };
 const cap = { db: null, assets: null };
 const srcCache = new Map();
 
@@ -921,8 +937,12 @@ async function selectImage(img) {
   if (u) edImg.src = u;
   fillForm();
   renderViews();
-  setTool(img.views.length || R.mode === 'mark' ? null : 'crop');
+  const isPhoto = img.kind === 'photo' || img.kind === 'model-shot';
+  if (isPhoto && R.mode === 'cal') setMode('photo');
+  else if (!isPhoto && R.mode === 'photo') setMode('cal');
+  setTool(img.views.length || R.mode !== 'cal' ? null : 'crop');
   if (R.mode === 'mark') { renderAreas(); drawMarks(); }
+  if (R.mode === 'photo') { renderPhoto(); setTool(null); drawMarks(); }
 }
 function curView() { return R.sel && R.sel.views[R.viewIdx]; }
 function renderViews() {
@@ -1004,12 +1024,13 @@ function calOut() {
 function setTool(t) {
   R.tool = t; R.pts = [];
   document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool === t));
+  if (R.mode === 'photo') { $('edHelp').innerHTML = photoHelp(); edSvg.style.cursor = R.lm ? 'crosshair' : 'default'; return; }
   if (R.mode === 'mark') { $('edHelp').innerHTML = markHelp(); edSvg.style.cursor = curArea() ? 'crosshair' : 'default'; return; }
   $('edHelp').innerHTML = t ? TOOL_HELP[t] : (curView() ? 'Drag the box handles or the marked points to adjust; × or Delete removes the view. Click another box\'s label to switch views.' : 'Add a view for each drawing on this image (a three-view sheet has several).');
   edSvg.style.cursor = t ? 'crosshair' : 'default';
 }
 document.addEventListener('keydown', e => {
-  if ((e.key !== 'Delete' && e.key !== 'Backspace') || R.mode === 'mark' || $('editor').hidden || !curView()) return;
+  if ((e.key !== 'Delete' && e.key !== 'Backspace') || R.mode !== 'cal' || $('editor').hidden || !curView()) return;
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
   if (!edWrap.matches(':hover')) return;
@@ -1048,6 +1069,7 @@ function deleteView(i) {
 edSvg.addEventListener('pointerdown', e => {
   if (e.button !== 0 || !R.sel) return;
   if (R.mode === 'mark') { markPointer(e); return; }
+  if (R.mode === 'photo') { photoPointer(e); return; }
   const h = e.target.dataset && e.target.dataset.h;
   const sel = e.target.dataset && e.target.dataset.sel;
   if (!R.tool && sel !== undefined) {
@@ -1139,11 +1161,11 @@ function drawMarks() {
   if (!R.sel || !R.sel.size) return;
   const k = R.sel.size[0] / Math.max(edSvg.getBoundingClientRect().width, 1);   // image px per screen px
   const lw = 1.6 * k, fs = 12 * k;
-  const free = !R.tool && R.mode !== 'mark';   // handles work when no tool is picked (and not while marking)
+  const free = !R.tool && R.mode === 'cal';   // handles work when no tool is picked (and not while marking)
   const order = R.sel.views.map((v, i) => i).filter(i => i !== R.viewIdx).concat(R.sel.views[R.viewIdx] ? [R.viewIdx] : []);
   order.forEach(i => {
     const v = R.sel.views[i];
-    const on = i === R.viewIdx && R.mode !== 'mark', col = on ? 'var(--ref-ink)' : 'var(--accent)';
+    const on = i === R.viewIdx && R.mode === 'cal', col = on ? 'var(--ref-ink)' : 'var(--accent)';
     const g = el('g', { opacity: on ? 1 : 0.55 }, edSvg);
     if (v.crop) {
       const [u0, v0, u1, v1] = v.crop;
@@ -1205,6 +1227,7 @@ function drawMarks() {
     el('rect', { x: u0, y: v0, width: u1 - u0, height: v1 - v0, fill: 'none', stroke: 'var(--ref-ink)', 'stroke-width': lw }, edSvg);
   }
   if (R.mode === 'mark') drawAreaMarks(k, lw);
+  else if (R.mode === 'photo') drawPhoto(k, lw);
   else for (const p of R.pts) el('circle', { cx: p[0], cy: p[1], r: 3 * k, fill: 'var(--ref-ink)' }, edSvg);
 }
 
@@ -1213,6 +1236,7 @@ function changed() {
 }
 const bind = (id, ev, fn) => $(id).addEventListener(ev, () => { if (R.sel) { fn($(id)); changed(); } });
 bind('fKind', 'change', i => { R.sel.kind = i.value; });
+$('fKind').addEventListener('change', () => { if (R.sel && (R.sel.kind === 'photo' || R.sel.kind === 'model-shot') && R.mode === 'cal') setMode('photo'); });
 bind('fTitle', 'change', i => { R.sel.title = i.value; });
 bind('fSource', 'change', i => { R.sel.source = i.value; });
 bind('fPrio', 'change', i => { R.sel.priority = parseInt(i.value, 10) || 5; });
@@ -1437,10 +1461,16 @@ function markMetres(mark) {
 function setMode(m) {
   R.mode = m; R.pts = []; R.tool = null; R.edit = null; R.drag = null; R.dragBox = null;
   $('editor').classList.toggle('marking', m === 'mark');
+  $('editor').classList.toggle('photo', m === 'photo');
   document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
   setTool(null);
   if (m === 'mark') loadCatalog().then(() => { renderAreas(); setTool(null); });
-  drawMarks(); drawMarks3d();
+  if (m === 'photo') {
+    const P = (R.sel && R.sel.points) || {};
+    if (!R.lm || !photoLandmarks()[R.lm]) R.lm = (photoList().find(([id]) => !P[id]) || photoList()[0] || [null])[0];
+    renderPhoto(); setTool(null);
+  }
+  drawMarks(); drawMarks3d(); drawLandmark3d();
 }
 document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
 
@@ -1790,6 +1820,301 @@ function drawMarks3d() {
   R.marks3d = group;
 }
 $('marksOn').addEventListener('change', drawMarks3d);
+
+// ---- Fit photo: a camera fitted to points marked on a photo, the model's edges drawn over it ----
+// Same algorithm as lpa/camera.py. The landmarks come from the model with its gear down; the
+// photo's points are saved on the image ({ points: { nose: [u, v], ... } }).
+const PHOTO_POINTS = [
+  ['nose', 'Nose tip', 'The tip of the radome, not a pitot probe.'],
+  ['tail', 'Tail end', 'The rearmost point of the fuselage on the centreline: the tail cone, or the end between the nozzles.'],
+  ['wingtip_l', 'Left wing tip', 'The outermost point of the pilot\'s left wing.'],
+  ['wingtip_r', 'Right wing tip', 'The outermost point of the pilot\'s right wing.'],
+  ['fin_top', 'Top of the fin', 'The highest point of the fin.'],
+  ['fin_top_l', 'Top of the left fin', 'The highest point of the left fin.'],
+  ['fin_top_r', 'Top of the right fin', 'The highest point of the right fin.'],
+  ['wheel_nose', 'Nose wheel on the ground', 'Where the nose wheel touches the ground.'],
+  ['wheel_l', 'Left main wheel on the ground', 'Where the left main wheel touches the ground.'],
+  ['wheel_r', 'Right main wheel on the ground', 'Where the right main wheel touches the ground.'],
+];
+const PHOTO_MIN = 5;
+function photoGeometry(root, bodyScene, gearScene) {
+  root.updateMatrixWorld(true);
+  const v = new THREE.Vector3(), segs = [], pts = [];
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    const eg = new THREE.EdgesGeometry(o.geometry, 25), p = eg.attributes.position;
+    for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld); segs.push(v.x, v.y, v.z); }
+    eg.dispose();
+    if (/pitot|probe|boom/i.test(o.name)) return;
+    let gear = false;
+    for (let a = o; a; a = a.parent) if (a === gearScene) gear = true;
+    const q = o.geometry.attributes.position;
+    for (let i = 0; i < q.count; i += 1) { v.fromBufferAttribute(q, i).applyMatrix4(o.matrixWorld); pts.push([v.x, v.y, v.z, gear]); }
+  });
+  const by = (f, ok) => { let b = null; for (const q of pts) if ((!ok || ok(q)) && (!b || f(q) > f(b))) b = q; return b && b.slice(0, 3); };
+  const L = {};
+  const n = noseTip(bodyScene);
+  L.nose = [n.x, n.y, n.z];
+  // Tail end: the rearmost point of the fuselage on the centreline, below the fins' tops.
+  L.tail = by(q => -q[2], q => Math.abs(q[0]) < 0.3 && q[1] < L.nose[1] + 0.6) || by(q => -q[2]);
+  L.wingtip_l = by(q => q[0]);
+  L.wingtip_r = by(q => -q[0]);
+  const top = by(q => q[1]);
+  if (top && Math.abs(top[0]) < 0.15) L.fin_top = top;
+  else { L.fin_top_l = by(q => q[1], q => q[0] > 0.05); L.fin_top_r = by(q => q[1], q => q[0] < -0.05); }
+  if (gearScene) {
+    const mid = (L.nose[2] + L.tail[2]) / 2;
+    L.wheel_nose = by(q => -q[1], q => q[3] && q[2] > mid);
+    L.wheel_l = by(q => -q[1], q => q[3] && q[2] <= mid && q[0] > 0.05);
+    L.wheel_r = by(q => -q[1], q => q[3] && q[2] <= mid && q[0] < -0.05);
+  }
+  for (const k of Object.keys(L)) if (!L[k]) delete L[k];
+  return { landmarks: L, edges: new Float32Array(segs) };
+}
+
+// Small linear algebra for the fit.
+function rodrigues(r) {
+  const th = Math.hypot(r[0], r[1], r[2]);
+  if (th < 1e-12) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const [x, y, z] = r.map(c => c / th), s = Math.sin(th), c = 1 - Math.cos(th);
+  return [1 - c * (y * y + z * z), -s * z + c * x * y, s * y + c * x * z,
+          s * z + c * x * y, 1 - c * (x * x + z * z), -s * x + c * y * z,
+          -s * y + c * x * z, s * x + c * y * z, 1 - c * (x * x + y * y)];
+}
+function rotToVec(R) {
+  const th = Math.acos(Math.max(-1, Math.min(1, (R[0] + R[4] + R[8] - 1) / 2)));
+  if (th < 1e-9) return [0, 0, 0];
+  if (Math.PI - th < 1e-6) {
+    const d = [R[0], R[4], R[8]], k = d.indexOf(Math.max(...d));
+    const col = [0, 1, 2].map(i => (R[i * 3 + k] + (i === k ? 1 : 0)) / 2), n = Math.hypot(...col);
+    return col.map(c => c / n * th);
+  }
+  const s = 2 * Math.sin(th);
+  return [(R[7] - R[5]) / s * th, (R[2] - R[6]) / s * th, (R[3] - R[1]) / s * th];
+}
+function solveLin(A, b) {
+  const n = b.length, M = A.map((row, i) => [...row, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    if (Math.abs(M[p][c]) < 1e-15) return null;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = M[r][c] / M[c][c];
+      for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  return M.map((row, i) => row[n] / row[i]);
+}
+function camFromParams(p, size) {
+  return { R: rodrigues(p.slice(0, 3)), t: p.slice(3, 6), f: Math.exp(Math.min(Math.max(p[6], 2), 14)), size };
+}
+function projectPt(cam, X) {
+  const R = cam.R;
+  const x = R[0] * X[0] + R[1] * X[1] + R[2] * X[2] + cam.t[0];
+  const y = R[3] * X[0] + R[4] * X[1] + R[5] * X[2] + cam.t[1];
+  const z = R[6] * X[0] + R[7] * X[1] + R[8] * X[2] + cam.t[2];
+  return [cam.size[0] / 2 + cam.f * x / z, cam.size[1] / 2 + cam.f * y / z, z];
+}
+function camResidual(p, X, uv, size) {
+  const cam = camFromParams(p, size), r = [];
+  X.forEach((q, i) => {
+    const [u, v, z] = projectPt(cam, q);
+    if (z <= 1e-3) r.push(1e4, 1e4); else r.push(u - uv[i][0], v - uv[i][1]);
+  });
+  return r;
+}
+function camLM(p, X, uv, size, iters) {
+  let lam = 1e-3, r = camResidual(p, X, uv, size), cost = r.reduce((s, x) => s + x * x, 0);
+  for (let it = 0; it < iters; it++) {
+    const J = r.map(() => new Array(7));
+    for (let k = 0; k < 7; k++) {
+      const h = 1e-6 * Math.max(1, Math.abs(p[k])), q = p.slice();
+      q[k] += h;
+      const rq = camResidual(q, X, uv, size);
+      for (let i = 0; i < r.length; i++) J[i][k] = (rq[i] - r[i]) / h;
+    }
+    const A = [...Array(7)].map((_, a) => [...Array(7)].map((_, b) => J.reduce((s, row) => s + row[a] * row[b], 0)));
+    const g = [...Array(7)].map((_, a) => J.reduce((s, row, i) => s + row[a] * r[i], 0));
+    let improved = false;
+    for (let tries = 0; tries < 10; tries++) {
+      const step = solveLin(A.map((row, a) => row.map((x, b) => a === b ? x + lam * (x + 1e-9) : x)), g.map(x => -x));
+      if (!step) { lam *= 10; continue; }
+      const q = p.map((x, k) => x + step[k]);
+      const rq = camResidual(q, X, uv, size), cq = rq.reduce((s, x) => s + x * x, 0);
+      if (cq < cost) { improved = cost - cq > 1e-10 * cost; p = q; r = rq; cost = cq; lam = Math.max(lam / 3, 1e-9); break; }
+      lam *= 4;
+    }
+    if (!improved) break;
+  }
+  return [p, cost];
+}
+function lookAt(C, target) {
+  const sub = (a, b) => a.map((x, i) => x - b[i]), cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = a => { const n = Math.hypot(...a); return a.map(x => x / n); };
+  const fwd = norm(sub(target, C));
+  let right = cross(fwd, [0, 1, 0]);
+  if (Math.hypot(...right) < 1e-6) right = cross(fwd, [0, 0, 1]);
+  right = norm(right);
+  return [...right, ...cross(fwd, right), ...fwd];
+}
+function fitCamera(X, uv, size) {
+  const n = X.length, c = [0, 1, 2].map(k => X.reduce((s, q) => s + q[k], 0) / n);
+  const cu = [0, 1].map(k => uv.reduce((s, q) => s + q[k], 0) / n);
+  const s = 2 * Math.max(...X.map(q => Math.hypot(q[0] - c[0], q[1] - c[1], q[2] - c[2])));
+  const sp = 2 * Math.max(...uv.map(q => Math.hypot(q[0] - cu[0], q[1] - cu[1]))) || 1;
+  const f0 = 1.2 * Math.max(...size), D = f0 * s / sp;
+  let best = null;
+  for (const el of [-50, -20, 10, 40]) for (let az = 0; az < 360; az += 30) {
+    const a = az * Math.PI / 180, e = el * Math.PI / 180;
+    const C = [c[0] + D * Math.sin(a) * Math.cos(e), c[1] + D * Math.sin(e), c[2] + D * Math.cos(a) * Math.cos(e)];
+    const R = lookAt(C, c);
+    const t = [0, 1, 2].map(i => -(R[i * 3] * C[0] + R[i * 3 + 1] * C[1] + R[i * 3 + 2] * C[2]));
+    const res = camLM([...rotToVec(R), ...t, Math.log(f0)], X, uv, size, 40);
+    if (!best || res[1] < best[1]) best = res;
+  }
+  const [p] = camLM(best[0], X, uv, size, 200);
+  const cam = camFromParams(p, size);
+  cam.res = X.map((q, i) => { const [u, v] = projectPt(cam, q); return Math.hypot(u - uv[i][0], v - uv[i][1]); });
+  cam.rms = Math.sqrt(cam.res.reduce((s, x) => s + x * x, 0) / n);
+  return cam;
+}
+
+// ---- The panel ----
+function photoLandmarks() { return (current && current.photo && current.photo.landmarks) || {}; }
+function photoList() { const L = photoLandmarks(); return PHOTO_POINTS.filter(([id]) => L[id]); }
+function photoFit() {
+  const img = R.sel;
+  if (!img || !img.size) return null;
+  const L = photoLandmarks(), P = img.points || {};
+  const ids = Object.keys(P).filter(id => L[id]);
+  if (ids.length < PHOTO_MIN) { img._cam = null; return null; }
+  const key = JSON.stringify([current.manifest.id, ids.map(id => P[id]), img.size]);
+  if (!img._cam || img._camKey !== key) {
+    img._cam = fitCamera(ids.map(id => L[id]), ids.map(id => P[id]), img.size);
+    img._cam.ids = ids;
+    img._camKey = key;
+  }
+  return img._cam;
+}
+function photoHelp() {
+  const def = PHOTO_POINTS.find(p => p[0] === R.lm);
+  if (!current || !current.photo) return 'Load the aircraft first.';
+  return def ? `<b>${def[1]}:</b> ${def[2]} Click it on the photo (it is marked in orange on the model in the 3D view).`
+             : 'Pick a point on the right, then click where it is on the photo. Drag a placed point to move it.';
+}
+function renderPhoto() {
+  const list = $('lmList');
+  list.textContent = '';
+  const P = (R.sel && R.sel.points) || {};
+  for (const [id, name] of photoList()) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', id === R.lm);
+    const i = document.createElement('span');
+    i.className = 'ic';
+    i.textContent = P[id] ? '✓' : '○';
+    b.className = P[id] ? 'st-marked' : '';
+    b.append(i, document.createTextNode(name));
+    b.addEventListener('click', () => { R.lm = id; renderPhoto(); setTool(null); drawMarks(); drawLandmark3d(); });
+    list.appendChild(b);
+  }
+  const n = photoList().filter(([id]) => P[id]).length;
+  const cam = photoFit();
+  let t = `${n} point${n === 1 ? '' : 's'} placed. `;
+  if (!cam) t += `Place at least ${PHOTO_MIN} (6 or more give a check on the fit).`;
+  else {
+    const worst = cam.ids[cam.res.indexOf(Math.max(...cam.res))];
+    t += `Camera fitted: ${cam.rms.toFixed(1)} px off on average, focal length about ${Math.round(cam.f / Math.max(...cam.size) * 36)} mm (35 mm film).`;
+    if (Math.max(...cam.res) > 3 * Math.max(cam.rms, 2)) t += ` ${PHOTO_POINTS.find(p => p[0] === worst)[1]} fits worst: check that point.`;
+    if (n < 6) t += ' With 5 points the fit has nothing to check against.';
+  }
+  $('photoOut').textContent = t;
+  $('lmClear').disabled = !(R.lm && P[R.lm]);
+}
+function drawPhoto(k, lw) {
+  const img = R.sel, P = img.points || {}, L = photoLandmarks();
+  const cam = photoFit();
+  if (cam && $('photoOverlay').checked && current.photo) {
+    // The model's edges through the fitted camera.
+    const E = current.photo.edges;
+    let d = '';
+    for (let i = 0; i < E.length; i += 6) {
+      const a = projectPt(cam, [E[i], E[i + 1], E[i + 2]]), b = projectPt(cam, [E[i + 3], E[i + 4], E[i + 5]]);
+      if (a[2] <= 0.05 || b[2] <= 0.05) continue;
+      d += `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}`;
+    }
+    el('path', { d, fill: 'none', stroke: '#00a3ff', 'stroke-width': 0.9 * k, opacity: 0.85, 'pointer-events': 'none' }, edSvg);
+  }
+  const g = el('g', {}, edSvg);
+  for (const [id, name] of photoList()) {
+    const p = P[id];
+    if (!p) continue;
+    const on = id === R.lm, col = on ? 'var(--sug)' : 'var(--ref-ink)';
+    if (cam && L[id]) {
+      // Where the fitted camera puts the model's point: a short line shows the miss.
+      const [u, v] = projectPt(cam, L[id]);
+      el('line', { x1: p[0], y1: p[1], x2: u, y2: v, stroke: '#00a3ff', 'stroke-width': lw, 'pointer-events': 'none' }, g);
+      el('path', { d: `M${u - 4 * k} ${v}L${u + 4 * k} ${v}M${u} ${v - 4 * k}L${u} ${v + 4 * k}`, stroke: '#00a3ff', 'stroke-width': lw, 'pointer-events': 'none' }, g);
+    }
+    el('circle', { cx: p[0], cy: p[1], r: 4 * k, fill: 'none', stroke: col, 'stroke-width': lw * 1.3, 'pointer-events': 'none' }, g);
+    el('circle', { cx: p[0], cy: p[1], r: 8 * k, fill: 'transparent', 'data-lm': id, style: 'cursor: grab' }, g);
+    const t = el('text', { x: p[0] + 7 * k, y: p[1] - 7 * k, fill: col, 'font-size': 11 * k, 'pointer-events': 'none' }, g);
+    t.textContent = name;
+  }
+}
+function photoPointer(e) {
+  const img = R.sel;
+  const lm = e.target.dataset && e.target.dataset.lm;
+  if (lm) {
+    R.lm = lm;
+    R.ldrag = { id: lm, moved: false };
+    edSvg.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    renderPhoto(); drawLandmark3d();
+    return;
+  }
+  if (!R.lm) { $('edHelp').innerHTML = photoHelp(); return; }
+  (img.points || (img.points = {}))[R.lm] = imgPx(e);
+  // On to the next point not placed yet.
+  const next = photoList().find(([id]) => !img.points[id]);
+  if (next) R.lm = next[0];
+  photoChanged();
+}
+function photoChanged() {
+  renderPhoto(); setTool(null); drawMarks(); drawLandmark3d(); renderThumbs(); save();
+}
+edSvg.addEventListener('pointermove', e => {
+  if (!R.ldrag || !R.sel) return;
+  R.sel.points[R.ldrag.id] = imgPx(e);
+  R.ldrag.moved = true;
+  drawMarks();
+});
+edSvg.addEventListener('pointerup', () => {
+  const D = R.ldrag;
+  R.ldrag = null;
+  if (D && D.moved) photoChanged();
+});
+$('lmClear').addEventListener('click', () => {
+  if (!R.sel || !R.sel.points || !R.lm) return;
+  delete R.sel.points[R.lm];
+  photoChanged();
+});
+$('photoOverlay').addEventListener('change', drawMarks);
+// The picked landmark on the model, so it is clear which point is meant.
+function drawLandmark3d() {
+  if (R.lm3d) { R.lm3d.removeFromParent(); R.lm3d.geometry.dispose(); R.lm3d.material.dispose(); R.lm3d = null; }
+  const p = R.mode === 'photo' && photoLandmarks()[R.lm];
+  if (!p) return;
+  const m = new THREE.Mesh(new THREE.SphereGeometry(Math.max(current.size * 0.008, 0.08), 16, 12),
+                           new THREE.MeshBasicMaterial({ color: 0xff8a00, depthTest: false }));
+  m.position.fromArray(p);
+  m.renderOrder = 13;
+  m.userData.reference = true;
+  scene.add(m);
+  R.lm3d = m;
+}
 
 // ---- The calibrated drawing in the 3D view ----
 // The model's nose tip (the radome's, not a pitot probe's) anchors d = 0 and x = 0; a marked
