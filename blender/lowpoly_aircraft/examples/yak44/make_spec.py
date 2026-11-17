@@ -97,14 +97,14 @@ def windows_and_doors():
     glazing_top = top_m([(0.0, 0.5), (2.0, 0.5), (2.0, 3.3), (0.92, 3.3), (0.91, 2.97), (0.86, 2.41),
                          (0.69, 2.18), (0.45, 2.07), (0.2, 2.02), (0.0, 1.99)])
     return [
-        # The roof edge of the glazing follows the top view (user: match the drawing): an arch from
-        # the centre post (d 1.99) round to the slanted posts (x 0.69, d 2.18) and back along the
-        # side windows (x 0.86 at d 2.41, 0.91 at d 2.97). The side view gives the sills and posts.
+        # Side view as drawn (user): sills at y -0.2, tops at 0.38, the slanted post d 2.05..2.27; the
+        # roof edge also follows the top view's arch from the centre post (d 1.99) round to the
+        # corner posts (x 0.69, d 2.18) and back along the side windows (x 0.86..0.91).
         {'name': 'Windscreen', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.035, 1.6],
-         'polygon_m': side_m([(1.2, -0.17), (1.2, 1.2), (2.6, 1.2), (2.06, -0.17)]),
+         'polygon_m': side_m([(1.2, -0.2), (1.2, 0.38), (2.2, 0.38), (2.05, -0.2)]),
          'clip': {'view': 'top', 'polygons_m': [glazing_top]}},
         {'name': 'SideWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.5, 1.6],
-         'polygon_m': side_m([(2.13, -0.2), (2.7, 1.2), (3.05, 1.2), (3.05, -0.2)]),
+         'polygon_m': side_m([(2.12, -0.2), (2.27, 0.37), (2.98, 0.37), (3.03, 0.3), (3.03, -0.15), (2.98, -0.2)]),
          'clip': {'view': 'top', 'polygons_m': [glazing_top]}},
         {'name': 'DoorPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(3.97, -0.02, 0.15))},
         {'name': 'CrewDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,
@@ -358,7 +358,7 @@ def main():
                             side_m([(19.31, 0.92), (19.31, -1.1), (20.5, -1.1), (20.5, 0.92)])]},
         ],
         'gear': {'wheel_sides': 10, 'legs': [
-            {'name': 'Nose', 'pos_m': P(0.0, -2.58, 1.21), 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -1.65, 'wheel_radius_m': 0.31, 'twin': True},
+            {'name': 'Nose', 'pos_m': P(0.0, -2.85, 1.17), 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -1.65, 'wheel_radius_m': 0.31, 'twin': True},
             {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -0.85, 'wheel_radius_m': 0.46, 'twin': True},
         ],
             # Thin bay doors (drawing: nose doors d 0.9..2.4 splayed in the front view; main doors d 9.7..11.45
