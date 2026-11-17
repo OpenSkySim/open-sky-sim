@@ -1,6 +1,6 @@
 """Write spec.json for the MiG-29KUB (9.47) as shaped parts (about 5,000-6,000 triangles).
 
-Contours are measured off the owner's MiG-29KUB three-view (top, side and front views at
+Base drawing: the MiG-29M2 sheet (side, top, front and sections A-G); earlier contours came off the owner's MiG-29KUB three-view (top, side and front views at
 40 px/m; the drawing itself stays out of the repo). Ground is y -2.0 in the drawing frame,
 d is metres aft of the radome tip and y metres above the fuselage datum; x is +left.
 Intakes and nacelles follow the MiG-29M2 sheet (side, front and sections D-G). Published
@@ -104,7 +104,7 @@ def canopy_glass():
          'polygon_m': side_m([(-0.1, -1.0), (-0.1, 1.0), (1.7, 1.0), (1.7, -1.0)])},
         # Dark dielectric fin-tip caps (pictures).
         {'name': 'FinCapLeft', 'view': 'side', 'material': '#2b2f33', 'depth_m': [1.7, 2.4],
-         'polygon_m': side_m([(13.9, 2.3), (15.3, 2.3), (15.3, 2.9), (13.9, 2.9)])},
+         'polygon_m': side_m([(13.9, 2.3), (15.3, 2.52), (15.3, 3.1), (13.9, 3.1)])},
         {'name': 'FinCapRight', 'view': 'side', 'material': '#2b2f33', 'depth_m': [-2.4, -1.7],
          'polygon_m': side_m([(13.9, 2.3), (15.3, 2.3), (15.3, 2.9), (13.9, 2.9)])},
         {'name': 'AntiGlare', 'view': 'top', 'material': '#1d2024', 'depth_m': [0.3, 1.2],
@@ -150,9 +150,9 @@ def main():
     canopy = [
         (2.93, 0.05, 0.5, 0.66, 2.0), (3.1, 0.2, 0.47, 0.8, 2.0), (3.3, 0.3, 0.45, 0.92, 2.1), (3.6, 0.4, 0.45, 1.1, 2.0),
         (4.18, 0.48, 0.45, 1.3, 2.3), (4.8, 0.5, 0.45, 1.43, 2.4), (5.43, 0.5, 0.45, 1.45, 2.4),
-        (6.05, 0.49, 0.45, 1.4, 2.4), (6.35, 0.47, 0.45, 1.33, 2.4), (6.93, 0.46, 0.45, 1.25, 2.5),
-        (7.93, 0.45, 0.4, 1.08, 2.7), (9.18, 0.43, 0.35, 0.85, 2.9), (10.18, 0.41, 0.3, 0.68, 2.9),
-        (11.68, 0.3, 0.25, 0.42, 2.6), (12.6, 0.0, 0.2, 0.2, 2.0),
+        (6.05, 0.49, 0.45, 1.4, 2.4), (6.35, 0.47, 0.45, 1.33, 2.4), (6.93, 0.46, 0.45, 1.17, 2.5),
+        (7.93, 0.45, 0.4, 0.96, 2.7), (9.18, 0.43, 0.35, 0.79, 2.9), (10.18, 0.41, 0.3, 0.69, 2.9),
+        (11.68, 0.3, 0.25, 0.6, 2.6), (12.6, 0.2, 0.2, 0.48, 2.4), (13.3, 0.0, 0.15, 0.2, 2.0),
     ]
     # Intake and engine nacelle, one per side, from the MiG-29M2 sheet (side, front and sections D-G,
     # 41.5 px/m): a box 0.84 m wide (x 0.37-1.21) hanging under the LERX with a flat shelf between the
@@ -183,9 +183,10 @@ def main():
     nozzle_mouth = [(15.05, 0.36, -0.71, 0.01, 2.0), (15.07, 0.36, -0.71, 0.01, 2.0)]
     # Flat tail booms outboard of the engines (body edge x 1.56-1.88) carrying fin and stabilator.
     # Booms end in pointed tail stingers beside the nozzles (pictures).
-    boom = [(7.6, 0.03, -0.1, 0.05, 2.0), (8.0, 0.12, -0.18, 0.11, 2.3), (8.4, 0.16, -0.22, 0.14, 2.5),
-            (12.0, 0.17, -0.23, 0.15, 2.5), (14.7, 0.16, -0.22, 0.14, 2.5),
-            (15.3, 0.07, -0.12, 0.06, 2.0), (15.65, 0.01, -0.04, -0.02, 2.0)]
+    # The M2 top view fills the gap to the nacelles: the booms widen inboard to x 1.39 aft of d 8.4.
+    boom = [(7.6, 1.72, 0.03, -0.1, 0.05, 2.0), (8.0, 1.7, 0.12, -0.18, 0.11, 2.3), (8.4, 1.66, 0.22, -0.22, 0.14, 2.5),
+            (12.0, 1.64, 0.25, -0.23, 0.15, 2.5), (14.7, 1.65, 0.24, -0.22, 0.14, 2.5),
+            (15.3, 1.72, 0.07, -0.12, 0.06, 2.0), (15.65, 1.72, 0.01, -0.04, -0.02, 2.0)]
     # LERX: sharp strake from beside the windscreen (x 0.5, d 2.63) to the wing root (x 1.75, d 7.58).
     lerx = [(0.45, 0.0, 2.6, 6.0, 0.025), (0.8, 0.01, 3.98, 4.65, 0.027), (1.1, 0.02, 5.0, 3.4, 0.03),
             (1.45, 0.035, 6.38, 2.2, 0.035), (1.8, 0.05, 7.75, 1.0, 0.04)]
@@ -196,10 +197,12 @@ def main():
             (WING_TIP_X, -0.2, wing_le(WING_TIP_X), wing_te(WING_TIP_X) - wing_le(WING_TIP_X), 0.045)]
     wing_tip = [(WING_TIP_X - 0.02, -0.2, wing_le(WING_TIP_X) - 0.02, 1.12, 0.06),
                 (WING_TIP_X + 0.05, -0.2, wing_le(WING_TIP_X) + 0.06, 0.98, 0.06)]
-    # Fins canted 6 deg outward: root LE d 12.13 chord 2.92, tip LE d 14.3 at y 2.38, cap at 2.62.
+    # Fins canted 6 deg outward (M2 sheet): root LE d 12.0 chord 3.08, tip LE d 14.37 at y 2.6,
+    # cap at 2.84; a narrow fillet runs forward along the boom from the fin leading edge.
     cant = math.radians(6.0)
-    fin = [(1.8, 0.05, 12.13, 2.92, 0.045), (1.8 + 2.33 * math.tan(cant), 2.38, 14.3, 0.75, 0.04),
-           (1.8 + 2.57 * math.tan(cant), 2.62, 14.42, 0.55, 0.035)]
+    fin = [(1.8, 0.05, 12.0, 3.08, 0.045), (1.8 + 2.55 * math.tan(cant), 2.6, 14.37, 0.71, 0.04),
+           (1.8 + 2.79 * math.tan(cant), 2.84, 14.57, 0.5, 0.035)]
+    fin_fillet = [(1.8, 0.12, 10.45, 1.65, 0.03), (1.8 + 0.74 * math.tan(cant), 0.86, 12.65, 0.12, 0.03)]
     # Stabilators with the MiG-29K/M dogtooth: the outer leading edge steps 0.13 m forward at x 2.9.
     stab = [(1.85, -0.03, 13.08, 2.8, 0.045), (2.9, -0.077, 14.27, 1.88, 0.045),
             (2.92, -0.078, 14.14, 2.01, 0.045), (3.88, -0.12, 15.24, 1.16, 0.04)]
@@ -215,10 +218,10 @@ def main():
     # Wingtip pods (navigation lights / RWR) and the RWR pods near each fin tip (pictures).
     tip_pod = [(10.95, 0.01, -0.205, -0.195, 2.0), (11.15, 0.05, -0.25, -0.15, 2.0), (11.45, 0.07, -0.27, -0.13, 2.0),
                (12.6, 0.07, -0.27, -0.13, 2.0), (12.85, 0.05, -0.25, -0.15, 2.0), (13.0, 0.015, -0.21, -0.19, 2.0)]
-    fin_pod = [(13.7, 0.01, 2.19, 2.21, 2.0), (13.85, 0.04, 2.16, 2.24, 2.0), (14.0, 0.05, 2.15, 2.25, 2.0),
-               (14.6, 0.05, 2.15, 2.25, 2.0), (14.75, 0.01, 2.19, 2.21, 2.0)]
-    fin_pod_rear = [(14.9, 0.01, 1.99, 2.01, 2.0), (15.0, 0.045, 1.955, 2.045, 2.0), (15.35, 0.04, 1.96, 2.04, 2.0),
-                    (15.5, 0.01, 1.99, 2.01, 2.0)]
+    fin_pod = [(13.7, 0.01, 2.410, 2.430, 2.0), (13.85, 0.04, 2.380, 2.460, 2.0), (14.0, 0.05, 2.370, 2.470, 2.0),
+               (14.6, 0.05, 2.370, 2.470, 2.0), (14.75, 0.01, 2.410, 2.430, 2.0)]
+    fin_pod_rear = [(14.9, 0.01, 2.210, 2.230, 2.0), (15.0, 0.045, 2.175, 2.265, 2.0), (15.35, 0.04, 2.180, 2.260, 2.0),
+                    (15.5, 0.01, 2.210, 2.230, 2.0)]
     # Two pylons under each inner wing (outer ones would sit on the folding panel).
     def wing_y(x):
         return 0.05 - 0.25 * (x - WING_ROOT_X) / (WING_TIP_X - WING_ROOT_X)
@@ -255,12 +258,14 @@ def main():
              'stations': loft_rows_cx(nacelle)},
             {'name': 'GearBulge', 'type': 'loft', 'mirror': True, 'segments': 12, 'resample': 8,
              'stations': loft_rows(gear_bulge, 1.5)},
-            {'name': 'Boom', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_rows(boom, 1.72)},
+            {'name': 'Boom', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_rows_cx(boom)},
             {'name': 'Lerx', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(lerx)},
             {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 9, 'stations': panel_rows(wing)},
             {'name': 'WingTip', 'type': 'panel', 'mirror': True, 'chord_points': 5, 'stations': panel_rows(wing_tip)},
             {'name': 'Fin', 'type': 'panel', 'mirror': True, 'chord_points': 6,
              'normal': [math.cos(cant), -math.sin(cant), 0.0], 'stations': panel_rows(fin)},
+            {'name': 'FinFillet', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4,
+             'normal': [math.cos(cant), -math.sin(cant), 0.0], 'stations': panel_rows(fin_fillet)},
             {'name': 'Stabilator', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(stab),
              'surface': {'type': 'stabilator', 'view': 'top', 'hinge_m': top_m([(1.75, 14.4), (3.6, 14.4)])}},
             {'name': 'IntakeRake', 'type': 'loft', 'join': 'cut', 'mirror': True, 'material': 'VEHICLE_PLANE_GREY', 'segments': 12,
@@ -279,9 +284,9 @@ def main():
             {'name': 'ProbeFairing', 'type': 'loft', 'segments': 10, 'stations': loft_rows(ifr, 0.42)},
             {'name': 'TipPod', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(tip_pod, WING_TIP_X)},
             {'name': 'FinPod', 'type': 'loft', 'mirror': True, 'segments': 6,
-             'stations': loft_rows(fin_pod, 1.8 + 2.2 * math.tan(cant) + 0.04)},
+             'stations': loft_rows(fin_pod, 1.8 + 2.42 * math.tan(cant) + 0.04)},
             {'name': 'FinPodRear', 'type': 'loft', 'mirror': True, 'segments': 6,
-             'stations': loft_rows(fin_pod_rear, 1.8 + 2.0 * math.tan(cant) + 0.035)},
+             'stations': loft_rows(fin_pod_rear, 1.8 + 2.22 * math.tan(cant) + 0.035)},
             {'name': 'PylonInner', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 5, 'normal': [1.0, 0.0, 0.0],
              'stations': panel_rows(pylons[0])},
             {'name': 'PylonOuter', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 5, 'normal': [1.0, 0.0, 0.0],
