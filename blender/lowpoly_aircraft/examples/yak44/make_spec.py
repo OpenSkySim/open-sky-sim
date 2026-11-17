@@ -370,7 +370,7 @@ def main():
         'cockpit_m': P(0.0, 0.1, 2.4),
         # The game's pilot figure in both seats (eye points: back against the seat back at d 2.95,
         # thighs on the cushion at y -0.2).
-        'pilot_seats_m': [P(0.45, -0.48, 2.70), P(-0.45, -0.48, 2.70)],  # user: 1 m lower
+        'pilot_seats_m': [P(0.45, 0.52, 2.70), P(-0.45, 0.52, 2.70)],
     }
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:
         json.dump(spec, f, indent=1)
