@@ -205,10 +205,11 @@ def main():
     # Wheel wells sunk into the nacelle bellies and the nose (all gear folds aft into the airframe);
     # cut as boxy lofts, lined dark, and closed by the doors under 'gear'.
     # Clearance around the folded gear: 5 cm ahead of the strut, 10 cm beside the wheels, 20 cm behind
-    # them. Main gear up: strut from d 10.77, twin wheels |x| <= 0.384, d 11.45..12.37, y -0.7..0.22.
+    # them. Main gear up (strut lengthened so the wheels reach the ground level of the nose wheel):
+    # strut from d 10.77, twin wheels |x| <= 0.384, d 11.72..12.64, y -0.54..0.38.
     # The wells stay inside the round nacelle section so they open only on the belly.
-    main_well = [(10.72, 0.484, -1.35, 0.3, 4), (11.3, 0.484, -1.35, 0.4, 4), (12.1, 0.484, -1.35, 0.4, 4),
-                 (12.57, 0.484, -1.35, 0.2, 3)]
+    main_well = [(10.72, 0.484, -1.35, 0.3, 4), (11.3, 0.484, -1.35, 0.45, 4), (12.2, 0.484, -1.35, 0.5, 4),
+                 (12.84, 0.484, -1.35, 0.1, 3)]
     # Nose gear up: strut from d 1.16, wheels |x| <= 0.26, d 1.65..2.27, y -1.53..-0.9.
     # Kept under the cockpit floor (y -0.8): the leg folds 90 deg aft, stowed wheel -1.82..-1.24.
     nose_well = [(1.11, 0.36, -2.3, -1.24, 5), (1.7, 0.36, -2.3, -1.24, 5), (2.6, 0.36, -2.3, -1.24, 5)]
@@ -367,7 +368,7 @@ def main():
         ],
         'gear': {'wheel_sides': 10, 'legs': [
             {'name': 'Nose', 'pos_m': P(0.0, -2.85, 1.17), 'retract': 'aft', 'retract_deg': 90, 'strut_top_y_m': -1.53, 'wheel_radius_m': 0.29, 'twin': True},
-            {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -0.85, 'wheel_radius_m': 0.46, 'twin': True},
+            {'name': 'Main', 'pos_m': P(4.05, -2.85, 10.85), 'mirror': True, 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -0.85, 'wheel_radius_m': 0.46, 'twin': True},
         ],
             # Thin bay doors (drawing: nose doors d 0.9..2.4 splayed in the front view; main doors d 9.7..11.45
             # under each nacelle). Cut from each well's own skin, so they close flush with the gear up.
