@@ -22,6 +22,12 @@
         Pulls a proposed outline onto the nearest ink lines and, with --write, adds it
         to the area as a suggestion to confirm in the Hangar.
 
+    python3 refs_tool.py spec examples/su33/refs.json --spec examples/su33/spec.json
+        Spec rows from the marked areas (fuselage stations, wing, fin and tailplane panels,
+        control surface polygons, wheel contacts), each with the areas it came from, to put
+        into a spec in place of hand-typed numbers. The nose tip's place in the body frame
+        comes from the spec (or --nose Y Z).
+
     python3 refs_tool.py from-hangar DUMP.json --out examples/<id>/refs.json
         Turns the Hangar's database docs (a JSON list of image docs, as read from
         the artifact's 'aircraft/<id>/refs' collection, or {"images": [...],
@@ -44,6 +50,7 @@ if HERE not in sys.path:
 
 from lpa import areas as A  # noqa: E402
 from lpa import detect as D  # noqa: E402
+from lpa import from_refs as F  # noqa: E402
 from lpa import refs as R  # noqa: E402
 from lpa import silhouette as sil  # noqa: E402
 
@@ -211,6 +218,30 @@ def cmd_snap(a) -> int:
     return 0
 
 
+def cmd_spec(a) -> int:
+    rs = R.load(a.refs)
+    if a.nose:
+        fr = F.Frame(nose_z=a.nose[1], nose_y=a.nose[0])
+    elif a.spec:
+        with open(a.spec) as f:
+            fr = F.frame_from_spec(json.load(f))
+    else:
+        print('pass --spec or --nose Y Z (the nose tip in the body frame)', file=sys.stderr)
+        return 1
+    out = {'nose_m': [fr.nose_y, fr.nose_z]}
+    jobs = [('fuselage', lambda: F.fuselage_stations(rs, fr)), ('wing', lambda: F.wing_stations(rs, fr)),
+            ('fin', lambda: F.outline_stations(rs, fr, 'fin')), ('htail', lambda: F.outline_stations(rs, fr, 'htail')),
+            ('gear', lambda: F.gear_contacts(rs, fr))]
+    jobs += [(f'surface {s}', (lambda s=s: F.surface_polygon(rs, fr, s))) for s in ('ailerons', 'flaps', 'slats', 'rudder', 'elevator')]
+    for name, fn in jobs:
+        try:
+            out[name] = fn()
+        except ValueError as e:
+            out[name] = f'not marked: {e}'
+    print(json.dumps(out, indent=1))
+    return 0
+
+
 def cmd_from_hangar(a) -> int:
     with open(a.dump) as f:
         docs = json.load(f)
@@ -288,6 +319,11 @@ def main() -> int:
     s.add_argument('--why')
     s.add_argument('--write', action='store_true')
     s.set_defaults(fn=cmd_snap)
+    sp = sub.add_parser('spec')
+    sp.add_argument('refs')
+    sp.add_argument('--spec')
+    sp.add_argument('--nose', type=float, nargs=2, metavar=('Y', 'Z'))
+    sp.set_defaults(fn=cmd_spec)
     h = sub.add_parser('from-hangar')
     h.add_argument('dump')
     h.add_argument('--out', required=True)

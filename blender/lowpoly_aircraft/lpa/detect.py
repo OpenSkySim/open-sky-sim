@@ -151,7 +151,7 @@ def side_areas(view: R.RefView, ink: np.ndarray, length_m: float | None, ground_
     bot = np.where(cols, y0 + np.argmax(grid, axis=0) * step, np.nan)
     # Thin outlines break up in scans: a column that misses its outline pixel shows an inner
     # line instead, so take the extreme over a few neighbouring columns.
-    top, bot = _running(top, 4, np.nanmax), _running(bot, 4, np.nanmin)
+    top, bot = _running(top, 2, np.nanmax), _running(bot, 2, np.nanmin)
     aft = d >= 0
     d, top, bot = d[aft], _fill_nan(top[aft]), _fill_nan(bot[aft])
     if len(d) < 20:

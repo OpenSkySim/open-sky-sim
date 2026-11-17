@@ -8,7 +8,8 @@ Writes viewer/models/<id>/ (each GLB as a self-contained .gltf.json, plus manife
 model, and an entry in viewer/models/index.json. With --refs, the reference set and the
 image files it names (found next to refs.json or in --refs-images) go to models/<id>/refs/, so
 the References panel and the Top/Side/Front/Bottom overlays have them. The area
-catalogue (lpa/areas.json) goes to models/areas.json for the Mark areas mode. Then serve the folder and open it:
+catalogue (lpa/areas.json) goes to models/areas.json for the Mark areas mode, and a
+build's <id>_refs_check.json (model against the marks) to models/<id>/refs_check.json. Then serve the folder and open it:
 
     python3 -m http.server -d viewer 8000   ->   http://localhost:8000/
 """
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import os
 import json
 import shutil
 import struct
@@ -57,6 +59,8 @@ def main() -> None:
     ap.add_argument('--refs-images', type=Path, help='folder with the reference images (default: next to refs.json)')
     a = ap.parse_args()
     files = read_files(a.src)
+    # The build's check of the model against the marked areas (build_aircraft.py with "refs" in the spec).
+    check = next((a.src / n for n in (os.listdir(a.src) if a.src.is_dir() else []) if n.endswith('_refs_check.json')), None)
     manifest = json.loads(files['manifest.json'])
     mid = manifest['id']
     out = HERE / 'models' / mid
@@ -79,6 +83,8 @@ def main() -> None:
                 shutil.copy(src / f, out / 'refs' / f)
             elif f:
                 print(f'  reference {f} not found in {src}: listed without its image')
+    if check:
+        shutil.copy(check, out / 'refs_check.json')
     pilot = REPO / 'assets' / 'pilot.glb'
     if pilot.exists():
         (HERE / 'models' / 'pilot.gltf.json').write_text(glb_to_gltf_json(pilot.read_bytes()))

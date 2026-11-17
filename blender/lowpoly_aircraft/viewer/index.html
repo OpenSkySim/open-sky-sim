@@ -107,7 +107,7 @@ button.danger { color: var(--ref-ink); }
 .ed-bar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
 .ed-main { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; }
 @media (max-width: 860px) { .ed-main { grid-template-columns: minmax(0, 1fr); } }
-.ed-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.ed-wrap { align-self: start; overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
 .ed-inner { position: relative; }
 .ed-inner img { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
 .ed-inner svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; overflow: visible; }
@@ -136,6 +136,8 @@ button.danger { color: var(--ref-ink); }
 .area-list .st-absent, .area-list .st-unseen { color: var(--muted); }
 .area-list .needed .ic { color: var(--warn); }
 .area-list .st-suggested .ic { color: var(--accent); }
+.area-list .off .ic, .area-list .off { color: var(--ref-ink); }
+.check-off { color: var(--ref-ink); }
 .area-list .st-suggested.sug-check .ic { color: var(--warn); }
 .sug-box { border: 1px dashed var(--accent); border-radius: 5px; padding: 6px 8px; display: grid; gap: 6px; }
 .sug-box p { margin: 0; }
@@ -757,7 +759,7 @@ const TOOL_HELP = {
 };
 const refsNote = document.getElementById('refsNote');
 const R = { entry: null, meta: {}, images: [], sel: null, viewIdx: 0, tool: null, pts: [], zoom: 1, show3d: {}, plane: null, drag: null,
-            mode: 'cal', areas: {}, area: null, catalog: null, marks3d: null, mdrag: null, lm: null, ldrag: null, lm3d: null };
+            mode: 'cal', areas: {}, area: null, catalog: null, marks3d: null, mdrag: null, lm: null, ldrag: null, lm3d: null, check: {} };
 const cap = { db: null, assets: null };
 const srcCache = new Map();
 
@@ -827,7 +829,7 @@ async function srcFor(img) {
 async function loadRefs(entry, stale, force = false) {
   // Reloading the same model (Edges, Wireframe) keeps the references and any unsaved edits.
   if (!force && R.entry && R.entry.id === entry.id && R.images.length) { renderThumbs(); showReference3d(); return; }
-  R.entry = entry; R.meta = {}; R.images = []; R.sel = null; R.show3d = {}; R.areas = {}; R.pts = [];
+  R.entry = entry; R.meta = {}; R.images = []; R.sel = null; R.show3d = {}; R.areas = {}; R.pts = []; R.check = {};
   document.getElementById('editor').hidden = true;
   document.getElementById('exportBox').hidden = true;
   renderThumbs();
@@ -840,6 +842,9 @@ async function loadRefs(entry, stale, force = false) {
       R.meta = { aircraft: j.aircraft, length_m: j.length_m, span_m: j.span_m, ground_y: j.ground_y };
       images = (j.images || []).map(i => ({ ...i, static: i.file ? base + 'refs/' + i.file : null }));
       R.areas = JSON.parse(JSON.stringify(j.areas || {}));
+      // The last build's check of the model against the marks (build_aircraft.py, via add_model.py).
+      const c = await fetch(base + 'refs_check.json').then(x => x.ok ? x.json() : null).catch(() => null);
+      if (c) for (const d of c.deviations || []) (R.check[d.area] ||= []).push({ ...d, tol: c.tolerance_m });
     } else if ((await fetch(base + 'drawing.png', { method: 'HEAD' })).ok) {
       // Older entries: one drawing.png, not calibrated yet.
       images = [{ id: 'drawing', kind: 'sheet', title: 'Reference drawing', source: entry.source || '', priority: 5, views: [], static: base + 'drawing.png' }];
@@ -1501,11 +1506,13 @@ function renderAreas() {
     b.type = 'button';
     b.dataset.area = a.id;
     b.setAttribute('aria-pressed', a.id === R.area);
-    b.className = 'st-' + st + (st === 'missing' && a.need === 'always' ? ' needed' : '') + (st === 'suggested' ? (sugSure(R.areas[a.id]) ? ' sug-sure' : ' sug-check') : '');
+    const off = (R.check[a.id] || []).some(d => !d.ok);
+    b.className = (off ? 'off ' : '') + 'st-' + st + (st === 'missing' && a.need === 'always' ? ' needed' : '') + (st === 'suggested' ? (sugSure(R.areas[a.id]) ? ' sug-sure' : ' sug-check') : '');
     b.title = `${a.name}: ${st}${a.need === 'always' ? ' (needed for every aircraft)' : ' (if the aircraft has it)'}`;
     const i = document.createElement('span');
     i.className = 'ic';
-    i.textContent = st === 'suggested' && sugSure(R.areas[a.id]) ? '◆' : AREA_ICON[st];
+    i.textContent = off ? '!' : st === 'suggested' && sugSure(R.areas[a.id]) ? '◆' : AREA_ICON[st];
+    if (off) b.title += ': the model misses these marks (last build)';
     b.append(i, document.createTextNode(a.name));
     b.addEventListener('click', () => pickArea(a.id));
     list.appendChild(b);
@@ -1557,6 +1564,10 @@ function areaInfo() {
     });
     return `${k + 1}. ${mm.v.view} on ${where}: ${m.pts.length} pt, ${rng.join(', ')} m`;
   });
+  for (const d of (a && R.check[a.id]) || [])
+    lines.push(d.ok ? `Model (last build, ${d.view}): within ${d.max_m.toFixed(2)} m of the marks.`
+                    : `Model (last build, ${d.view}): OFF by up to ${d.max_m.toFixed(2)} m at d ${d.worst[0]} m (limit ${d.tol} m).`);
+  $('areaMarks').classList.toggle('check-off', !!(a && (R.check[a.id] || []).some(d => !d.ok)));
   $('areaMarks').textContent = a ? (lines.length ? lines.join('\n') : st === 'missing' || st === 'suggested' ? 'No marks yet.' : st === 'absent' ? 'Not on this aircraft.' : 'In no reference: Claude estimates it.') : '';
 }
 function finishMark() {
@@ -1698,7 +1709,8 @@ function drawAreaMarks(k, lw) {
   for (const [id, e] of Object.entries(R.areas)) {
     const a = areaDef(id);
     if (!a || !e.marks) continue;
-    const on = id === R.area, col = on ? 'var(--ref-ink)' : 'var(--accent)';
+    const off = (R.check[id] || []).some(d => !d.ok);
+    const on = id === R.area, col = on || off ? 'var(--ref-ink)' : 'var(--accent)';
     const g = el('g', { opacity: on ? 1 : 0.45, 'pointer-events': 'none' }, edSvg);
     for (const m of e.marks) {
       if (m.img !== R.sel.id) continue;
