@@ -10,6 +10,7 @@ export interface PackEntry {
 
 export const BUILTIN_PACKS: readonly PackEntry[] = [
     { id: 'lp_yak44', packUrl: 'assets/packs/lp_yak44.aircraft.pack' },
+    { id: 'lp_mig29kub', packUrl: 'assets/packs/lp_mig29kub.aircraft.pack' },
 ];
 
 /** The built-in packs plus the modserver's; a pack the server lists replaces the built-in one of that id. */

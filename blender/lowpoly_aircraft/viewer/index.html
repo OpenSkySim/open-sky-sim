@@ -112,6 +112,7 @@ dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
       <div class="ctl"><label for="roll">Ailerons</label><input id="roll" type="range" min="-1" max="1" step="0.01" value="0"><output for="roll">0</output></div>
       <div class="ctl"><label for="yaw">Rudder</label><input id="yaw" type="range" min="-1" max="1" step="0.01" value="0"><output for="yaw">0</output></div>
       <div class="ctl"><label for="flaps">Flaps</label><input id="flaps" type="range" min="0" max="1" step="0.01" value="0"><output for="flaps">0</output></div>
+      <div class="ctl"><label for="airbrake">Airbrake</label><input id="airbrake" type="range" min="0" max="1" step="0.01" value="0"><output for="airbrake">0</output></div>
       <div class="ctl"><label for="gear">Gear</label><input id="gear" type="range" min="0" max="1" step="0.01" value="1"><output for="gear">down</output></div>
       <div class="ctl"><label for="hook">Tailhook</label><input id="hook" type="range" min="0" max="1" step="0.01" value="0"><output for="hook">0</output></div>
       <div class="ctl"><label for="fold">Park / fold</label><input id="fold" type="range" min="0" max="1" step="0.01" value="0"><output for="fold">0</output></div>
@@ -278,7 +279,7 @@ function surfaceValue(c, s, v) {
     case 'yaw': return s * v.yaw;
     case 'flaps': return s * v.flaps;
     case 'slats': return s * v.flaps;
-    case 'airbrake': return 0;
+    case 'airbrake': return s * v.airbrake;
     case 'fold': return s * v.fold;
     case 'stabilatorLeft': return s * (v.pitch - ROLL_VIS_TAILERON * v.roll);
     case 'stabilatorRight': return s * (v.pitch + ROLL_VIS_TAILERON * v.roll);
@@ -402,7 +403,7 @@ function countTris(obj) {
   return Math.round(n);
 }
 
-const inputs = ['pitch', 'roll', 'yaw', 'flaps', 'gear', 'hook', 'fold'].map(id => document.getElementById(id));
+const inputs = ['pitch', 'roll', 'yaw', 'flaps', 'airbrake', 'gear', 'hook', 'fold'].map(id => document.getElementById(id));
 function values() {
   return Object.fromEntries(inputs.map(i => [i.id, parseFloat(i.value)]));
 }
@@ -549,6 +550,7 @@ function tick(now) {
     set('roll', Math.sin(t * 0.9 + 1).toFixed(2));
     set('yaw', Math.sin(t * 0.7 + 2).toFixed(2));
     set('flaps', (0.5 + 0.5 * Math.sin(t * 0.5)).toFixed(2));
+    set('airbrake', Math.max(0, Math.sin(t * 0.6 + 3)).toFixed(2));
     set('gear', (0.5 + 0.5 * Math.cos(t * 0.4)).toFixed(2));
     set('fold', 0);
     applyControls();
