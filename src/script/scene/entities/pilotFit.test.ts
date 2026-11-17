@@ -1,0 +1,60 @@
+import * as THREE from 'three';
+import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
+import { describe, it } from 'node:test';
+import { Model } from '../models/models';
+import { PILOT_HELMET_CENTER, PILOT_HELMET_RADIUS_M, PILOT_MODEL_URL, pilotDropForBody } from './pilotFit';
+
+/** A body model whose only mesh is a flat canopy roof at height y over the cockpit. */
+function roofModel(y: number, parented = false): Model {
+    const roof = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2));
+    roof.position.set(0, y, 5);
+    const root = new THREE.Object3D();
+    root.add(roof);
+    if (parented) {
+        // A render group placed somewhere in the world must not move the measurement.
+        const group = new THREE.Object3D();
+        group.position.set(100, 50, -20);
+        group.rotation.y = 1;
+        group.add(root);
+    }
+    return { lod: [{ flats: [], volumes: [root] }], animations: [], maxSize: 10, center: new THREE.Vector3() };
+}
+
+/** The glTF JSON chunk of a .glb file. */
+function glbJson(path: string): { meshes: { name: string; primitives: { attributes: { POSITION: number } }[] }[]; accessors: { min: number[]; max: number[] }[]; materials: { name: string }[] } {
+    const b = readFileSync(path);
+    const len = b.readUInt32LE(12);
+    return JSON.parse(b.subarray(20, 20 + len).toString('utf8'));
+}
+
+describe('pilotFit', () => {
+    it('matches the helmet in assets/pilot.glb', () => {
+        const gltf = glbJson(PILOT_MODEL_URL);
+        const helmet = gltf.meshes.find(m => m.name === 'Helmet');
+        assert.ok(helmet, 'Helmet mesh');
+        const acc = gltf.accessors[helmet.primitives[0].attributes.POSITION];
+        // The dome's top is the crown the canopy fit keeps clear.
+        assert.ok(Math.abs(acc.max[1] - (PILOT_HELMET_CENTER[1] + PILOT_HELMET_RADIUS_M)) < 0.005, `crown ${acc.max[1]}`);
+        assert.ok(Math.abs((acc.min[2] + acc.max[2]) / 2 - PILOT_HELMET_CENTER[2]) < 0.02, `centre z ${(acc.min[2] + acc.max[2]) / 2}`);
+    });
+
+    it('names every material after a pilot palette category', () => {
+        const names = glbJson(PILOT_MODEL_URL).materials.map(m => m.name).sort();
+        assert.deepEqual(names, [
+            'VEHICLE_PILOT_GEAR', 'VEHICLE_PILOT_HELMET', 'VEHICLE_PILOT_SKIN', 'VEHICLE_PILOT_SUIT', 'VEHICLE_PLANE_INTERIOR',
+        ]);
+    });
+
+    it('does not move the pilot with plenty of headroom or no canopy', () => {
+        assert.equal(pilotDropForBody(roofModel(2), [0, 1, 5]), 0);
+        assert.equal(pilotDropForBody({ ...roofModel(2), lod: [{ flats: [], volumes: [] }] }, [0, 1, 5]), 0);
+    });
+
+    it('sinks the pilot so the helmet clears a low canopy', () => {
+        const eye: [number, number, number] = [0, 1, 5];
+        const drop = pilotDropForBody(roofModel(1.05), eye);
+        assert.ok(drop > 0.05 && drop < 0.15, `drop ${drop}`);
+        assert.ok(Math.abs(pilotDropForBody(roofModel(1.05, true), eye) - drop) < 1e-9);
+    });
+});

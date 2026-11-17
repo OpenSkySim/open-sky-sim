@@ -58,6 +58,12 @@ export enum PaletteCategory {
     VEHICLE_PLANE_ENGINE = 'VEHICLE_PLANE_ENGINE',
     VEHICLE_PLANE_INTERIOR = 'VEHICLE_PLANE_INTERIOR',
 
+    /** The pilot figure (assets/pilot.glb, materials named after these): flight suit, helmet, skin, mask/hose. */
+    VEHICLE_PILOT_SUIT = 'VEHICLE_PILOT_SUIT',
+    VEHICLE_PILOT_HELMET = 'VEHICLE_PILOT_HELMET',
+    VEHICLE_PILOT_SKIN = 'VEHICLE_PILOT_SKIN',
+    VEHICLE_PILOT_GEAR = 'VEHICLE_PILOT_GEAR',
+
     SCENERY_ROAD_MAIN = 'SCENERY_ROAD_MAIN',
     SCENERY_ROAD_SECONDARY = 'SCENERY_ROAD_SECONDARY',
     /** Railway main lines: the ballast bed, browner and darker than asphalt. */

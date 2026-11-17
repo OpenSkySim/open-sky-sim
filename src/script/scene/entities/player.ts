@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PILOT_MODEL_URL, pilotDropForBody } from './pilotFit';
 import { FrameShift } from '../../terrain/geodesy';
 import { AudioClip } from '../../audio/audioSystem';
 import { isOverlayKeyEvent } from '../../input/overlayKeys';
@@ -113,6 +114,11 @@ export class PlayerEntity implements Entity {
     private modelShadow!: LODHelper;
     private modelLandingGear: LODHelper | undefined;
     private modelTailhook: LODHelper | undefined;
+    /** Rigid seated pilot, origin at the eye point (drawn at cockpitOffset). */
+    private modelPilot: LODHelper | undefined;
+    private readonly _pilotPos = new THREE.Vector3();
+    /** Pilot sunk below the eye point to clear this airframe's canopy (m). */
+    private pilotDropM = 0;
     private shadowPosition = new THREE.Vector3();
     private shadowQuaternion = new THREE.Quaternion();
     private shadowScale = new THREE.Vector3();
@@ -307,6 +313,7 @@ export class PlayerEntity implements Entity {
             // the previous aircraft.
             this.fx.onBodyModelLoaded(model);
             this.trackAircraftModel(model);
+            this.pilotDropM = pilotDropForBody(model, def.cockpitOffset);
         }));
         const shadowModel = this.models.getModel(def.shadow);
         this.modelShadow = new LODHelper(shadowModel, 5);
@@ -344,6 +351,9 @@ export class PlayerEntity implements Entity {
         this._hookStowedBody.fromArray(def.tailhook?.stowedDir ?? [0, 0, -1]).normalize();
 
         this.cockpitOffset.fromArray(def.cockpitOffset);
+        const pilotModel = this.models.getModel(PILOT_MODEL_URL);
+        this.modelPilot = new LODHelper(pilotModel);
+        this.trackAircraftModel(pilotModel);
 
         // Anchor the thrust force arrow at the nozzle exit centroid when present.
         this.hasThrustOrigin = this.fx.getThrustOrigin(this.thrustOrigin) !== null;
@@ -1022,6 +1032,16 @@ export class PlayerEntity implements Entity {
                     || this.hookState !== AircraftDeviceState.RETRACTED;
                 if (showTailhook && this.modelTailhook) {
                     this.renderTailhook(targetWidth, camera, palette, lists);
+                }
+                // The pilot sits with the eyes on the cockpit view point.
+                if (this.modelPilot && !crashed) {
+                    this._pilotPos.copy(this.cockpitOffset).setY(this.cockpitOffset.y - this.pilotDropM)
+                        .multiply(this.obj.scale)
+                        .applyQuaternion(this.displayQuaternion).add(this.displayPosition);
+                    this.modelPilot.addToRenderList(
+                        this._pilotPos, this.displayQuaternion, this.obj.scale,
+                        targetWidth, camera, palette,
+                        SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
                 }
 
                 const still = this._showcaseMode || crashed;
