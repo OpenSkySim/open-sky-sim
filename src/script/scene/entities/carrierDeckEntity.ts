@@ -34,6 +34,8 @@ const PAINT_STYLE: Record<DeckPaint, { category: PaletteCategory; rawColor?: str
     red: { category: PaletteCategory.SCENERY_BUILDING_METAL_RED },
     dark: { category: PaletteCategory.SCENERY_TREE_SHADOW, rawColor: '#1c1d20' },
     lip: { category: PaletteCategory.SCENERY_BUILDING_METAL_WHITE, far: true },
+    /** The lift frames: a darker, browner yellow, as the platforms' border in kuz.glb. */
+    lift: { category: PaletteCategory.SCENERY_FIELD_YELLOW, rawColor: '#8a6a2c' },
 };
 
 export class CarrierDeckEntity implements Entity {

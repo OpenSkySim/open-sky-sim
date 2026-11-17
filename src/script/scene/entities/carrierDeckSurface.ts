@@ -9,8 +9,13 @@
 
 /** Below this normal Y a face is a wall, not deck (the ramp is ~14°, cos 0.97). */
 const DECK_MIN_NORMAL_Y = 0.75;
-/** Deck faces sit above this carrier-local Y (the hull below is not walked on). */
-const DECK_MIN_Y = 11;
+/**
+ * Deck faces sit above this carrier-local Y (the hull below is not walked on).
+ * Just under the deck are the hangar ceiling (11.4), the lift recess ceilings
+ * (11.7) and the lift undersides (11.0–11.5); paint draped on those would show
+ * inside the hangar and under the lifts.
+ */
+const DECK_MIN_Y = 12.5;
 /** Aft of the ramp, faces above this are the island's roofs, not deck. */
 const DECK_MAX_Y = 16.5;
 /** The ramp starts forward of this carrier-local Z; there the deck may rise. */

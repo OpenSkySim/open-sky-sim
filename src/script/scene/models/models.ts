@@ -304,7 +304,8 @@ export class ModelManager {
                         // The pilot figure is placed under the canopy glass (pilotFit.ts).
                         obj.userData.glass = true;
                     } else {
-                        const rawColor = ModelManager.rawColorFor(matName);
+                        const glow = ModelManager.glowColorFor(matName);
+                        const rawColor = glow ?? ModelManager.rawColorFor(matName);
                         let category = rawColor
                             ? PaletteCategory.VEHICLE_PLANE_GREY
                             : ModelManager.paletteCategoryOrFallback(matName);
@@ -317,7 +318,8 @@ export class ModelManager {
                             type: SceneMaterialPrimitiveType.MESH,
                             category,
                             rawColor,
-                            shaded: !isFlat,
+                            // Glow colours (light panels) ignore the sun: always full colour.
+                            shaded: !isFlat && glow === undefined,
                             depthWrite: shouldDepthWrite(isFlat, category),
                             // Hide kuz hull below sea level (opaque water alone cannot occlude it).
                             ...(isKuzModel && !isFlat ? { clipBelowY: 0.05 } : {}),
@@ -456,6 +458,15 @@ export class ModelManager {
      */
     private static rawColorFor(name: string): string | undefined {
         return /^#[0-9a-fA-F]{6}$/.test(name) ? name : undefined;
+    }
+
+    /**
+     * Material names shaped like 'GLOW#rrggbb' are drawn in that colour unshaded
+     * (lamps, light panels: lit from inside, so the sun must not darken them).
+     */
+    private static glowColorFor(name: string): string | undefined {
+        const m = /^GLOW(#[0-9a-fA-F]{6})$/.exec(name);
+        return m ? m[1] : undefined;
     }
 
     /** Map a glTF material name to a PaletteCategory; unknown names fall back. */
