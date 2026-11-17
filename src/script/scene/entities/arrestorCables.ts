@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { Fm2AircraftConfig, defaultFm2Config } from '../../physics/fm2/fm2AircraftConfig';
-import { fittedGearPoints } from '../../physics/fm2/gearFit';
+import { fittedGearPoints, gearForLegs } from '../../physics/fm2/gearFit';
 import { DEFAULT_ENGINE_NOZZLES } from './afterburnerCones';
 import {
     ANGLED_DECK_AXIS,
@@ -131,10 +131,15 @@ function arrestorHookHingeFromTip(
  */
 export function arrestorHookPlacementForAircraft(def: {
     flight?: { hook?: [number, number, number] };
+    tailhook?: { hinge: [number, number, number]; tip: [number, number, number] };
     collisionMesh?: { aabb: { min: [number, number, number] } };
     surfaces?: { pivot: [number, number, number] }[];
     fx?: { nozzles?: [number, number, number][] | null };
 }): { tip: [number, number, number]; hinge: [number, number, number] } {
+    if (def.tailhook) {
+        // The aircraft's own hook: its drawn hinge and tip are the arrest geometry.
+        return { tip: [...def.tailhook.tip], hinge: [...def.tailhook.hinge] };
+    }
     const authored = def.fx?.nozzles;
     const nozzles = authored && authored.length > 0 ? authored : DEFAULT_ENGINE_NOZZLES;
     const tipY = def.collisionMesh
@@ -158,6 +163,7 @@ export function arrestorHookPlacementForAircraft(def: {
 export function flightConfigWithArrestorHook(def: {
     id?: string;
     flight?: Fm2AircraftConfig;
+    tailhook?: { hinge: [number, number, number]; tip: [number, number, number] };
     collisionMesh?: { aabb: { min: [number, number, number] } };
     surfaces?: { pivot: [number, number, number] }[];
     fx?: { nozzles?: [number, number, number][] | null };
@@ -165,7 +171,7 @@ export function flightConfigWithArrestorHook(def: {
     const base = def.flight ?? defaultFm2Config;
     const { tip } = arrestorHookPlacementForAircraft(def);
     const legs = def.id !== undefined ? fittedGearPoints(def.id) : undefined;
-    return legs ? { ...base, hook: tip, gear: { ...base.gear, points: legs } } : { ...base, hook: tip };
+    return legs ? { ...base, hook: tip, gear: gearForLegs(base.gear, legs, base.inertia) } : { ...base, hook: tip };
 }
 
 import { CARRIER_ORIGIN } from '../../state/worldLayout';

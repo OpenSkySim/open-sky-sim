@@ -99,6 +99,15 @@ describe('arrestorCables', () => {
         assert.equal(hinge[2], tip[2] + ARRESTOR_HOOK_HINGE_FWD_M);
     });
 
+    it('arrestorHookPlacementForAircraft takes an aircraft\'s own hook over its nozzles', () => {
+        const { tip, hinge } = arrestorHookPlacementForAircraft({
+            fx: { nozzles: [[-1, 0, -5.1], [1, 0, -5.1]] },
+            tailhook: { hinge: [0, -1.55, -3.77], tip: [0, -2.55, -5.87] },
+        });
+        assert.deepEqual(tip, [0, -2.55, -5.87]);
+        assert.deepEqual(hinge, [0, -1.55, -3.77]);
+    });
+
     it('arrestorHookPlacementForAircraft uses default nozzles when unset', () => {
         const { tip } = arrestorHookPlacementForAircraft({
             surfaces: [{ pivot: [0, 0, -6] }],

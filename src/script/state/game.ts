@@ -130,6 +130,7 @@ import {
 } from '../osd/bootProgress';
 import { SpawnPanel } from '../osd/spawnPanel';
 import { AircraftRegistry, buildF22Def, groupAircraftByModel } from './aircraftRegistry';
+import { mergePackLists, PackEntry } from './builtinPacks';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 import { flightConfigWithArrestorHook } from '../scene/entities/arrestorCables';
 import { defaultFm2Config } from '../physics/fm2/fm2AircraftConfig';
@@ -1360,25 +1361,29 @@ export class Game {
         this.spawnPanel.setSelection(groups, modelIndex, liveryIndex);
     }
 
-    /** Load aircraft packs produced by prior F10 imports (survives page reload / rebuild). */
+    /**
+     * Load the packs that ship with the game and those produced by prior F10
+     * imports (survives page reload / rebuild); a served pack replaces a
+     * built-in one of the same id.
+     */
     private async loadPersistedPacks(): Promise<void> {
+        let served: PackEntry[] = [];
         try {
             const res = await fetch('/api/aircraft-packs');
-            if (!res.ok) {
-                return;
+            if (res.ok) {
+                served = await res.json();
             }
-            const packs: { id: string; packUrl: string }[] = await res.json();
-            await Promise.all(
-                packs
-                    .filter(p => !EXCLUDED_PACK_IDS.has(p.id))
-                    .map(async p => {
-                        this.models.invalidatePack(p.id);
-                        return this.aircraftRegistry.loadPack(p.id, p.packUrl);
-                    }),
-            );
         } catch {
             // No modserver (static hosting) — built-in packs only.
         }
+        await Promise.all(
+            mergePackLists(served)
+                .filter(p => !EXCLUDED_PACK_IDS.has(p.id))
+                .map(async p => {
+                    this.models.invalidatePack(p.id);
+                    return this.aircraftRegistry.loadPack(p.id, p.packUrl);
+                }),
+        );
     }
 
     /** Wait for an aircraft's glTF parts to finish loading before first render. */
@@ -1387,6 +1392,7 @@ export class Game {
             def.body,
             def.shadow,
             ...(def.gear ? [def.gear] : []),
+            ...(def.tailhook?.model ? [def.tailhook.model] : []),
             ...(def.collision ? [def.collision] : []),
             ...def.surfaces.map(s => s.model),
         ];

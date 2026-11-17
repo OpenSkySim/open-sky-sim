@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PILOT_MODEL_URL, pilotSeatsForBody } from './pilotFit';
 import { FrameShift } from '../../terrain/geodesy';
 import { AudioClip } from '../../audio/audioSystem';
 import { isOverlayKeyEvent } from '../../input/overlayKeys';
@@ -40,7 +41,7 @@ import {
     latchedHookTipWorld,
 } from './arrestorCables';
 import { LAND_WIRE_ID_BASE, LandArrestorWire } from './landArrestorWires';
-import { copySurfaceInputs, newSurfaceInputs, slatDeployment, SurfaceInputs, surfaceValue } from './surfaceInputs';
+import { copySurfaceInputs, newSurfaceInputs, slatDeployment, spinAngle, SurfaceInputs, surfaceValue } from './surfaceInputs';
 
 const ENGINE_LOWEST_VOLUME = 0.05; // [0,1]
 
@@ -72,6 +73,10 @@ interface ControlSurfaceDescriptor {
     axis: THREE.Vector3;
     value: () => number;
     range: number;
+    /** Signed spin rate (rad/s) of a propeller ('spin' control), else 0. */
+    spin: number;
+    /** Sliding part's offset at full travel (see ControlSurfaceConfig.slide). */
+    slide?: THREE.Vector3;
     /** Index of the sweep surface this one rides on, or -1. */
     parentIndex: number;
     /** Current deflection (rad), refreshed each frame before posing. */
@@ -109,6 +114,11 @@ export class PlayerEntity implements Entity {
     private modelShadow!: LODHelper;
     private modelLandingGear: LODHelper | undefined;
     private modelTailhook: LODHelper | undefined;
+    /** Rigid seated pilot, origin at its eye point. */
+    private modelPilot: LODHelper | undefined;
+    /** Where the pilots sit under this airframe's canopy (body frame); none without a canopy to sit under. */
+    private pilotSeats: THREE.Vector3[] = [];
+    private readonly _pilotPos = new THREE.Vector3();
     private shadowPosition = new THREE.Vector3();
     private shadowQuaternion = new THREE.Quaternion();
     private shadowScale = new THREE.Vector3();
@@ -219,6 +229,8 @@ export class PlayerEntity implements Entity {
     private readonly _hinge = new THREE.Vector3();
     private readonly _hookDir = new THREE.Vector3();
     private readonly _hookStowedDir = new THREE.Vector3();
+    /** Body-frame arm direction with the hook stowed (the aircraft's own, else straight aft). */
+    private readonly _hookStowedBody = new THREE.Vector3(0, 0, -1);
     private readonly _qStowed = new THREE.Quaternion();
     private readonly _hookTip = new THREE.Vector3();
     private readonly _hookTipBody = new THREE.Vector3(...DEFAULT_ARRESTOR_HOOK_BODY);
@@ -294,6 +306,7 @@ export class PlayerEntity implements Entity {
     private buildFromDef(def: FlyableAircraftDef): void {
         this.fx.configureFromDef(def);
 
+        this.pilotSeats = []; // until the new airframe has loaded
         this.modelBody = new LODHelper(this.models.getModel(def.body, (_, model) => {
             // Operate on the model the loader hands back rather than this.modelBody:
             // for an already-cached body the listener fires synchronously, before
@@ -301,6 +314,7 @@ export class PlayerEntity implements Entity {
             // the previous aircraft.
             this.fx.onBodyModelLoaded(model);
             this.trackAircraftModel(model);
+            this.pilotSeats = pilotSeatsForBody(model, def, def.body).map(s => new THREE.Vector3(...s));
         }));
         const shadowModel = this.models.getModel(def.shadow);
         this.modelShadow = new LODHelper(shadowModel, 5);
@@ -328,15 +342,19 @@ export class PlayerEntity implements Entity {
             });
         }
 
-        const tailhookModel = this.models.getModel('lib:tailhook');
+        const tailhookModel = this.models.getModel(def.tailhook?.model ?? 'lib:tailhook');
         this.modelTailhook = new LODHelper(tailhookModel);
         this.trackAircraftModel(tailhookModel);
 
         const hook = arrestorHookPlacementForAircraft(def);
         this._hookTipBody.fromArray(hook.tip);
         this._hookHingeBody.fromArray(hook.hinge);
+        this._hookStowedBody.fromArray(def.tailhook?.stowedDir ?? [0, 0, -1]).normalize();
 
         this.cockpitOffset.fromArray(def.cockpitOffset);
+        const pilotModel = this.models.getModel(PILOT_MODEL_URL);
+        this.modelPilot = new LODHelper(pilotModel);
+        this.trackAircraftModel(pilotModel);
 
         // Anchor the thrust force arrow at the nozzle exit centroid when present.
         this.hasThrustOrigin = this.fx.getThrustOrigin(this.thrustOrigin) !== null;
@@ -350,6 +368,8 @@ export class PlayerEntity implements Entity {
                 axis: new THREE.Vector3().fromArray(s.axis),
                 value: () => surfaceValue(this.surfaceInputs, s.control, s.sign),
                 range: s.rangeRad,
+                spin: s.control === 'spin' ? s.sign * s.rangeRad : 0,
+                slide: s.slide ? new THREE.Vector3().fromArray(s.slide) : undefined,
                 parentIndex: s.sweepParent ? def.surfaces.findIndex(o => o.role === s.sweepParent) : -1,
                 deflection: 0,
             };
@@ -1014,6 +1034,18 @@ export class PlayerEntity implements Entity {
                 if (showTailhook && this.modelTailhook) {
                     this.renderTailhook(targetWidth, camera, palette, lists);
                 }
+                // The pilots, under the canopy glass.
+                if (this.modelPilot && !crashed) {
+                    for (const seat of this.pilotSeats) {
+                        this._pilotPos.copy(seat)
+                            .multiply(this.obj.scale)
+                            .applyQuaternion(this.displayQuaternion).add(this.displayPosition);
+                        this.modelPilot.addToRenderList(
+                            this._pilotPos, this.displayQuaternion, this.obj.scale,
+                            targetWidth, camera, palette,
+                            SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
+                    }
+                }
 
                 const still = this._showcaseMode || crashed;
                 if (replay?.surfaces) {
@@ -1022,7 +1054,7 @@ export class PlayerEntity implements Entity {
                     this.captureSurfaceInputs(this.surfaceInputs);
                 }
                 for (const d of this.controlSurfaceDescriptors) {
-                    d.deflection = still ? 0 : d.value() * d.range;
+                    d.deflection = still ? 0 : d.spin !== 0 ? spinAngle(d.spin) : d.value() * d.range;
                 }
                 for (let i = 0; i < this.controlSurfaceDescriptors.length; i++) {
                     const d = this.controlSurfaceDescriptors[i];
@@ -1096,7 +1128,7 @@ export class PlayerEntity implements Entity {
         const deploy = this._showcaseMode ? 1 : this.hookProgressUnit;
         if (deploy < 1) {
             // Stowed arm lies flush aft along the belly; it swings down from there.
-            this._hookStowedDir.set(0, 0, -1).applyQuaternion(this.displayQuaternion);
+            this._hookStowedDir.copy(this._hookStowedBody).applyQuaternion(this.displayQuaternion);
             this._qStowed.setFromUnitVectors(FORWARD, this._hookStowedDir);
             this._qStowed.slerp(this._q, deploy);
             this._q.copy(this._qStowed);

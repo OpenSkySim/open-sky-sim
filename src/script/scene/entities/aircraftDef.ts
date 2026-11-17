@@ -13,9 +13,27 @@ import { Fm2AircraftConfig } from '../../physics/fm2/fm2AircraftConfig';
  *   stabilatorLeft/Right : an all-moving tail that combines pitch with a
  *                        differential (taileron) roll deflection, so the roll
  *                        the tail actually flies is visible on the model.
+ *   spin           : a propeller turning about its axis while the aircraft
+ *                    flies; sign is the turn direction, rangeRad the rate
+ *                    (rad/s). Visual only.
  */
 export type ControlAxis = 'pitch' | 'roll' | 'yaw' | 'flaps' | 'slats' | 'airbrake' | 'sweep' | 'fold'
-    | 'flaperonLeft' | 'flaperonRight' | 'stabilatorLeft' | 'stabilatorRight';
+    | 'flaperonLeft' | 'flaperonRight' | 'stabilatorLeft' | 'stabilatorRight' | 'spin';
+
+/**
+ * An aircraft's own arrestor hook (body frame, m). The model is drawn about the
+ * hinge with the arm along its +Z; the player swings it from `stowedDir` down to
+ * the hinge -> tip line, and the tip is the arrest point.
+ */
+export interface AircraftTailhookConfig {
+    /** glTF/GLB path of the hook model; the shared procedural hook when absent. */
+    model?: string;
+    hinge: [number, number, number];
+    /** Hook shoe with the hook down. */
+    tip: [number, number, number];
+    /** Arm direction when stowed; straight aft when absent. */
+    stowedDir?: [number, number, number];
+}
 
 /** A single animated control surface loaded as its own hinge-pivoted model. */
 export interface ControlSurfaceConfig {
@@ -36,6 +54,11 @@ export interface ControlSurfaceConfig {
     sign: number;
     /** Maximum deflection scale (rad) applied to the control value. */
     rangeRad: number;
+    /**
+     * Body-frame offset (m) at full deflection for a part that slides instead of
+     * turning (a rotodome lowered for parking); it moves by slide * deflection.
+     */
+    slide?: [number, number, number];
 }
 
 /** When and how fast a variable-geometry wing sweeps (from the mod's SwingWings). */
@@ -106,10 +129,14 @@ export interface FlyableAircraftDef {
     attachments?: AircraftAttachmentConfig[] | null;
     /** Cockpit eye offset from the aircraft origin (body frame, m): [x, y, z]. */
     cockpitOffset: [number, number, number];
+    /** Eye points of every crew seat with a pilot figure (body frame, m); absent: one at the cockpit. */
+    pilotSeats?: [number, number, number][];
     /** Optional spawn metadata from the source mod. */
     spawn?: AircraftSpawnConfig;
     /** FM2 flight-dynamics config; when set, the FM2 model flies this aircraft. */
     flight?: Fm2AircraftConfig;
+    /** The aircraft's own arrestor hook; the shared procedural hook when absent. */
+    tailhook?: AircraftTailhookConfig;
     /** TCA / mod canonical type name (groups liveries of the same airframe). */
     canonicalName?: string;
     /** Spawn-menu aircraft label without livery suffix. */

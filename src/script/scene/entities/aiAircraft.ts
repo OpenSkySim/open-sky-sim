@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PILOT_MODEL_URL, pilotSeatsForBody } from './pilotFit';
 import { FrameShift } from '../../terrain/geodesy';
 import { Palette } from '../../config/palettes/palette';
 import { CanvasPainter } from '../../render/screen/canvasPainter';
@@ -24,7 +25,7 @@ import { WreckField, WreckPart, WreckTracker } from './wreckField';
 import { AirframeDamage } from './airframeDamage';
 import { attachToRenderList } from '../../render/renderList';
 import { ActorState } from '../../state/worldRecorder';
-import { newSurfaceInputs, slatDeployment, SurfaceInputs, surfaceValue } from './surfaceInputs';
+import { newSurfaceInputs, slatDeployment, spinAngle, SurfaceInputs, surfaceValue } from './surfaceInputs';
 
 /** Same hit sphere as the player — shared airframe, different input only. */
 const DEFAULT_HIT_RADIUS = 10;
@@ -42,6 +43,8 @@ interface AiControlSurface {
     control: ControlAxis;
     sign: number;
     range: number;
+    /** Sliding part's offset at full travel (see ControlSurfaceConfig.slide). */
+    slide?: THREE.Vector3;
     /** Index of the sweep surface this one rides on, or -1. */
     parentIndex: number;
     /** Current deflection (rad), refreshed each frame before posing. */
@@ -79,6 +82,11 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     private modelBody!: LODHelper;
     private modelShadow!: LODHelper;
     private modelLandingGear: LODHelper | undefined;
+    /** Rigid seated pilot, origin at its eye point. */
+    private modelPilot: LODHelper | undefined;
+    /** Where the pilots sit under this airframe's canopy (body frame); none without a canopy to sit under. */
+    private pilotSeats: THREE.Vector3[] = [];
+    private readonly _pilotPos = new THREE.Vector3();
     private gearAnimated = false;
     private gearAnimReady = false;
     private controlSurfaces: AiControlSurface[] = [];
@@ -196,8 +204,10 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     private buildFromDef(def: FlyableAircraftDef): void {
         this.fx.configureFromDef(def);
 
+        this.pilotSeats = []; // until the new airframe has loaded
         this.modelBody = new LODHelper(this.models.getModel(def.body, (_, model) => {
             this.fx.onBodyModelLoaded(model);
+            this.pilotSeats = pilotSeatsForBody(model, def, def.body).map(s => new THREE.Vector3(...s));
         }));
         this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
 
@@ -205,6 +215,8 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             // Prefetch invisible collider glTF; combat uses baked collisionMesh.
             this.models.getModel(def.collision);
         }
+
+        this.modelPilot = new LODHelper(this.models.getModel(PILOT_MODEL_URL));
 
         this.modelLandingGear = undefined;
         this.gearAnimated = false;
@@ -230,6 +242,7 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
             control: s.control,
             sign: s.sign,
             range: s.rangeRad,
+            slide: s.slide ? new THREE.Vector3().fromArray(s.slide) : undefined,
             parentIndex: s.sweepParent ? def.surfaces.findIndex(o => o.role === s.sweepParent) : -1,
             deflection: 0,
         }));
@@ -584,7 +597,9 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
 
             const inputs = replay ? replay.surfaces : this.captureSurfaceInputs(this.surfaceInputs);
             for (const d of this.controlSurfaces) {
-                d.deflection = crashed ? 0 : surfaceValue(inputs, d.control, d.sign) * d.range;
+                d.deflection = crashed ? 0
+                    : d.control === 'spin' ? spinAngle(d.sign * d.range)
+                    : surfaceValue(inputs, d.control, d.sign) * d.range;
             }
             for (let i = 0; i < this.controlSurfaces.length; i++) {
                 const d = this.controlSurfaces[i];
@@ -600,6 +615,19 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
                     this._v, this._q, this.scale,
                     targetWidth, camera, palette,
                     SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
+            }
+
+            // The pilots, under the canopy glass.
+            if (this.modelPilot && !crashed) {
+                for (const seat of this.pilotSeats) {
+                    this._pilotPos.copy(seat)
+                        .multiply(this.scale)
+                        .applyQuaternion(this.displayQuaternion).add(this.displayPosition);
+                    this.modelPilot.addToRenderList(
+                        this._pilotPos, this.displayQuaternion, this.scale,
+                        targetWidth, camera, palette,
+                        SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
+                }
             }
         }
 

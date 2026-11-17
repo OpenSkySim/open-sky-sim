@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import * as THREE from 'three';
 import { defaultFm2Config } from './fm2AircraftConfig';
-import { fitGearPoints } from './gearFit';
+import { fitGearPoints, gearForLegs } from './gearFit';
+import { Fm2FlightModel } from '../model/fm2FlightModel';
 
 /** An axis-aligned box as a triangle soup (12 triangles). */
 function box(cx: number, cy: number, cz: number, hx: number, hy: number, hz: number): number[] {
@@ -53,5 +55,38 @@ describe('landing gear fitted to the drawn wheels', () => {
         // Mains only: no nose or tail wheel to stand on.
         assert.equal(fitGearPoints([...leg(-2, -2), ...leg(2, -2)], gear), undefined);
         assert.equal(fitGearPoints([], gear), undefined);
+    });
+});
+
+describe('springs for fitted legs', () => {
+    /** Most the airframe tilts (deg) sitting on its legs and then taxiing with full rudder. */
+    function maxTilt(points: [number, number, number][]): number {
+        const m = new Fm2FlightModel({ ...defaultFm2Config, gear: gearForLegs(gear, points, defaultFm2Config.inertia) });
+        m.reset();
+        m.position.set(0, 2.0, 0);
+        m.setLanded(true);
+        m.setLandingGearDeployed(true);
+        m.setThrottle(0);
+        const up = new THREE.Vector3();
+        let tilt = 0;
+        for (let i = 0; i < 8 * 120; i++) {
+            if (i === 3 * 120) { m.setThrottle(0.6); m.setYaw(1); }
+            m.update(1 / 120);
+            up.set(0, 1, 0).applyQuaternion(m.quaternion);
+            tilt = Math.max(tilt, Math.acos(Math.min(1, up.y)) * 180 / Math.PI);
+        }
+        return tilt;
+    }
+
+    it('leaves the default and fighter-width legs as tuned', () => {
+        assert.deepEqual(gearForLegs(gear, gear.points, defaultFm2Config.inertia), gear);
+        const su33: [number, number, number][] = [[0, -2, 4.6], [-1.9, -2, -3.4], [1.9, -2, -3.4]];
+        assert.equal(gearForLegs(gear, su33, defaultFm2Config.inertia).stiffness, gear.stiffness);
+    });
+
+    it('keeps a wide-track airframe on its wheels (Yak-44 mains 8 m apart on the default inertia)', () => {
+        const yak: [number, number, number][] = [[0, -2, 8.79], [-4.05, -2, -0.85], [4.05, -2, -0.85]];
+        const tilt = maxTilt(yak);
+        assert.ok(tilt < 2, `rocked over on its legs: ${tilt.toFixed(1)} deg`);
     });
 });

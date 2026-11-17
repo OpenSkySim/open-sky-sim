@@ -88,6 +88,15 @@ export function surfaceValue(inp: SurfaceInputs, control: ControlAxis, sign: num
     }
 }
 
+/**
+ * A spinning surface's (propeller's) angle now, turning at `radPerSec` (signed),
+ * wrapped to one turn. It follows the clock rather than a recorded input, so
+ * every part of one propeller (blades, painted tips) stays in step. Visual only.
+ */
+export function spinAngle(radPerSec: number, nowSec: number = performance.now() / 1000): number {
+    return (nowSec * radPerSec) % (2 * Math.PI);
+}
+
 export function writeSurfaceInputs(inp: SurfaceInputs, out: Float32Array | Float64Array, o: number): void {
     out[o] = inp.pitch; out[o + 1] = inp.roll; out[o + 2] = inp.yaw; out[o + 3] = inp.flaps;
     out[o + 4] = inp.slats; out[o + 5] = inp.airbrake; out[o + 6] = inp.sweep; out[o + 7] = inp.fold;

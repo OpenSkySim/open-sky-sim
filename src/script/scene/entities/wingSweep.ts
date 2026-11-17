@@ -57,6 +57,8 @@ export interface SurfaceHinge {
     pivot: THREE.Vector3;
     axis: THREE.Vector3;
     deflection: number;
+    /** Sliding part: offset at deflection 1 (body frame); it translates instead of turning. */
+    slide?: THREE.Vector3;
 }
 
 const _sweepQ = new THREE.Quaternion();
@@ -79,7 +81,10 @@ export function poseSurface(
 ): void {
     _hingeAxis.copy(hinge.axis);
     _hingePivot.copy(hinge.pivot);
-    if (parent && parent.deflection !== 0) {
+    if (hinge.slide) {
+        _hingePivot.addScaledVector(hinge.slide, hinge.deflection);
+        _hingeQ.identity();
+    } else if (parent && parent.deflection !== 0 && !parent.slide) {
         _sweepQ.setFromAxisAngle(parent.axis, parent.deflection);
         _hingeAxis.applyQuaternion(_sweepQ);
         _hingePivot.sub(parent.pivot).applyQuaternion(_sweepQ).add(parent.pivot);

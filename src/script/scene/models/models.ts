@@ -301,6 +301,8 @@ export class ModelManager {
                             grazingHighlight: true,
                         });
                         (obj.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
+                        // The pilot figure is placed under the canopy glass (pilotFit.ts).
+                        obj.userData.glass = true;
                     } else {
                         const rawColor = ModelManager.rawColorFor(matName);
                         let category = rawColor
