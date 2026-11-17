@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PILOT_MODEL_URL, pilotDropForBody } from './pilotFit';
+import { PILOT_MODEL_URL, pilotSeatForBody } from './pilotFit';
 import { FrameShift } from '../../terrain/geodesy';
 import { Palette } from '../../config/palettes/palette';
 import { CanvasPainter } from '../../render/screen/canvasPainter';
@@ -82,12 +82,11 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     private modelBody!: LODHelper;
     private modelShadow!: LODHelper;
     private modelLandingGear: LODHelper | undefined;
-    /** Rigid seated pilot, origin at the eye point (drawn at cockpitOffset). */
+    /** Rigid seated pilot, origin at its eye point. */
     private modelPilot: LODHelper | undefined;
-    private readonly cockpitOffset = new THREE.Vector3();
+    /** Where the pilot sits under this airframe's canopy (body frame); none without a canopy to sit under. */
+    private pilotSeat: THREE.Vector3 | null = null;
     private readonly _pilotPos = new THREE.Vector3();
-    /** Pilot sunk below the eye point to clear this airframe's canopy (m). */
-    private pilotDropM = 0;
     private gearAnimated = false;
     private gearAnimReady = false;
     private controlSurfaces: AiControlSurface[] = [];
@@ -205,9 +204,11 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
     private buildFromDef(def: FlyableAircraftDef): void {
         this.fx.configureFromDef(def);
 
+        this.pilotSeat = null; // until the new airframe has loaded
         this.modelBody = new LODHelper(this.models.getModel(def.body, (_, model) => {
             this.fx.onBodyModelLoaded(model);
-            this.pilotDropM = pilotDropForBody(model, def.cockpitOffset);
+            const seat = pilotSeatForBody(model, def.cockpitOffset, def.body);
+            this.pilotSeat = seat ? new THREE.Vector3(...seat) : null;
         }));
         this.modelShadow = new LODHelper(this.models.getModel(def.shadow), 5);
 
@@ -217,7 +218,6 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
         }
 
         this.modelPilot = new LODHelper(this.models.getModel(PILOT_MODEL_URL));
-        this.cockpitOffset.fromArray(def.cockpitOffset);
 
         this.modelLandingGear = undefined;
         this.gearAnimated = false;
@@ -618,9 +618,9 @@ export class AiAircraftEntity implements Entity, Combatant, WeaponsTarget {
                     SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists, 0);
             }
 
-            // The pilot sits with the eyes on the cockpit view point.
-            if (this.modelPilot && !crashed) {
-                this._pilotPos.copy(this.cockpitOffset).setY(this.cockpitOffset.y - this.pilotDropM)
+            // The pilot, under the canopy glass.
+            if (this.modelPilot && this.pilotSeat && !crashed) {
+                this._pilotPos.copy(this.pilotSeat)
                     .multiply(this.scale)
                     .applyQuaternion(this.displayQuaternion).add(this.displayPosition);
                 this.modelPilot.addToRenderList(
