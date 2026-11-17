@@ -443,9 +443,12 @@ def box(bm, lo, hi):
     return [bm.faces.new([v[c] for c in q]) for q in quads]
 
 
+TYRE = '#1e1e1e'
+
+
 def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: float,
              collection: str, wheel_sides: int = 8, twin: bool = False) -> list[bpy.types.Object]:
-    """One leg as two objects (strut, wheel), both with their origin at the strut's top.
+    """One leg as three objects (strut, tyre, hub), all with their origin at the strut's top.
 
     The sim animates a gear mesh by its own name, so every animated object
     must stay one mesh with one material; strut and wheel are kept apart.
@@ -454,13 +457,18 @@ def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: flo
     x, y_top, z = top
     axle_y = wheel_bottom[1] + wheel_radius
     strut = max(0.04, wheel_radius * 0.35)
+    offsets = (-0.6 * wheel_width - strut / 2, 0.6 * wheel_width + strut / 2) if twin else (0.0,)
     parts = []
     for suffix, material, build in (
         ('Strut', 'VEHICLE_PLANE_GREY',
          lambda bm: box(bm, (x - strut / 2, axle_y, z - strut / 2), (x + strut / 2, y_top, z + strut / 2))),
-        ('Wheel', 'VEHICLE_PLANE_ENGINE',
+        # Black tyre with a grey hub standing slightly proud of it on both faces, so the tyre reads as a ring.
+        ('Wheel', TYRE,
          lambda bm: [cylinder_x(bm, (x + dx, axle_y, z), wheel_radius, wheel_width, sides=wheel_sides)
-                     for dx in ((-0.6 * wheel_width - strut / 2, 0.6 * wheel_width + strut / 2) if twin else (0.0,))]),
+                     for dx in offsets]),
+        ('Hub', 'VEHICLE_PLANE_GREY',
+         lambda bm: [cylinder_x(bm, (x + dx, axle_y, z), 0.6 * wheel_radius, wheel_width + 0.03,
+                                sides=max(6, wheel_sides - 2)) for dx in offsets]),
     ):
         bm = bmesh.new()
         build(bm)
