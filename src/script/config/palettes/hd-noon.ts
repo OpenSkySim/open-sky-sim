@@ -55,6 +55,9 @@ const colors: PaletteColors = {
     [PaletteCategory.VEHICLE_PILOT_HELMET]: '#c4c8ca',
     [PaletteCategory.VEHICLE_PILOT_SKIN]: '#d2a98a',
     [PaletteCategory.VEHICLE_PILOT_GEAR]: '#7d8083',
+    [PaletteCategory.VEHICLE_PILOT_SEAT]: '#9b9ea3',
+    [PaletteCategory.VEHICLE_PILOT_SEAT_CUSHION]: '#596046',
+    [PaletteCategory.VEHICLE_PILOT_SEAT_HANDLE]: '#d9a91c',
 
     [PaletteCategory.SCENERY_SPECKLE]: '#808080',
 

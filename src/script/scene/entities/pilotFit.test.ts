@@ -42,7 +42,8 @@ describe('pilotFit', () => {
     it('names every material after a pilot palette category', () => {
         const names = glbJson(PILOT_MODEL_URL).materials.map(m => m.name).sort();
         assert.deepEqual(names, [
-            'VEHICLE_PILOT_GEAR', 'VEHICLE_PILOT_HELMET', 'VEHICLE_PILOT_SKIN', 'VEHICLE_PILOT_SUIT', 'VEHICLE_PLANE_INTERIOR',
+            'VEHICLE_PILOT_GEAR', 'VEHICLE_PILOT_HELMET', 'VEHICLE_PILOT_SEAT', 'VEHICLE_PILOT_SEAT_CUSHION', 'VEHICLE_PILOT_SEAT_HANDLE', 'VEHICLE_PILOT_SKIN',
+            'VEHICLE_PILOT_SUIT', 'VEHICLE_PLANE_INTERIOR',
         ]);
     });
 
