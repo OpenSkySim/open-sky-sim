@@ -55,11 +55,11 @@ def cmd_check(a) -> int:
         path = _image_path(a.refs, a.images, img)
         for v in img.get('views', []):
             try:
-                rv = R.view_from_json(img['id'], v, rs.ground_y)
+                rv = R.view_from_json(img['id'], v, rs.ground_y, rs.length_m, rs.span_m)
             except R.RefError as e:
                 print(f'    {v.get("view")}: not calibrated ({e})')
                 continue
-            line = f'    {rv.view}: {rv.px_per_m:.2f} px/m, nose at {rv.nose.round(1).tolist()}'
+            line = f'    {rv.view}: {rv.px_per_m:.2f} px/m{"" if (v.get("cal") or {}).get("scale") or (v.get("cal") or {}).get("px_per_m") else " (from the box)"}, nose at {rv.nose.round(1).tolist()}'
             if rv.view not in ('front', 'rear'):
                 line += f', nose points {rv.nose_dir}'
             if rv.view in ('side', 'front', 'rear'):

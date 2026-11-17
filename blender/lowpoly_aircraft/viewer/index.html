@@ -689,7 +689,7 @@ const VIEW_AXES = { top: ['d', 'x'], bottom: ['d', 'x'], side: ['d', 'y'], front
 const TOOL_HELP = {
   crop: '<b>Crop:</b> drag a box around this view on the image.',
   nose: '<b>Nose tip:</b> click the tip of the nose (radome, not a pitot probe). Head-on: the middle of the nose.',
-  scale: '<b>Scale:</b> click two points a known distance apart (a scale bar, or nose and tail), then type the metres.',
+  scale: '<b>Scale (optional):</b> click two points a known distance apart (a scale bar), then type the metres. Without it the box sets the scale: its far edge is the tail (or its width the span), so keep it tight.',
   ground: '<b>Ground:</b> click where a wheel touches the ground (side, front and rear views, gear down).',
 };
 const refsNote = document.getElementById('refsNote');
@@ -707,9 +707,9 @@ function rot2(p, deg) {
 function calibrate(v) {
   const cal = v.cal || {};
   if (!VIEW_AXES[v.view] || !cal.nose) return null;
-  let s = cal.px_per_m;
+  let s = cal.px_per_m, fromBox = false;
   if (!s && cal.scale && cal.scale.a && cal.scale.b && cal.scale.m > 0) s = Math.hypot(...sub2(cal.scale.b, cal.scale.a)) / cal.scale.m;
-  if (!(s > 0)) return null;
+  if (!s) { s = 1; fromBox = true; }
   const nd = cal.nose_dir || (v.view === 'top' || v.view === 'bottom' ? 'up' : 'left');
   const f = NOSE_DIRS[nd] || NOSE_DIRS.left;
   let e1, e2;
@@ -724,15 +724,32 @@ function calibrate(v) {
     if (v.view === 'top' || v.view === 'bottom' || v.view === 'side') a = -a;
     return [a, b];
   };
-  return { view: v.view, s, nd, raw, hasGround: !!cal.ground && v.view !== 'top' && v.view !== 'bottom',
+  if (fromBox) {
+    // No scale marked: the box sets it. Nose to the box's far edge is the length (side/top/bottom),
+    // the box's width the span (front/rear). Sizes from refs.json, else from the model.
+    const dims = refDims();
+    if (!v.crop) return null;
+    const [u0, v0, u1, v1] = v.crop;
+    const a = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(p => raw(p)[0]);
+    let px;
+    if (v.view === 'front' || v.view === 'rear') { px = Math.max(...a) - Math.min(...a); if (!dims.span) return null; s = px / dims.span; }
+    else { px = Math.max(...a); if (!dims.length || !(px > 0)) return null; s = px / dims.length; }
+  }
+  return { view: v.view, s, nd, raw, fromBox, hasGround: !!cal.ground && v.view !== 'top' && v.view !== 'bottom',
            groundB: cal.ground ? raw(cal.ground)[1] : 0 };
+}
+function refDims() {
+  const box = current && current.box, n = current && current.nose;
+  return { length: R.meta.length_m || (box && n ? n.z - box.min.z : null),
+           span: R.meta.span_m || (box ? box.max.x - box.min.x : null) };
 }
 function viewStatus(v) {
   const c = calibrate(v);
-  if (c) return { ok: true, text: `${c.s.toFixed(1)} px/m` };
+  if (c) return { ok: true, text: `${c.s.toFixed(1)} px/m${c.fromBox ? ' (from the box)' : ''}` };
   const cal = v.cal || {};
-  const miss = [!v.crop && 'crop', !cal.nose && 'nose tip', !(cal.px_per_m || (cal.scale && cal.scale.m)) && 'scale'].filter(Boolean);
-  return { ok: false, text: 'needs ' + miss.join(', ') };
+  const hasScale = cal.px_per_m || (cal.scale && cal.scale.m);
+  const miss = [!v.crop && (hasScale ? 'crop' : 'crop (or a scale)'), !cal.nose && 'nose tip'].filter(Boolean);
+  return { ok: false, text: miss.length ? 'needs ' + miss.join(', ') : 'needs a scale: the box does not reach aft of the nose' };
 }
 
 async function srcFor(img) {
@@ -879,7 +896,7 @@ function fillForm() {
     $('fNoseDir').value = cal.nose_dir || (v.view === 'top' || v.view === 'bottom' ? 'up' : 'left');
     $('fNoseDir').disabled = v.view === 'front' || v.view === 'rear';
     $('fScaleM').value = cal.scale ? cal.scale.m ?? '' : '';
-    $('fScaleM').placeholder = cal.px_per_m ? `${cal.px_per_m} px/m set` : 'distance';
+    $('fScaleM').placeholder = cal.px_per_m ? `${cal.px_per_m} px/m set` : cal.scale ? 'distance' : 'optional: from the box';
     $('fRot').value = cal.rot_deg || 0;
     const key = v.view === 'rear' ? 'front' : v.view;
     const on = R.show3d[key] && R.show3d[key].img === img.id && R.show3d[key].idx === R.viewIdx;
@@ -893,7 +910,7 @@ function calOut() {
   if (!v) { out.textContent = 'No view yet: add one.'; return; }
   const c = calibrate(v);
   if (!c) { out.textContent = viewStatus(v).text; return; }
-  const lines = [`${c.s.toFixed(2)} px/m`];
+  const lines = [`${c.s.toFixed(2)} px/m${c.fromBox ? ' from the box (no scale marked)' : ''}`];
   if (v.crop) {
     const [u0, v0, u1, v1] = v.crop;
     const pts = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(c.raw);

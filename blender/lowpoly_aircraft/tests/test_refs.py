@@ -76,6 +76,16 @@ class Calibration(unittest.TestCase):
             px = np.array([[13.0, 77.0], [240.0, 5.0]])
             np.testing.assert_allclose(rv.to_px(rv.to_m(px)), px, atol=1e-9)
 
+    def test_scale_from_the_box(self):
+        # Nose at u 100, nose pointing left, box reaching to u 300: 200 px = 20 m long -> 10 px/m.
+        v = {'view': 'side', 'crop': [90, 0, 300, 100], 'cal': {'nose': [100, 50]}}
+        self.assertAlmostEqual(R.view_from_json('img', v, length_m=20.0).px_per_m, 10.0)
+        # Front view: the box width is the span.
+        v = {'view': 'front', 'crop': [0, 0, 240, 100], 'cal': {'nose': [120, 50]}}
+        self.assertAlmostEqual(R.view_from_json('img', v, span_m=12.0).px_per_m, 20.0)
+        with self.assertRaises(R.RefError):
+            R.view_from_json('img', {'view': 'side', 'cal': {'nose': [0, 0]}}, length_m=20.0)
+
     def test_missing_nose(self):
         with self.assertRaises(R.RefError):
             R.view_from_json('img', {'view': 'side', 'cal': {'px_per_m': 10}})

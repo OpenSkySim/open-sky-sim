@@ -12,7 +12,9 @@ A view's calibration is a few things anyone can click on the image:
 
     nose      [u, v]  the nose tip (front/rear views: the nose on the centreline)
     scale     {"a": [u, v], "b": [u, v], "m": metres}  two points a known distance apart
-              (or "px_per_m" directly)
+              (or "px_per_m" directly). Optional: without it the crop box sets the scale,
+              its far edge from the nose being the length (side/top/bottom views) or its
+              width the span (front/rear), so the box should hug the drawing.
     nose_dir  where the nose points in the image: up/down/left/right (plan and side views)
     ground    [u, v]  any point on the ground line (wheels down), side/front/rear views
     rot_deg   turn the image by this much (counter-clockwise) to level it
@@ -109,28 +111,32 @@ class RefView:
         return out
 
 
-def _scale(cal: dict) -> float:
+def _scale(cal: dict) -> float | None:
     if 'px_per_m' in cal:
         return float(cal['px_per_m'])
     s = cal.get('scale')
     if not s:
-        raise RefError('no scale (two points a known distance apart, or px_per_m)')
+        return None
     dist = math.dist(s['a'], s['b'])
     if float(s['m']) <= 0 or dist <= 0:
         raise RefError('scale points or distance are zero')
     return dist / float(s['m'])
 
 
-def view_from_json(image_id: str, v: dict, ground_y: float | None = None) -> RefView:
+def view_from_json(image_id: str, v: dict, ground_y: float | None = None,
+                   length_m: float | None = None, span_m: float | None = None) -> RefView:
     view = v.get('view')
     if view not in VIEW_TYPES:
         raise RefError(f'{image_id}: unknown view type {view!r}')
     cal = v.get('cal') or {}
     if 'nose' not in cal:
         raise RefError(f'{image_id}/{view}: nose tip not marked')
+    s = _scale(cal)
     rv = RefView(image_id=image_id, view=view, nose=np.asarray(cal['nose'], dtype=np.float64),
-                 px_per_m=_scale(cal), nose_dir=cal.get('nose_dir', 'up' if view in ('top', 'bottom') else 'left'),
+                 px_per_m=s or 1.0, nose_dir=cal.get('nose_dir', 'up' if view in ('top', 'bottom') else 'left'),
                  rot_deg=float(cal.get('rot_deg', 0.0)), crop=tuple(v['crop']) if v.get('crop') else None)
+    if s is None:
+        rv.px_per_m = _scale_from_box(rv, length_m, span_m)
     if view in ('side', 'front', 'rear'):
         if 'ground' in cal and ground_y is not None:
             # The ground point's height above the nose, in metres, fixes the nose's y.
@@ -139,6 +145,23 @@ def view_from_json(image_id: str, v: dict, ground_y: float | None = None) -> Ref
         else:
             rv.nose_y_m = float(cal.get('nose_y_m', 0.0))
     return rv
+
+
+def _scale_from_box(rv: RefView, length_m: float | None, span_m: float | None) -> float:
+    """px/m from the crop box: nose to the box's far edge is the length, or its width the span."""
+    if not rv.crop:
+        raise RefError(f'{rv.image_id}/{rv.view}: no scale and no box to take it from')
+    u0, v0, u1, v1 = rv.crop
+    a = rv.to_m([[u0, v0], [u1, v0], [u1, v1], [u0, v1]])[:, 0]   # px, since px_per_m is 1 here
+    if rv.view in ('front', 'rear'):
+        if not span_m:
+            raise RefError(f'{rv.image_id}/{rv.view}: no scale, and the span is unknown')
+        return float(a.max() - a.min()) / float(span_m)
+    if not length_m:
+        raise RefError(f'{rv.image_id}/{rv.view}: no scale, and the length is unknown')
+    if a.max() <= 0:
+        raise RefError(f'{rv.image_id}/{rv.view}: the box does not reach aft of the nose')
+    return float(a.max()) / float(length_m)
 
 
 @dataclass
@@ -157,7 +180,7 @@ class RefSet:
                 if view and v.get('view') != view:
                     continue
                 try:
-                    out.append(view_from_json(img['id'], v, self.ground_y))
+                    out.append(view_from_json(img['id'], v, self.ground_y, self.length_m, self.span_m))
                 except RefError:
                     continue
         return out
@@ -172,7 +195,7 @@ class RefSet:
                 out.append(f'{img["id"]}: no views marked on the drawing')
             for v in img.get('views', []):
                 try:
-                    view_from_json(img['id'], v, self.ground_y)
+                    view_from_json(img['id'], v, self.ground_y, self.length_m, self.span_m)
                 except RefError as e:
                     out.append(str(e))
         return out
