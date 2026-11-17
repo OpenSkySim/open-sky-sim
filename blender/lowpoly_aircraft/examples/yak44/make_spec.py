@@ -52,12 +52,13 @@ def slat_m(x0, x1, depth0, depth1, ahead=0.4):
                   (x1, wing_le(x1) - ahead), (x0, wing_le(x0) - ahead)])
 
 
-def fus_rows(rows, n_of=lambda d: 2.8):
+def fus_rows(rows, n_of=lambda d: 2.8, n_top_of=lambda d: 2.8):
     """(d, half_width, y_bottom, y_top): widest at 60 % of the height, as in the front view."""
     out = []
     for d, a, yb, yt in rows:
         cy = yb + 0.6 * (yt - yb)
-        out.append([round(Z0 - d, 3), 0.0, round(cy, 3), a, round(yt - cy, 3), round(cy - yb, 3), n_of(d)])
+        out.append([round(Z0 - d, 3), 0.0, round(cy, 3), a, round(yt - cy, 3), round(cy - yb, 3), n_of(d),
+                    n_top_of(d)])
     return out
 
 
@@ -130,11 +131,15 @@ def main():
     fuselage = [(0.0, 0.05, -1.32, -1.26), (0.05, 0.21, -1.45, -1.14), (0.2, 0.39, -1.59, -0.97),
                 (0.4, 0.58, -1.68, -0.8), (0.7, 0.73, -1.75, -0.58), (1.0, 0.9, -1.77, -0.41),
                 (1.4, 1.07, -1.79, -0.21), (1.8, 1.18, -1.81, 0.16), (2.3, 1.28, -1.83, 0.62),
-                (2.8, 1.32, -1.86, 0.79), (3.5, 1.33, -1.87, 0.8), (8.0, 1.34, -1.9, 0.8),
+                (2.8, 1.32, -1.86, 0.79), (3.5, 1.33, -1.87, 0.8), (5.0, 1.335, -1.88, 0.8), (8.0, 1.34, -1.9, 0.8),
                 (13.0, 1.33, -1.94, 0.68), (14.3, 1.25, -1.9, 0.66), (15.5, 1.08, -1.75, 0.7),
                 (16.5, 0.92, -1.52, 0.72), (17.5, 0.72, -1.29, 0.88), (18.5, 0.56, -1.05, 0.98),
                 (19.3, 0.46, -0.87, 1.05), (19.8, 0.38, -0.68, 1.08), (20.1, 0.22, -0.56, 1.0),
                 (20.2, 0.0, 0.2, 0.2)]
+    # Cockpit (user: window sides bend further inward): a rounder upper half over the glazing,
+    # back to the boxier section by d 5.
+    def cabin_n_top(d):
+        return 2.0 if d <= 3.5 else 2.8
     # Air intake and wing-root fairing are one shape (top view: a flat mouth at d 5.43, x +-0.57, widening
     # smoothly to the fuselage width by d 7.8; side view: mouth y 0.9..1.3, top line y 1.36 running aft).
     fairing = [(5.4, 0.57, 0.75, 1.3, 2.6), (5.6, 0.66, 0.7, 1.34, 2.8), (6.0, 0.81, 0.6, 1.36, 3.0),
@@ -216,7 +221,7 @@ def main():
         'material': 'VEHICLE_PLANE_GREY',
         'smooth_deg': 0,  # flat shaded; the game adds smooth normals itself when the player picks smooth shading
         'parts': [
-            {'name': 'Fuselage', 'type': 'loft', 'segments': 20, 'resample': 10, 'stations': fus_rows(fuselage)},
+            {'name': 'Fuselage', 'type': 'loft', 'segments': 20, 'resample': 10, 'stations': fus_rows(fuselage, n_top_of=cabin_n_top)},
             {'name': 'Fairing', 'type': 'loft', 'segments': 8, 'resample': 6, 'stations': loft_rows(fairing)},
             {'name': 'Nacelle', 'type': 'loft', 'mirror': True, 'segments': 8, 'resample': 7,
              'stations': loft_rows(nacelle, 4.05)},
