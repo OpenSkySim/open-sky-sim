@@ -209,6 +209,14 @@ def drop_off_skin(obj: bpy.types.Object, skin: BVHTree, cutter: BVHTree, tol: fl
 def decimate(obj: bpy.types.Object, ratio: float = 1.0, planar_deg: float = 0.0) -> None:
     """Decimate a mesh in place: merge near-flat faces (within *planar_deg*), else collapse to
     *ratio* of its faces symmetric about the body's X."""
+    if planar_deg <= 0:
+        # The collapse only stays symmetric on a mesh whose two halves match vertex for vertex;
+        # a boolean-joined hull does not, so mirror its left half (+X) onto the right first.
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        bmesh.ops.symmetrize(bm, input=bm.verts[:] + bm.edges[:] + bm.faces[:], direction='-X', dist=1e-4)
+        bm.to_mesh(obj.data)
+        bm.free()
     mod = obj.modifiers.new('decimate', 'DECIMATE')
     if planar_deg > 0:
         mod.decimate_type = 'DISSOLVE'
