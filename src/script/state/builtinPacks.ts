@@ -15,5 +15,11 @@ export const BUILTIN_PACKS: readonly PackEntry[] = [
 /** The built-in packs plus the modserver's; a pack the server lists replaces the built-in one of that id. */
 export function mergePackLists(server: readonly PackEntry[], builtin: readonly PackEntry[] = BUILTIN_PACKS): PackEntry[] {
     const served = new Set(server.map(p => p.id));
+    for (const p of builtin) {
+        if (served.has(p.id)) {
+            const url = server.find(s => s.id === p.id)?.packUrl;
+            console.info(`[packs] ${p.id}: the modserver's pack (${url}) replaces the built-in ${p.packUrl}`);
+        }
+    }
     return [...builtin.filter(p => !served.has(p.id)), ...server];
 }
