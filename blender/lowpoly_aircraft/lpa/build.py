@@ -726,9 +726,16 @@ def build_parts(spec: dict) -> None:
             # block's sides (a door, the hatch, a painted band) would show as walls inside.
             skin = geo.bvh_of(hull) if item.get('see_through', True) else None
             cutters = [] if skin is not None else None
+            clip = None
+            if 'clip' in item:
+                # e.g. a windscreen drawn in the side view whose roof edge follows the top view.
+                cl = [np.asarray(lp, dtype=np.float64) for lp in item['clip']['polygons_m']]
+                if suffix == 'R' and item['clip'].get('view', 'top') != 'side':
+                    cl = [_mirror_x(item['clip'].get('view', 'top'), lp) for lp in cl]
+                clip = (item['clip'].get('view', 'top'), cl)
             part = geo.cut_part(hull, f"{i + 1}_{item.get('name', 'Region')}{suffix}", view, p,
                                 item.get('material', 'GLASS'), 'Body', depth=dep, smooth_deg=smooth,
-                                cutters=cutters)
+                                cutters=cutters, clip=clip)
             if part is not None:
                 part['lpa_region'] = item.get('name', 'Region')
                 if skin is not None:

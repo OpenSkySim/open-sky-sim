@@ -93,11 +93,19 @@ def windows_and_doors():
     cockpit. Portholes are cut before their doors so the door panel keeps the hole.
     """
     side_skin = [0.76, 1.6]          # depth (x) reaching only the left fuselage skin
+    # Top view of the glazing, left half: everything outboard of / ahead of the roof's front arch.
+    glazing_top = top_m([(0.0, 0.5), (2.0, 0.5), (2.0, 3.3), (0.92, 3.3), (0.91, 2.97), (0.86, 2.41),
+                         (0.69, 2.18), (0.45, 2.07), (0.2, 2.02), (0.0, 1.99)])
     return [
-        {'name': 'Windscreen', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.04, 1.6],
-         'polygon_m': side_m([(1.2, -0.17), (1.2, 0.4), (2.17, 0.4), (2.06, -0.17)])},
+        # The roof edge of the glazing follows the top view (user: match the drawing): an arch from
+        # the centre post (d 1.99) round to the slanted posts (x 0.69, d 2.18) and back along the
+        # side windows (x 0.86 at d 2.41, 0.91 at d 2.97). The side view gives the sills and posts.
+        {'name': 'Windscreen', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.035, 1.6],
+         'polygon_m': side_m([(1.2, -0.17), (1.2, 1.2), (2.6, 1.2), (2.06, -0.17)]),
+         'clip': {'view': 'top', 'polygons_m': [glazing_top]}},
         {'name': 'SideWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.5, 1.6],
-         'polygon_m': side_m([(2.13, -0.2), (2.25, 0.4), (2.95, 0.4), (3.05, 0.3), (3.05, -0.2)])},
+         'polygon_m': side_m([(2.13, -0.2), (2.7, 1.2), (3.05, 1.2), (3.05, -0.2)]),
+         'clip': {'view': 'top', 'polygons_m': [glazing_top]}},
         {'name': 'DoorPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(3.97, -0.02, 0.15))},
         {'name': 'CrewDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,
          'polygon_m': side_m(rounded_rect(3.55, 4.4, -1.35, 0.4))},
@@ -362,7 +370,7 @@ def main():
         'cockpit_m': P(0.0, 0.1, 2.4),
         # The game's pilot figure in both seats (eye points: back against the seat back at d 2.95,
         # thighs on the cushion at y -0.2).
-        'pilot_seats_m': [P(0.45, 0.52, 2.70), P(-0.45, 0.52, 2.70)],
+        'pilot_seats_m': [P(0.45, -0.48, 2.70), P(-0.45, -0.48, 2.70)],  # user: 1 m lower
     }
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:
         json.dump(spec, f, indent=1)
