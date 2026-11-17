@@ -116,6 +116,8 @@ dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .ed-help { font-size: 12px; color: var(--muted); margin: 0 0 8px; min-height: 1.4em; }
 .ed-help b { color: var(--ink); }
 .cal-out { font: 11.5px var(--font-mono); color: var(--muted); white-space: pre-wrap; margin: 0; }
+.refs.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
+.drop-hint { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
 .export { margin-top: 10px; }
 .export textarea { width: 100%; box-sizing: border-box; height: 160px; font: 11px var(--font-mono); }
 .refctl { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px 10px; margin-top: 10px; font-size: 12px; }
@@ -142,6 +144,7 @@ dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
         <label class="btn" id="addLabel" hidden>Add images<input type="file" id="addFile" accept="image/png,image/jpeg,image/webp" multiple hidden></label>
         <button type="button" id="exportBtn">Copy refs.json</button>
       </div>
+      <p class="drop-hint" id="dropHint" hidden>Drop image files here, or paste one with Ctrl+V / ⌘V.</p>
       <div class="thumbs" id="thumbs"></div>
       <div class="export" id="exportBox" hidden>
         <p class="ed-help">refs.json for this aircraft (select all and copy if the clipboard is blocked):</p>
@@ -1100,10 +1103,41 @@ $('exportBtn').addEventListener('click', async () => {
   setTimeout(() => { $('exportBtn').textContent = 'Copy refs.json'; }, 2000);
 });
 
-$('addFile').addEventListener('change', async e => {
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+$('addFile').addEventListener('change', e => {
   const files = [...e.target.files];
   e.target.value = '';
-  if (!cap.assets || !R.entry) return;
+  addImages(files);
+});
+// Drop files anywhere on the References panel, or paste an image (screenshot, copied image) on the page.
+{
+  const panel = $('refs');
+  let depth = 0;
+  const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+  panel.addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; panel.classList.add('dropping'); });
+  panel.addEventListener('dragover', e => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = cap.assets ? 'copy' : 'none'; } });
+  panel.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; panel.classList.remove('dropping'); } });
+  panel.addEventListener('drop', e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0; panel.classList.remove('dropping');
+    addImages([...e.dataTransfer.files]);
+  });
+  document.addEventListener('paste', e => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const files = [...(e.clipboardData?.items || [])].filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean);
+    if (!files.some(f => IMAGE_TYPES.includes(f.type))) return;
+    e.preventDefault();
+    addImages(files.map((f, i) => f.name && f.name !== 'image.png' ? f
+      : new File([f], `pasted-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}${i ? '-' + i : ''}.${f.type.split('/')[1]}`, { type: f.type })));
+  });
+}
+async function addImages(all) {
+  const files = all.filter(f => IMAGE_TYPES.includes(f.type));
+  if (!files.length) { if (all.length) refsNote.textContent = 'Only PNG, JPEG and WebP images can be added.'; return; }
+  if (!R.entry) return;
+  if (!cap.assets) { refsNote.textContent = 'Adding images needs the published Hangar (opened by its owner or an editor).'; return; }
   for (const file of files) {
     refsNote.textContent = `Uploading ${file.name} …`;
     try {
@@ -1122,7 +1156,7 @@ $('addFile').addEventListener('change', async e => {
     }
   }
   renderThumbs();
-});
+}
 
 // ---- The calibrated drawing in the 3D view ----
 // The model's nose tip (the radome's, not a pitot probe's) anchors d = 0 and x = 0; a marked
@@ -1217,6 +1251,7 @@ if (window.claude && window.claude.use) {
   Promise.all([window.claude.use('db'), window.claude.use('assets')]).then(([db, assets]) => {
     cap.db = db; cap.assets = assets;
     $('addLabel').hidden = !assets;
+    $('dropHint').hidden = !assets;
     if (db && active) loadRefs(active, () => false, true);
     else renderThumbs();
   }).catch(() => {});
