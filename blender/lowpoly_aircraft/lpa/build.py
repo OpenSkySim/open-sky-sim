@@ -686,6 +686,14 @@ def build_parts(spec: dict) -> None:
                     # Seen from within (a cockpit tub behind the glazing): faces point inwards.
                     obj.data.flip_normals()
                 separate.append(obj)
+    if spec.get('planar_deg'):
+        # Fewer polygons where the hull is near flat (wing and tail skins, boolean slivers),
+        # keeping the round sections round.
+        geo.decimate(hull, planar_deg=float(spec['planar_deg']))
+    if float(spec.get('decimate', 1.0)) < 1.0:
+        # Fewer polygons: collapse the joined hull before anything is cut from it, so the wells,
+        # panes and control surfaces still match its faces exactly.
+        geo.decimate(hull, float(spec['decimate']))
     _WELL_SKINS.clear()
     for obj, material in wells:
         well_name = obj.name

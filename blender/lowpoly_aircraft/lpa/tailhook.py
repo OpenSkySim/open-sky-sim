@@ -24,7 +24,7 @@ BLACK = '#1c1c1c'
 WHITE = '#efefef'
 
 
-def _tube(bm, mats, p0, p1, r, mat, sides=8):
+def _tube(bm, mats, p0, p1, r, mat, sides=6):
     """Closed n-sided prism between two body points."""
     p0, p1 = np.asarray(p0, float), np.asarray(p1, float)
     ax = p1 - p0

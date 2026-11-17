@@ -4,13 +4,13 @@
  "length_m": 20.39,
  "span_m": 25.7,
  "material": "VEHICLE_PLANE_GREY",
- "smooth_deg": 35,
+ "smooth_deg": 0,
  "parts": [
   {
    "name": "Fuselage",
    "type": "loft",
-   "segments": 18,
-   "resample": 24,
+   "segments": 20,
+   "resample": 10,
    "stations": [
     [
      12.234,
@@ -215,8 +215,8 @@
   {
    "name": "Fairing",
    "type": "loft",
-   "segments": 16,
-   "resample": 10,
+   "segments": 8,
+   "resample": 6,
    "stations": [
     [
      6.834,
@@ -323,8 +323,8 @@
    "name": "Nacelle",
    "type": "loft",
    "mirror": true,
-   "segments": 14,
-   "resample": 12,
+   "segments": 8,
+   "resample": 7,
    "stations": [
     [
      5.834,
@@ -458,8 +458,8 @@
    "name": "Spinner",
    "type": "loft",
    "mirror": true,
-   "segments": 14,
-   "resample": 7,
+   "segments": 8,
+   "resample": 4,
    "stations": [
     [
      8.084,
@@ -512,7 +512,7 @@
    "name": "Wing",
    "type": "panel",
    "mirror": true,
-   "chord_points": 9,
+   "chord_points": 6,
    "stations": [
     [
      1.0,
@@ -548,7 +548,7 @@
    "name": "Winglet",
    "type": "panel",
    "mirror": true,
-   "chord_points": 7,
+   "chord_points": 5,
    "stations": [
     [
      12.55,
@@ -577,7 +577,7 @@
    "name": "Tailplane",
    "type": "panel",
    "mirror": true,
-   "chord_points": 9,
+   "chord_points": 5,
    "stations": [
     [
      0.5,
@@ -604,28 +604,35 @@
     0,
     0
    ],
-   "chord_points": 9,
+   "chord_points": 5,
    "resample": 7,
    "stations": [
     [
      5.62,
-     -0.95,
-     -6.216,
-     1.55,
+     -0.96,
+     -6.096,
+     1.2,
      0.08
     ],
     [
-     5.47,
-     1.0,
-     -5.016,
-     2.85,
+     5.59,
+     -0.6,
+     -5.916,
+     2.16,
+     0.08
+    ],
+    [
+     5.46,
+     1.09,
+     -5.076,
+     3.0,
      0.08
     ],
     [
      5.32,
      2.95,
-     -5.966,
-     1.9,
+     -6.096,
+     1.98,
      0.08
     ]
    ]
@@ -638,7 +645,7 @@
     0,
     0
    ],
-   "chord_points": 9,
+   "chord_points": 5,
    "stations": [
     [
      0.0,
@@ -664,7 +671,7 @@
     0,
     0
    ],
-   "chord_points": 9,
+   "chord_points": 5,
    "join": "slide",
    "slide_m": [
     0.0,
@@ -697,7 +704,7 @@
     -1.5,
     0.0
    ],
-   "segments": 18,
+   "segments": 10,
    "stations": [
     [
      2.484,
@@ -823,7 +830,7 @@
    "type": "loft",
    "join": "cut",
    "material": "VEHICLE_PLANE_ENGINE",
-   "segments": 14,
+   "segments": 8,
    "stations": [
     [
      7.034,
@@ -867,8 +874,8 @@
    "name": "Exhaust",
    "type": "loft",
    "mirror": true,
-   "segments": 14,
-   "resample": 8,
+   "segments": 8,
+   "resample": 5,
    "stations": [
     [
      0.934,
@@ -923,7 +930,7 @@
    "join": "separate",
    "mirror": true,
    "material": "VEHICLE_PLANE_ENGINE",
-   "segments": 10,
+   "segments": 6,
    "stations": [
     [
      -0.846,
@@ -949,7 +956,7 @@
    "name": "BlisterUpper",
    "type": "loft",
    "mirror": true,
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      4.934,
@@ -993,7 +1000,7 @@
    "name": "BlisterLower",
    "type": "loft",
    "mirror": true,
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      3.934,
@@ -1039,7 +1046,7 @@
    "join": "separate",
    "mirror": true,
    "material": "VEHICLE_PLANE_ENGINE",
-   "segments": 14,
+   "segments": 8,
    "stations": [
     [
      6.014,
@@ -1067,7 +1074,7 @@
    "join": "separate",
    "mirror": true,
    "material": "VEHICLE_PLANE_ENGINE",
-   "segments": 10,
+   "segments": 6,
    "stations": [
     [
      8.134,
@@ -1093,39 +1100,39 @@
    "name": "TrackInner",
    "type": "loft",
    "mirror": true,
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
-     2.834,
+     2.434,
      6.6,
-     0.72,
+     0.74,
      0.0,
      0.0,
      0.0,
      2
     ],
     [
-     2.434,
+     2.084,
      6.6,
-     0.675,
-     0.11,
-     0.175,
-     0.175,
+     0.725,
+     0.065,
+     0.125,
+     0.125,
      2.5
     ],
     [
-     -0.266,
+     -0.116,
      6.6,
-     0.685,
-     0.11,
-     0.165,
-     0.165,
+     0.735,
+     0.065,
+     0.115,
+     0.115,
      2.5
     ],
     [
-     -0.566,
+     -0.366,
      6.6,
-     0.7,
+     0.74,
      0.0,
      0.0,
      0.0,
@@ -1137,39 +1144,39 @@
    "name": "TrackOuter",
    "type": "loft",
    "mirror": true,
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
-     2.334,
+     2.034,
      8.05,
-     0.72,
+     0.74,
      0.0,
      0.0,
      0.0,
      2
     ],
     [
-     1.934,
+     1.684,
      8.05,
-     0.675,
-     0.11,
-     0.175,
-     0.175,
+     0.725,
+     0.065,
+     0.125,
+     0.125,
      2.5
     ],
     [
-     -0.166,
+     -0.016,
      8.05,
-     0.685,
-     0.11,
-     0.165,
-     0.165,
+     0.735,
+     0.065,
+     0.115,
+     0.115,
      2.5
     ],
     [
-     -0.466,
+     -0.266,
      8.05,
-     0.7,
+     0.74,
      0.0,
      0.0,
      0.0,
@@ -1185,7 +1192,7 @@
     0,
     0
    ],
-   "chord_points": 5,
+   "chord_points": 3,
    "stations": [
     [
      0.0,
@@ -1208,7 +1215,7 @@
    "type": "loft",
    "mirror": true,
    "join": "cut",
-   "segments": 12,
+   "segments": 8,
    "stations": [
     [
      1.514,
@@ -1252,7 +1259,7 @@
    "name": "NoseWell",
    "type": "loft",
    "join": "cut",
-   "segments": 12,
+   "segments": 8,
    "stations": [
     [
      11.124,
@@ -1289,7 +1296,7 @@
    "join": "separate",
    "clip_hull": true,
    "material": "#1d2024",
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      10.534,
@@ -1317,7 +1324,7 @@
    "join": "separate",
    "clip_hull": true,
    "material": "#16181b",
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      10.574,
@@ -1428,7 +1435,7 @@
    "type": "loft",
    "join": "separate",
    "material": "#2e3236",
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      10.354,
@@ -1457,7 +1464,7 @@
    "mirror": true,
    "clip_hull": true,
    "material": "#2e3236",
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      10.284,
@@ -1484,7 +1491,7 @@
    "type": "loft",
    "join": "separate",
    "material": "#2e3236",
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      9.884,
@@ -1512,7 +1519,7 @@
    "join": "separate",
    "fill_hull": "floor",
    "material": "#2a2d31",
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      11.034,
@@ -1540,7 +1547,7 @@
    "join": "separate",
    "mirror": true,
    "material": "#3a3e44",
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      9.684,
@@ -1568,7 +1575,7 @@
    "join": "separate",
    "mirror": true,
    "material": "#3a3e44",
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      9.284,
@@ -1591,141 +1598,12 @@
    ]
   },
   {
-   "name": "PilotBody",
-   "type": "loft",
-   "join": "separate",
-   "mirror": true,
-   "material": "#4d5940",
-   "segments": 10,
-   "stations": [
-    [
-     9.684,
-     0.45,
-     0.0,
-     0.12,
-     0.2,
-     0.2,
-     2.5
-    ],
-    [
-     9.554,
-     0.45,
-     0.05,
-     0.2,
-     0.25,
-     0.25,
-     3
-    ],
-    [
-     9.334,
-     0.45,
-     0.05,
-     0.2,
-     0.25,
-     0.25,
-     3
-    ],
-    [
-     9.254,
-     0.45,
-     0.03,
-     0.14,
-     0.23,
-     0.23,
-     2.5
-    ]
-   ]
-  },
-  {
-   "name": "PilotHelmet",
-   "type": "loft",
-   "join": "separate",
-   "mirror": true,
-   "material": "#dfe2e5",
-   "segments": 10,
-   "stations": [
-    [
-     9.614,
-     0.45,
-     0.43,
-     0.0,
-     0.0,
-     0.0,
-     2
-    ],
-    [
-     9.574,
-     0.45,
-     0.43,
-     0.08,
-     0.07,
-     0.07,
-     2
-    ],
-    [
-     9.474,
-     0.45,
-     0.43,
-     0.12,
-     0.11,
-     0.11,
-     2
-    ],
-    [
-     9.374,
-     0.45,
-     0.43,
-     0.08,
-     0.07,
-     0.07,
-     2
-    ],
-    [
-     9.334,
-     0.45,
-     0.43,
-     0.0,
-     0.0,
-     0.0,
-     2
-    ]
-   ]
-  },
-  {
-   "name": "PilotVisor",
-   "type": "loft",
-   "join": "separate",
-   "mirror": true,
-   "material": "#101215",
-   "segments": 8,
-   "stations": [
-    [
-     9.634,
-     0.45,
-     0.435,
-     0.08,
-     0.035,
-     0.035,
-     3
-    ],
-    [
-     9.574,
-     0.45,
-     0.435,
-     0.1,
-     0.045,
-     0.045,
-     3
-    ]
-   ]
-  },
-  {
    "name": "Bulkhead",
    "type": "loft",
    "join": "separate",
    "fill_hull": "section",
    "material": "#121314",
-   "segments": 8,
+   "segments": 6,
    "stations": [
     [
      9.014,
@@ -1751,7 +1629,7 @@
    "name": "HookWell",
    "type": "loft",
    "join": "cut",
-   "segments": 10,
+   "segments": 6,
    "stations": [
     [
      -3.566,
@@ -1800,7 +1678,7 @@
     -1.5,
     0.0
    ],
-   "segments": 12,
+   "segments": 8,
    "stations": [
     [
      -0.066,
@@ -1857,7 +1735,7 @@
     0,
     0
    ],
-   "chord_points": 5,
+   "chord_points": 3,
    "stations": [
     [
      0.0,
@@ -1883,7 +1761,7 @@
     0,
     0
    ],
-   "chord_points": 5,
+   "chord_points": 3,
    "stations": [
     [
      0.0,
@@ -1917,7 +1795,7 @@
    "root_r": 0.42,
    "chord": 0.62,
    "sweep": 0.22,
-   "chord_points": 4,
+   "chord_points": 3,
    "hand": -1
   },
   {
@@ -1936,7 +1814,7 @@
    "root_r": 0.5,
    "chord": 0.62,
    "sweep": 0.22,
-   "chord_points": 4,
+   "chord_points": 3,
    "phase_deg": 30,
    "hand": 1
   },
@@ -1956,7 +1834,7 @@
    "root_r": 0.42,
    "chord": 0.62,
    "sweep": 0.22,
-   "chord_points": 4,
+   "chord_points": 3,
    "hand": -1,
    "span_range": [
     0.86,
@@ -1979,7 +1857,7 @@
    "root_r": 0.5,
    "chord": 0.62,
    "sweep": 0.22,
-   "chord_points": 4,
+   "chord_points": 3,
    "phase_deg": 30,
    "hand": 1,
    "span_range": [
@@ -2463,6 +2341,7 @@
   }
  ],
  "ground_y": -2.0,
+ "decimate": 0.5,
  "open_cabin": {
   "lo": [
    -1.4,
@@ -2735,44 +2614,45 @@
    "polygons_m": [
     [
      [
-      -7.066,
+      -7.076,
       3.2
      ],
      [
-      -7.066,
-      1.17
+      -7.076,
+      1.1
      ],
      [
-      -8.166,
-      1.17
+      -8.266,
+      1.1
      ],
      [
-      -8.166,
+      -8.266,
       3.2
      ]
     ],
     [
      [
-      -7.066,
-      0.82
+      -7.076,
+      0.92
      ],
      [
-      -7.066,
+      -7.076,
       -1.1
      ],
      [
-      -8.166,
+      -8.266,
       -1.1
      ],
      [
-      -8.166,
-      0.82
+      -8.266,
+      0.92
      ]
     ]
    ]
   }
  ],
  "gear": {
+  "wheel_sides": 10,
   "legs": [
    {
     "name": "Nose",
