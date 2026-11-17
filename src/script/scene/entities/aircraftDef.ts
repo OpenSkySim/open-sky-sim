@@ -129,6 +129,8 @@ export interface FlyableAircraftDef {
     attachments?: AircraftAttachmentConfig[] | null;
     /** Cockpit eye offset from the aircraft origin (body frame, m): [x, y, z]. */
     cockpitOffset: [number, number, number];
+    /** Eye points of every crew seat with a pilot figure (body frame, m); absent: one at the cockpit. */
+    pilotSeats?: [number, number, number][];
     /** Optional spawn metadata from the source mod. */
     spawn?: AircraftSpawnConfig;
     /** FM2 flight-dynamics config; when set, the FM2 model flies this aircraft. */

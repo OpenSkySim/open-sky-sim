@@ -142,6 +142,8 @@ def export_pack(out_dir: str, pack: bool = True) -> dict:
         'fx': {'wingtips': [_vec(w) for w in scene['lpa_wingtips']] if 'lpa_wingtips' in scene else None,
                'nozzles': None},
     }
+    if scene.get('lpa_pilot_seats'):
+        manifest['pilotSeats'] = [_vec(s) for s in json.loads(scene['lpa_pilot_seats'])]
     if tailhook:
         manifest['tailhook'] = tailhook
     with open(os.path.join(out_dir, 'manifest.json'), 'w') as f:

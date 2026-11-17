@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PILOT_MODEL_URL, pilotSeatForBody } from './pilotFit';
+import { PILOT_MODEL_URL, pilotSeatsForBody } from './pilotFit';
 import { FrameShift } from '../../terrain/geodesy';
 import { AudioClip } from '../../audio/audioSystem';
 import { isOverlayKeyEvent } from '../../input/overlayKeys';
@@ -116,8 +116,8 @@ export class PlayerEntity implements Entity {
     private modelTailhook: LODHelper | undefined;
     /** Rigid seated pilot, origin at its eye point. */
     private modelPilot: LODHelper | undefined;
-    /** Where the pilot sits under this airframe's canopy (body frame); none without a canopy to sit under. */
-    private pilotSeat: THREE.Vector3 | null = null;
+    /** Where the pilots sit under this airframe's canopy (body frame); none without a canopy to sit under. */
+    private pilotSeats: THREE.Vector3[] = [];
     private readonly _pilotPos = new THREE.Vector3();
     private shadowPosition = new THREE.Vector3();
     private shadowQuaternion = new THREE.Quaternion();
@@ -306,7 +306,7 @@ export class PlayerEntity implements Entity {
     private buildFromDef(def: FlyableAircraftDef): void {
         this.fx.configureFromDef(def);
 
-        this.pilotSeat = null; // until the new airframe has loaded
+        this.pilotSeats = []; // until the new airframe has loaded
         this.modelBody = new LODHelper(this.models.getModel(def.body, (_, model) => {
             // Operate on the model the loader hands back rather than this.modelBody:
             // for an already-cached body the listener fires synchronously, before
@@ -314,8 +314,7 @@ export class PlayerEntity implements Entity {
             // the previous aircraft.
             this.fx.onBodyModelLoaded(model);
             this.trackAircraftModel(model);
-            const seat = pilotSeatForBody(model, def.cockpitOffset, def.body);
-            this.pilotSeat = seat ? new THREE.Vector3(...seat) : null;
+            this.pilotSeats = pilotSeatsForBody(model, def, def.body).map(s => new THREE.Vector3(...s));
         }));
         const shadowModel = this.models.getModel(def.shadow);
         this.modelShadow = new LODHelper(shadowModel, 5);
@@ -1035,15 +1034,17 @@ export class PlayerEntity implements Entity {
                 if (showTailhook && this.modelTailhook) {
                     this.renderTailhook(targetWidth, camera, palette, lists);
                 }
-                // The pilot, under the canopy glass.
-                if (this.modelPilot && this.pilotSeat && !crashed) {
-                    this._pilotPos.copy(this.pilotSeat)
-                        .multiply(this.obj.scale)
-                        .applyQuaternion(this.displayQuaternion).add(this.displayPosition);
-                    this.modelPilot.addToRenderList(
-                        this._pilotPos, this.displayQuaternion, this.obj.scale,
-                        targetWidth, camera, palette,
-                        SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
+                // The pilots, under the canopy glass.
+                if (this.modelPilot && !crashed) {
+                    for (const seat of this.pilotSeats) {
+                        this._pilotPos.copy(seat)
+                            .multiply(this.obj.scale)
+                            .applyQuaternion(this.displayQuaternion).add(this.displayPosition);
+                        this.modelPilot.addToRenderList(
+                            this._pilotPos, this.displayQuaternion, this.obj.scale,
+                            targetWidth, camera, palette,
+                            SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
+                    }
                 }
 
                 const still = this._showcaseMode || crashed;

@@ -238,6 +238,25 @@ export function pilotSeatForBody(model: Model, eye: readonly [number, number, nu
 }
 
 /**
+ * Every pilot of an airframe (origins, body frame). An aircraft whose manifest
+ * names its seats (`pilotSeats`, eye points: a two-seat cockpit) gets a pilot at
+ * each, sunk under whatever is above; else the one pilot of
+ * {@link pilotSeatForBody} at the cockpit eye point, or none.
+ */
+export function pilotSeatsForBody(
+    model: Model,
+    def: { cockpitOffset: readonly [number, number, number]; pilotSeats?: readonly (readonly [number, number, number])[] },
+    key?: string,
+): V3[] {
+    if (def.pilotSeats && def.pilotSeats.length > 0) {
+        const body = bodyTriangles(model);
+        return def.pilotSeats.map(e => [e[0], e[1] - dropAt(body, [e[0], e[1], e[2]]), e[2]] as V3);
+    }
+    const seat = pilotSeatForBody(model, def.cockpitOffset, key);
+    return seat ? [seat] : [];
+}
+
+/**
  * How far (m) to lower the pilot below the eye point so the helmet clears the
  * canopy: rays straight up from the head (front, middle, back) through the
  * body model's LOD 0 meshes. 0 when nothing is above.

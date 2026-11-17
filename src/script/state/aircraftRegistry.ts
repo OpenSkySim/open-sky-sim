@@ -90,6 +90,7 @@ interface AircraftManifest {
     fx?: { wingtips?: [[number, number, number], [number, number, number]] | null; nozzles?: [number, number, number][] | null; nozzleRadius?: number | null };
     attachments?: { name: string; position: [number, number, number]; forward: [number, number, number] }[] | null;
     cockpitOffset?: [number, number, number];
+    pilotSeats?: [number, number, number][] | null;
     spawn?: { offset?: number; rotation?: number; dotColors?: [number, number, number] };
     groundOffsetY?: number;
     groundRestHeightM?: number;
@@ -180,6 +181,7 @@ function manifestToDef(id: string, m: AircraftManifest): FlyableAircraftDef {
         collision: m.collision ?? undefined,
         collisionMesh: m.collisionMesh ?? undefined,
         cockpitOffset: m.cockpitOffset ?? [0, 1.0, 6.0],
+        pilotSeats: m.pilotSeats ?? undefined,
         spawn: m.spawn ?? undefined,
         attachments: m.attachments ?? undefined,
         fx: { wingtips: m.fx?.wingtips ?? null, nozzles: m.fx?.nozzles ?? null, nozzleRadius: m.fx?.nozzleRadius ?? null },
