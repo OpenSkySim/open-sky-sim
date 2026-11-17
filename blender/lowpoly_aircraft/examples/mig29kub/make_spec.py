@@ -150,7 +150,7 @@ def main():
     # Intake and engine nacelle, one per side: square raked mouth tucked under the LERX (top lip at d 4.6,
     # lower lip sloping back to d 7.7), round towards the nozzle.
     nacelle = [
-        (4.6, 0.8, 0.36, -0.56, -0.03, 5.0), (5.4, 0.84, 0.48, -0.68, 0.0, 5.0),
+        (4.6, 0.8, 0.36, -0.56, -0.03, 6.0), (5.4, 0.84, 0.48, -0.68, 0.0, 5.5),
         (6.5, 0.85, 0.54, -0.9, 0.0, 4.2), (7.7, 0.85, 0.56, -1.12, 0.02, 3.6),
         (8.6, 0.85, 0.56, -1.12, 0.04, 3.3), (9.4, 0.85, 0.56, -1.1, 0.05, 3.0),
         (10.4, 0.85, 0.56, -0.98, 0.08, 2.6), (11.7, 0.85, 0.55, -0.88, 0.1, 2.3),
@@ -160,13 +160,20 @@ def main():
     # Bulge under the wing root outboard of each nacelle that takes the folded main wheel.
     gear_bulge = [(7.8, 0.03, -0.3, -0.05, 2.5), (8.05, 0.2, -0.85, 0.03, 2.8), (8.4, 0.27, -1.02, 0.05, 3.0),
                   (9.8, 0.27, -1.02, 0.05, 3.0), (10.35, 0.2, -0.88, 0.03, 2.8), (10.8, 0.06, -0.6, 0.0, 2.5)]
-    intake_mouth = [(4.55, 0.8, 0.31, -0.5, -0.08, 4.0), (5.0, 0.82, 0.34, -0.56, -0.08, 4.0),
-                    (5.6, 0.85, 0.34, -0.62, -0.12, 3.6), (6.3, 0.85, 0.22, -0.6, -0.22, 3.0),
-                    (6.6, 0.85, 0.05, -0.45, -0.35, 2.0)]
+    # Duct behind a thin (3-4 cm) lip, running deep into the nacelle before it closes.
+    intake_mouth = [(4.55, 0.8, 0.325, -0.525, -0.065, 5.0), (5.0, 0.82, 0.37, -0.58, -0.06, 4.8),
+                    (5.6, 0.845, 0.42, -0.66, -0.07, 4.2), (6.4, 0.85, 0.4, -0.78, -0.12, 3.5),
+                    (7.1, 0.85, 0.25, -0.72, -0.28, 2.6), (7.4, 0.85, 0.05, -0.55, -0.45, 2.0)]
+    # Raked mouth (pictures): the lower lip and the side walls reach 0.45 m further forward at the
+    # bottom than under the LERX.
+    ilip = [(0.47, -0.545, 4.15, 0.5, 0.08), (1.13, -0.545, 4.15, 0.5, 0.08)]
+    iwall_in = [(0.45, -0.54, 4.15, 0.5, 0.06), (0.45, -0.05, 4.57, 0.08, 0.3)]
+    iwall_out = [(1.15, -0.54, 4.15, 0.5, 0.06), (1.15, -0.05, 4.57, 0.08, 0.3)]
     # Nozzles (pictures): short grey shroud, then long convergent dark petals.
     nozzle = [(14.15, 0.5, -0.85, 0.15, 2.0), (14.45, 0.49, -0.84, 0.14, 2.0)]
     petals = [(14.43, 0.47, -0.82, 0.12, 2.0), (14.75, 0.445, -0.795, 0.095, 2.0), (15.05, 0.4, -0.75, 0.05, 2.0)]
-    nozzle_mouth = [(15.0, 0.36, -0.71, 0.01, 2.0), (15.06, 0.36, -0.71, 0.01, 2.0)]
+    # Black exit disc over the petal ends, leaving a 4 cm dark petal rim around it.
+    nozzle_mouth = [(15.05, 0.36, -0.71, 0.01, 2.0), (15.07, 0.36, -0.71, 0.01, 2.0)]
     # Flat tail booms outboard of the engines (body edge x 1.56-1.88) carrying fin and stabilator.
     # Booms end in pointed tail stingers beside the nozzles (pictures).
     boom = [(7.6, 0.03, -0.1, 0.05, 2.0), (8.0, 0.12, -0.18, 0.11, 2.3), (8.4, 0.16, -0.22, 0.14, 2.5),
@@ -252,12 +259,18 @@ def main():
              'surface': {'type': 'stabilator', 'view': 'top', 'hinge_m': top_m([(1.75, 14.4), (3.6, 14.4)])}},
             {'name': 'IntakeMouth', 'type': 'loft', 'join': 'cut', 'mirror': True, 'material': DARK, 'segments': 12,
              'stations': loft_rows_cx(intake_mouth)},
-            {'name': 'Nozzle', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#5d6268',
+            {'name': 'Nozzle', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#6a6f74',
              'segments': 18, 'stations': loft_rows(nozzle, 0.85)},
-            {'name': 'NozzleMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#141516',
+            {'name': 'NozzleMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#050505',
              'segments': 18, 'stations': loft_rows(nozzle_mouth, 0.85)},
             {'name': 'Pitot', 'type': 'loft', 'join': 'separate', 'segments': 8, 'stations': loft_rows(pitot)},
-            {'name': 'NozzlePetals', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3b3e42',
+            {'name': 'IntakeLip', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4,
+             'stations': panel_rows(ilip)},
+            {'name': 'IntakeWallInner', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4,
+             'normal': [1.0, 0.0, 0.0], 'stations': panel_rows(iwall_in)},
+            {'name': 'IntakeWallOuter', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4,
+             'normal': [1.0, 0.0, 0.0], 'stations': panel_rows(iwall_out)},
+            {'name': 'NozzlePetals', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#26282b',
              'segments': 18, 'stations': loft_rows(petals, 0.85)},
             {'name': 'Irst', 'type': 'loft', 'join': 'separate', 'material': '#1e2a33', 'segments': 8,
              'stations': loft_rows(irst, -0.22)},
@@ -342,8 +355,8 @@ def main():
              'retract_deg': 90, 'strut_top_y_m': main_top, 'wheel_radius_m': main_r, 'wheel_width_m': 0.26},
         ],
             'doors': [
-                {'name': 'Nose', 'well': 'NoseWell', 'open_deg': 95},
-                {'name': 'Main', 'well': 'MainWell', 'mirror': True, 'open_deg': 95},
+                {'name': 'Nose', 'well': 'NoseWell', 'open_deg': 88, 'thickness_m': 0.035},
+                {'name': 'Main', 'well': 'MainWell', 'mirror': True, 'open_deg': 90, 'thickness_m': 0.035},
             ]},
         'cockpit_m': P(0.0, 1.2, 4.4),
         # Eye points of the two crew seats (front instructor/student, rear behind the frame at d 5.3).
