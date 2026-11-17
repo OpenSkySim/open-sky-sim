@@ -105,7 +105,7 @@ dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .ed-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
 .ed-inner { position: relative; }
 .ed-inner img { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
-.ed-inner svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.ed-inner svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; overflow: visible; }
 .ed-side { display: flex; flex-direction: column; gap: 10px; font-size: 12px; min-width: 0; }
 .ed-side fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 0; display: grid; gap: 6px; }
 .ed-side legend { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; padding: 0 4px; }
@@ -910,9 +910,17 @@ function calOut() {
 function setTool(t) {
   R.tool = t; R.pts = [];
   document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool === t));
-  $('edHelp').innerHTML = t ? TOOL_HELP[t] : (curView() ? 'Pick a tool to mark this view, or switch views above.' : 'Add a view for each drawing on this image (a three-view sheet has several).');
+  $('edHelp').innerHTML = t ? TOOL_HELP[t] : (curView() ? 'Drag the box handles or the marked points to adjust; × or Delete removes the view. Click another box\'s label to switch views.' : 'Add a view for each drawing on this image (a three-view sheet has several).');
   edSvg.style.cursor = t ? 'crosshair' : 'default';
 }
+document.addEventListener('keydown', e => {
+  if ((e.key !== 'Delete' && e.key !== 'Backspace') || $('editor').hidden || !curView()) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  if (!edWrap.matches(':hover')) return;
+  e.preventDefault();
+  deleteView(R.viewIdx);
+});
 document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => {
   if (!curView()) return;
   setTool(R.tool === b.dataset.tool ? null : b.dataset.tool);
@@ -932,9 +940,35 @@ function imgPx(e) {
   const r = edSvg.getBoundingClientRect();
   return [(e.clientX - r.left) / r.width * R.sel.size[0], (e.clientY - r.top) / r.height * R.sel.size[1]].map(n => Math.round(n * 10) / 10);
 }
+// Without a tool: drag the box's handles (corners, edges, inside to move it), the nose, scale and
+// ground points; click another view's label to select it; the × on the box removes the view.
+function deleteView(i) {
+  if (!R.sel || !R.sel.views[i]) return;
+  R.sel.views.splice(i, 1);
+  R.viewIdx = Math.max(0, Math.min(R.viewIdx, R.sel.views.length - 1));
+  R.pts = [];
+  setTool(null);
+  changed();
+}
 edSvg.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !R.sel) return;
+  const h = e.target.dataset && e.target.dataset.h;
+  const sel = e.target.dataset && e.target.dataset.sel;
+  if (!R.tool && sel !== undefined) {
+    R.viewIdx = +sel; R.pts = [];
+    renderViews(); fillForm(); drawMarks();
+    return;
+  }
+  if (!R.tool && h === 'del') { deleteView(R.viewIdx); return; }
+  if (!R.tool && h && curView()) {
+    const v = curView();
+    R.edit = { h, p0: imgPx(e), crop0: v.crop && [...v.crop], moved: false };
+    edSvg.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    return;
+  }
   const v = curView();
-  if (!v || !R.tool || e.button !== 0) return;
+  if (!v || !R.tool) return;
   const p = imgPx(e);
   const cal = v.cal || (v.cal = {});
   if (R.tool === 'crop') { R.drag = p; edSvg.setPointerCapture(e.pointerId); return; }
@@ -953,12 +987,43 @@ edSvg.addEventListener('pointerdown', e => {
   }
 });
 edSvg.addEventListener('pointermove', e => {
+  if (R.edit) {
+    const v = curView(), p = imgPx(e), E = R.edit;
+    const du = p[0] - E.p0[0], dv = p[1] - E.p0[1];
+    if (!E.moved && Math.hypot(du, dv) < 1) return;
+    E.moved = true;
+    const cal = v.cal || (v.cal = {});
+    if (E.h === 'nose') cal.nose = p;
+    else if (E.h === 'ground') cal.ground = p;
+    else if (E.h === 'sa' || E.h === 'sb') { cal.scale[E.h === 'sa' ? 'a' : 'b'] = p; delete cal.px_per_m; }
+    else if (E.crop0) {
+      const c = [...E.crop0];
+      if (E.h === 'move') { c[0] += du; c[2] += du; c[1] += dv; c[3] += dv; }
+      if (E.h.includes('w')) c[0] += du;
+      if (E.h.includes('e')) c[2] += du;
+      if (E.h.includes('n')) c[1] += dv;
+      if (E.h.includes('s')) c[3] += dv;
+      v.crop = c.map(n => Math.round(n * 10) / 10);
+    }
+    drawMarks(); calOut();
+    return;
+  }
   if (!R.drag) return;
   const p = imgPx(e);
   R.dragBox = [Math.min(R.drag[0], p[0]), Math.min(R.drag[1], p[1]), Math.max(R.drag[0], p[0]), Math.max(R.drag[1], p[1])];
   drawMarks();
 });
 edSvg.addEventListener('pointerup', () => {
+  if (R.edit) {
+    const E = R.edit, v = curView();
+    R.edit = null;
+    if (v && v.crop) {
+      const [a, b, c, d] = v.crop;
+      v.crop = [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
+    }
+    if (E.moved) changed();
+    return;
+  }
   if (!R.drag) return;
   const box = R.dragBox;
   R.drag = null; R.dragBox = null;
@@ -978,19 +1043,38 @@ function drawMarks() {
   if (!R.sel || !R.sel.size) return;
   const k = R.sel.size[0] / Math.max(edSvg.getBoundingClientRect().width, 1);   // image px per screen px
   const lw = 1.6 * k, fs = 12 * k;
-  R.sel.views.forEach((v, i) => {
+  const free = !R.tool;   // handles work when no tool is picked
+  const order = R.sel.views.map((v, i) => i).filter(i => i !== R.viewIdx).concat(R.sel.views[R.viewIdx] ? [R.viewIdx] : []);
+  order.forEach(i => {
+    const v = R.sel.views[i];
     const on = i === R.viewIdx, col = on ? 'var(--ref-ink)' : 'var(--accent)';
     const g = el('g', { opacity: on ? 1 : 0.55 }, edSvg);
     if (v.crop) {
       const [u0, v0, u1, v1] = v.crop;
-      el('rect', { x: u0, y: v0, width: u1 - u0, height: v1 - v0, fill: 'none', stroke: col, 'stroke-width': lw, 'stroke-dasharray': `${6 * k} ${4 * k}` }, g);
+      if (on && free) el('rect', { x: u0, y: v0, width: u1 - u0, height: v1 - v0, fill: 'transparent', 'data-h': 'move', style: 'cursor: move' }, g);
+      el('rect', { x: u0, y: v0, width: u1 - u0, height: v1 - v0, fill: 'none', stroke: col, 'stroke-width': lw, 'stroke-dasharray': `${6 * k} ${4 * k}`, 'pointer-events': 'none' }, g);
       const t = el('text', { x: u0 + 4 * k, y: v0 + fs + 2 * k, fill: col, 'font-size': fs, 'font-weight': 600 }, g);
       t.textContent = v.view;
+      if (!on && free) { t.dataset.sel = i; t.setAttribute('style', 'cursor: pointer'); }
+      if (on && free) {
+        const hs = 9 * k, mu = (u0 + u1) / 2, mv = (v0 + v1) / 2;
+        const spots = { nw: [u0, v0], n: [mu, v0], ne: [u1, v0], e: [u1, mv], se: [u1, v1], s: [mu, v1], sw: [u0, v1], w: [u0, mv] };
+        const cursors = { nw: 'nwse', se: 'nwse', ne: 'nesw', sw: 'nesw', n: 'ns', s: 'ns', e: 'ew', w: 'ew' };
+        for (const [h, [x, y]] of Object.entries(spots))
+          el('rect', { x: x - hs / 2, y: y - hs / 2, width: hs, height: hs, fill: 'var(--panel)', stroke: col, 'stroke-width': lw, 'data-h': h, style: `cursor: ${cursors[h]}-resize` }, g);
+        // × to remove this view, just outside the top-right corner.
+        const dx = u1 + 11 * k, dy = v0 - 11 * k, r = 8 * k;
+        el('circle', { cx: dx, cy: dy, r, fill: 'var(--ref-ink)', 'data-h': 'del', style: 'cursor: pointer' }, g);
+        el('path', { d: `M${dx - r / 2.4} ${dy - r / 2.4}L${dx + r / 2.4} ${dy + r / 2.4}M${dx + r / 2.4} ${dy - r / 2.4}L${dx - r / 2.4} ${dy + r / 2.4}`,
+                     stroke: '#fff', 'stroke-width': 1.8 * k, 'pointer-events': 'none' }, g);
+      }
     }
     if (!on) return;
     const cal = v.cal || {};
+    const grab = (h, p) => { if (free) el('circle', { cx: p[0], cy: p[1], r: 8 * k, fill: 'transparent', 'data-h': h, style: 'cursor: grab' }, g); };
     if (cal.nose) {
       el('circle', { cx: cal.nose[0], cy: cal.nose[1], r: 5 * k, fill: 'none', stroke: col, 'stroke-width': lw }, g);
+      grab('nose', cal.nose);
       const c = calibrate(v);
       if (c && v.view !== 'front' && v.view !== 'rear') {
         // Arrow along the aircraft's axis, 2 m aft of the nose: shows the direction and levelling.
@@ -1004,6 +1088,7 @@ function drawMarks() {
       const { a, b } = cal.scale;
       el('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: col, 'stroke-width': lw }, g);
       for (const p of [a, b]) el('circle', { cx: p[0], cy: p[1], r: 3 * k, fill: col }, g);
+      grab('sa', a); grab('sb', b);
       const t = el('text', { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 - 5 * k, fill: col, 'font-size': fs, 'text-anchor': 'middle' }, g);
       t.textContent = cal.scale.m ? `${cal.scale.m} m` : '? m';
     }
@@ -1015,6 +1100,8 @@ function drawMarks() {
                    stroke: col, 'stroke-width': lw, 'stroke-dasharray': `${2 * k} ${3 * k}` }, g);
       const t = el('text', { x: cal.ground[0] + 4 * k, y: cal.ground[1] - 4 * k, fill: col, 'font-size': fs }, g);
       t.textContent = 'ground';
+      el('circle', { cx: cal.ground[0], cy: cal.ground[1], r: 3 * k, fill: col }, g);
+      grab('ground', cal.ground);
     }
   });
   if (R.dragBox) {
