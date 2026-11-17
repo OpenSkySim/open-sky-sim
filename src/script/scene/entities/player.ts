@@ -114,8 +114,8 @@ export class PlayerEntity implements Entity {
     private modelShadow!: LODHelper;
     private modelLandingGear: LODHelper | undefined;
     private modelTailhook: LODHelper | undefined;
-    /** Rigid seated pilot, origin at its eye point. */
-    private modelPilot: LODHelper | undefined;
+    /** Rigid seated pilots (origin at the eye point), one per crew seat: a model instance is drawn at one place per frame. */
+    private modelPilots: LODHelper[] = [];
     /** Where the pilots sit under this airframe's canopy (body frame); none without a canopy to sit under. */
     private pilotSeats: THREE.Vector3[] = [];
     private readonly _pilotPos = new THREE.Vector3();
@@ -352,9 +352,7 @@ export class PlayerEntity implements Entity {
         this._hookStowedBody.fromArray(def.tailhook?.stowedDir ?? [0, 0, -1]).normalize();
 
         this.cockpitOffset.fromArray(def.cockpitOffset);
-        const pilotModel = this.models.getModel(PILOT_MODEL_URL);
-        this.modelPilot = new LODHelper(pilotModel);
-        this.trackAircraftModel(pilotModel);
+        this.modelPilots = [this.newPilotModel()];
 
         // Anchor the thrust force arrow at the nozzle exit centroid when present.
         this.hasThrustOrigin = this.fx.getThrustOrigin(this.thrustOrigin) !== null;
@@ -376,6 +374,12 @@ export class PlayerEntity implements Entity {
         });
         this.swingWings = def.swingWings;
         this.fx.setWingSweepSource(() => this.replayPose?.surfaces?.sweep ?? this.wingSweepUnit);
+    }
+
+    private newPilotModel(): LODHelper {
+        const model = this.models.getModel(PILOT_MODEL_URL);
+        this.trackAircraftModel(model);
+        return new LODHelper(model);
     }
 
     private trackAircraftModel(model: Model): void {
@@ -1035,16 +1039,17 @@ export class PlayerEntity implements Entity {
                     this.renderTailhook(targetWidth, camera, palette, lists);
                 }
                 // The pilots, under the canopy glass.
-                if (this.modelPilot && !crashed) {
-                    for (const seat of this.pilotSeats) {
+                if (!crashed) {
+                    this.pilotSeats.forEach((seat, i) => {
+                        this.modelPilots[i] ??= this.newPilotModel();
                         this._pilotPos.copy(seat)
                             .multiply(this.obj.scale)
                             .applyQuaternion(this.displayQuaternion).add(this.displayPosition);
-                        this.modelPilot.addToRenderList(
+                        this.modelPilots[i].addToRenderList(
                             this._pilotPos, this.displayQuaternion, this.obj.scale,
                             targetWidth, camera, palette,
                             SceneLayers.EntityFlats, SceneLayers.EntityVolumes, lists);
-                    }
+                    });
                 }
 
                 const still = this._showcaseMode || crashed;
