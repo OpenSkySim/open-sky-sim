@@ -203,7 +203,8 @@ def main():
     main_well = [(10.72, 0.484, -1.35, 0.3, 4), (11.3, 0.484, -1.35, 0.4, 4), (12.1, 0.484, -1.35, 0.4, 4),
                  (12.57, 0.484, -1.35, 0.2, 3)]
     # Nose gear up: strut from d 1.16, wheels |x| <= 0.26, d 1.65..2.27, y -1.53..-0.9.
-    nose_well = [(1.11, 0.36, -2.3, -0.65, 5), (1.7, 0.36, -2.3, -0.65, 5), (2.47, 0.36, -2.3, -0.65, 5)]
+    # Kept under the lowered cockpit floor (y -1.2): the leg folds 90 deg aft, stowed wheel -1.82..-1.24.
+    nose_well = [(1.11, 0.36, -2.3, -1.24, 5), (1.7, 0.36, -2.3, -1.24, 5), (2.6, 0.36, -2.3, -1.24, 5)]
     # Teardrop hub under the rotodome where the pylon meets it (mock-up photo).
     dome_hub = [(12.3, 0.0, 3.62, 3.62, 2), (12.6, 0.35, 3.45, 3.74, 2.5), (13.6, 0.42, 3.42, 3.76, 2.5),
                 (14.5, 0.3, 3.5, 3.72, 2.5), (14.9, 0.0, 3.62, 3.62, 2)]
@@ -253,7 +254,7 @@ def main():
             # Cockpit panels (user): instrument panel with screens, glare shield, centre pedestal,
             # side consoles and an overhead panel, all trimmed to the inside of the skin.
             {'name': 'InstrumentPanel', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
-             'segments': 6, 'stations': loft_rows([(1.7, 0.9, -0.56, -0.08, 6), (1.88, 0.9, -0.56, -0.08, 6)])},
+             'segments': 6, 'stations': loft_rows([(1.7, 0.9, -1.26, -0.08, 6), (1.88, 0.9, -1.26, -0.08, 6)])},
             {'name': 'GlareShield', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#16181b',
              'segments': 6, 'stations': loft_rows([(1.66, 0.9, -0.09, -0.03, 6), (1.98, 0.9, -0.09, -0.03, 6)])},
             {'name': 'ScreenInner', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#2f5263',
@@ -264,18 +265,18 @@ def main():
             {'name': 'ScreenCentre', 'type': 'loft', 'join': 'separate', 'material': '#3d5f4a', 'segments': 6,
              'stations': loft_rows([(1.88, 0.08, -0.45, -0.2, 8), (1.9, 0.08, -0.45, -0.2, 8)])},
             {'name': 'Pedestal', 'type': 'loft', 'join': 'separate', 'material': '#2e3236', 'segments': 6,
-             'stations': loft_rows([(1.88, 0.12, -0.56, -0.3, 6), (2.65, 0.12, -0.56, -0.34, 6)])},
+             'stations': loft_rows([(1.88, 0.12, -1.26, -0.6, 6), (2.65, 0.12, -1.26, -0.64, 6)])},
             {'name': 'SideConsole', 'type': 'loft', 'join': 'separate', 'mirror': True, 'clip_hull': True,
              'material': '#2e3236', 'segments': 6,
-             'stations': loft_rows([(1.95, 0.16, -0.56, -0.3, 6), (3.15, 0.16, -0.56, -0.3, 6)], 0.85)},
+             'stations': loft_rows([(1.95, 0.16, -1.26, -0.6, 6), (3.15, 0.16, -1.26, -0.6, 6)], 0.85)},
             {'name': 'Overhead', 'type': 'loft', 'join': 'separate', 'material': '#2e3236',
              'segments': 6, 'stations': loft_rows([(2.35, 0.26, 0.34, 0.42, 6), (2.95, 0.26, 0.34, 0.42, 6)])},
             {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'material': '#2a2d31',
-             'segments': 6, 'stations': loft_rows([(1.2, 2.0, -0.6, -0.56, 8), (3.26, 2.0, -0.6, -0.56, 8)])},
+             'segments': 6, 'stations': loft_rows([(1.2, 2.0, -1.24, -1.2, 8), (3.26, 2.0, -1.24, -1.2, 8)])},
             {'name': 'Seat', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 6,
-             'stations': loft_rows([(2.55, 0.22, -0.56, -0.2, 6), (2.95, 0.22, -0.56, -0.2, 6)], 0.45)},
+             'stations': loft_rows([(2.55, 0.22, -1.26, -0.9, 6), (2.95, 0.22, -1.26, -0.9, 6)], 0.45)},
             {'name': 'SeatBack', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 6,
-             'stations': loft_rows([(2.95, 0.22, -0.56, 0.4, 6), (3.12, 0.22, -0.56, 0.4, 6)], 0.45)},
+             'stations': loft_rows([(2.95, 0.22, -1.26, -0.3, 6), (3.12, 0.22, -1.26, -0.3, 6)], 0.45)},
             # Black bulkhead behind the seats: closes the open cabin off from the empty fuselage (user).
             {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#121314',
              'segments': 6, 'stations': loft_rows([(3.22, 2.5, -2.0, 2.0, 8), (3.28, 2.5, -2.0, 2.0, 8)])},
@@ -313,7 +314,7 @@ def main():
         # fuselage: a 20-sided fuselage loft, then the joined hull collapsed to half its faces.
         'decimate': 0.5,
         # The cockpit seen through the glazing: hull faces inside it that face into the airframe go.
-        'open_cabin': {'lo': P(-1.4, -0.54, 3.24), 'hi': P(1.4, 1.4, 1.0)},
+        'open_cabin': {'lo': P(-1.4, -1.24, 3.24), 'hi': P(1.4, 1.4, 1.0)},
         # Origin (the sim's centre of gravity) about the wing's quarter chord, ahead of the main wheels
         # (d 10.85); the drawing's frame had it at d Z0, behind them, so the aircraft rocked on its mains.
         'z0_m': Z0, 'origin_d': 10.0,
@@ -358,7 +359,7 @@ def main():
                             side_m([(19.31, 0.92), (19.31, -1.1), (20.5, -1.1), (20.5, 0.92)])]},
         ],
         'gear': {'wheel_sides': 10, 'legs': [
-            {'name': 'Nose', 'pos_m': P(0.0, -2.85, 1.17), 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -1.65, 'wheel_radius_m': 0.31, 'twin': True},
+            {'name': 'Nose', 'pos_m': P(0.0, -2.85, 1.17), 'retract': 'aft', 'retract_deg': 90, 'strut_top_y_m': -1.53, 'wheel_radius_m': 0.29, 'twin': True},
             {'name': 'Main', 'pos_m': P(4.05, -2.58, 10.85), 'mirror': True, 'retract': 'aft', 'retract_deg': 120, 'strut_top_y_m': -0.85, 'wheel_radius_m': 0.46, 'twin': True},
         ],
             # Thin bay doors (drawing: nose doors d 0.9..2.4 splayed in the front view; main doors d 9.7..11.45
@@ -370,7 +371,7 @@ def main():
         'cockpit_m': P(0.0, 0.1, 2.4),
         # The game's pilot figure in both seats (eye points: back against the seat back at d 2.95,
         # thighs on the cushion at y -0.2).
-        'pilot_seats_m': [P(0.45, 0.52, 2.70), P(-0.45, 0.52, 2.70)],
+        'pilot_seats_m': [P(0.45, -0.18, 2.70), P(-0.45, -0.18, 2.70)],  # seats and pilots 70 cm lower (user)
     }
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:
         json.dump(spec, f, indent=1)
