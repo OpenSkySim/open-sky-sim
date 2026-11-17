@@ -3,7 +3,8 @@
 Contours are measured off the owner's MiG-29KUB three-view (top, side and front views at
 40 px/m; the drawing itself stays out of the repo). Ground is y -2.0 in the drawing frame,
 d is metres aft of the radome tip and y metres above the fuselage datum; x is +left.
-Published dimensions (span 11.99 m, track 3.09 m) and the Drive photos fill in the rest.
+Intakes and nacelles follow the MiG-29M2 sheet (side, front and sections D-G). Published
+dimensions (span 11.99 m, track 3.09 m) and the Drive photos fill in the rest.
 
     python make_spec.py
 """
@@ -128,10 +129,10 @@ def main():
         (2.93, 0.54, -0.525, 0.6, 2.3, 2.1),
         (3.6, 0.58, -0.49, 0.68, 2.5, 2.2),
         (4.6, 0.6, -0.46, 0.72, 2.2, 2.3),
-        (5.6, 0.6, -0.6, 0.74, 2.1, 2.4),
-        (6.4, 0.58, -0.8, 0.76, 2.1, 2.5),
-        (7.2, 0.55, -0.88, 0.72, 2.1, 2.6),
-        (8.5, 0.5, -0.86, 0.55, 2.2, 2.6),
+        (5.6, 0.6, -0.55, 0.74, 2.1, 2.4),
+        (6.4, 0.58, -0.68, 0.76, 2.1, 2.5),
+        (7.2, 0.55, -0.68, 0.72, 2.1, 2.6),
+        (8.5, 0.5, -0.64, 0.55, 2.2, 2.6),
         # Aft of the nose-gear bay the underside rises into the tunnel between the engines
         # (9-12 sections 16-24).
         (9.5, 0.47, -0.55, 0.52, 2.4, 2.6),
@@ -153,28 +154,28 @@ def main():
         (7.93, 0.45, 0.4, 1.08, 2.7), (9.18, 0.43, 0.35, 0.85, 2.9), (10.18, 0.41, 0.3, 0.68, 2.9),
         (11.68, 0.3, 0.25, 0.42, 2.6), (12.6, 0.0, 0.2, 0.2, 2.0),
     ]
-    # Intake and engine nacelle, one per side: square raked mouth tucked under the LERX (top lip at d 4.6,
-    # lower lip sloping back to d 7.7), round towards the nozzle.
+    # Intake and engine nacelle, one per side, from the MiG-29M2 sheet (side, front and sections D-G,
+    # 41.5 px/m): a box 0.84 m wide (x 0.37-1.21) hanging under the LERX with a flat shelf between the
+    # two (section D), becoming U-shaped over the gear bay (E) and round over the engine (F, G). The
+    # mouth (x 0.43-1.14, y -0.3 to -1.1) is raked from the top lip at d 5.65 back to d 7.02.
     nacelle = [
-        (4.6, 0.9, 0.34, -0.46, -0.03, 6.0), (5.4, 0.93, 0.44, -0.62, 0.0, 5.5),
-        (6.5, 0.92, 0.5, -0.9, 0.0, 4.2), (7.7, 0.85, 0.56, -1.12, 0.02, 3.6),
-        (8.6, 0.85, 0.56, -1.12, 0.04, 3.3), (9.4, 0.85, 0.56, -1.1, 0.05, 3.0),
-        (10.4, 0.85, 0.56, -1.02, 0.08, 2.6), (11.7, 0.85, 0.55, -0.96, 0.1, 2.3),
-        (12.9, 0.85, 0.52, -0.91, 0.12, 2.1), (13.6, 0.85, 0.51, -0.87, 0.12, 2.0),
-        (14.2, 0.85, 0.5, -0.82, 0.12, 2.0),
+        (5.6, 0.79, 0.42, -1.17, -0.03, 5.0), (7.05, 0.78, 0.41, -1.19, -0.02, 5.0),
+        (8.4, 0.79, 0.42, -1.19, 0.01, 4.0), (9.5, 0.8, 0.44, -1.13, 0.02, 3.0),
+        (10.4, 0.81, 0.45, -1.07, 0.04, 2.6), (11.2, 0.82, 0.47, -1.03, 0.06, 2.3),
+        (12.4, 0.84, 0.49, -0.97, 0.08, 2.1), (13.2, 0.85, 0.5, -0.91, 0.09, 2.0),
+        (13.6, 0.85, 0.51, -0.87, 0.09, 2.0), (14.2, 0.85, 0.5, -0.82, 0.09, 2.0),
     ]
-    # Bulge under the wing root outboard of each nacelle that takes the folded main wheel.
-    gear_bulge = [(7.8, 0.03, -0.3, -0.05, 2.5), (8.05, 0.2, -0.85, 0.03, 2.8), (8.4, 0.27, -1.02, 0.05, 3.0),
-                  (9.8, 0.27, -1.02, 0.05, 3.0), (10.35, 0.2, -0.88, 0.03, 2.8), (10.8, 0.06, -0.6, 0.0, 2.5)]
-    # Duct behind a thin (3-4 cm) lip, running deep into the nacelle before it closes.
-    intake_mouth = [(4.55, 0.9, 0.305, -0.425, -0.065, 5.0), (5.0, 0.915, 0.35, -0.5, -0.06, 4.8),
-                    (5.6, 0.93, 0.39, -0.66, -0.07, 4.2), (6.4, 0.92, 0.38, -0.78, -0.12, 3.5),
-                    (7.1, 0.9, 0.25, -0.72, -0.28, 2.6), (7.4, 0.88, 0.05, -0.55, -0.45, 2.0)]
-    # Raked mouth (pictures): the lower lip and the side walls reach 0.45 m further forward at the
-    # bottom than under the LERX.
-    ilip = [(0.58, -0.445, 4.15, 0.5, 0.08), (1.22, -0.445, 4.15, 0.5, 0.08)]
-    iwall_in = [(0.565, -0.44, 4.15, 0.5, 0.06), (0.565, -0.05, 4.57, 0.08, 0.3)]
-    iwall_out = [(1.235, -0.44, 4.15, 0.5, 0.06), (1.235, -0.05, 4.57, 0.08, 0.3)]
+    # Everything ahead of the raked lip line comes off the nacelle front.
+    def lip_y(d):
+        return -0.28 - (d - 5.65) * 0.8 / 1.37
+    intake_rake = [(d, 0.79, 0.47, -1.4, lip_y(d), 8.0) for d in (5.4, 6.0, 6.6, 7.2, 7.5)]
+    # Duct inside a 5-7 cm lip, running back into the nacelle.
+    intake_mouth = [(5.4, 0.785, 0.355, -1.1, -0.3, 5.0), (7.3, 0.785, 0.355, -1.1, -0.3, 5.0),
+                    (8.2, 0.79, 0.32, -1.03, -0.35, 4.0), (8.9, 0.79, 0.12, -0.8, -0.55, 2.5)]
+    # Flat fairing under the wing root outboard of each nacelle: the main wheel turns flat as the leg
+    # folds forward, so it only needs a shallow bay (wheel y -0.42 to -0.18).
+    gear_bulge = [(7.7, 0.1, -0.12, -0.02, 2.5), (8.1, 0.45, -0.46, 0.0, 3.0), (8.5, 0.5, -0.5, 0.0, 3.5),
+                  (9.6, 0.5, -0.5, 0.0, 3.5), (10.2, 0.4, -0.46, 0.0, 3.0), (10.7, 0.12, -0.2, -0.02, 2.5)]
     # Nozzles (pictures): short grey shroud, then long convergent dark petals.
     nozzle = [(14.15, 0.5, -0.85, 0.15, 2.0), (14.45, 0.49, -0.84, 0.14, 2.0)]
     petals = [(14.43, 0.47, -0.82, 0.12, 2.0), (14.75, 0.445, -0.795, 0.095, 2.0), (15.05, 0.4, -0.75, 0.05, 2.0)]
@@ -227,16 +228,15 @@ def main():
                        (px, wing_y(px) - 0.42, pd + 0.2, 1.35, 0.055)])
 
     # Gear (all wheels touch y = GROUND): twin nose wheels at d 6.48 retract aft into the
-    # fuselage, main wheels at d 9.95, x 1.6 (drawn track) retract forward into the wing-root
-    # bulge. Wells: ahead of the strut, beside and 20 cm behind the stowed wheels.
-    nose_d, nose_top, nose_r = 6.48, -0.55, 0.3
-    main_d, main_x, main_top, main_r = 9.95, 1.6, -0.5, 0.4
+    # fuselage, main wheels at d 9.95, x 1.6 (drawn track) retract forward and turn flat
+    # into the shallow wing-root fairing. Wells: around the stowed wheels and the folded struts.
+    nose_d, nose_top, nose_r = 6.48, -0.4, 0.3
+    main_d, main_x, main_top, main_r = 9.95, 1.6, -0.3, 0.4
     nose_stow = nose_d + (nose_top - GROUND - nose_r)          # wheel centre, folded aft 90 deg
     main_stow = main_d - (main_top - GROUND - main_r)          # wheel centre, folded forward 90 deg
     nose_well = [(nose_d - 0.08, 0.3, -1.3, -0.2, 5), (nose_stow, 0.3, -1.3, -0.2, 5),
                  (nose_stow + nose_r + 0.2, 0.3, -1.3, -0.2, 5)]
-    main_well = [(main_stow - main_r - 0.2, 0.2, -1.1, -0.05, 5), (main_stow, 0.2, -1.1, -0.05, 5),
-                 (main_d + 0.08, 0.2, -1.1, -0.05, 5)]
+    main_well = [(main_stow - main_r - 0.08, 0.44, -0.6, -0.12, 6), (main_d + 0.12, 0.44, -0.6, -0.12, 6)]
     # Hook bay under the tail cone between the nozzles.
     hook_hinge, hook_len = (13.2, -0.45), 1.9
     hook_well = [(13.1, 0.12, -0.8, -0.25, 4), (15.2, 0.1, -0.7, -0.22, 4)]
@@ -254,7 +254,7 @@ def main():
             {'name': 'Nacelle', 'type': 'loft', 'mirror': True, 'segments': 16, 'resample': 14,
              'stations': loft_rows_cx(nacelle)},
             {'name': 'GearBulge', 'type': 'loft', 'mirror': True, 'segments': 12, 'resample': 8,
-             'stations': loft_rows(gear_bulge, 1.6)},
+             'stations': loft_rows(gear_bulge, 1.5)},
             {'name': 'Boom', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_rows(boom, 1.72)},
             {'name': 'Lerx', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(lerx)},
             {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 9, 'stations': panel_rows(wing)},
@@ -263,6 +263,8 @@ def main():
              'normal': [math.cos(cant), -math.sin(cant), 0.0], 'stations': panel_rows(fin)},
             {'name': 'Stabilator', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(stab),
              'surface': {'type': 'stabilator', 'view': 'top', 'hinge_m': top_m([(1.75, 14.4), (3.6, 14.4)])}},
+            {'name': 'IntakeRake', 'type': 'loft', 'join': 'cut', 'mirror': True, 'material': 'VEHICLE_PLANE_GREY', 'segments': 12,
+             'stations': loft_rows_cx([(r[0], r[1], r[2], r[3], r[4], r[5]) for r in intake_rake])},
             {'name': 'IntakeMouth', 'type': 'loft', 'join': 'cut', 'mirror': True, 'material': DARK, 'segments': 12,
              'stations': loft_rows_cx(intake_mouth)},
             {'name': 'Nozzle', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#6a6f74',
@@ -270,12 +272,6 @@ def main():
             {'name': 'NozzleMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#050505',
              'segments': 18, 'stations': loft_rows(nozzle_mouth, 0.85)},
             {'name': 'Pitot', 'type': 'loft', 'join': 'separate', 'segments': 8, 'stations': loft_rows(pitot)},
-            {'name': 'IntakeLip', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4,
-             'stations': panel_rows(ilip)},
-            {'name': 'IntakeWallInner', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4,
-             'normal': [1.0, 0.0, 0.0], 'stations': panel_rows(iwall_in)},
-            {'name': 'IntakeWallOuter', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4,
-             'normal': [1.0, 0.0, 0.0], 'stations': panel_rows(iwall_out)},
             {'name': 'NozzlePetals', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#26282b',
              'segments': 18, 'stations': loft_rows(petals, 0.85)},
             {'name': 'Irst', 'type': 'loft', 'join': 'separate', 'material': '#1e2a33', 'segments': 8,
@@ -354,6 +350,7 @@ def main():
              'strut_top_y_m': nose_top, 'wheel_radius_m': nose_r, 'twin': True},
             {'name': 'Main', 'pos_m': P(main_x, GROUND, main_d), 'mirror': True, 'retract': 'forward',
              'retract_deg': 90, 'strut_top_y_m': main_top, 'wheel_radius_m': main_r, 'wheel_width_m': 0.26,
+             'stow_twist_deg': 90,
              # Large door on the front of each main leg (Drive photos 28644252602, mig-29kub_01).
              'leg_door': {'offset_m': 0.48, 'width_m': 0.4, 'length_m': 1.2}},
         ],

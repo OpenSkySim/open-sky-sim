@@ -382,17 +382,22 @@ def _add_gear(views, hull, spec) -> None:
             if axis_body[2] != 0 and xi < 0:
                 sgn = -sgn  # inward/outward mirror across the plane of symmetry
             angle = sgn * math.radians(float(leg.get('retract_deg', 90.0)))
-            q_up = Quaternion(geo.to_bl(axis_body), angle)
+            # 'stow_twist_deg' turns the wheel about its strut while the leg folds, so it stows flat
+            # (MiG-29 mains). Keyed in steps so the combined turn stays on its path.
+            twist = math.radians(float(leg.get('stow_twist_deg', 0.0)))
+            steps = 4 if twist else 1
             for i, o in enumerate(objs):
                 o.name = f'{i}_{o.name}'
                 o.rotation_mode = 'QUATERNION'
-                o.rotation_quaternion = q_up
-                for frame in (GEAR_FRAMES[0], GEAR_MID):
-                    o.keyframe_insert('location', frame=frame)
-                    o.keyframe_insert('rotation_quaternion', frame=frame)
-                o.rotation_quaternion = Quaternion()
-                o.keyframe_insert('location', frame=GEAR_FRAMES[1])
-                o.keyframe_insert('rotation_quaternion', frame=GEAR_FRAMES[1])
+                turns = twist if o.name.endswith(('_Wheel', '_Hub')) else 0.0
+                for k in range(steps + 1):
+                    t = k / steps                      # 0 = folded, 1 = down
+                    o.rotation_quaternion = (Quaternion(geo.to_bl(axis_body), angle * (1.0 - t))
+                                             @ Quaternion((0.0, 0.0, 1.0), turns * (1.0 - t)))
+                    frames = (GEAR_FRAMES[0], GEAR_MID) if k == 0 else (GEAR_MID + t * (GEAR_FRAMES[1] - GEAR_MID),)
+                    for frame in frames:
+                        o.keyframe_insert('location', frame=frame)
+                        o.keyframe_insert('rotation_quaternion', frame=frame)
                 o.animation_data.action.name = f'{o.name}Action'
             print(f'[lpa] gear {name}: pivot {np.round(top, 2).tolist()} retracts {leg.get("retract", "aft")}')
     _add_gear_doors(gear)
