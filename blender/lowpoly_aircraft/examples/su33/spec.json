@@ -3,6 +3,7 @@
  "name": "Su-33 (Lowpoly)",
  "length_m": 21.19,
  "span_m": 14.7,
+ "refs": "refs.json",
  "material": "VEHICLE_PLANE_GREY",
  "smooth_deg": 35,
  "parts": [
