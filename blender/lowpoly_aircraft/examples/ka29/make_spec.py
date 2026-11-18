@@ -163,12 +163,12 @@ def windows_and_doors():
          'polygon_m': [[z_(0.2), 1.3], [z_(0.8), 2.1], [z_(1.05), 2.1], [z_(1.05), 1.3]],
          'clip': {'view': 'top', 'polygons_m': [
              [[-0.26, z_(0.2)], [0.26, z_(0.2)], [0.26, z_(0.78)], [-0.26, z_(0.78)]],
-             [[0.32, z_(0.25)], [0.9, z_(0.445)], [0.815, z_(0.94)], [0.32, z_(0.78)]],
-             [[-0.32, z_(0.25)], [-0.32, z_(0.78)], [-0.815, z_(0.94)], [-0.9, z_(0.445)]]]}},
+             [[0.32, z_(0.25)], [0.79, z_(0.385)], [0.735, z_(0.875)], [0.32, z_(0.78)]],
+             [[-0.32, z_(0.25)], [-0.32, z_(0.78)], [-0.735, z_(0.875)], [-0.79, z_(0.385)]]]}},
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
         {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.8, 1.3],
-         'polygon_m': [[z_(0.5), 1.32], [z_(0.965), 2.0], [z_(1.025), 2.0], [z_(0.75), 1.32]]},
+         'polygon_m': [[z_(0.435), 1.32], [z_(0.895), 2.0], [z_(1.025), 2.0], [z_(0.75), 1.32]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          'polygon_m': [[z_(0.86), 1.26], [z_(1.11), 1.86], [z_(1.17), 1.9], [z_(1.66), 1.9], [z_(1.72), 1.84],
