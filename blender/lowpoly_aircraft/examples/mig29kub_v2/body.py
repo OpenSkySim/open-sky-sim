@@ -114,6 +114,19 @@ def nose_half(d):
     return layout(pts, n_x=0.35 * hw)
 
 
+def _cap(H, cap):
+    """Cut a half outline flat at y = cap (the fuselage under the canopy stops at the red line)."""
+    if H[0, 1] <= cap:
+        return H
+    for j in range(1, len(H)):
+        if H[j, 1] <= cap:
+            a, b = H[j - 1], H[j]
+            f = (a[1] - cap) / (a[1] - b[1])
+            p = a + (b - a) * f
+            return np.vstack([[0.0, cap], p, H[j:]])
+    return H
+
+
 def section_halves():
     with open(os.path.join(HERE, 'm2_sections.json')) as f:
         raw = json.load(f)
@@ -121,6 +134,8 @@ def section_halves():
     for k, (d, sx, sy, ref, y_ref) in SECTIONS.items():
         H = np.array(raw[k]) * [sx, sy]
         H[:, 1] += (y_ref + NOSE_Y) - (H[:, 1].max() if ref == 'top' else H[:, 1].min())
+        if SILL_FROM <= d <= SILL_TO:
+            H = _cap(H, interp(TOP, d) + NOSE_Y)
         out[k] = (d, layout(H, n_x=0.35 * H[:, 0].max() if k in 'ABC' else None))
     return out
 
@@ -147,6 +162,8 @@ def body_halves():
     f = (5.62 - dC) / (dD - dC)
     hyb = C * (1 - f) + D * f
     hyb[K1 + 1:] = D[K1 + 1:]
+    # the LERX's underside must not stick out past the LERX edge this far forward
+    hyb[K1 + 1:, 0] = np.minimum(hyb[K1 + 1:, 0], hyb[K1, 0])
     keys += [(5.5, _lerp_keys([S['C'], S['D']], 5.5)), (5.62, hyb)]
     keys[-2][1][K1 + 1:] = C[K1 + 1:]
     keys += [S[k] for k in 'DEFG']
@@ -168,7 +185,9 @@ def body_halves():
             dy = interp(TOP, d) + NOSE_Y - yT
             w = np.clip((H[:K1 + 1, 1] - yL) / max(yT - yL, 1e-6), 0, 1)
             H[:K1 + 1, 1] += dy * w
-        if 2.92 < d <= 7.83 and d not in exact:
+        # A-D (owner, 2026-11-18): between the traced sections the body is a straight blend of
+        # them; only behind D does the outline get stretched to the top view's LERX edge.
+        if 7.13 < d <= 7.83:
             # LERX edge: stretch the outer part out to the top view's edge
             xL, hw = H[K1, 0], interp(HW, d)
             lower_max = H[K1 + 1:, 0].max()
