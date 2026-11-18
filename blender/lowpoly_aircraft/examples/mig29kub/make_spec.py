@@ -351,8 +351,7 @@ def main():
             {'name': 'Irst', 'type': 'loft', 'join': 'separate', 'material': '#1e2a33', 'segments': 8,
              'stations': loft_rows(irst, -0.22)},
             {'name': 'ProbeFairing', 'type': 'loft', 'segments': 10, 'stations': loft_rows(ifr, 0.42)},
-            {'name': 'FinPod', 'type': 'loft', 'mirror': True, 'segments': 6,
-             'stations': loft_rows(fin_pod, 1.8 + 2.42 * math.tan(cant) + 0.04)},
+            # No pod ahead of the fin leading edge: it read as a spike (owner, 2026-11-18).
             {'name': 'FinPodRear', 'type': 'loft', 'mirror': True, 'segments': 6,
              'stations': loft_rows(fin_pod_rear, 1.8 + 2.22 * math.tan(cant) + 0.035)},
             {'name': 'PylonInner', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 5, 'normal': [1.0, 0.0, 0.0],
