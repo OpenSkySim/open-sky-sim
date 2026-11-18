@@ -125,11 +125,11 @@ def canopy_glass():
         # One-piece windscreen (owner, 2026-11-18). Glass edges measured off the M2 side view: windscreen d 2.95-3.93, frame, front pane
         # to d 5.33, frame, rear pane to d 6.55; the sill rises from y 0.61 to 0.99 along the owner's red line (windscreen 5 cm lower, owner 2026-11-18).
         {'name': 'Windscreen', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(2.95, 0.61), (3.93, 0.78), (3.93, hi), (2.95, hi)])},
+         'polygon_m': side_m(body.glass_edge(2.95, 3.93) + [(3.93, hi), (2.95, hi)])},
         {'name': 'CanopyFront', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(3.99, 0.78), (5.33, 0.89), (5.33, hi), (3.99, hi)])},
+         'polygon_m': side_m(body.glass_edge(3.99, 5.33) + [(5.33, hi), (3.99, hi)])},
         {'name': 'CanopyRear', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(5.41, 0.90), (6.55, 0.99), (6.55, hi), (5.41, hi)])},
+         'polygon_m': side_m(body.glass_edge(5.41, 6.55) + [(6.55, hi), (5.41, hi)])},
         # Dark grey radome and the dark anti-glare panel ahead of the windscreen.
         {'name': 'Radome', 'view': 'side', 'material': '#4b5056',
          'polygon_m': side_m([(-0.1, -1.0), (-0.1, 1.0), (1.7, 1.0), (1.7, -1.0)])},
@@ -382,13 +382,13 @@ def main():
             # glare shield in each cockpit (the rear one raised behind the front seat), side consoles
             # and a black bulkhead behind the rear seat. The game draws pilots and ejection seats.
             {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'material': '#2a2d31',
-             'segments': 6, 'stations': loft_rows([(3.0, 1.2, -0.12, -0.08, 8), (6.45, 1.2, -0.12, -0.08, 8)])},
+             'segments': 6, 'stations': loft_rows([(3.0, 0.45, -0.12, -0.08, 8), (6.45, 0.45, -0.12, -0.08, 8)])},
             {'name': 'PanelFront', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
-             'segments': 6, 'stations': loft_rows([(3.75, 0.7, -0.1, 0.75, 6), (3.9, 0.7, -0.1, 0.75, 6)])},
+             'segments': 6, 'stations': loft_rows([(3.75, 0.4, -0.1, 0.75, 6), (3.9, 0.4, -0.1, 0.75, 6)])},
             {'name': 'GlareFront', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#16181b',
-             'segments': 6, 'stations': loft_rows([(3.6, 0.7, 0.72, 0.8, 6), (3.95, 0.7, 0.72, 0.8, 6)])},
+             'segments': 6, 'stations': loft_rows([(3.6, 0.38, 0.72, 0.8, 6), (3.95, 0.38, 0.72, 0.8, 6)])},
             {'name': 'PanelRear', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
-             'segments': 6, 'stations': loft_rows([(5.2, 0.7, -0.1, 0.95, 6), (5.32, 0.7, -0.1, 0.95, 6)])},
+             'segments': 6, 'stations': loft_rows([(5.2, 0.42, -0.1, 0.95, 6), (5.32, 0.42, -0.1, 0.95, 6)])},
             {'name': 'GlareRear', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#16181b',
              'segments': 6, 'stations': loft_rows([(5.15, 0.42, 0.93, 1.0, 6), (5.42, 0.42, 0.93, 1.0, 6)])},
             {'name': 'ScreenFront', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#2f5263',
@@ -397,10 +397,10 @@ def main():
              'segments': 6, 'stations': loft_rows([(5.32, 0.1, 0.5, 0.75, 8), (5.34, 0.1, 0.5, 0.75, 8)], 0.15)},
             {'name': 'ConsoleFront', 'type': 'loft', 'join': 'separate', 'mirror': True, 'clip_hull': True,
              'material': '#2e3236', 'segments': 6,
-             'stations': loft_rows([(3.9, 0.1, -0.1, 0.42, 6), (5.1, 0.1, -0.1, 0.42, 6)], 0.45)},
+             'stations': loft_rows([(3.9, 0.08, -0.1, 0.42, 6), (5.1, 0.08, -0.1, 0.42, 6)], 0.36)},
             {'name': 'ConsoleRear', 'type': 'loft', 'join': 'separate', 'mirror': True, 'clip_hull': True,
              'material': '#2e3236', 'segments': 6,
-             'stations': loft_rows([(5.32, 0.1, -0.1, 0.55, 6), (6.4, 0.1, -0.1, 0.55, 6)], 0.45)},
+             'stations': loft_rows([(5.32, 0.08, -0.1, 0.55, 6), (6.3, 0.08, -0.1, 0.55, 6)], 0.32)},
             {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'material': '#121314',
              # Only as wide and deep as the cabin: a full hull section reached into the intake ducts
              # as a black wall (owner, 2026-11-18). Shaped as the canopy's own section 3 cm inside

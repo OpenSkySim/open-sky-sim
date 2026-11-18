@@ -214,12 +214,31 @@ def body_halves():
 def canopy_rows():
     """The canopy on top of the fuselage: (d, half width, bottom, top, n) in the drawing frame."""
     ds = [2.95, 3.2, 3.5, 3.93, 4.29, 4.77, 5.01, 5.48, 5.96, 6.44, 6.6, 7.11, 7.45, 7.72]
+    deck = _deck_edge()
     out = []
     for d in ds:
         sill = interp(TOP, d) + NOSE_Y
         top = max(interp(CANOPY_TOP, d) + NOSE_Y, sill + 0.01)
-        out.append((d, round(interp(CANOPY_HW, d), 3), round(sill - 0.15, 3), round(top, 3), 2.4))
+        # The canopy reaches 0.4 m into the fuselage and is at least as wide as the deck at the
+        # sill, so no ledge of the deck shows beside it.
+        bot = sill - 0.4
+        cy, hh = 0.5 * (top + bot), 0.5 * (top - bot)
+        s = min(abs(cy - sill) / hh, 0.999)
+        frac = (1 - s ** 2.4) ** (1 / 2.4)
+        hw = max(interp(CANOPY_HW, d), min((interp(deck, d) + 0.01) / frac, interp(deck, d) + 0.06))
+        out.append((d, round(hw, 3), round(bot, 3), round(top, 3), 2.4))
     return out
+
+
+def glass_edge(d0, d1, rail=0.02):
+    """Side-view lower edge of a glass pane: the red line plus a thin canopy rail, d0 -> d1."""
+    ds = [d0] + [k for k, _ in TOP if d0 < k < d1] + [d1]
+    return [(d, round(interp(TOP, d) + NOSE_Y + rail, 3)) for d in ds]
+
+
+def _deck_edge():
+    """[(d, x)] of the fuselage's deck edge (the top's shoulder) under the canopy."""
+    return [(d, float(H[KE, 0])) for d, H in body_halves() if SILL_FROM - 0.1 <= d <= SILL_TO + 0.5]
 
 
 def bulkhead_rows(d0, d1, inset=0.03):
