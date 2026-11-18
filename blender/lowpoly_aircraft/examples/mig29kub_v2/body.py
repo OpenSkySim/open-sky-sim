@@ -15,7 +15,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NOSE_Y = -0.31            # radome tip in the drawing frame (ground -2.0, 1.69 m below the tip)
-K1, K2, K3 = 7, 4, 3      # vertices T->L, L->N, N->B: ring of 2 * 14 = 28 (low poly, owner 2026-11-18)
+K1, K2, K3 = 14, 9, 5     # vertices T->L, L->N, N->B: ring of 2 * 28 = 56
 SEGMENTS = 2 * (K1 + K2 + K3)
 
 
@@ -143,7 +143,8 @@ def body_halves():
     keys += [S[k] for k in 'DEFG']
     G = S['G'][1]
     keys += [(14.25, G.copy())]
-    stations = [0.8, 2.0, 2.92, 3.93, 4.12, 5.28, 5.5, 5.62, 7.13, 7.83, 9.64, 11.25, 12.6, 14.25]
+    stations = [0.15, 0.43, 0.75, 1.1, 1.5, 1.9, 2.3, 2.6, 2.92, 3.2, 3.5, 3.93, 4.12, 4.45, 4.8, 5.05, 5.28,
+                5.5, 5.62, 5.95, 6.3, 6.7, 7.13, 7.5, 7.83, 8.3, 8.9, 9.64, 10.4, 11.25, 12.1, 12.9, 13.78, 14.25]
     exact = {v[0] for v in SECTIONS.values()}
     out = []
     for d in stations:
