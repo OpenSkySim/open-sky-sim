@@ -164,14 +164,16 @@ def main():
         (10.2, 0.45, -0.47, 0.5, 2.6, 2.6),
         (11.7, 0.4, -0.42, 0.38, 2.6, 2.5),
         (12.9, 0.36, -0.4, 0.18, 2.6, 2.4),
-        (13.9, 0.35, -0.4, 0.1, 2.4, 2.2),
-        # Brake-chute housing between the nozzles: as wide as the gap between them, then rounded
-        # to a point at d 15.46 (M2 top view and the tail-cone area marked on it).
-        (14.6, 0.38, -0.37, 0.07, 2.4, 2.2),
-        (14.9, 0.33, -0.35, 0.05, 2.3, 2.2),
-        (15.18, 0.24, -0.31, 0.02, 2.2, 2.1),
-        (15.38, 0.13, -0.26, -0.03, 2.0, 2.0),
-        (15.46, 0.03, -0.2, -0.08, 2.0, 2.0),
+        (13.9, 0.35, -0.4, 0.06, 2.4, 2.2),
+        # Brake-chute housing between the nozzles: as wide as the gap between them and rounded to
+        # a point at d 15.46 in plan (M2 top view, tail-cone area marked on it); flat, not a cone:
+        # the top slopes smoothly down onto the underside and ends in a thin edge (owner, 2026-11-18).
+        (14.3, 0.37, -0.39, -0.1, 2.5, 2.2),
+        (14.6, 0.38, -0.38, -0.2, 2.6, 2.0),
+        (14.9, 0.33, -0.37, -0.25, 2.6, 2.0),
+        (15.18, 0.24, -0.36, -0.28, 2.4, 2.0),
+        (15.38, 0.13, -0.35, -0.3, 2.2, 2.0),
+        (15.46, 0.03, -0.34, -0.31, 2.0, 2.0),
     ]
     # Tandem canopy (full bubble, owner's MiG-35 pictures) and the broad flat-topped spine hump
     # behind it running back between the fins; top follows the side-view upper line.
@@ -283,7 +285,7 @@ def main():
     main_well = [(main_stow - main_r - 0.08, 0.44, -0.6, -0.12, 6), (main_d + 0.12, 0.44, -0.6, -0.12, 6)]
     # Hook bay under the tail cone between the nozzles.
     hook_hinge, hook_len = (13.2, -0.45), 1.9
-    hook_well = [(13.1, 0.12, -0.8, -0.25, 4), (15.2, 0.1, -0.7, -0.22, 4)]
+    hook_well = [(13.1, 0.12, -0.8, -0.25, 4), (15.0, 0.1, -0.7, -0.31, 4)]
 
     spec = {
         'id': 'lp_mig29kub',
