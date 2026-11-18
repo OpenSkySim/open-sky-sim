@@ -29,13 +29,14 @@ TOP = [(0, 0), (0.14, 0.13), (0.34, 0.23), (0.53, 0.33), (0.72, 0.42), (0.92, 0.
        (1.3, 0.59), (1.49, 0.64), (1.69, 0.69), (1.88, 0.73), (2.07, 0.78), (2.27, 0.83), (2.65, 0.89),
        # Windscreen: one straight line in side view (owner, 2026-11-18) from its foot (d 2.95,
        # 0.05 m below the glass edge first drawn) up to the frame at d 3.93.
-       (2.95, 0.92), (3.93, 1.54), (4.0, 1.58), (4.19, 1.65),
-       (4.39, 1.70), (4.77, 1.76), (4.96, 1.81), (5.73, 1.82), (5.93, 1.80), (6.12, 1.77), (6.31, 1.72),
-       (6.51, 1.66),
-       # Behind the glass the fuselage follows the owner's red line on the M2 side view
-       # (2026-11-18): it rises along the canopy sill to d 7.08 (1.34) and then runs straight
-       # down to the fin root (d 11.82, 0.90); the canopy's rear fairing slopes down onto it.
-       (6.75, 1.50), (7.08, 1.34), (7.42, 1.33), (11.82, 0.90)]
+       (2.95, 0.92), (3.93, 1.54),
+       # Canopy top: the owner's blue line on the M2 side view (2026-11-18), then the green
+       # rear fairing from the glass's end down onto the red line.
+       (4.05, 1.56), (4.29, 1.65), (4.53, 1.70), (4.77, 1.74), (5.01, 1.79), (5.48, 1.80), (5.72, 1.78),
+       (5.96, 1.76), (6.2, 1.72), (6.44, 1.67), (6.6, 1.64), (7.11, 1.49), (7.72, 1.31),
+       # Behind the canopy the fuselage follows the owner's red line: straight down to the fin
+       # root (d 11.82, 0.90).
+       (11.82, 0.90)]
 BOT = [(0, 0), (0.14, -0.06), (0.34, -0.09), (0.53, -0.13), (0.72, -0.16), (0.92, -0.18), (1.11, -0.2),
        (2.92, -0.2)]
 # Top view: half width of the nose, then of the LERX edge (to the wing root at d 7.83).
@@ -149,7 +150,7 @@ def body_halves():
     stations = [0.15, 0.43, 0.75, 1.1, 1.5, 1.9, 2.3, 2.6, 2.92, 3.2, 3.5, 3.93, 4.12, 4.45, 4.8, 5.05, 5.28,
                 5.5, 5.62, 5.95, 6.3, 6.7, 7.13, 7.5, 7.83, 8.3, 8.9, 9.64, 10.4, 11.25, 12.1, 12.9, 13.78, 14.25]
     exact = {v[0] for v in SECTIONS.values()}
-    top_exact = {SECTIONS[k][0] for k in 'ABC'}   # D-F take the side view's top line
+    top_exact = {SECTIONS['A'][0]}   # B-F take the side view's top line (owner's lines)
     out = []
     for d in stations:
         H = _lerp_keys(keys, d)
