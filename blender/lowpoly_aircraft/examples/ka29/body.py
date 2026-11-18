@@ -84,11 +84,11 @@ def build(keys, stations, bottom):
 # instead of the round outline.
 PANE_A = (0.29, 1.28, 0.23)
 PANE_B = (0.82, 1.28, 0.37)
-PANE_D = (0.29, 2.04, 0.80)
-PANE_C = (0.76, 2.04, 0.90)
+PANE_D = (0.29, 1.90, 0.695)
+PANE_C = (0.771, 1.90, 0.80)
 QUARTER_1 = (1.10, 1.28, 0.77)
-QUARTER_2 = (0.92, 2.04, 1.07)
-PANE_STATIONS = (0.235, 0.30, 0.37, 0.57, 0.77, 0.80, 0.85, 0.90, 1.07)
+QUARTER_2 = (0.98, 1.90, 1.015)
+PANE_STATIONS = (0.235, 0.30, 0.37, 0.53, 0.695, 0.77, 0.80, 0.90, 1.015)
 
 
 def _lerp(p, q, d):
@@ -96,12 +96,14 @@ def _lerp(p, q, d):
     return (p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f)
 
 
-def _pane_points(d):
+def _pane_points(d, roof=0.0):
     """Frame points of the glazing at station d, top centre outwards: centre-line top, the centre /
     side pane frame, the side pane's outer edge and the quarter pane's foot on the cabin wall
     (None ahead of B, where the side pane sits straight on the nose box, and at the pillar top)."""
     A, B, D, C, Q1, Q2 = PANE_A, PANE_B, PANE_D, PANE_C, QUARTER_1, QUARTER_2
     top = A[1] + (min(d, D[2]) - A[2]) * (D[1] - A[1]) / (D[2] - A[2])
+    if d > D[2]:
+        top = max(top, roof)      # behind the panes the roof rises with the outline to the fairing
     j2 = _lerp(A, B, d) if d <= B[2] else _lerp(B, C, d) if d <= C[2] else _lerp(C, Q2, d)
     if d <= D[2]:
         j1 = (A[0], top)
@@ -120,7 +122,7 @@ def windscreen(d, H, y0):
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
         return H
     P = H + np.array([0.0, y0])
-    j0, j1, j2, j3 = _pane_points(d)
+    j0, j1, j2, j3 = _pane_points(d, P[0, 1])
     fixed = [j0, j1, j2] + ([j3] if j3 else [])
     foot = fixed[-1]
     # The outline continues below the last frame point on the outside: skip outline points that
