@@ -164,16 +164,17 @@ def main():
         (10.2, 0.45, -0.47, 0.5, 2.6, 2.6),
         (11.7, 0.4, -0.42, 0.38, 2.6, 2.5),
         (12.9, 0.36, -0.4, 0.18, 2.6, 2.4),
-        (13.9, 0.35, -0.4, 0.06, 2.4, 2.2),
+        (13.9, 0.35, -0.4, 0.2, 2.4, 2.2),
         # Brake-chute housing between the nozzles: as wide as the gap between them and rounded to
         # a point at d 15.46 in plan (M2 top view, tail-cone area marked on it); flat, not a cone:
-        # the top slopes smoothly down onto the underside and ends in a thin edge (owner, 2026-11-18).
-        (14.3, 0.37, -0.39, -0.1, 2.5, 2.2),
-        (14.6, 0.38, -0.38, -0.2, 2.6, 2.0),
-        (14.9, 0.33, -0.37, -0.25, 2.6, 2.0),
-        (15.18, 0.24, -0.36, -0.28, 2.4, 2.0),
-        (15.38, 0.13, -0.35, -0.3, 2.2, 2.0),
-        (15.46, 0.03, -0.34, -0.31, 2.0, 2.0),
+        # the top slopes smoothly down onto the underside and ends in a thin edge, 0.4 m above the
+        # underside of the fuselage (owner, 2026-11-18).
+        (14.3, 0.37, -0.15, 0.3, 2.5, 2.2),
+        (14.6, 0.38, 0.0, 0.2, 2.6, 2.0),
+        (14.9, 0.33, 0.03, 0.15, 2.6, 2.0),
+        (15.18, 0.24, 0.04, 0.12, 2.4, 2.0),
+        (15.38, 0.13, 0.05, 0.1, 2.2, 2.0),
+        (15.46, 0.03, 0.06, 0.09, 2.0, 2.0),
     ]
     # Tandem canopy (full bubble, owner's MiG-35 pictures) and the broad flat-topped spine hump
     # behind it running back between the fins; top follows the side-view upper line.
@@ -188,9 +189,9 @@ def main():
         (7.93, 0.45, 0.4, 0.96, 2.7), (9.18, 0.43, 0.35, 0.75, 2.9), (10.18, 0.41, 0.3, 0.66, 2.9),
         # The spine stays broad and sinks smoothly onto the flat tail between the nozzles (owner,
         # 2026-11-18), no pointed end.
-        (11.68, 0.33, 0.25, 0.6, 2.6), (12.6, 0.34, 0.15, 0.45, 2.6), (13.3, 0.34, 0.0, 0.25, 2.6),
-        (13.9, 0.33, -0.12, 0.09, 2.6), (14.3, 0.35, -0.24, -0.08, 2.6), (14.6, 0.34, -0.32, -0.19, 2.6),
-        (14.9, 0.27, -0.34, -0.26, 2.6),
+        (11.68, 0.33, 0.25, 0.6, 2.6), (12.6, 0.34, 0.15, 0.45, 2.6), (13.3, 0.34, 0.05, 0.36, 2.6),
+        (13.9, 0.33, 0.0, 0.32, 2.6), (14.3, 0.35, 0.05, 0.29, 2.6), (14.6, 0.34, 0.08, 0.19, 2.6),
+        (14.9, 0.27, 0.06, 0.14, 2.6),
     ]
     # Intake and engine nacelle, one per side, from the MiG-29M2 sheet (side, front and sections D-G,
     # 41.5 px/m): a box 0.84 m wide (x 0.37-1.21) hanging under the LERX with a flat shelf between the
@@ -373,7 +374,7 @@ def main():
         'open_cabin': {'lo': P(-0.62, -0.1, 6.45), 'hi': P(0.62, 1.7, 2.9)},
         'z0_m': Z0, 'origin_d': 9.3,
         'tailhook': {'hinge': P(0.0, hook_hinge[1], hook_hinge[0]),
-                     'stowed_tip': P(0.0, hook_hinge[1] + 0.04, hook_hinge[0] + hook_len),
+                     'stowed_tip': P(0.0, hook_hinge[1] + 0.35, hook_hinge[0] + hook_len),
                      'tip': P(0.0, hook_hinge[1] - hook_len * math.sin(math.radians(50)),
                               hook_hinge[0] + hook_len * math.cos(math.radians(50)))},
         'surfaces': [
