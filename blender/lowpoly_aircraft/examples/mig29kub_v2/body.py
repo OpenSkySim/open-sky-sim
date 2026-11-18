@@ -31,8 +31,11 @@ TOP = [(0, 0), (0.14, 0.13), (0.34, 0.23), (0.53, 0.33), (0.72, 0.42), (0.92, 0.
        # 0.05 m below the glass edge first drawn) up to the frame at d 3.93.
        (2.95, 0.92), (3.93, 1.54), (4.0, 1.58), (4.19, 1.65),
        (4.39, 1.70), (4.77, 1.76), (4.96, 1.81), (5.73, 1.82), (5.93, 1.80), (6.12, 1.77), (6.31, 1.72),
-       (6.51, 1.67), (6.7, 1.63), (6.89, 1.58), (7.08, 1.51), (7.28, 1.46), (7.47, 1.41), (7.66, 1.36),
-       (7.86, 1.30), (8.05, 1.27), (8.43, 1.22), (8.82, 1.17), (9.2, 1.13), (9.6, 1.09)]
+       (6.51, 1.66),
+       # Behind the glass the fuselage follows the owner's red line on the M2 side view
+       # (2026-11-18): it rises along the canopy sill to d 7.08 (1.34) and then runs straight
+       # down to the fin root (d 11.82, 0.90); the canopy's rear fairing slopes down onto it.
+       (6.75, 1.50), (7.08, 1.34), (7.42, 1.33), (11.82, 0.90)]
 BOT = [(0, 0), (0.14, -0.06), (0.34, -0.09), (0.53, -0.13), (0.72, -0.16), (0.92, -0.18), (1.11, -0.2),
        (2.92, -0.2)]
 # Top view: half width of the nose, then of the LERX edge (to the wing root at d 7.83).
@@ -146,10 +149,11 @@ def body_halves():
     stations = [0.15, 0.43, 0.75, 1.1, 1.5, 1.9, 2.3, 2.6, 2.92, 3.2, 3.5, 3.93, 4.12, 4.45, 4.8, 5.05, 5.28,
                 5.5, 5.62, 5.95, 6.3, 6.7, 7.13, 7.5, 7.83, 8.3, 8.9, 9.64, 10.4, 11.25, 12.1, 12.9, 13.78, 14.25]
     exact = {v[0] for v in SECTIONS.values()}
+    top_exact = {SECTIONS[k][0] for k in 'ABC'}   # D-F take the side view's top line
     out = []
     for d in stations:
         H = _lerp_keys(keys, d)
-        if 2.6 < d <= 9.64 and d not in exact:
+        if 2.6 < d <= 11.82 and d not in top_exact:
             # top line: lift the upper outline (canopy, spine) onto the side view's top
             yT, yL = H[0, 1], H[K1, 1]
             dy = interp(TOP, d) + NOSE_Y - yT

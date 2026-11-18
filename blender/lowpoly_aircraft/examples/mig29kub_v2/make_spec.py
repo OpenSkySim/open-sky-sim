@@ -123,13 +123,13 @@ def canopy_glass():
         # Three panes (a flat centre one and two side ones) inside 4 cm frame bars, as in the
         # M2 top view and the KUB photo.
         # One-piece windscreen (owner, 2026-11-18). Glass edges measured off the M2 side view: windscreen d 2.95-3.93, frame, front pane
-        # to d 5.33, frame, rear pane to d 6.55; the sill rises from y 0.61 to 1.08 (windscreen 5 cm lower, owner 2026-11-18).
+        # to d 5.33, frame, rear pane to d 6.55; the sill rises from y 0.61 to 0.99 along the owner's red line (windscreen 5 cm lower, owner 2026-11-18).
         {'name': 'Windscreen', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(2.95, 0.61), (3.93, 0.81), (3.93, hi), (2.95, hi)])},
+         'polygon_m': side_m([(2.95, 0.61), (3.93, 0.78), (3.93, hi), (2.95, hi)])},
         {'name': 'CanopyFront', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(3.99, 0.87), (5.33, 0.96), (5.33, hi), (3.99, hi)])},
+         'polygon_m': side_m([(3.99, 0.78), (5.33, 0.89), (5.33, hi), (3.99, hi)])},
         {'name': 'CanopyRear', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(5.41, 0.96), (6.55, 1.08), (6.55, hi), (5.41, hi)])},
+         'polygon_m': side_m([(5.41, 0.90), (6.55, 0.99), (6.55, hi), (5.41, hi)])},
         # Dark grey radome and the dark anti-glare panel ahead of the windscreen.
         {'name': 'Radome', 'view': 'side', 'material': '#4b5056',
          'polygon_m': side_m([(-0.1, -1.0), (-0.1, 1.0), (1.7, 1.0), (1.7, -1.0)])},
