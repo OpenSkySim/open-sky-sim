@@ -8,11 +8,18 @@ x 88, centre line y 350), converted to metres here. Checked against the publishe
 fuselage 11.3 m, rotor diameter 15.9 m, height 5.44 m, main wheel track 3.5 m.
 Details follow the two deck photos in the same folder (round engine intakes on the front
 of the engine deck, twin end-plate fins, rocket pods on the outriggers).
+The owner's second sheet (side, top, bottom and front view with sections А-Л, 163.5 px/m;
+not kept here either) sets the fuselage cross-sections (body.py, ka29_sections.json), the nose
+wheel track (1.4 m), and the intake positions (front view).
     python make_spec.py
 """
 import json
 import math
 import os
+
+import numpy as np
+
+import body
 
 S = 46.2                 # px per metre, both views
 SX0, SY0 = 337.0, 243.0  # side view: nose cap x, cabin floor line y
@@ -172,8 +179,68 @@ def windows_and_doors():
     ]
 
 
+def fuselage_sections(cabin, deck):
+    """Fuselage loft rows plus one polygon section per row (body.py, sections А-Л of the second sheet)."""
+    cd = [d_(r[0]) for r in cabin]
+    dd = [d_(r[0]) for r in deck]
+
+    def bottom(d):
+        return float(np.interp(d, cd, [y_(r[2]) for r in cabin]))
+
+    def cab_top(d):
+        return float(np.interp(d, cd, [y_(r[3]) for r in cabin]))
+
+    def env_top(d):
+        t = cab_top(d)
+        if dd[0] <= d <= dd[-1]:
+            t = max(t, float(np.interp(d, dd, [y_(r[3]) for r in deck])))
+        return t
+
+    def se_key(r):
+        x, hw, yb, yt, n = r[:5]
+        nt = r[5] if len(r) > 5 else None
+        h = y_(yt) - y_(yb)
+        return d_(x), body.resample(body.superellipse_half(hw / S, h / 2, h / 2, n, nt))
+
+    secs = body.load_sections()
+    keys = [se_key(r) for r in cabin[:3]]
+    for k, sec in secs.items():
+        H = body.resample(sec['half'])
+        d = sec['d']
+        target = None
+        if k in ('A', 'B', 'V'):
+            target = env_top(d) - bottom(d)          # up to the cockpit fairing
+        elif k in ('K', 'L'):
+            target = cab_top(d) - bottom(d)          # the boom, without the deck's tail end
+        if target:
+            H[:, 1] *= target / H[:, 1].max()
+        keys.append((d, H))
+        if k == 'V':
+            # Just ahead of the deck's front face the fuselage still ends at the cockpit fairing,
+            # so the rise to section Г stays behind the face (EngineDeck).
+            H2 = H.copy()
+            H2[:, 1] *= (env_top(1.80) - bottom(1.86)) / H2[:, 1].max()
+            keys.append((1.86, H2))
+    keys += [se_key(r) for r in cabin if d_(r[0]) > 9.5 and r[1] > 0]
+    keys.sort(key=lambda k: k[0])
+    stations = sorted({round(k[0], 3) for k in keys} | {0.9, 1.45, 1.7, 2.5, 3.6, 4.7, 5.9, 7.05, 8.4})
+    rows, sections = [], []
+    for d, H, y0 in body.build(keys, stations, bottom):
+        top = y0 + H[:, 1].max()
+        cy = 0.5 * (top + y0)
+        rows.append([z_(d), 0.0, round(cy, 3), round(float(H[:, 0].max()), 3), round(top - cy, 3), round(cy - y0, 3), 2.0])
+        sections.append({'part': 'Fuselage', 'z': z_(d), 'd': round(d, 3), 'pts': body.ring_points(H, y0)})
+    tail = cabin[-1]
+    rows.append([z_(d_(tail[0])), 0.0, round(y_(tail[2]), 3), 0.0, 0.0, 0.0, 2.0])
+    return rows, sections
+
+
 def main():
     cabin, deck = fuselage()
+    fuse_rows, fuse_secs = fuselage_sections(cabin, deck)
+    # The engine deck loft keeps only its front (cockpit fairing and the face with the intakes);
+    # from section Г back the deck is part of the fuselage's sections.
+    deck_front = [r for r in deck if r[0] <= 431] + [(436, 0, 136, 136, 2.0)]
     mast_d = d_(532)
     y_low, y_up = y_(90), y_(22)
     wheel_ground = y_(263)
@@ -181,8 +248,8 @@ def main():
     nose_d = d_(436)
     pod_x, pod_y = 2.28, 0.68
     parts = [
-        {'name': 'Fuselage', 'type': 'loft', 'segments': 24, 'resample': 5, 'stations': loft_px(cabin)},
-        {'name': 'EngineDeck', 'type': 'loft', 'segments': 16, 'resample': 4, 'stations': loft_px(deck)},
+        {'name': 'Fuselage', 'type': 'loft', 'segments': body.SEGMENTS, 'stations': fuse_rows},
+        {'name': 'EngineDeck', 'type': 'loft', 'segments': 16, 'resample': 4, 'stations': loft_px(deck_front)},
         # Sensor fairing under the nose (side x 375..410).
         {'name': 'ChinPod', 'type': 'loft', 'segments': 10, 'stations': loft_px(
             [(374, 0, 233, 233, 2), (380, 7, 246, 222, 2.2), (402, 8, 247, 222, 2.2), (411, 0, 232, 232, 2)])},
@@ -191,9 +258,9 @@ def main():
             [(640, 0, 111, 104, 2), (641, 7, 112, 102, 2), (657, 7, 112, 102, 2), (658, 0, 111, 104, 2)])},
         # Engine intakes: round lips standing proud of the deck's front face, dark mouths inside.
         {'name': 'IntakeLip', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_m(
-            [(1.62, 0.25, 2.24, 2.76, 2), (1.80, 0.27, 2.22, 2.78, 2), (1.95, 0.27, 2.22, 2.78, 2)], 0.42)},
+            [(1.62, 0.25, 2.43, 2.93, 2), (1.80, 0.27, 2.41, 2.95, 2), (1.95, 0.27, 2.41, 2.95, 2)], 0.49)},
         {'name': 'IntakeMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': DARK,
-         'segments': 10, 'stations': loft_m([(1.60, 0.2, 2.30, 2.70, 2), (1.64, 0.2, 2.30, 2.70, 2)], 0.42)},
+         'segments': 10, 'stations': loft_m([(1.60, 0.2, 2.48, 2.88, 2), (1.64, 0.2, 2.48, 2.88, 2)], 0.49)},
         # Rotor mast and the swashplate drums between deck and hubs.
         {'name': 'Mast', 'type': 'strut', 'a': P(0, 2.8, mast_d), 'b': P(0, y_up + 0.25, mast_d),
          'radius': 0.13, 'sides': 10, 'join': 'separate'},
@@ -274,6 +341,7 @@ def main():
         'span_m': 15.9,
         'material': 'VEHICLE_PLANE_GREY',
         'smooth_deg': 0,
+        'sections': fuse_secs,
         'parts': parts,
         'regions': windows_and_doors(),
         'surfaces': [
@@ -286,8 +354,9 @@ def main():
         'gear': {'wheel_sides': 14, 'legs': [
             # Fixed gear (retract_deg 0). The drawing's nose wheels stand 0.24 m lower than the mains
             # (the Ka-29 sits nose-up on deck); the sim stands every wheel on one ground plane, so the
-            # nose legs are shortened and the fuselage stays level.
-            {'name': 'Nose', 'pos_m': P(0.42, wheel_ground, nose_d), 'mirror': True, 'retract_deg': 0,
+            # nose legs are shortened and the fuselage stays level, as the second sheet draws it.
+            # Nose wheel track 1.4 m (second sheet, front view).
+            {'name': 'Nose', 'pos_m': P(0.7, wheel_ground, nose_d), 'mirror': True, 'retract_deg': 0,
              'strut_top_y_m': y_(238), 'wheel_radius_m': 0.25, 'wheel_width_m': 0.16},
             {'name': 'Main', 'pos_m': P(main_x, wheel_ground, main_d), 'mirror': True, 'retract_deg': 0,
              'strut_top_y_m': wheel_ground + 0.42, 'wheel_radius_m': 0.3, 'wheel_width_m': 0.2},
