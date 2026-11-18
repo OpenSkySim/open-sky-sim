@@ -74,3 +74,43 @@ def build(keys, stations, bottom):
             H = keys[j - 1][1] * (1 - f) + keys[j][1] * f
         out.append((d, H, bottom(d)))
     return out
+
+
+# Flat windscreen (owner's photo, 2026-11-18): three flat front panes over the nose box. The centre
+# pane spans x +-0.29 from A (y 1.28, d 0.23) to D (y 2.04, d 0.80); each side pane is the plane
+# through A, B, D and C, swept back in plan (its bottom and top edges are parallel, so it is flat).
+PANE_A = (0.29, 1.28, 0.23)
+PANE_B = (0.93, 1.28, 0.43)
+PANE_D = (0.29, 2.04, 0.80)
+PANE_C = (0.84, 2.04, 0.97)
+PANE_STATIONS = (0.235, 0.33, 0.43, 0.62, 0.80, 0.89, 0.965)
+
+
+def _pane_points(d):
+    """Centre-line top, the centre/side pane frame point and the side pane's outer edge point at station d."""
+    (xa, ya, da), (xb, yb, db), (xd, yd, dd), (xc, yc_, dc) = PANE_A, PANE_B, PANE_D, PANE_C
+    if d <= dd:
+        yc = ya + (d - da) * (yd - ya) / (dd - da)
+        j0, j1 = (0.0, yc), (xa, yc)
+    else:
+        f = (d - dd) / (dc - dd)
+        j0, j1 = (0.0, yd), (xd + (xc - xd) * f, yd)
+    if d <= db:
+        f = (d - da) / (db - da)
+        j2 = (xa + (xb - xa) * f, ya)
+    else:
+        f = (d - db) / (dc - db)
+        j2 = (xb + (xc - xb) * f, yb + (yc_ - yb) * f)
+    return j0, j1, j2
+
+
+def windscreen(d, H, y0):
+    """Replace the top of a nose station's half outline (relative heights) by the flat panes' cut."""
+    if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
+        return H
+    P = H + np.array([0.0, y0])
+    j0, j1, j2 = _pane_points(d)
+    k = next(i for i in range(1, len(P)) if P[i, 1] <= j2[1])
+    lower = resample(np.vstack([[j2], P[k:]]), HALF_N - 2)
+    out = np.vstack([[j0], [j1], lower])
+    return out - np.array([0.0, y0])

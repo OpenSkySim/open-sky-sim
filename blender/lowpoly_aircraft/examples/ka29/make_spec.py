@@ -156,19 +156,19 @@ def fuselage():
 def windows_and_doors():
     side_skin = [0.6, 1.3]       # depth reaching only the left cabin wall
     return [
-        # Three flat front panes (second sheet, front view): the side-view band of the glazing, cut
-        # to three strips in the top view so the frames between them (x +-0.29, 6 cm) and the corner
-        # frames stay hull skin.
+        # Three flat front panes (owner's photo): the hull itself is cut flat there (body.windscreen),
+        # and the glass is the side-view band clipped to three top-view strips, so the frames between
+        # them (x +-0.29, 6 cm) and the corner frames stay hull skin.
         {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'depth_m': [-1.3, 1.3],
-         'polygon_m': [[z_(0.23), 1.28], [z_(0.79), 2.04], [z_(1.0), 1.93], [z_(0.69), 1.26]],
+         'polygon_m': [[z_(0.2), 1.3], [z_(0.8), 2.1], [z_(1.05), 2.1], [z_(1.05), 1.3]],
          'clip': {'view': 'top', 'polygons_m': [
-             [[-0.26, z_(0.1)], [0.26, z_(0.1)], [0.26, z_(0.95)], [-0.26, z_(0.95)]],
-             [[0.32, z_(0.1)], [0.91, z_(0.1)], [0.82, z_(0.95)], [0.32, z_(0.95)]],
-             [[-0.91, z_(0.1)], [-0.32, z_(0.1)], [-0.32, z_(0.95)], [-0.82, z_(0.95)]]]}},
-        # Side quarter panes: from the corner frame (the sloping front line of the side view) back to
-        # the door pillar (d 0.69 -> 1.0), on the cabin sides only.
-        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.95, 1.3],
-         'polygon_m': [[z_(0.33), 1.3], [z_(0.84), 2.0], [z_(0.97), 1.93], [z_(0.66), 1.3]]},
+             [[-0.26, z_(0.2)], [0.26, z_(0.2)], [0.26, z_(0.78)], [-0.26, z_(0.78)]],
+             [[0.32, z_(0.25)], [0.9, z_(0.445)], [0.815, z_(0.94)], [0.32, z_(0.78)]],
+             [[-0.32, z_(0.25)], [-0.32, z_(0.78)], [-0.815, z_(0.94)], [-0.9, z_(0.445)]]]}},
+        # Side quarter panes: a narrow triangle between the side pane's corner frame and the door
+        # pillar (photo, side view d 0.48 -> 0.95), on the cabin sides only.
+        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.93, 1.3],
+         'polygon_m': [[z_(0.5), 1.32], [z_(0.95), 1.93], [z_(0.67), 1.32]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          'polygon_m': [[z_(0.86), 1.26], [z_(1.11), 1.86], [z_(1.17), 1.9], [z_(1.66), 1.9], [z_(1.72), 1.84],
@@ -233,9 +233,12 @@ def fuselage_sections(cabin, deck):
             keys.append((1.86, H2))
     keys += [se_key(r) for r in cabin if d_(r[0]) > 9.5 and r[1] > 0]
     keys.sort(key=lambda k: k[0])
-    stations = sorted({round(k[0], 3) for k in keys} | {0.45, 0.9, 1.45, 1.7, 2.5, 3.6, 4.7, 5.9, 7.05, 8.4})
+    stations = {round(k[0], 3) for k in keys} | {1.45, 1.7, 2.5, 3.6, 4.7, 5.9, 7.05, 8.4}
+    # Nose: the flat front panes need rings exactly at their corners (body.PANE_STATIONS).
+    stations = sorted({d for d in stations if not 0.2 < d < 1.0} | set(body.PANE_STATIONS))
     rows, sections = [], []
     for d, H, y0 in body.build(keys, stations, bottom):
+        H = body.windscreen(d, H, y0)
         top = y0 + H[:, 1].max()
         cy = 0.5 * (top + y0)
         rows.append([z_(d), 0.0, round(cy, 3), round(float(H[:, 0].max()), 3), round(top - cy, 3), round(cy - y0, 3), 2.0])
