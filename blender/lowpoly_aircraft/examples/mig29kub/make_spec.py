@@ -324,6 +324,13 @@ def main():
         'parts': [
             {'name': 'Fuselage', 'type': 'loft', 'segments': 20, 'resample': 34, 'stations': loft_rows(fuselage)},
             {'name': 'Canopy', 'type': 'loft', 'segments': 20, 'resample': 18, 'stations': loft_rows(canopy)},
+            # The canopy's rounded lower half tucked in under its widest line and left a groove along the
+            # fuselage from the windscreen to the spine (owner, 2026-11-18): a box-section sill fills it,
+            # so the side runs straight down from the canopy's widest line into the fuselage side.
+            {'name': 'CanopySill', 'type': 'loft', 'segments': 16, 'resample': 18,
+             'stations': loft_rows([(d, round(a + 0.01, 3), round(yb - 0.05, 3),
+                                     round(min(0.5 * (yb + yt) + 0.1, 0.95), 3), 4.0)
+                                    for d, a, yb, yt, *_ in canopy if 3.6 <= d <= 11.7])},
             {'name': 'Nacelle', 'type': 'loft', 'mirror': True, 'segments': 16, 'resample': 14,
              'stations': loft_rows_cx(nacelle)},
             {'name': 'GearBulge', 'type': 'loft', 'mirror': True, 'segments': 12, 'resample': 8,
