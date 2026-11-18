@@ -240,7 +240,12 @@ def main():
     # (d, half width, edge y, rise to the centre line, drop to the centre line)
     shoulder = [(3.0, 0.5, 0.0, 0.5, 0.4), (4.0, 0.77, 0.0, 1.0, 0.45), (5.1, 1.08, 0.01, 0.84, 0.5),
                 (6.2, 1.34, 0.02, 0.68, 0.45), (7.05, 1.62, 0.04, 0.55, 0.3), (8.0, 1.72, 0.05, 0.4, 0.25),
-                (9.5, 1.72, 0.05, 0.25, 0.2), (11.0, 1.66, 0.05, 0.15, 0.15), (12.4, 1.55, 0.05, 0.08, 0.1)]
+                (9.5, 1.72, 0.05, 0.25, 0.2), (11.0, 1.66, 0.05, 0.15, 0.15), (12.4, 1.55, 0.05, 0.08, 0.1),
+                # Aft of the wing the deck carries on over the engines to the nozzles (owner's wireframe,
+                # 2026-11-18): one flat surface from boom to boom with the nacelle tops just bulging
+                # through, no grooves beside the spine or the nacelles; it thins out at the nozzle shrouds.
+                (13.2, 1.5, 0.05, 0.07, 0.12), (13.9, 1.45, 0.05, 0.06, 0.12), (14.15, 1.42, 0.05, 0.03, 0.06),
+                (14.3, 1.4, 0.05, 0.005, 0.01)]
     # LERX: sharp strake from beside the windscreen (x 0.5, d 2.63) to the wing root (x 1.75, d 7.58).
     lerx = [(0.45, 0.0, 2.6, 6.0, 0.025), (0.8, 0.01, 3.98, 4.65, 0.027), (1.1, 0.02, 5.0, 3.4, 0.03),
             (1.45, 0.035, 6.38, 2.2, 0.035), (1.8, 0.05, 7.75, 1.0, 0.04)]
