@@ -6159,63 +6159,6 @@
    ]
   },
   {
-   "name": "WindscreenPillar",
-   "type": "strut",
-   "mirror": true,
-   "join": "separate",
-   "material": "#4a5056",
-   "a": [
-    0.29,
-    1.29,
-    3.96
-   ],
-   "b": [
-    0.29,
-    1.97,
-    3.44
-   ],
-   "radius": 0.03,
-   "sides": 6
-  },
-  {
-   "name": "WindscreenCorner",
-   "type": "strut",
-   "mirror": true,
-   "join": "separate",
-   "material": "#4a5056",
-   "a": [
-    0.87,
-    1.31,
-    3.91
-   ],
-   "b": [
-    0.83,
-    1.82,
-    3.44
-   ],
-   "radius": 0.035,
-   "sides": 6
-  },
-  {
-   "name": "DoorPillar",
-   "type": "strut",
-   "mirror": true,
-   "join": "separate",
-   "material": "#4a5056",
-   "a": [
-    1.09,
-    1.27,
-    3.45
-   ],
-   "b": [
-    0.88,
-    1.91,
-    3.15
-   ],
-   "radius": 0.045,
-   "sides": 6
-  },
-  {
    "name": "InstrumentPanel",
    "type": "loft",
    "join": "separate",
@@ -6464,6 +6407,93 @@
     [
      3.53,
      1.26
+    ]
+   ],
+   "clip": {
+    "view": "top",
+    "polygons_m": [
+     [
+      [
+       -0.26,
+       4.12
+      ],
+      [
+       0.26,
+       4.12
+      ],
+      [
+       0.26,
+       3.27
+      ],
+      [
+       -0.26,
+       3.27
+      ]
+     ],
+     [
+      [
+       0.32,
+       4.12
+      ],
+      [
+       0.91,
+       4.12
+      ],
+      [
+       0.82,
+       3.27
+      ],
+      [
+       0.32,
+       3.27
+      ]
+     ],
+     [
+      [
+       -0.91,
+       4.12
+      ],
+      [
+       -0.32,
+       4.12
+      ],
+      [
+       -0.32,
+       3.27
+      ],
+      [
+       -0.82,
+       3.27
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "name": "QuarterPane",
+   "view": "side",
+   "mirror": true,
+   "see_through": true,
+   "depth_m": [
+    0.95,
+    1.3
+   ],
+   "polygon_m": [
+    [
+     3.89,
+     1.3
+    ],
+    [
+     3.38,
+     2.0
+    ],
+    [
+     3.25,
+     1.93
+    ],
+    [
+     3.56,
+     1.3
     ]
    ]
   },

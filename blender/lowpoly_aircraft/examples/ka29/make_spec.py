@@ -156,12 +156,19 @@ def fuselage():
 def windows_and_doors():
     side_skin = [0.6, 1.3]       # depth reaching only the left cabin wall
     return [
-        # Windscreen and the front quarter panes: the band behind the sloping front frame, through
-        # the full width (the nose is open behind it, see open_cabin).
+        # Three flat front panes (second sheet, front view): the side-view band of the glazing, cut
+        # to three strips in the top view so the frames between them (x +-0.29, 6 cm) and the corner
+        # frames stay hull skin.
         {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'depth_m': [-1.3, 1.3],
-         # second sheet: three flat front panes from y 1.28 (frame foot d 0.23) to 2.04 (d 0.79),
-         # wrapping into a side quarter pane that ends at the sloping door pillar (d 0.69 -> 1.0).
-         'polygon_m': [[z_(0.23), 1.28], [z_(0.79), 2.04], [z_(1.0), 1.93], [z_(0.69), 1.26]]},
+         'polygon_m': [[z_(0.23), 1.28], [z_(0.79), 2.04], [z_(1.0), 1.93], [z_(0.69), 1.26]],
+         'clip': {'view': 'top', 'polygons_m': [
+             [[-0.26, z_(0.1)], [0.26, z_(0.1)], [0.26, z_(0.95)], [-0.26, z_(0.95)]],
+             [[0.32, z_(0.1)], [0.91, z_(0.1)], [0.82, z_(0.95)], [0.32, z_(0.95)]],
+             [[-0.91, z_(0.1)], [-0.32, z_(0.1)], [-0.32, z_(0.95)], [-0.82, z_(0.95)]]]}},
+        # Side quarter panes: from the corner frame (the sloping front line of the side view) back to
+        # the door pillar (d 0.69 -> 1.0), on the cabin sides only.
+        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.95, 1.3],
+         'polygon_m': [[z_(0.33), 1.3], [z_(0.84), 2.0], [z_(0.97), 1.93], [z_(0.66), 1.3]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          'polygon_m': [[z_(0.86), 1.26], [z_(1.11), 1.86], [z_(1.17), 1.9], [z_(1.66), 1.9], [z_(1.72), 1.84],
@@ -322,15 +329,6 @@ def main():
         # trailing edge at d 9.1, 0.3 m deep).
         {'name': 'TailBumper', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 4,
          'stations': panel_rows([(0.0, 1.0, 8.2, 0.92, 0.1), (0.0, 0.78, 8.8, 0.3, 0.1)])},
-        # Windscreen frame (second sheet): posts at x 0.29 between the three flat front panes, corner
-        # posts at x 0.93 -> 0.84 (front view; the sloping front frame line of the side view), and the
-        # door pillar between the side quarter pane and the door window (side view d 0.77 -> 1.08).
-        {'name': 'WindscreenPillar', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': '#4a5056',
-         'a': P(0.29, 1.29, 0.26), 'b': P(0.29, 1.97, 0.78), 'radius': 0.03, 'sides': 6},
-        {'name': 'WindscreenCorner', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': '#4a5056',
-         'a': P(0.87, 1.31, 0.31), 'b': P(0.83, 1.82, 0.78), 'radius': 0.035, 'sides': 6},
-        {'name': 'DoorPillar', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': '#4a5056',
-         'a': P(1.09, 1.27, 0.77), 'b': P(0.88, 1.91, 1.07), 'radius': 0.045, 'sides': 6},
         # Cockpit behind the glazing: one open space, two seats side by side, instrument panel,
         # dark floor, black bulkhead behind the seats.
         {'name': 'InstrumentPanel', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
