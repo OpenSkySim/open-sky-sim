@@ -77,8 +77,11 @@ export class ExteriorFrontBehindCameraUpdater extends CameraUpdater {
         this.camera.position
             .copy(playerPos);
         this.camera.lookAt(this._p);
+        // Close subjects (aircraft parked in the hangar) bring the camera in.
+        const distance = followed.chaseDistance ?? 40;
+        const height = followed.chaseHeight ?? 5;
         this.camera.position
-            .addScaledVector(UP, 5)
-            .addScaledVector(this._v, 40.0 * (this.heading === ExteriorViewHeading.BACK ? 1 : -1));
+            .addScaledVector(UP, height)
+            .addScaledVector(this._v, distance * (this.heading === ExteriorViewHeading.BACK ? 1 : -1));
     }
 }

@@ -9,6 +9,9 @@ import { ExteriorViewHeading, LOCK_GROUND_CLEARANCE_M } from './exteriorFrontBeh
 export interface ChaseTarget {
     getDisplayPosition(): THREE.Vector3;
     getDisplayQuaternion(): THREE.Quaternion;
+    /** F2 camera distance behind and height above it (m); the usual 40 / 5 when absent. */
+    readonly chaseDistance?: number;
+    readonly chaseHeight?: number;
 }
 
 /** Initial opponent standoff ahead of the player (m). */

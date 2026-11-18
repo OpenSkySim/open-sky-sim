@@ -24,7 +24,7 @@ declare const __DEFAULT_SETTINGS__: string | undefined;
 const BUILD_DEFAULTS = typeof __DEFAULT_SETTINGS__ === 'string' ? __DEFAULT_SETTINGS__ : '';
 
 /** Spawn menu start modes (approach / runway / merge / carrier / highAlt / space). */
-export type SpawnMode = 'approach' | 'runway' | 'headon' | 'carrier' | 'carrierBarricade' | 'carrierTakeoff' | 'highAlt' | 'space' | 'closeWing';
+export type SpawnMode = 'approach' | 'runway' | 'headon' | 'carrier' | 'carrierBarricade' | 'carrierTakeoff' | 'carrierHangar' | 'highAlt' | 'space' | 'closeWing';
 
 /** On-screen touch flight controls: shown on touch screens, always, or never. */
 export type TouchControlsMode = 'auto' | 'on' | 'off';
@@ -183,7 +183,7 @@ const TERRAIN_COLOURS = new Set<string>(Object.values(TerrainColours));
 const TERRAIN_SHADING_VALUES = new Set<string>(Object.values(TerrainShading));
 const ROADS_MODES = new Set<string>(Object.values(RoadsMode));
 const SPAWN_MODES = new Set<SpawnMode>([
-    'approach', 'runway', 'headon', 'carrier', 'carrierBarricade', 'carrierTakeoff', 'highAlt', 'space', 'closeWing',
+    'approach', 'runway', 'headon', 'carrier', 'carrierBarricade', 'carrierTakeoff', 'carrierHangar', 'highAlt', 'space', 'closeWing',
 ]);
 
 export function loadSettings(): AppSettings {

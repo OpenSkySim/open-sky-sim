@@ -358,6 +358,7 @@ export class AircraftRegistry {
 
     constructor() {
         this.register(buildF22Def());
+        this.register(buildSu33Def());
     }
 
     private register(def: FlyableAircraftDef): void {

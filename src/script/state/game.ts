@@ -63,7 +63,9 @@ import { setBuildingsAtOnce } from '../terrain/buildingMeshes';
 import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
 import { BarricadeEntity, BarricadeRigPhase } from '../scene/entities/barricadeEntity';
 import { CarrierDeckEntity } from '../scene/entities/carrierDeckEntity';
-import { CarrierParkedAircraftEntity } from '../scene/entities/carrierParkedAircraft';
+import { CarrierChaseTarget, CarrierParkedAircraftEntity } from '../scene/entities/carrierParkedAircraft';
+import { CarrierHangarSpawnEntity } from '../scene/entities/carrierHangarSpawn';
+import { CarrierDeckSurface } from '../scene/entities/carrierDeckSurface';
 import type { AirframeCollider } from '../physics/barricade/webBarricade';
 import { WebDeck } from '../physics/barricade/webDeck';
 import { BarricadeEngagement, BARRICADE_DECK_Y, barricadeFrameWorld } from '../scene/entities/barricadeSpec';
@@ -130,7 +132,7 @@ import {
     fadeOutBootProgress, setBootProgress, setBootStreaming, startStreamHoldBar,
 } from '../osd/bootProgress';
 import { SpawnPanel } from '../osd/spawnPanel';
-import { AircraftRegistry, buildF22Def, buildSu33Def, groupAircraftByModel } from './aircraftRegistry';
+import { AircraftRegistry, buildF22Def, groupAircraftByModel } from './aircraftRegistry';
 import { mergePackLists, PackEntry } from './builtinPacks';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 import { flightConfigWithArrestorHook } from '../scene/entities/arrestorCables';
@@ -602,6 +604,10 @@ const CARRIER_GROOVE_SETUP: Partial<Record<SimFlightModelKind, CarrierGrooveSetu
 
 /** On-deck takeoff: take-off position 1 (port, ~116 m from the lip), facing up its lane. */
 const CARRIER_TAKEOFF_POSITION = TAKEOFF_POSITIONS[0];
+/** Whom the F2 view can follow besides the player: a flying aircraft or one on the carrier. */
+type ExteriorSubject = AiAircraftEntity | CarrierChaseTarget;
+/** The aircraft the hangar spawn brings up from the hangar: the parked Su-33 (carrierParkedAircraft.ts). */
+const HANGAR_SPAWN_AIRCRAFT_ID = 'su33d';
 /** The jet starts this far (m) up its lane from the painted start position. */
 const CARRIER_TAKEOFF_AHEAD_OF_START_M = 5.3;
 const CARRIER_TAKEOFF_LANE_DX = CARRIER_TAKEOFF_POSITION.lane[1].x - CARRIER_TAKEOFF_POSITION.start.x;
@@ -1000,7 +1006,7 @@ export class Game {
     /** Aircraft already locked in this Num Enter cycle; the cycle ends (unlocks) once all are. */
     private readonly exteriorLockVisited = new Set<AiAircraftEntity>();
     /** The aircraft the F2 view follows; undefined is the player (see cycleExteriorSubject). */
-    private exteriorSubject: AiAircraftEntity | undefined;
+    private exteriorSubject: ExteriorSubject | undefined;
     /**
      * A view change in progress: where the camera was, in the aircraft's own
      * frame (so the glide travels with it), and how far into the glide.
@@ -1029,6 +1035,9 @@ export class Game {
     private heldOrbitKeys = new Set<string>();
     /** A flight held by the settings dialog: it is open over it and nothing moves until it closes. */
     private menuPaused = false;
+    /** The carrier's parked aircraft and the hangar spawn's run up to the deck. */
+    private parkedAircraft: CarrierParkedAircraftEntity | undefined;
+    private hangarSpawn: CarrierHangarSpawnEntity | undefined;
 
     /** Flight replay: the recorder runs for the whole flight, Shift+F4 plays it back. */
     private readonly recorder = new FlightRecorder();
@@ -1047,7 +1056,7 @@ export class Game {
     /** The orbit last set from the recording: any other value means the user turned it. */
     private followedOrbit: { yaw: number; pitch: number; zoom: number } | undefined;
     /** The view the flight had when the replay began, put back when it ends. */
-    private replayLiveView: { view: PlayerViewState; subject: AiAircraftEntity | undefined; yaw: number; pitch: number; zoom: number } | undefined;
+    private replayLiveView: { view: PlayerViewState; subject: ExteriorSubject | undefined; yaw: number; pitch: number; zoom: number } | undefined;
     /** The rest of the world for the replay: other aircraft, gun rounds, the carrier. */
     private readonly worldRecorder = new WorldRecorder();
     /** Recording id per AI aircraft, stable for the entity's life. */
@@ -2649,8 +2658,13 @@ export class Game {
             if (this.cockpitPadlock && (!this.player.weaponsTarget || this.view !== PlayerViewState.COCKPIT_FRONT)) {
                 this.setCockpitPadlock(false);
             }
-            this.updateOrbitFromKeys(delta);
+            if (this.view === PlayerViewState.FIXED) {
+                this.moveFixedCamera(delta);
+            } else {
+                this.updateOrbitFromKeys(delta);
+            }
             this.captureCrashProbe();
+            this.holdForHangarSpawn();
             this.advanceCarrier(delta);
             this.syncCarrierSystems();
             this.scene.update(delta);
@@ -4580,6 +4594,14 @@ export class Game {
             if (this.state !== GameState.PLAYER) {
                 return;
             }
+            if (this.view === PlayerViewState.FIXED && FIXED_CAMERA_MOVE_KEYS.has(event.code)) {
+                // In the free camera (F3) these keys move it; the aircraft (whose
+                // keyboard listens later, in the bubble phase) does not get them.
+                event.preventDefault();
+                event.stopPropagation();
+                this.heldFixedCameraKeys.add(event.code);
+                return;
+            }
             if (event.code === 'Escape') {
                 // Opens the menu; the dialog opening pauses the flight
                 // (pauseForMenu) and closing it resumes.
@@ -4616,8 +4638,8 @@ export class Game {
                 // F3-F9 follow Flanker 1.5; see VIEWS_HELP for what stands in where.
                 case 'F3': {
                     event.preventDefault();
-                    this.resetOrbit();
-                    this.setFlyByView();
+                    // Free camera, starting from wherever the current view is.
+                    this.setFreeCameraView();
                     break;
                 }
                 case 'F4': {
@@ -4785,6 +4807,10 @@ export class Game {
                     }
                     case '9': {
                         void this.beginFlight('closeWing');
+                        break;
+                    }
+                    case '0': {
+                        void this.beginFlight('carrierHangar');
                         break;
                     }
                 }
@@ -5619,7 +5645,7 @@ export class Game {
      */
     private cycleExteriorSubject() {
         restoreMainCameraParameters(this.playerCamera.main);
-        let next: AiAircraftEntity | undefined;
+        let next: ExteriorSubject | undefined;
         if (this.isF2ExteriorView()) {
             const aircraft = this.exteriorSubjectCandidates();
             const current = this.exteriorSubject ? aircraft.indexOf(this.exteriorSubject) : -1;
@@ -5630,19 +5656,27 @@ export class Game {
         this.setExteriorSubject(next);
     }
 
-    /** The other aircraft F2 steps through, in a stable (scene) order. */
-    private exteriorSubjectCandidates(): AiAircraftEntity[] {
-        const out: AiAircraftEntity[] = [];
+    /**
+     * The other aircraft F2 steps through, in a stable order: the flying ones
+     * (scene order), then those on the carrier (the hangar run's, then the
+     * parked ones in slot order).
+     */
+    private exteriorSubjectCandidates(): ExteriorSubject[] {
+        const out: ExteriorSubject[] = [];
         for (const entity of this.scene.listByTag(ENTITY_TAGS.AIRCRAFT)) {
             if (entity instanceof AiAircraftEntity && entity.enabled && entity.isAlive()) {
                 out.push(entity);
             }
         }
+        if (this.hangarSpawn?.chaseTarget.isAvailable()) {
+            out.push(this.hangarSpawn.chaseTarget);
+        }
+        out.push(...(this.parkedAircraft?.chaseTargets() ?? []));
         return out;
     }
 
     /** Whom the F2 view follows (undefined: the player); drops any lock, which was on the old one's line. */
-    private setExteriorSubject(subject: AiAircraftEntity | undefined) {
+    private setExteriorSubject(subject: ExteriorSubject | undefined) {
         this.clearExteriorEnemyLock();
         this.exteriorSubject = subject;
         const follow = subject ? () => this.exteriorSubjectFollowed() : undefined;
@@ -5653,23 +5687,79 @@ export class Game {
     }
 
     /** The F2 subject while it is alive; after that the camera returns to the player. */
-    private exteriorSubjectFollowed(): AiAircraftEntity | undefined {
+    private exteriorSubjectFollowed(): ExteriorSubject | undefined {
         const s = this.exteriorSubject;
-        return s?.enabled && s.isAlive() ? s : undefined;
+        if (s instanceof AiAircraftEntity) {
+            return s.enabled && s.isAlive() ? s : undefined;
+        }
+        return s?.isAvailable() ? s : undefined;
     }
 
+
+    /**
+     * Run the player's aircraft up from the hangar (carrierHangarSpawn.ts): the
+     * player is already at take-off position 1, held and hidden there, and
+     * takes over when the stand-in arrives on that very spot.
+     */
+    private startHangarSpawn(): void {
+        const seq = this.hangarSpawn;
+        if (!seq) return;
+        this.player.hiddenForSequence = true;
+        this.player.setSimulationPaused(true);
+        seq.start(this.currentDef, {
+            x: PLAYER_CARRIER_TAKEOFF_LOCAL_X,
+            z: PLAYER_CARRIER_TAKEOFF_LOCAL_Z,
+            heading: PLAYER_CARRIER_TAKEOFF_HEADING,
+        }, () => {
+            this.player.hiddenForSequence = false;
+            if (this.state === GameState.PLAYER && !this.menuPaused && !this.streamHeld) {
+                this.player.setSimulationPaused(false);
+            }
+        });
+        // The camera is left alone: the player watches from whatever view they pick.
+    }
+
+    /** Called every frame: the stand-in is out, so the real aircraft stays held and unseen. */
+    private holdForHangarSpawn(): void {
+        const seq = this.hangarSpawn;
+        if (!seq?.active) return;
+        seq.setRunning(true);
+        if (this.player.controlsEnabled) {
+            // The streaming hold lets go when the terrain is in; the run is not over.
+            this.player.setSimulationPaused(true);
+        }
+    }
+
+    /** Abandon a hangar run still under way (a new flight, the map). */
+    private endHangarSpawn(): void {
+        if (this.hangarSpawn?.active) {
+            this.hangarSpawn.cancel();
+        }
+        this.player.hiddenForSequence = false;
+    }
+
+    /**
+     * F3: a free camera that starts exactly where the current view is looking
+     * from, then moves on its own (arrows, Page Up/Down, numpad 4/6/8/2).
+     */
+    private setFreeCameraView(): void {
+        const cam = this.playerCamera.main;
+        cam.updateMatrixWorld();
+        const at = cam.getWorldPosition(new THREE.Vector3());
+        const d = cam.getWorldDirection(new THREE.Vector3());
+        this.resetOrbit();
+        this.heldFixedCameraKeys.clear();
+        this.fixedCameraRates = zeroFixedCameraRates();
+        this.fixedCameraUpdater.setPose(at,
+            (Math.atan2(d.x, -d.z) * 180 / Math.PI + 360) % 360,
+            Math.asin(Math.max(-1, Math.min(1, d.y))) * 180 / Math.PI);
+        restoreMainCameraParameters(cam);
+        this.setExteriorView(PlayerViewState.FIXED);
+    }
 
     private setCarrierOverSternView() {
         restoreMainCameraParameters(this.playerCamera.main);
         this.setExteriorView(PlayerViewState.CARRIER_OVER_STERN);
-    }
-
-    private setFlyByView() {
-        restoreMainCameraParameters(this.playerCamera.main);
-        // Every F3 drops a fresh camera ahead, as Flanker's does.
-        this.flyByCameraUpdater.reset();
-        this.flyByDrops++;
-        this.setExteriorView(PlayerViewState.FLY_BY);
     }
 
     private setChaseView() {
@@ -5972,7 +6062,7 @@ export class Game {
     }
 
     /** Put on a view as it was recorded (or as it was before a replay). */
-    private applyRecordedView(view: PlayerViewState, subject: AiAircraftEntity | undefined): void {
+    private applyRecordedView(view: PlayerViewState, subject: ExteriorSubject | undefined): void {
         switch (view) {
             case PlayerViewState.FIXED:
             case PlayerViewState.SHOWCASE:
@@ -6033,7 +6123,9 @@ export class Game {
         if (this.view === PlayerViewState.FLY_BY) {
             return this.flyByDrops;
         }
-        return this.exteriorSubject ? this.replayActorIds.get(this.exteriorSubject) ?? -1 : -1;
+        // Carrier aircraft are not in the recording: replayed, the view returns to the player.
+        const s = this.exteriorSubject;
+        return s instanceof AiAircraftEntity ? this.replayActorIds.get(s) ?? -1 : -1;
     }
 
     /** Replay: watch through the camera the flight was watched through. */
@@ -6355,7 +6447,14 @@ export class Game {
         this.persistSpawnSelection(requested);
         // A new flight is not the mission's; flyMission starts it again after.
         this.endMission();
-        const spawn = this.spawnForArea(requested);
+        // The hangar spawn is the deck take-off spawn, reached from the hangar.
+        const hangar = requested === 'carrierHangar' && at === undefined && this.hangarSpawn !== undefined;
+        this.endHangarSpawn();
+        const spawn = this.spawnForArea(requested === 'carrierHangar' ? 'carrierTakeoff' : requested);
+        if (hangar && this.aircraftRegistry.get(HANGAR_SPAWN_AIRCRAFT_ID)) {
+            // The hangar spawn brings up the Su-33 from its slot, whatever was selected.
+            this.selectedAircraftId = HANGAR_SPAWN_AIRCRAFT_ID;
+        }
         const def = this.selectedAircraftDef();
         if (def) {
             await this.preloadAircraftModels(def);
@@ -6484,6 +6583,9 @@ export class Game {
             this.spawnOpponent(spawn === 'headon');
             this.spawnWingman(closeWing, at === undefined && spawn === 'runway');
             this.setCockpitFrontView();
+        }
+        if (hangar) {
+            this.startHangarSpawn();
         }
         // A new flight starts in its view, not gliding from the last one's.
         this.endCameraBlend();
@@ -7970,10 +8072,23 @@ export class Game {
             scene.add(new CarrierDeckEntity(this.materials, () => this.carrierPose(), kuzCollision.triangles));
         }
         // Su-33s and Yak-44s parked in the hangar, wings folded (built as their packs load).
-        // The Su-33 is the original su33d model, drawn here even where it is not registered to fly.
-        const su33d = buildSu33Def();
-        scene.add(new CarrierParkedAircraftEntity(this.models, () => this.carrierPose(),
-            id => this.aircraftRegistry.get(id) ?? (id === su33d.id ? su33d : undefined)));
+        const parked = new CarrierParkedAircraftEntity(this.models, () => this.carrierPose(),
+            id => this.aircraftRegistry.get(id));
+        this.parkedAircraft = parked;
+        scene.add(parked);
+        if (kuzCollision) {
+            // The forward lift, its own node in kuz.glb so the hangar spawn can raise it.
+            const liftMeshes: THREE.Object3D[] = [];
+            for (const level of kuzModel.lod) {
+                for (const obj of [...level.flats, ...level.volumes]) {
+                    if (obj.name.startsWith('lift_fwd')) liftMeshes.push(obj);
+                }
+            }
+            this.hangarSpawn = new CarrierHangarSpawnEntity(
+                this.models, () => this.carrierPose(), new CarrierDeckSurface(kuzCollision.triangles),
+                () => liftMeshes, (i, hidden) => parked.setSlotHidden(i, hidden));
+            scene.add(this.hangarSpawn);
+        }
 
         const arrestorCables = new ArrestorCablesEntity(
             this.materials,
