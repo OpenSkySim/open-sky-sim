@@ -57,32 +57,50 @@ def side_m(pts):
     return [[round(Z0 - d, 3), round(y, 3)] for d, y in pts]
 
 
-# Wing outboard of the LERX (top view): LE from the root junction x 1.75, d 7.58 to the tip
-# x 6.0, d 11.58; trailing edge from d 12.57 at the root to 12.82 at the tip (M2 top view).
-WING_ROOT_X, WING_TIP_X = 1.75, 6.0
+# Wing outboard of the LERX, from the owner's pasted MiG-29 top view (Hangar image
+# pasted-2026-11-17-19-59-21, 46.8 px/m, and the areas marked on it): LE from the root junction
+# x 1.75, d 7.58, sweeping back (0.94 m per m) to x 5.28, then a rounded tip out to x 5.63.
+# Trailing edge: flaps end at d 12.25-12.31 inboard of the fold line (x 3.36); the aileron's
+# trailing edge starts 0.19 m further forward and sweeps back to d 12.45 at x 5.0.
+WING_ROOT_X, WING_TIP_X = 1.75, 5.63
+FOLD_X = 3.36                 # streamwise fold line (top view)
 
 
 def wing_le(x):
-    return 7.58 + (11.58 - 7.58) * (x - WING_ROOT_X) / (WING_TIP_X - WING_ROOT_X)
+    return 7.58 + 4.0 * (x - WING_ROOT_X) / 4.25
 
 
 def wing_te(x):
-    # M2 top view: the trailing edge sweeps back slightly, d 12.57 at the root to 12.82 at the tip.
-    return 12.57 + 0.25 * (x - WING_ROOT_X) / (WING_TIP_X - WING_ROOT_X)
+    if x <= FOLD_X:
+        return 12.25 + 0.06 * (x - 1.55) / (FOLD_X - 1.55)
+    return 12.12 + 0.33 * (x - 3.39) / (5.01 - 3.39)
 
 
-FOLD_X = 3.6                  # streamwise fold line (top view)
+def wing_y(x):
+    # Anhedral: the upper skin drops 0.25 m per 4.25 m of span.
+    return 0.05 - 0.25 * (x - WING_ROOT_X) / 4.25
 
 
-def te_cut(x0, x1, depth, behind=0.4):
+def flap_hinge(x):
+    return 11.0 + 0.54 * (x - 1.55) / 1.75
+
+
+def aileron_hinge(x):
+    return 11.45 + 0.58 * (x - 3.36) / 1.66
+
+
+def slat_hinge(x):
+    return 7.95 + 3.25 * (x - 1.55) / 3.64
+
+
+def te_cut(x0, x1, hinge, behind=0.4):
     """Top-view cut along the trailing edge; the hinge (front edge) comes first."""
-    return top_m([(x0, wing_te(x0) - depth), (x1, wing_te(x1) - depth),
-                  (x1, wing_te(x1) + behind), (x0, wing_te(x0) + behind)])
+    return top_m([(x0, hinge(x0)), (x1, hinge(x1)), (x1, wing_te(x1) + behind), (x0, wing_te(x0) + behind)])
 
 
-def le_cut(x0, x1, depth, ahead=0.4):
+def le_cut(x0, x1, ahead=0.4):
     """Top-view cut along the leading edge; the hinge (aft edge) comes first."""
-    return top_m([(x0, wing_le(x0) + depth), (x1, wing_le(x1) + depth),
+    return top_m([(x0, slat_hinge(x0)), (x1, slat_hinge(x1)),
                   (x1, wing_le(x1) - ahead), (x0, wing_le(x0) - ahead)])
 
 
@@ -209,13 +227,13 @@ def main():
     # LERX: sharp strake from beside the windscreen (x 0.5, d 2.63) to the wing root (x 1.75, d 7.58).
     lerx = [(0.45, 0.0, 2.6, 6.0, 0.025), (0.8, 0.01, 3.98, 4.65, 0.027), (1.1, 0.02, 5.0, 3.4, 0.03),
             (1.45, 0.035, 6.38, 2.2, 0.035), (1.8, 0.05, 7.75, 1.0, 0.04)]
-    wing = [(0.8, 0.05, 7.4, 5.25, 0.05),
-            (WING_ROOT_X, 0.05, wing_le(WING_ROOT_X), wing_te(WING_ROOT_X) - wing_le(WING_ROOT_X), 0.05),
-            (FOLD_X, 0.05 - 0.25 * (FOLD_X - WING_ROOT_X) / (WING_TIP_X - WING_ROOT_X), wing_le(FOLD_X),
-             wing_te(FOLD_X) - wing_le(FOLD_X), 0.048),
-            (WING_TIP_X, -0.2, wing_le(WING_TIP_X), wing_te(WING_TIP_X) - wing_le(WING_TIP_X), 0.045)]
-    wing_tip = [(WING_TIP_X - 0.02, -0.2, wing_le(WING_TIP_X) - 0.02, 1.12, 0.06),
-                (WING_TIP_X + 0.05, -0.2, wing_le(WING_TIP_X) + 0.06, 0.98, 0.06)]
+    # Stations: root, the fold line (where the trailing edge steps forward), the aileron's outer end
+    # and the rounded tip (pasted top view: LE d 10.89 at x 5.28, widest x 5.63 at d 11.88).
+    wing = [(0.8, 0.05, 7.4, 12.25 - 7.4, 0.05)]
+    for x in (WING_ROOT_X, FOLD_X - 0.02, FOLD_X + 0.02, 5.0):
+        wing.append((x, wing_y(x), wing_le(x), wing_te(x) - wing_le(x), 0.05 - 0.002 * (x - WING_ROOT_X)))
+    for x, le, te in ((5.28, 10.89, 12.52), (5.5, 11.18, 12.51), (5.6, 11.41, 12.36), (5.63, 11.72, 12.02)):
+        wing.append((x, wing_y(x), le, te - le, 0.042))
     # Fins canted 6 deg outward (M2 sheet): root LE d 12.0 chord 3.08, tip LE d 14.37 at y 2.6,
     # cap at 2.84; a narrow fillet runs forward along the boom from the fin leading edge.
     cant = math.radians(6.0)
@@ -234,16 +252,12 @@ def main():
     # Fairing of the retractable refuelling probe along the left side of the nose (side pictures).
     ifr = [(1.85, 0.015, 0.33, 0.37, 2.0), (1.95, 0.06, 0.29, 0.41, 2.0), (2.1, 0.08, 0.27, 0.43, 2.0),
            (3.4, 0.08, 0.3, 0.46, 2.0), (3.7, 0.05, 0.35, 0.45, 2.0)]
-    # Wingtip pods (navigation lights / RWR) and the RWR pods near each fin tip (pictures).
-    tip_pod = [(11.25, 0.01, -0.205, -0.195, 2.0), (11.4, 0.05, -0.25, -0.15, 2.0), (11.6, 0.07, -0.27, -0.13, 2.0),
-               (12.65, 0.07, -0.27, -0.13, 2.0), (12.85, 0.05, -0.25, -0.15, 2.0), (12.95, 0.015, -0.21, -0.19, 2.0)]
+    # RWR pods near each fin tip (pictures). The rounded wing tip carries no pod (pasted top view).
     fin_pod = [(13.7, 0.01, 2.410, 2.430, 2.0), (13.85, 0.04, 2.380, 2.460, 2.0), (14.0, 0.05, 2.370, 2.470, 2.0),
                (14.6, 0.05, 2.370, 2.470, 2.0), (14.75, 0.01, 2.410, 2.430, 2.0)]
     fin_pod_rear = [(14.9, 0.01, 2.210, 2.230, 2.0), (15.0, 0.045, 2.175, 2.265, 2.0), (15.35, 0.04, 2.180, 2.260, 2.0),
                     (15.5, 0.01, 2.210, 2.230, 2.0)]
     # Two pylons under each inner wing (outer ones would sit on the folding panel).
-    def wing_y(x):
-        return 0.05 - 0.25 * (x - WING_ROOT_X) / (WING_TIP_X - WING_ROOT_X)
     pylons = []
     for px, pd in ((2.35, 9.0), (3.15, 9.6)):
         pylons.append([(px, wing_y(px) + 0.02, pd, 1.7, 0.045), (px, wing_y(px) - 0.3, pd + 0.1, 1.55, 0.05),
@@ -284,7 +298,6 @@ def main():
             {'name': 'Boom', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_rows_cx(boom)},
             {'name': 'Lerx', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(lerx)},
             {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 9, 'stations': panel_rows(wing)},
-            {'name': 'WingTip', 'type': 'panel', 'mirror': True, 'chord_points': 5, 'stations': panel_rows(wing_tip)},
             {'name': 'Fin', 'type': 'panel', 'mirror': True, 'chord_points': 6,
              'normal': [math.cos(cant), -math.sin(cant), 0.0], 'stations': panel_rows(fin)},
             {'name': 'FinFillet', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4,
@@ -305,7 +318,6 @@ def main():
             {'name': 'Irst', 'type': 'loft', 'join': 'separate', 'material': '#1e2a33', 'segments': 8,
              'stations': loft_rows(irst, -0.22)},
             {'name': 'ProbeFairing', 'type': 'loft', 'segments': 10, 'stations': loft_rows(ifr, 0.42)},
-            {'name': 'TipPod', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations': loft_rows(tip_pod, WING_TIP_X)},
             {'name': 'FinPod', 'type': 'loft', 'mirror': True, 'segments': 6,
              'stations': loft_rows(fin_pod, 1.8 + 2.42 * math.tan(cant) + 0.04)},
             {'name': 'FinPodRear', 'type': 'loft', 'mirror': True, 'segments': 6,
@@ -353,16 +365,18 @@ def main():
                      'tip': P(0.0, hook_hinge[1] - hook_len * math.sin(math.radians(50)),
                               hook_hinge[0] + hook_len * math.cos(math.radians(50)))},
         'surfaces': [
-            # Leading-edge flaps (full span of the outer wing) and the outer one on the folding panel.
+            # Leading-edge flaps along the whole leading edge (0.56 m chord at the root, 0.38 m
+            # outboard), split at the fold line (pasted top view).
             {'type': 'slat', 'view': 'top', 'mirror': True, 'sweep_parent': 'wingFold',
-             'polygon_m': le_cut(FOLD_X + 0.08, WING_TIP_X - 0.15, 0.45, 0.4)},
+             'polygon_m': le_cut(FOLD_X + 0.06, 5.15)},
             {'type': 'slat', 'role': 'slatInner', 'view': 'top', 'mirror': True,
-             'polygon_m': le_cut(WING_ROOT_X + 0.15, FOLD_X - 0.03, 0.45, 0.4)},
-            # Ailerons on the folding panel, flaps inboard (MiG-29K: wider-span flaps).
+             'polygon_m': le_cut(WING_ROOT_X + 0.15, FOLD_X - 0.03)},
+            # Aileron on the folding panel out to x 5.0 (0.67 m chord inboard, 0.42 m outboard),
+            # flap inboard (1.25 m chord at the root, 0.77 m at the fold).
             {'type': 'aileron', 'view': 'top', 'mirror': True, 'sweep_parent': 'wingFold',
-             'polygon_m': te_cut(FOLD_X + 0.08, 5.4, 0.6)},
-            {'type': 'flap', 'view': 'top', 'mirror': True, 'polygon_m': te_cut(WING_ROOT_X + 0.1, FOLD_X - 0.05, 0.9)},
-            # Outer wings fold up about a streamwise hinge on the upper skin (top view: x 3.6).
+             'polygon_m': te_cut(FOLD_X + 0.06, 5.0, aileron_hinge)},
+            {'type': 'flap', 'view': 'top', 'mirror': True, 'polygon_m': te_cut(WING_ROOT_X + 0.1, FOLD_X - 0.05, flap_hinge)},
+            # Outer wings fold up about a streamwise hinge on the upper skin (top view: x 3.36).
             {'type': 'wingFold', 'role': 'wingFold', 'control': 'fold', 'view': 'top', 'mirror': True,
              'sign': 1.0, 'range_deg': 100.0, 'hinge_skin': 1.0,
              'polygon_m': top_m([(FOLD_X, 9.0), (FOLD_X, 13.5), (8.0, 13.5), (8.0, 9.0)])},
