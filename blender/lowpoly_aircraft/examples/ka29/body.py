@@ -79,38 +79,57 @@ def build(keys, stations, bottom):
 # Flat windscreen (owner's photo, 2026-11-18): three flat front panes over the nose box. The centre
 # pane spans x +-0.29 from A (y 1.28, d 0.23) to D (y 2.04, d 0.80); each side pane is the plane
 # through A, B, D and C, swept back in plan (its bottom and top edges are parallel, so it is flat).
+# Behind each side pane a quarter pane B-C-Q2-Q1 steps out to the cabin wall at the sloping door
+# pillar Q1-Q2 (side view d 0.77 -> 1.07), so the nose rings there are built from these corners
+# instead of the round outline.
 PANE_A = (0.29, 1.28, 0.23)
 PANE_B = (0.93, 1.28, 0.43)
 PANE_D = (0.29, 2.04, 0.80)
 PANE_C = (0.84, 2.04, 0.97)
-PANE_STATIONS = (0.235, 0.33, 0.43, 0.62, 0.80, 0.89, 0.965)
+QUARTER_1 = (1.10, 1.28, 0.77)
+QUARTER_2 = (0.92, 2.04, 1.07)
+PANE_STATIONS = (0.235, 0.33, 0.43, 0.62, 0.77, 0.80, 0.89, 0.97, 1.07)
+
+
+def _lerp(p, q, d):
+    f = (d - p[2]) / (q[2] - p[2])
+    return (p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f)
 
 
 def _pane_points(d):
-    """Centre-line top, the centre/side pane frame point and the side pane's outer edge point at station d."""
-    (xa, ya, da), (xb, yb, db), (xd, yd, dd), (xc, yc_, dc) = PANE_A, PANE_B, PANE_D, PANE_C
-    if d <= dd:
-        yc = ya + (d - da) * (yd - ya) / (dd - da)
-        j0, j1 = (0.0, yc), (xa, yc)
+    """Frame points of the glazing at station d, top centre outwards: centre-line top, the centre /
+    side pane frame, the side pane's outer edge and the quarter pane's foot on the cabin wall
+    (None ahead of B, where the side pane sits straight on the nose box, and at the pillar top)."""
+    A, B, D, C, Q1, Q2 = PANE_A, PANE_B, PANE_D, PANE_C, QUARTER_1, QUARTER_2
+    top = A[1] + (min(d, D[2]) - A[2]) * (D[1] - A[1]) / (D[2] - A[2])
+    j2 = _lerp(A, B, d) if d <= B[2] else _lerp(B, C, d) if d <= C[2] else _lerp(C, Q2, d)
+    if d <= D[2]:
+        j1 = (A[0], top)
+    elif d < C[2] - 1e-6:
+        j1 = _lerp(D, C, d)
     else:
-        f = (d - dd) / (dc - dd)
-        j0, j1 = (0.0, yd), (xd + (xc - xd) * f, yd)
-    if d <= db:
-        f = (d - da) / (db - da)
-        j2 = (xa + (xb - xa) * f, ya)
-    else:
-        f = (d - db) / (dc - db)
-        j2 = (xb + (xc - xb) * f, yb + (yc_ - yb) * f)
-    return j0, j1, j2
+        j1 = (0.5 * j2[0], top)
+    j3 = None
+    if B[2] + 1e-6 < d < Q2[2] - 1e-6:
+        j3 = _lerp(B, Q1, d) if d <= Q1[2] else _lerp(Q1, Q2, d)
+    return (0.0, top), j1, j2, j3
 
 
 def windscreen(d, H, y0):
-    """Replace the top of a nose station's half outline (relative heights) by the flat panes' cut."""
+    """Replace the top of a nose station's half outline (relative heights) by the glazing's frame."""
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
         return H
     P = H + np.array([0.0, y0])
-    j0, j1, j2 = _pane_points(d)
-    k = next(i for i in range(1, len(P)) if P[i, 1] <= j2[1])
-    lower = resample(np.vstack([[j2], P[k:]]), HALF_N - 2)
-    out = np.vstack([[j0], [j1], lower])
+    j0, j1, j2, j3 = _pane_points(d)
+    fixed = [j0, j1, j2] + ([j3] if j3 else [])
+    foot = fixed[-1]
+    # The outline continues below the last frame point on the outside: skip outline points that
+    # lie inboard of it (the roof or nose top dipping under it), or the ring folds back. From the
+    # side's middle point down the ring keeps its own points, so it still lines up with the plain
+    # rings ahead of and behind the glazing (otherwise the loft twists into creases there).
+    m = HALF_N // 2
+    below = [i for i in range(1, m) if P[i, 1] <= foot[1] - 0.04]
+    k = next((i for i in below if P[i, 0] >= foot[0] - 0.02), m)
+    upper = resample(np.vstack([[foot], P[k:m + 1]]), m + 1 - len(fixed))
+    out = np.vstack([fixed[:-1], upper, P[m + 1:]])
     return out - np.array([0.0, y0])

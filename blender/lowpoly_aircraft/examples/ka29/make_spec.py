@@ -165,10 +165,10 @@ def windows_and_doors():
              [[-0.26, z_(0.2)], [0.26, z_(0.2)], [0.26, z_(0.78)], [-0.26, z_(0.78)]],
              [[0.32, z_(0.25)], [0.9, z_(0.445)], [0.815, z_(0.94)], [0.32, z_(0.78)]],
              [[-0.32, z_(0.25)], [-0.32, z_(0.78)], [-0.815, z_(0.94)], [-0.9, z_(0.445)]]]}},
-        # Side quarter panes: a narrow triangle between the side pane's corner frame and the door
-        # pillar (photo, side view d 0.48 -> 0.95), on the cabin sides only.
-        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.93, 1.3],
-         'polygon_m': [[z_(0.5), 1.32], [z_(0.95), 1.93], [z_(0.67), 1.32]]},
+        # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
+        # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
+        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.8, 1.3],
+         'polygon_m': [[z_(0.5), 1.32], [z_(0.965), 2.0], [z_(1.025), 2.0], [z_(0.75), 1.32]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          'polygon_m': [[z_(0.86), 1.26], [z_(1.11), 1.86], [z_(1.17), 1.9], [z_(1.66), 1.9], [z_(1.72), 1.84],
@@ -235,7 +235,7 @@ def fuselage_sections(cabin, deck):
     keys.sort(key=lambda k: k[0])
     stations = {round(k[0], 3) for k in keys} | {1.45, 1.7, 2.5, 3.6, 4.7, 5.9, 7.05, 8.4}
     # Nose: the flat front panes need rings exactly at their corners (body.PANE_STATIONS).
-    stations = sorted({d for d in stations if not 0.2 < d < 1.0} | set(body.PANE_STATIONS))
+    stations = sorted({d for d in stations if not 0.2 < d < 1.1} | set(body.PANE_STATIONS))
     rows, sections = [], []
     for d, H, y0 in body.build(keys, stations, bottom):
         H = body.windscreen(d, H, y0)
