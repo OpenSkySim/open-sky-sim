@@ -629,6 +629,8 @@ def _stand_on_wheels(ground_y: float | None, dz: float = 0.0) -> None:
             hook[k][1] = round(hook[k][1] + dy, 4)
             hook[k][2] = round(hook[k][2] + dz, 4)
         scene['lpa_tailhook'] = json.dumps(hook)
+    # Spec frame -> pack frame, for the Hangar's cross-section window (sections.py).
+    scene['lpa_shift'] = [0.0, dy, dz]
     bpy.context.view_layer.update()
     print(f'[lpa] moved the aircraft by y {dy:+.3f} m (wheels at y {ground_y}), z {dz:+.3f} m')
 
@@ -642,6 +644,9 @@ def build_parts(spec: dict) -> None:
     whole (all-moving canards and tailplanes). Everything is in body metres.
     """
     from . import parts
+    from . import sections
+    sections.LOG.clear()
+    bpy.context.scene['lpa_shift'] = [0.0, 0.0, 0.0]
     smooth = spec.get('smooth_deg', 35.0)
     spec.setdefault('smooth_deg', smooth)
     hull = None
@@ -793,6 +798,8 @@ def build(spec_path: str) -> None:
     scene = bpy.context.scene
     scene.unit_settings.system = 'METRIC'
     if 'parts' in spec:
+        from . import sections
+        sections.attach(spec, spec_dir)
         build_parts(spec)
         return
 

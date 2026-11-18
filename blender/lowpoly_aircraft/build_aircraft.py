@@ -13,6 +13,10 @@ build ends with the coverage of the 50 key areas and the deviation check: how fa
 model's outline lies from each marked outline area, per view (over 10 cm is flagged).
 The check is also written to <id>_refs_check.json next to the pack, which
 viewer/add_model.py hands to the Hangar.
+
+Refined cross-sections drawn in the Hangar's cross-section window go into sections.json
+next to the spec (lpa/sections.py; sections_tool.py from-hangar writes it). The build
+also writes <id>_lofts.json: every lofted part's rings, so the Hangar can show and edit them.
 """
 import argparse
 import json
@@ -33,6 +37,7 @@ import numpy as np  # noqa: E402
 
 from lpa import from_refs as F  # noqa: E402
 from lpa import refs as R  # noqa: E402
+from lpa import sections  # noqa: E402
 from lpa.geometry import from_bl  # noqa: E402
 
 
@@ -112,6 +117,8 @@ def main() -> None:
             os.remove(blend)  # no .blend1 backups next to the pack
         bpy.ops.wm.save_as_mainfile(filepath=blend)
     print(f'[lpa] wrote {out}: {len(manifest["surfaces"])} surfaces, gear={"yes" if manifest["gear"] else "no"}')
+    if sections.LOG:
+        sections.write_log(os.path.join(out, f'{aid}_lofts.json'), aid, bpy.context.scene.get('lpa_shift', [0.0, 0.0, 0.0]))
     refs_check(args.spec, out, aid)
 
 
