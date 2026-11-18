@@ -122,14 +122,10 @@ def canopy_glass():
     return [
         # Three panes (a flat centre one and two side ones) inside 4 cm frame bars, as in the
         # M2 top view and the KUB photo.
-        # Glass edges measured off the M2 side view: windscreen d 2.95-3.93, frame, front pane
+        # One-piece windscreen (owner, 2026-11-18). Glass edges measured off the M2 side view: windscreen d 2.95-3.93, frame, front pane
         # to d 5.33, frame, rear pane to d 6.55; the sill rises from y 0.66 to 1.08.
         {'name': 'Windscreen', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(2.95, 0.66), (3.93, 0.86), (3.93, hi), (2.95, hi)]),
-         'clip': {'view': 'top', 'polygons_m': [
-             top_m([(-0.15, 2.97), (0.15, 2.97), (0.15, 3.93), (-0.15, 3.93)]),
-             top_m([(0.19, 2.99), (0.75, 3.05), (0.75, 3.93), (0.19, 3.93)]),
-             top_m([(-0.19, 2.99), (-0.19, 3.93), (-0.75, 3.93), (-0.75, 3.05)])]}},
+         'polygon_m': side_m([(2.95, 0.66), (3.93, 0.86), (3.93, hi), (2.95, hi)])},
         {'name': 'CanopyFront', 'view': 'side', 'see_through': True,
          'polygon_m': side_m([(3.99, 0.87), (5.33, 0.96), (5.33, hi), (3.99, hi)])},
         {'name': 'CanopyRear', 'view': 'side', 'see_through': True,
