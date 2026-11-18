@@ -169,10 +169,12 @@ def body_halves():
     keys += [S[k] for k in 'DEFG']
     G = S['G'][1]
     keys += [(14.25, G.copy())]
-    stations = [0.15, 0.43, 0.75, 1.1, 1.5, 1.9, 2.3, 2.6, 2.92, 3.2, 3.5, 3.93, 4.12, 4.45, 4.8, 5.05, 5.28,
-                5.5, 5.62, 5.95, 6.3, 6.7, 7.13, 7.5, 7.83, 8.3, 8.9, 9.64, 10.4, 11.25, 12.1, 12.9, 13.78, 14.25]
+    stations = [0.15, 0.43, 0.75, 1.1, 1.5, 1.9, 2.3, 2.6, 2.92, 4.12, 5.28,
+                5.5, 5.62, 7.13, 7.5, 7.83, 8.3, 8.9, 9.64, 10.4, 11.25, 12.1, 12.9, 13.78, 14.25]
     exact = {v[0] for v in SECTIONS.values()}
     top_exact = {SECTIONS['A'][0]}   # B-F take the side view's top line (owner's lines)
+    # A-D: one station per traced section (plus the intake lip), so the front fuselage is made of
+    # long panels running from section to section (owner, 2026-11-18).
     out = []
     for d in stations:
         H = _lerp_keys(keys, d)
@@ -208,6 +210,16 @@ def canopy_rows():
         sill = interp(TOP, d) + NOSE_Y
         top = max(interp(CANOPY_TOP, d) + NOSE_Y, sill + 0.01)
         out.append((d, round(interp(CANOPY_HW, d), 3), round(sill - 0.15, 3), round(top, 3), 2.4))
+    return out
+
+
+def bulkhead_rows(d0, d1, inset=0.03):
+    """A wall that fills the canopy's section (inset inwards) from d0 to d1."""
+    out = []
+    for d in (d0, d1):
+        sill = interp(TOP, d) + NOSE_Y
+        top = interp(CANOPY_TOP, d) + NOSE_Y
+        out.append((d, round(interp(CANOPY_HW, d) - inset, 3), round(sill - 0.15 + inset, 3), round(top - inset, 3), 2.4))
     return out
 
 

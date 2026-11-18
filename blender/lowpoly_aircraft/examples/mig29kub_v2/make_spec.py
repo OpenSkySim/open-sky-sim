@@ -401,10 +401,11 @@ def main():
             {'name': 'ConsoleRear', 'type': 'loft', 'join': 'separate', 'mirror': True, 'clip_hull': True,
              'material': '#2e3236', 'segments': 6,
              'stations': loft_rows([(5.32, 0.1, -0.1, 0.55, 6), (6.4, 0.1, -0.1, 0.55, 6)], 0.45)},
-            {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#121314',
+            {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'material': '#121314',
              # Only as wide and deep as the cabin: a full hull section reached into the intake ducts
-             # as a black wall (owner, 2026-11-18).
-             'segments': 6, 'stations': loft_rows([(6.45, 0.52, -0.12, 1.7, 8), (6.5, 0.52, -0.12, 1.7, 8)])},
+             # as a black wall (owner, 2026-11-18). Shaped as the canopy's own section 3 cm inside
+             # it (cutting it to the hull is not reliable).
+             'segments': 16, 'stations': loft_rows(body.bulkhead_rows(6.45, 6.5))},
         ],
         'regions': canopy_glass(),
         'ground_y': -2.0,
