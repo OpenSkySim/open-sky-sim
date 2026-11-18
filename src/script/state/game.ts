@@ -63,6 +63,7 @@ import { setBuildingsAtOnce } from '../terrain/buildingMeshes';
 import { ArrestorCablesEntity } from '../scene/entities/arrestorCablesEntity';
 import { BarricadeEntity, BarricadeRigPhase } from '../scene/entities/barricadeEntity';
 import { CarrierDeckEntity } from '../scene/entities/carrierDeckEntity';
+import { CarrierParkedAircraftEntity } from '../scene/entities/carrierParkedAircraft';
 import type { AirframeCollider } from '../physics/barricade/webBarricade';
 import { WebDeck } from '../physics/barricade/webDeck';
 import { BarricadeEngagement, BARRICADE_DECK_Y, barricadeFrameWorld } from '../scene/entities/barricadeSpec';
@@ -129,7 +130,7 @@ import {
     fadeOutBootProgress, setBootProgress, setBootStreaming, startStreamHoldBar,
 } from '../osd/bootProgress';
 import { SpawnPanel } from '../osd/spawnPanel';
-import { AircraftRegistry, buildF22Def, groupAircraftByModel } from './aircraftRegistry';
+import { AircraftRegistry, buildF22Def, buildSu33Def, groupAircraftByModel } from './aircraftRegistry';
 import { mergePackLists, PackEntry } from './builtinPacks';
 import { FlyableAircraftDef } from '../scene/entities/aircraftDef';
 import { flightConfigWithArrestorHook } from '../scene/entities/arrestorCables';
@@ -7968,6 +7969,11 @@ export class Game {
         if (kuzCollision) {
             scene.add(new CarrierDeckEntity(this.materials, () => this.carrierPose(), kuzCollision.triangles));
         }
+        // Su-33s and Yak-44s parked in the hangar, wings folded (built as their packs load).
+        // The Su-33 is the original su33d model, drawn here even where it is not registered to fly.
+        const su33d = buildSu33Def();
+        scene.add(new CarrierParkedAircraftEntity(this.models, () => this.carrierPose(),
+            id => this.aircraftRegistry.get(id) ?? (id === su33d.id ? su33d : undefined)));
 
         const arrestorCables = new ArrestorCablesEntity(
             this.materials,
