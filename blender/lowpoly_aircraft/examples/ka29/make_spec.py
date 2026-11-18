@@ -7,7 +7,7 @@ upper side view (nose cap at x 337, cabin floor line y 243) and the top view (no
 x 88, centre line y 350), converted to metres here. Checked against the published data:
 fuselage 11.3 m, rotor diameter 15.9 m, height 5.44 m, main wheel track 3.5 m.
 Details follow the two deck photos in the same folder (round engine intakes on the front
-of the engine deck, twin end-plate fins, rocket pods on the outriggers).
+of the engine deck, twin end-plate fins, weapon outriggers without pods).
 The owner's second sheet (side, top, bottom and front view with sections А-Л, 163.5 px/m;
 not kept here either) sets the fuselage cross-sections (body.py, ka29_sections.json), the nose
 wheel track (1.4 m), and the intake positions (front view).
@@ -296,12 +296,6 @@ def main():
         # from the cabin roof line (side view x 500 and 560 meeting at x 539, y 206).
         {'name': 'OutriggerBeam', 'type': 'panel', 'mirror': True, 'chord_points': 5, 'join': 'separate',
          'stations': panel_rows([(0.75, 0.96, d_(505), 0.85, 0.14), (pod_x, pod_y + 0.25, d_(507), 0.8, 0.14)])},
-        {'name': 'RocketPod', 'type': 'loft', 'mirror': True, 'segments': 10, 'join': 'separate', 'stations':
-         loft_m([(d_(478), 0.0, pod_y, pod_y, 2), (d_(482), 0.17, pod_y - 0.17, pod_y + 0.17, 2),
-                 (d_(490), 0.23, pod_y - 0.23, pod_y + 0.23, 2), (d_(558), 0.23, pod_y - 0.23, pod_y + 0.23, 2),
-                 (d_(562), 0.2, pod_y - 0.2, pod_y + 0.2, 2)], pod_x)},
-        {'name': 'PodNose', 'type': 'loft', 'mirror': True, 'segments': 10, 'join': 'separate', 'material': DARK,
-         'stations': loft_m([(d_(481), 0.15, pod_y - 0.15, pod_y + 0.15, 2), (d_(482.5), 0.15, pod_y - 0.15, pod_y + 0.15, 2)], pod_x)},
         {'name': 'OutriggerStrutFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
          'a': P(0.82, y_(156), d_(500)), 'b': P(pod_x - 0.15, pod_y + 0.3, d_(530)), 'radius': 0.05},
         {'name': 'OutriggerStrutRear', 'type': 'strut', 'mirror': True, 'join': 'separate',
