@@ -16,6 +16,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 NOSE_Y = -0.31            # radome tip in the drawing frame (ground -2.0, 1.69 m below the tip)
 K1, K2, K3 = 14, 9, 5     # vertices T->L, L->N, N->B: ring of 2 * 28 = 56
+KE = 5                    # of K1: vertices T->E (top centre to the top's shoulder)
 SEGMENTS = 2 * (K1 + K2 + K3)
 
 
@@ -98,8 +99,13 @@ def layout(half, n_x=None):
         low = [i for i in range(iL, len(H)) if H[i, 1] < H[iL, 1]]
         iN = min(low or [len(H) - 1], key=lambda i: abs(H[i, 0] - n_x))
         iN = min(max(iN, iL + 1), len(H) - 2)
-    return np.vstack([_resample(H[:iL + 1], K1), _resample(H[iL:iN + 1], K2)[1:],
-                      _resample(H[iN:], K3)[1:]])
+    # The top's shoulder E (where the outline first turns down steeper than 45 deg, the deck's
+    # edge under the canopy) is an anchor too, so the panels do not twist from section to section.
+    up = H[:iL + 1]
+    iE = next((i for i in range(1, len(up)) if (up[i - 1, 1] - up[i, 1]) > (up[i, 0] - up[i - 1, 0]) + 1e-9), 1)
+    iE = min(max(iE - 1, 1), len(up) - 2) if len(up) > 2 else 1
+    upper = np.vstack([_resample(up[:iE + 1], KE), _resample(up[iE:], K1 - KE)[1:]])
+    return np.vstack([upper, _resample(H[iL:iN + 1], K2)[1:], _resample(H[iN:], K3)[1:]])
 
 
 def nose_half(d):
@@ -169,15 +175,18 @@ def body_halves():
     keys += [S[k] for k in 'DEFG']
     G = S['G'][1]
     keys += [(14.25, G.copy())]
-    stations = [0.15, 0.43, 0.75, 1.1, 1.5, 1.9, 2.3, 2.6, 2.92, 4.12, 5.28,
-                5.5, 5.62, 7.13, 7.5, 7.83, 8.3, 8.9, 9.64, 10.4, 11.25, 12.1, 12.9, 13.78, 14.25]
+    stations = [0.15, 0.43, 0.75, 1.1, 1.5, 1.9, 2.3, 2.6, 2.92, 3.32, 3.72, 4.12, 4.5, 4.89, 5.28,
+                5.5, 5.62, 6.12, 6.62, 7.13, 7.5, 7.83, 8.3, 8.9, 9.64, 10.4, 11.25, 12.1, 12.9, 13.78, 14.25]
     exact = {v[0] for v in SECTIONS.values()}
     top_exact = {SECTIONS['A'][0]}   # B-F take the side view's top line (owner's lines)
-    # A-D: one station per traced section (plus the intake lip), so the front fuselage is made of
-    # long panels running from section to section (owner, 2026-11-18).
+    # Smooth hull (owner, 2026-11-18): every ring vertex runs along a monotone cubic through the
+    # sections instead of straight lines, so there is no kink (step) where panels meet a section.
+    from scipy.interpolate import PchipInterpolator
+    kd = np.array([k[0] for k in keys])
+    smooth = PchipInterpolator(kd, np.stack([k[1] for k in keys]), axis=0)
     out = []
     for d in stations:
-        H = _lerp_keys(keys, d)
+        H = smooth(min(max(d, kd[0]), kd[-1]))
         if SILL_FROM <= d <= SILL_TO:
             # under the canopy: the fuselage's upper outline stops at the red line
             H[:K1 + 1, 1] = np.minimum(H[:K1 + 1, 1], interp(TOP, d) + NOSE_Y)
