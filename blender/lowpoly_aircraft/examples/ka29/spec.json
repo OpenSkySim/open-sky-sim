@@ -6829,13 +6829,6 @@
    "join": "separate",
    "stations": [
     [
-     0.8,
-     0.8,
-     0.88,
-     1.1,
-     0.1
-    ],
-    [
      1.95,
      0.8,
      0.88,
@@ -6850,6 +6843,40 @@
      0.1
     ]
    ]
+  },
+  {
+   "name": "WingPipeFront",
+   "type": "strut",
+   "mirror": true,
+   "join": "separate",
+   "a": [
+    0.85,
+    0.8,
+    0.77
+   ],
+   "b": [
+    1.97,
+    0.8,
+    0.77
+   ],
+   "radius": 0.05
+  },
+  {
+   "name": "WingPipeRear",
+   "type": "strut",
+   "mirror": true,
+   "join": "separate",
+   "a": [
+    0.85,
+    0.8,
+    -0.13
+   ],
+   "b": [
+    1.97,
+    0.8,
+    -0.13
+   ],
+   "radius": 0.05
   },
   {
    "name": "WeaponBeamInner",

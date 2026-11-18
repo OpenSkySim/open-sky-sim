@@ -291,11 +291,16 @@ def main():
          'center': P(0, y_up, mast_d), 'radius': 7.95, 'blades': 3, 'root_r': 0.75, 'chord': 0.52,
          'tc': 0.1, 'pitch_deg': 6, 'droop_deg': 2.5, 'hand': -1, 'phase_deg': 60, 'hub_r': 0.3,
          'hub_h': 0.3, 'spin_deg_s': 1600},
-        # Stub wings (second sheet top/side views, owner's photos): a flat plank from the cabin side
-        # out to x 2.6 (chord d 3.34-4.44, tapering outboard of x 1.95) with two weapon beams below, held by pipes from the cabin roof
+        # Stub wings (second sheet top/side views, owner's photos): a flat wing only between the
+        # weapon beams (x 1.95-2.6), pipes inboard of it, with two weapon beams below, held by pipes from the cabin roof
         # line: a single strut at d 3.49 and a V (d 3.55 and 4.84) meeting at the wing at d 4.30.
         {'name': 'StubWing', 'type': 'panel', 'mirror': True, 'chord_points': 5, 'join': 'separate',
-         'stations': panel_rows([(0.8, 0.8, 3.34, 1.1, 0.1), (1.95, 0.8, 3.34, 1.1, 0.1), (2.6, 0.8, 3.52, 0.9, 0.1)])},
+         'stations': panel_rows([(1.95, 0.8, 3.34, 1.1, 0.1), (2.6, 0.8, 3.52, 0.9, 0.1)])},
+        # Inboard of the inner beam there is no wing, only two horizontal pipes to the cabin side.
+        {'name': 'WingPipeFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
+         'a': P(0.85, 0.8, 3.45), 'b': P(1.97, 0.8, 3.45), 'radius': 0.05},
+        {'name': 'WingPipeRear', 'type': 'strut', 'mirror': True, 'join': 'separate',
+         'a': P(0.85, 0.8, 4.35), 'b': P(1.97, 0.8, 4.35), 'radius': 0.05},
         {'name': 'WeaponBeamInner', 'type': 'loft', 'mirror': True, 'segments': 8, 'join': 'separate', 'stations':
          loft_m([(3.07, 0.05, 0.6, 0.68, 2), (3.21, 0.09, 0.5, 0.8, 2.5), (3.46, 0.09, 0.47, 0.8, 3),
                  (4.60, 0.09, 0.47, 0.8, 3), (4.67, 0.07, 0.5, 0.78, 3)], 1.97)},
