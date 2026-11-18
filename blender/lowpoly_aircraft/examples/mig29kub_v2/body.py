@@ -15,7 +15,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NOSE_Y = -0.31            # radome tip in the drawing frame (ground -2.0, 1.69 m below the tip)
-K1, K2, K3 = 14, 9, 5     # vertices T->L, L->N, N->B: ring of 2 * 28 = 56
+K1, K2, K3 = 7, 4, 3      # vertices T->L, L->N, N->B: ring of 2 * 14 = 28 (low poly, owner 2026-11-18)
 SEGMENTS = 2 * (K1 + K2 + K3)
 
 
@@ -42,9 +42,13 @@ HW = [(0, 0), (0.17, 0.12), (0.31, 0.17), (0.46, 0.22), (0.6, 0.27), (0.75, 0.31
       (6.53, 1.49), (6.96, 1.59), (7.4, 1.69), (7.83, 1.76)]
 # Section stations (ticks on the side view) and how each traced outline sits: A is drawn about
 # 10 % small; A-C hang from the side view's top line, D-G stand on its nacelle bottom line.
-SECTIONS = {'A': (2.92, 1.1, 'top', 1.03), 'B': (4.12, 1.0, 'top', 1.63), 'C': (5.28, 1.0, 'top', 1.82),
-            'D': (7.13, 1.0, 'bot', -0.83), 'E': (9.64, 1.0, 'bot', -0.77), 'F': (11.25, 1.0, 'bot', -0.71),
-            'G': (13.78, 1.0, 'bot', -0.59)}
+# (station d, x scale, y scale, how it sits, y). A-D are the owner's front sections (2026-11-18):
+# the model's rings at these stations are the traced outlines themselves. A is drawn about 10 %
+# narrow (top view); A-C hang from the side view's top line (A at the straight windscreen's foot),
+# D-G stand on its nacelle bottom line.
+SECTIONS = {'A': (2.92, 1.1, 1.0, 'top', 0.90), 'B': (4.12, 1.0, 1.0, 'top', 1.63), 'C': (5.28, 1.0, 1.0, 'top', 1.82),
+            'D': (7.13, 1.0, 1.0, 'bot', -0.83), 'E': (9.64, 1.0, 1.0, 'bot', -0.77), 'F': (11.25, 1.0, 1.0, 'bot', -0.71),
+            'G': (13.78, 1.0, 1.0, 'bot', -0.59)}
 
 
 def _resample(poly, count):
@@ -105,8 +109,8 @@ def section_halves():
     with open(os.path.join(HERE, 'm2_sections.json')) as f:
         raw = json.load(f)
     out = {}
-    for k, (d, scale, ref, y_ref) in SECTIONS.items():
-        H = np.array(raw[k]) * scale
+    for k, (d, sx, sy, ref, y_ref) in SECTIONS.items():
+        H = np.array(raw[k]) * [sx, sy]
         H[:, 1] += (y_ref + NOSE_Y) - (H[:, 1].max() if ref == 'top' else H[:, 1].min())
         out[k] = (d, layout(H, n_x=0.35 * H[:, 0].max() if k in 'ABC' else None))
     return out
@@ -139,18 +143,18 @@ def body_halves():
     keys += [S[k] for k in 'DEFG']
     G = S['G'][1]
     keys += [(14.25, G.copy())]
-    stations = [0.15, 0.43, 0.75, 1.1, 1.5, 1.9, 2.3, 2.6, 2.92, 3.2, 3.5, 3.82, 4.12, 4.45, 4.8, 5.05, 5.28,
-                5.5, 5.62, 5.95, 6.3, 6.7, 7.13, 7.5, 7.83, 8.3, 8.9, 9.64, 10.4, 11.25, 12.1, 12.9, 13.78, 14.25]
+    stations = [0.8, 2.0, 2.92, 3.93, 4.12, 5.28, 5.5, 5.62, 7.13, 7.83, 9.64, 11.25, 12.6, 14.25]
+    exact = {v[0] for v in SECTIONS.values()}
     out = []
     for d in stations:
         H = _lerp_keys(keys, d)
-        if 2.6 < d <= 9.64:
+        if 2.6 < d <= 9.64 and d not in exact:
             # top line: lift the upper outline (canopy, spine) onto the side view's top
             yT, yL = H[0, 1], H[K1, 1]
             dy = interp(TOP, d) + NOSE_Y - yT
             w = np.clip((H[:K1 + 1, 1] - yL) / max(yT - yL, 1e-6), 0, 1)
             H[:K1 + 1, 1] += dy * w
-        if 2.92 < d <= 7.83 and abs(d - 7.13) > 1e-6:
+        if 2.92 < d <= 7.83 and d not in exact:
             # LERX edge: stretch the outer part out to the top view's edge
             xL, hw = H[K1, 0], interp(HW, d)
             lower_max = H[K1 + 1:, 0].max()

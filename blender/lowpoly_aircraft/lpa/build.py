@@ -769,6 +769,11 @@ def build_parts(spec: dict) -> None:
         bpy.data.objects.remove(skin)
     _WELL_SKINS.clear()
 
+    if spec.get('planar_deg_final'):
+        # Fewer polygons on the finished hull: near-flat neighbours merged after every cut, so
+        # no boolean sees the dissolved n-gons (dissolving first can break the later cuts) and no
+        # vertex moves (wells, doors and panes still fit).
+        geo.decimate(hull, planar_deg=float(spec['planar_deg_final']))
     geo.tidy(hull, spec.get('material', 'VEHICLE_PLANE_GREY'), smooth)
     hull.name = hull.data.name = '0_Body'
     bpy.data.collections['Construction'].objects.unlink(hull)
@@ -797,7 +802,8 @@ def build_parts(spec: dict) -> None:
         # origin_d: where the body origin (the sim's centre of gravity) sits, in metres from the nose.
         dz = float(spec['z0_m']) - float(spec['origin_d']) if 'origin_d' in spec else 0.0
         _stand_on_wheels(spec.get('ground_y'), -dz)
-    tris = sum(len(o.data.polygons) for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name != 'Shadow')
+    tris = sum(len(p.vertices) - 2 for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name != 'Shadow'
+               for p in o.data.polygons)
     print(f'[lpa] built {spec["id"]}: {tris} triangles')
 
 

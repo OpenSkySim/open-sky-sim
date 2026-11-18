@@ -318,7 +318,7 @@ def main():
     main_well = [(main_stow - main_r - 0.08, 0.44, -0.6, -0.12, 6), (main_d + 0.12, 0.44, -0.6, -0.12, 6)]
     # Hook bay under the tail cone between the nozzles.
     hook_hinge, hook_len = (13.2, -0.45), 1.9
-    hook_well = [(13.1, 0.12, -0.8, -0.25, 4), (15.0, 0.1, -0.7, -0.31, 4)]
+    hook_well = [(13.1, 0.12, -0.75, -0.17, 4), (15.0, 0.1, -0.65, -0.2, 4)]
 
     # Blended body: every station carries its traced cross-section (spec "sections").
     body_rows, body_secs = [[round(Z0, 3), 0.0, body.NOSE_Y, 0.0, 0.0, 0.0, 2.0]], []
@@ -337,31 +337,36 @@ def main():
         'span_m': SPAN,
         'material': 'VEHICLE_PLANE_GREY',
         'smooth_deg': 0,
+        # Near-flat neighbours of the finished hull merged (low poly, owner 2026-11-18).
+        'planar_deg_final': 35,
         'parts': [
             {'name': 'Body', 'type': 'loft', 'segments': body.SEGMENTS, 'stations': body_rows},
             # Brake-chute housing between the nozzles (as in examples/mig29kub).
-            {'name': 'TailCone', 'type': 'loft', 'segments': 16, 'stations': loft_rows(fuselage[-8:])},
-            {'name': 'GearBulge', 'type': 'loft', 'mirror': True, 'segments': 12, 'resample': 8,
+            {'name': 'TailCone', 'type': 'loft', 'segments': 8, 'stations': loft_rows(fuselage[-8:])},
+            {'name': 'GearBulge', 'type': 'loft', 'mirror': True, 'segments': 8,
              'stations': loft_rows(gear_bulge, 1.5)},
-            {'name': 'Boom', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_rows_cx(boom)},
-            {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 9, 'stations': panel_rows(wing)},
-            {'name': 'Fin', 'type': 'panel', 'mirror': True, 'chord_points': 6,
+            # Booms only aft of the wing (the body's sections already carry the deck out to them); a
+            # boom along the wing root made the exact union drop the hull.
+            {'name': 'Boom', 'type': 'loft', 'mirror': True, 'segments': 8,
+             'stations': loft_rows_cx([(12.8,) + tuple(boom[3][1:])] + boom[4:])},
+            {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 3, 'stations': panel_rows(wing)},
+            {'name': 'Fin', 'type': 'panel', 'mirror': True, 'chord_points': 3,
              'normal': [math.cos(cant), -math.sin(cant), 0.0], 'stations': panel_rows(fin)},
             {'name': 'FinFillet', 'type': 'panel', 'join': 'separate', 'mirror': True, 'chord_points': 4,
              'normal': [math.cos(cant), -math.sin(cant), 0.0], 'stations': panel_rows(fin_fillet)},
-            {'name': 'Stabilator', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(stab),
+            {'name': 'Stabilator', 'type': 'panel', 'mirror': True, 'chord_points': 3, 'stations': panel_rows(stab),
              'surface': {'type': 'stabilator', 'view': 'top', 'hinge_m': top_m([(1.75, 14.4), (3.6, 14.4)])}},
-            {'name': 'IntakeRake', 'type': 'loft', 'join': 'cut', 'mirror': True, 'material': 'VEHICLE_PLANE_GREY', 'segments': 12,
+            {'name': 'IntakeRake', 'type': 'loft', 'join': 'cut', 'mirror': True, 'material': 'VEHICLE_PLANE_GREY', 'segments': 6,
              'stations': loft_rows_cx([(r[0], r[1], r[2], r[3], r[4], r[5]) for r in intake_rake])},
-            {'name': 'IntakeMouth', 'type': 'loft', 'join': 'cut', 'mirror': True, 'material': DARK, 'segments': 12,
+            {'name': 'IntakeMouth', 'type': 'loft', 'join': 'cut', 'mirror': True, 'material': DARK, 'segments': 6,
              'stations': loft_rows_cx(intake_mouth)},
             {'name': 'Nozzle', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#6a6f74',
-             'segments': 18, 'stations': loft_rows(nozzle, 0.85)},
+             'segments': 6, 'stations': loft_rows(nozzle, 0.85)},
             {'name': 'NozzleMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#050505',
-             'segments': 18, 'stations': loft_rows(nozzle_mouth, 0.85)},
-            {'name': 'Pitot', 'type': 'loft', 'join': 'separate', 'segments': 8, 'stations': loft_rows(pitot)},
+             'segments': 6, 'stations': loft_rows(nozzle_mouth, 0.85)},
+            {'name': 'Pitot', 'type': 'loft', 'join': 'separate', 'segments': 6, 'stations': loft_rows(pitot)},
             {'name': 'NozzlePetals', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#26282b',
-             'segments': 18, 'stations': loft_rows(petals, 0.85)},
+             'segments': 6, 'stations': loft_rows(petals, 0.85)},
             {'name': 'Irst', 'type': 'loft', 'join': 'separate', 'material': '#1e2a33', 'segments': 8,
              'stations': loft_rows(irst, -0.22)},
             {'name': 'ProbeFairing', 'type': 'loft', 'segments': 10, 'stations': loft_rows(ifr, 0.42)},
@@ -380,13 +385,13 @@ def main():
             # glare shield in each cockpit (the rear one raised behind the front seat), side consoles
             # and a black bulkhead behind the rear seat. The game draws pilots and ejection seats.
             {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'material': '#2a2d31',
-             'segments': 6, 'stations': loft_rows([(3.0, 1.2, -0.12, -0.08, 8), (6.45, 1.2, -0.12, -0.08, 8)])},
+             'segments': 4, 'stations': loft_rows([(3.0, 1.2, -0.12, -0.08, 8), (6.45, 1.2, -0.12, -0.08, 8)])},
             {'name': 'PanelFront', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
-             'segments': 6, 'stations': loft_rows([(3.75, 0.7, -0.1, 0.75, 6), (3.9, 0.7, -0.1, 0.75, 6)])},
+             'segments': 4, 'stations': loft_rows([(3.75, 0.7, -0.1, 0.75, 6), (3.9, 0.7, -0.1, 0.75, 6)])},
             {'name': 'GlareFront', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#16181b',
              'segments': 6, 'stations': loft_rows([(3.6, 0.7, 0.72, 0.8, 6), (3.95, 0.7, 0.72, 0.8, 6)])},
             {'name': 'PanelRear', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
-             'segments': 6, 'stations': loft_rows([(5.2, 0.7, -0.1, 0.95, 6), (5.32, 0.7, -0.1, 0.95, 6)])},
+             'segments': 4, 'stations': loft_rows([(5.2, 0.7, -0.1, 0.95, 6), (5.32, 0.7, -0.1, 0.95, 6)])},
             {'name': 'GlareRear', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#16181b',
              'segments': 6, 'stations': loft_rows([(5.15, 0.42, 0.93, 1.0, 6), (5.42, 0.42, 0.93, 1.0, 6)])},
             {'name': 'ScreenFront', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#2f5263',
@@ -402,7 +407,7 @@ def main():
             {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#121314',
              # Only as wide and deep as the cabin: a full hull section reached into the intake ducts
              # as a black wall (owner, 2026-11-18).
-             'segments': 6, 'stations': loft_rows([(6.45, 0.52, -0.12, 1.7, 8), (6.5, 0.52, -0.12, 1.7, 8)])},
+             'segments': 4, 'stations': loft_rows([(6.45, 0.52, -0.12, 1.7, 8), (6.5, 0.52, -0.12, 1.7, 8)])},
         ],
         'regions': canopy_glass(),
         'ground_y': -2.0,
@@ -436,7 +441,7 @@ def main():
             {'type': 'airbrake', 'view': 'top', 'mirror': False, 'depth_m': [0.0, 1.2],
              'polygon_m': top_m([(0.28, 11.9), (-0.28, 11.9), (-0.3, 13.2), (0.3, 13.2)])},
         ],
-        'gear': {'wheel_sides': 16, 'legs': [
+        'gear': {'wheel_sides': 6, 'legs': [
             {'name': 'Nose', 'pos_m': P(0.0, GROUND, nose_d), 'retract': 'aft', 'retract_deg': 90,
              'strut_top_y_m': nose_top, 'wheel_radius_m': nose_r, 'twin': True},
             {'name': 'Main', 'pos_m': P(main_x, GROUND, main_d), 'mirror': True, 'retract': 'forward',
@@ -453,6 +458,13 @@ def main():
         # Eye points of the two crew seats (front instructor/student, rear behind the frame at d 5.3).
         'pilot_seats_m': [P(0.0, 1.2, 4.4), P(0.0, 1.2, 5.95)],
     }
+    # Low poly (owner, 2026-11-18: 70 % fewer triangles): small details and the dark paint
+    # regions (each splits the skin) are left out.
+    drop = {'PylonInner', 'PylonOuter', 'FinPodRear', 'ProbeFairing', 'Irst', 'ScreenFront', 'ScreenRear',
+            'ConsoleFront', 'ConsoleRear', 'GlareFront', 'GlareRear', 'FinFillet',
+            'AntiGlare', 'FinCapLeft', 'FinCapRight'}
+    spec['parts'] = [p for p in spec['parts'] if p['name'] not in drop]
+    spec['regions'] = [r for r in spec['regions'] if r['name'] not in drop]
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:
         json.dump(spec, f, indent=1)
 
