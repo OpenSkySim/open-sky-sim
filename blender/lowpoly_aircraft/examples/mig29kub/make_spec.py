@@ -89,15 +89,21 @@ def le_cut(x0, x1, depth, ahead=0.4):
 def canopy_glass():
     """Windscreen and the two canopy panes (front and rear cockpit), split by their frames.
 
-    Side view: windscreen d 2.93-3.6, frame bar, front pane to d 5.3, frame bar, rear pane to
-    d 6.35 where the hump begins; the sill rises from y 0.66 to 0.95.
+    Side view (M2 sheet): windscreen d 2.9-3.88, frame bar, front pane to d 5.3, frame bar, rear
+    pane to d 6.35 where the hump begins; the sill rises from y 0.6 to 0.95.
     """
     hi = 1.8
     return [
+        # Three panes (a flat centre one and two side ones) inside 4 cm frame bars, as in the
+        # M2 top view and the KUB photo.
         {'name': 'Windscreen', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(2.93, 0.66), (3.6, 0.84), (3.6, hi), (2.93, hi)])},
+         'polygon_m': side_m([(2.86, 0.6), (3.88, 0.84), (3.88, hi), (2.86, hi)]),
+         'clip': {'view': 'top', 'polygons_m': [
+             top_m([(-0.15, 2.97), (0.15, 2.97), (0.15, 3.88), (-0.15, 3.88)]),
+             top_m([(0.19, 2.99), (0.7, 3.05), (0.7, 3.88), (0.19, 3.88)]),
+             top_m([(-0.19, 2.99), (-0.19, 3.88), (-0.7, 3.88), (-0.7, 3.05)])]}},
         {'name': 'CanopyFront', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(3.68, 0.86), (5.3, 0.9), (5.3, hi), (3.68, hi)])},
+         'polygon_m': side_m([(3.98, 0.86), (5.3, 0.9), (5.3, hi), (3.98, hi)])},
         {'name': 'CanopyRear', 'view': 'side', 'see_through': True,
          'polygon_m': side_m([(5.38, 0.91), (6.35, 0.95), (6.35, hi), (5.38, hi)])},
         # Dark grey radome and the dark anti-glare panel ahead of the windscreen.
@@ -149,7 +155,11 @@ def main():
     # Tandem canopy (full bubble, owner's MiG-35 pictures) and the broad flat-topped spine hump
     # behind it running back between the fins; top follows the side-view upper line.
     canopy = [
-        (2.93, 0.05, 0.5, 0.66, 2.0), (3.1, 0.2, 0.47, 0.8, 2.0), (3.3, 0.3, 0.45, 0.92, 2.1), (3.6, 0.4, 0.45, 1.1, 2.0),
+        # Windscreen (M2 top and side views, KUB photo 191773): blunt, with a wide rounded front arch
+        # (half width 0.3 m at its foot) and a flat centre pane between two side panes back to the
+        # frame at d 3.9; not a pointed bubble.
+        (2.9, 0.26, 0.5, 0.62, 2.6), (3.05, 0.34, 0.47, 0.76, 2.7), (3.3, 0.4, 0.45, 0.93, 2.7),
+        (3.6, 0.45, 0.45, 1.07, 2.6), (3.9, 0.47, 0.45, 1.19, 2.4),
         (4.18, 0.48, 0.45, 1.3, 2.3), (4.8, 0.5, 0.45, 1.43, 2.4), (5.43, 0.5, 0.45, 1.45, 2.4),
         (6.05, 0.49, 0.45, 1.4, 2.4), (6.35, 0.47, 0.45, 1.33, 2.4), (6.93, 0.46, 0.45, 1.17, 2.5),
         (7.93, 0.45, 0.4, 0.96, 2.7), (9.18, 0.43, 0.35, 0.75, 2.9), (10.18, 0.41, 0.3, 0.66, 2.9),
