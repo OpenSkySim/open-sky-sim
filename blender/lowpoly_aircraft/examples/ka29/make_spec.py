@@ -160,7 +160,7 @@ def windows_and_doors():
         # and the glass is the side-view band clipped to three top-view strips, so the frames between
         # them (x +-0.29, 6 cm) and the corner frames stay hull skin.
         {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'depth_m': [-1.3, 1.3],
-         'polygon_m': [[z_(0.2), 1.3], [z_(0.8), 2.1], [z_(1.05), 2.1], [z_(1.05), 1.3]],
+         'polygon_m': [[z_(0.2), 1.3], [z_(0.81), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.3]],
          'clip': {'view': 'top', 'polygons_m': [
              [[-0.26, z_(0.2)], [0.26, z_(0.2)], [0.26, z_(0.78)], [-0.26, z_(0.78)]],
              [[0.32, z_(0.25)], [0.79, z_(0.385)], [0.735, z_(0.875)], [0.32, z_(0.78)]],

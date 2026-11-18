@@ -124,6 +124,16 @@ def windscreen(d, H, y0):
     P = H + np.array([0.0, y0])
     j0, j1, j2, j3 = _pane_points(d, P[0, 1])
     fixed = [j0, j1, j2] + ([j3] if j3 else [])
+    # Every glazing ring has the same frame structure (top, roof points, frame points), so the
+    # loft joins like points to like points and the roof behind the panes stays smooth.
+    if d < PANE_C[2] - 1e-6:
+        fixed = [j0, (0.5 * j1[0], j1[1]), j1, j2] + ([j3] if j3 else [])
+    else:
+        # Behind the side panes the roof follows the outline (no lower than the pane tops).
+        k_ = max(2, int(np.argmax(P[:HALF_N // 2, 0])))
+        xs, ys = P[:k_ + 1, 0], P[:k_ + 1, 1]
+        roof = lambda x: max(float(np.interp(x, xs, ys)), j2[1])
+        fixed = [(0.0, roof(0.0))] + [(j2[0] * f, roof(j2[0] * f)) for f in (1 / 3, 2 / 3)] + [j2] + ([j3] if j3 else [])
     foot = fixed[-1]
     # The outline continues below the last frame point on the outside: skip outline points that
     # lie inboard of it (the roof or nose top dipping under it), or the ring folds back. From the
