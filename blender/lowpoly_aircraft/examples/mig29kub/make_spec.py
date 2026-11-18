@@ -131,7 +131,7 @@ def canopy_glass():
         {'name': 'FinCapLeft', 'view': 'side', 'material': '#2b2f33', 'depth_m': [1.7, 2.4],
          'polygon_m': side_m([(13.9, 2.3), (15.3, 2.52), (15.3, 3.1), (13.9, 3.1)])},
         {'name': 'FinCapRight', 'view': 'side', 'material': '#2b2f33', 'depth_m': [-2.4, -1.7],
-         'polygon_m': side_m([(13.9, 2.3), (15.3, 2.3), (15.3, 2.9), (13.9, 2.9)])},
+         'polygon_m': side_m([(13.9, 2.3), (15.3, 2.52), (15.3, 3.1), (13.9, 3.1)])},
         {'name': 'AntiGlare', 'view': 'top', 'material': '#1d2024', 'depth_m': [0.3, 1.2],
          'polygon_m': top_m([(0.0, 1.7), (0.3, 2.0), (0.34, 2.86), (-0.34, 2.86), (-0.3, 2.0)])},
     ]
@@ -261,9 +261,15 @@ def main():
     # Fins canted 6 deg outward (M2 sheet): root LE d 12.0 chord 3.08, tip LE d 14.37 at y 2.6,
     # cap at 2.84; a narrow fillet runs forward along the boom from the fin leading edge.
     cant = math.radians(6.0)
-    fin = [(1.8, 0.05, 12.0, 3.08, 0.045), (1.8 + 2.55 * math.tan(cant), 2.6, 14.37, 0.71, 0.04),
-           (1.8 + 2.79 * math.tan(cant), 2.84, 14.57, 0.5, 0.035)]
-    fin_fillet = [(1.8, 0.12, 10.45, 1.65, 0.03), (1.8 + 0.74 * math.tan(cant), 0.86, 12.65, 0.12, 0.03)]
+    # Redone from the fin area the owner marked on the M2 side view (2026-11-18): straight leading
+    # edge from the fillet kink (d 12.25, y 0.69) to d 14.52 at y 2.77, near-vertical trailing edge
+    # at d 15.09-15.16, and a tip whose top edge slopes down aft from y 2.84 (d 14.64) to the
+    # trailing corner at y 2.61 (d 15.16). The low dorsal fillet runs from d 10.46 up to the kink.
+    def fin_x(y):
+        return 1.8 + (y - 0.05) * math.tan(cant)
+    fin = [(1.8, 0.05, 11.55, 15.09 - 11.55, 0.045), (fin_x(2.61), 2.61, 14.345, 15.16 - 14.345, 0.04),
+           (fin_x(2.77), 2.77, 14.52, 14.79 - 14.52, 0.035), (fin_x(2.84), 2.84, 14.62, 0.06, 0.03)]
+    fin_fillet = [(1.8, 0.12, 10.45, 1.65, 0.03), (fin_x(0.69), 0.69, 12.2, 0.12, 0.03)]
     # Stabilators with the MiG-29K/M dogtooth: the outer leading edge steps 0.13 m forward at x 2.9.
     # M2 top view (stabilator area marked on it): trailing edge from d 15.7 at the root to the
     # outer corner at x 3.65, d 16.5; the tip is rounded, widest at x 3.93.
