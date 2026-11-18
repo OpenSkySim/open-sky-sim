@@ -1,0 +1,58 @@
+{
+ "aircraft": "lp_ka29",
+ "length_m": 11.3,
+ "span_m": 15.9,
+ "ground_y": -2.0,
+ "images": [
+  {
+   "id": "ka29-sheet",
+   "file": "ka29_sheet.jpg",
+   "kind": "sheet",
+   "title": "Ka-29 side and top view with sections 1-11",
+   "source": "Owner's Drive folder Ka-29 ('0 (1).jpg'), Aviatsiya i Vremya 2012",
+   "repo_ok": false,
+   "priority": 1,
+   "size": [900, 638],
+   "notes": "Base drawing. Both views 46.2 px/m (3 m bar). The nose wheels stand 0.24 m lower than the mains (nose-up on deck); the model keeps the fuselage level. Sections 7-11 are drawn at their own scale.",
+   "views": [
+    {"view": "side", "crop": [250, 0, 900, 280],
+     "cal": {"nose": [337, 201], "nose_dir": "left", "px_per_m": 46.2, "ground": [575, 263]}},
+    {"view": "top", "crop": [0, 225, 620, 478],
+     "cal": {"nose": [88, 350.5], "nose_dir": "left", "px_per_m": 46.2}}
+   ]
+  },
+  {
+   "id": "ka29-side-1",
+   "file": "ka29_side_1.png",
+   "kind": "view",
+   "title": "Ka-29 side view (clean line drawing)",
+   "source": "Owner's Drive folder Ka-29 ('0 (1).png')",
+   "repo_ok": false,
+   "priority": 2,
+   "size": [704, 204],
+   "views": []
+  },
+  {
+   "id": "ka29-deck-hover",
+   "file": "ka29_photo_hover.jpg",
+   "kind": "photo",
+   "title": "Ka-29 hovering over a carrier deck",
+   "source": "Owner's Drive folder Ka-29",
+   "repo_ok": false,
+   "priority": 3,
+   "size": [1024, 712],
+   "views": []
+  },
+  {
+   "id": "ka29-deck-parked",
+   "file": "ka29_photo_deck.jpg",
+   "kind": "photo",
+   "title": "Ka-29 parked on deck (intakes, rotor head, rocket pod)",
+   "source": "Owner's Drive folder Ka-29",
+   "repo_ok": false,
+   "priority": 3,
+   "size": [1024, 753],
+   "views": []
+  }
+ ]
+}

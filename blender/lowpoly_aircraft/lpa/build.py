@@ -228,7 +228,8 @@ def _all_moving(views, solid, surf: dict, side_name: str, mirrored: bool, materi
 
 
 def _spinning(obj, item: dict, side_name: str, mirrored: bool, material: str) -> None:
-    """A propeller (or its painted tips) that spins about body +Z through its 'center'.
+    """A propeller (or its painted tips) that spins about body +Z through its 'center'
+    (or about 'spin_axis', e.g. [0, 1, 0] for a helicopter rotor).
 
     Exported as a surface with control 'spin': its sign is the prop's hand (the turn
     direction, see parts.prop) and its range is the spin rate in deg/s.
@@ -245,7 +246,8 @@ def _spinning(obj, item: dict, side_name: str, mirrored: bool, material: str) ->
     obj['lpa_control'] = 'spin'
     obj['lpa_sign'] = float(item.get('hand', 1.0))
     obj['lpa_range_deg'] = float(item.get('spin_deg_s', 700.0))
-    obj['lpa_axis'] = [0.0, 0.0, 1.0]
+    # A propeller turns about body +Z; a helicopter rotor gives 'spin_axis' [0, 1, 0].
+    obj['lpa_axis'] = [float(c) for c in item.get('spin_axis', (0.0, 0.0, 1.0))]
     print(f'[lpa] spinning {role}: centre {np.round(centre, 3).tolist()} hand {obj["lpa_sign"]:+.0f}')
 
 

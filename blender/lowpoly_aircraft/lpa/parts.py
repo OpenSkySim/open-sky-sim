@@ -9,6 +9,10 @@ model (a few thousand triangles) is built from parts instead:
 * ``panel`` a wing, tailplane, canard or fin: an airfoil (symmetric NACA
   thickness) swept between spanwise stations, each giving its leading-edge
   point, chord and thickness ratio.
+* ``strut`` a round tube between two points in any direction (gear legs,
+  braces, a rotor mast), with an optional radius at each end.
+* ``rotor`` a helicopter rotor: blades about the vertical (+Y) axis through
+  its centre plus the hub, one object (spins with 'join': 'spin').
 
 Coordinates are body metres (+X left wing, +Y up, +Z nose). Stations are
 smoothed with a Catmull-Rom spline and resampled, so a handful of hand-picked
@@ -178,6 +182,83 @@ def _prop_chord_dir(th: float, hand: float, pitch: float) -> np.ndarray:
     return tangent * math.cos(pitch) + np.array([0.0, 0.0, -1.0]) * math.sin(pitch)
 
 
+def _tube_into(bm, a, b, r0: float, r1: float, sides: int) -> None:
+    """Closed n-sided tube from a to b (body frame), radius r0 at a and r1 at b."""
+    a, b = np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64)
+    ax = b - a
+    length = np.linalg.norm(ax)
+    if length < 1e-6:
+        return
+    ax /= length
+    ref = np.array([0.0, 1.0, 0.0]) if abs(ax[1]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    u = np.cross(ax, ref)
+    u /= np.linalg.norm(u)
+    v = np.cross(ax, u)
+    rings = []
+    for c, r in ((a, r0), (b, r1)):
+        ring = []
+        for k in range(sides):
+            t = 2 * math.pi * (k + 0.5) / sides
+            ring.append(bm.verts.new(geo.to_bl(c + r * (math.cos(t) * u + math.sin(t) * v))))
+        rings.append(ring)
+    m = sides
+    for k in range(m):
+        bm.faces.new((rings[0][k], rings[0][(k + 1) % m], rings[1][(k + 1) % m], rings[1][k]))
+    bm.faces.new(rings[0])
+    bm.faces.new(rings[1])
+
+
+def strut(name: str, a, b, radius: float, radius_b: float | None = None, sides: int = 6,
+          material: str = 'VEHICLE_PLANE_GREY', collection: str = 'Construction') -> bpy.types.Object:
+    """A round tube from point *a* to point *b* (body metres): gear legs, braces, a mast."""
+    bm = bmesh.new()
+    _tube_into(bm, a, b, radius, radius if radius_b is None else radius_b, sides)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return _object(bm, name, material, collection)
+
+
+def rotor(name: str, center, radius: float, blades: int = 3, root_r: float = 0.5, chord: float = 0.52,
+          tc: float = 0.1, pitch_deg: float = 6.0, droop_deg: float = 0.0, phase_deg: float = 0.0,
+          hand: float = 1.0, hub_r: float = 0.3, hub_h: float = 0.3, hub_sides: int = 8,
+          tip_chord: float | None = None, chord_points: int = 5, material: str = 'VEHICLE_PLANE_ENGINE',
+          collection: str = 'Construction') -> bpy.types.Object:
+    """Helicopter rotor about the body +Y axis through *center*: straight blades and a hub, one object.
+
+    *hand* is the turn about +Y: +1 is anticlockwise seen from above (the nose swings towards the
+    left wing, +X), -1 clockwise. Leading edges lead that turn. *droop_deg* bends the blades down
+    from the hub (a rotor at rest), *pitch_deg* is the blade angle. A blade has a root cuff
+    (spar tube) from the hub to *root_r*, then the airfoil out to the tip.
+    """
+    c = np.asarray(center, dtype=np.float64)
+    bm = bmesh.new()
+    pitch, droop = math.radians(pitch_deg), math.radians(droop_deg)
+    tip_c = chord if tip_chord is None else tip_chord
+    up = np.array([0.0, 1.0, 0.0])
+    for k in range(blades):
+        th = math.radians(phase_deg) + 2 * math.pi * k / blades
+        radial = np.array([math.sin(th), 0.0, math.cos(th)])
+        # Direction of travel of this blade for a turn of +1 about +Y (y up): +Z -> +X.
+        travel = hand * np.cross(up, radial)
+        span = radial * math.cos(droop) - up * math.sin(droop)
+        # Chord runs from the leading edge back against the travel; pitched nose up.
+        cd = -travel * math.cos(pitch) - up * math.sin(pitch)
+        nrm = np.cross(span, cd)
+        if nrm[1] < 0:
+            nrm = -nrm
+        rows = []
+        for r, ch in ((root_r, chord), (0.5 * (root_r + radius), chord), (radius, tip_c)):
+            mid = c + span * r
+            le = mid - cd * ch * 0.25
+            rows.append([*le, ch, tc])
+        _panel_into(bm, np.array(rows), chord_points, normal=nrm, chord_dir=cd)
+        # Spar tube from the hub out to the blade root.
+        _tube_into(bm, c + span * (0.6 * hub_r), c + span * (root_r + 0.05), 0.07, 0.06, 6)
+    # Hub: a short drum on the axis.
+    _tube_into(bm, c - up * 0.5 * hub_h, c + up * 0.5 * hub_h, hub_r, hub_r, hub_sides)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return _object(bm, name, material, collection)
+
+
 def mirror_rows(kind: str, rows) -> list:
     """Stations of the same part on the other side (x -> -x)."""
     out = []
@@ -206,8 +287,28 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
         normal = spec_part.get('normal')
         if normal is not None and mirrored:
             normal = [-normal[0], normal[1], normal[2]]
+        chord_dir = spec_part.get('chord_dir')
+        if chord_dir is not None and mirrored:
+            chord_dir = [-chord_dir[0], chord_dir[1], chord_dir[2]]
         return panel(name, rows, int(spec_part.get('chord_points', 9)), int(spec_part.get('resample', 0)),
-                     material, normal=normal)
+                     material, normal=normal, chord_dir=chord_dir)
+    if kind == 'strut':
+        a, b = list(spec_part['a']), list(spec_part['b'])
+        if mirrored:
+            a[0], b[0] = -a[0], -b[0]
+        return strut(name, a, b, float(spec_part.get('radius', 0.05)),
+                     spec_part.get('radius_b'), int(spec_part.get('sides', 6)), material)
+    if kind == 'rotor':
+        c = list(spec_part['center'])
+        if mirrored:
+            c[0] = -c[0]
+        return rotor(name, c, float(spec_part['radius']), int(spec_part.get('blades', 3)),
+                     float(spec_part.get('root_r', 0.5)), float(spec_part.get('chord', 0.52)),
+                     float(spec_part.get('tc', 0.1)), float(spec_part.get('pitch_deg', 6.0)),
+                     float(spec_part.get('droop_deg', 0.0)), float(spec_part.get('phase_deg', 0.0)),
+                     float(spec_part.get('hand', 1.0)), float(spec_part.get('hub_r', 0.3)),
+                     float(spec_part.get('hub_h', 0.3)), int(spec_part.get('hub_sides', 8)),
+                     spec_part.get('tip_chord'), int(spec_part.get('chord_points', 5)), material)
     if kind == 'prop':
         c = list(spec_part['center'])
         if mirrored:
