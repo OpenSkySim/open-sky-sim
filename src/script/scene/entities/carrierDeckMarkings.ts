@@ -23,7 +23,7 @@ import {
     angledDeckPoint,
 } from './carrierDeckLayout';
 
-export type DeckPaint = 'white' | 'yellow' | 'red' | 'dark' | 'lip';
+export type DeckPaint = 'white' | 'yellow' | 'red' | 'dark' | 'lip' | 'lift';
 
 /** XZ point, carrier-local metres. */
 export interface P2 { x: number; z: number }
@@ -68,6 +68,17 @@ const HOLD_BAR_AHEAD_M = 1.5;
 const HOLD_BAR_ACROSS_M = 6;
 /** The yellow helicopter circle near the stern, on the ship's centreline (station m). */
 const YELLOW_SPOT_STATION_M = 23;
+/**
+ * The starboard lifts' holes in the deck (both lifts are shown lowered; see
+ * tools/build_kuz_hangar.py): fore and aft z, and the inboard edge at the hull
+ * line. Outboard the hole runs to the deck edge (x ~35).
+ */
+const LIFT_HOLES_Z: readonly (readonly [number, number])[] = [[-50.99, -35.09], [45.80, 61.71]];
+const LIFT_HOLE_INBOARD_X = 23.8;
+/** The yellow frame round each hole: width, gap to the hole, and how far out it is drawn. */
+const LIFT_FRAME_W = 0.6;
+const LIFT_FRAME_GAP_M = 0.1;
+const LIFT_FRAME_OUT_X = 37;
 
 class Painter {
     readonly out: DeckPaintTriangles = new Map();
@@ -266,9 +277,17 @@ export function carrierDeckMarkings(): DeckPaintTriangles {
     // The light band across the lip.
     p.rect('lip', { x: KUZ_CENTRELINE_X, z: (SKI_JUMP_LIP_Z + KUZ_BOW_Z) * 0.5 }, SKI_JUMP_LIP_Z - KUZ_BOW_Z, 40);
 
-    // --- Lift ------------------------------------------------------------------
-    // The aft starboard lift's outline (the deck edge ends it outboard).
-    p.outline('dark', { x: 29.5, z: 56 }, 14, 13, THIN_W);
+    // --- Lifts -----------------------------------------------------------------
+    // A brownish-yellow frame round each lift's hole in the deck: inboard edge and both
+    // ends, run out past the deck edge (the drape ends them there).
+    for (const [z0, z1] of LIFT_HOLES_Z) {
+        const off = LIFT_FRAME_GAP_M + LIFT_FRAME_W * 0.5;
+        const xi = LIFT_HOLE_INBOARD_X - off;
+        const za = z0 - off, zb = z1 + off;
+        p.stripe('lift', { x: xi, z: za - LIFT_FRAME_W * 0.5 }, { x: xi, z: zb + LIFT_FRAME_W * 0.5 }, LIFT_FRAME_W);
+        p.stripe('lift', { x: xi, z: za }, { x: LIFT_FRAME_OUT_X, z: za }, LIFT_FRAME_W);
+        p.stripe('lift', { x: xi, z: zb }, { x: LIFT_FRAME_OUT_X, z: zb }, LIFT_FRAME_W);
+    }
 
     return p.out;
 }
