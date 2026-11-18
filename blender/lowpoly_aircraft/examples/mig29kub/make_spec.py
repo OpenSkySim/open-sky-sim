@@ -381,7 +381,9 @@ def main():
              'material': '#2e3236', 'segments': 6,
              'stations': loft_rows([(5.32, 0.1, -0.1, 0.55, 6), (6.4, 0.1, -0.1, 0.55, 6)], 0.45)},
             {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#121314',
-             'segments': 6, 'stations': loft_rows([(6.45, 1.5, -1.0, 1.7, 8), (6.5, 1.5, -1.0, 1.7, 8)])},
+             # Only as wide and deep as the cabin: a full hull section reached into the intake ducts
+             # as a black wall (owner, 2026-11-18).
+             'segments': 6, 'stations': loft_rows([(6.45, 0.52, -0.12, 1.7, 8), (6.5, 0.52, -0.12, 1.7, 8)])},
         ],
         'regions': canopy_glass(),
         'ground_y': -2.0,
