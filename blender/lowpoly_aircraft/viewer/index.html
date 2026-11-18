@@ -2713,7 +2713,9 @@ xsSvg.addEventListener('pointerup', () => {
 });
 xsSvg.addEventListener('dblclick', e => {
   if (!XS.poly) return;
-  const ds = e.target.dataset || {};
+  // The pointer capture of the clicks before retargets this event: look at what is under the pointer.
+  const hit = document.elementFromPoint(e.clientX, e.clientY);
+  const ds = (hit && hit.dataset) || {};
   if (ds.v !== undefined) xsRemove(+ds.v);
   else if (ds.edge !== undefined) xsInsert(+ds.edge, xsToM(e));
   e.preventDefault();
