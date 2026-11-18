@@ -125,9 +125,9 @@ def canopy_glass():
         # One-piece windscreen (owner, 2026-11-18). Glass edges measured off the M2 side view: windscreen d 2.95-3.93, frame, front pane
         # to d 5.33, frame, rear pane to d 6.55; the sill rises from y 0.61 to 0.99 along the owner's red line (windscreen 5 cm lower, owner 2026-11-18).
         {'name': 'Windscreen', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m(body.glass_edge(2.95, 3.93) + [(3.93, hi), (2.95, hi)])},
+         'polygon_m': side_m(body.glass_edge(2.95, body.BOW_FOOT) + [(body.bow_line(hi), hi), (2.95, hi)])},
         {'name': 'CanopyFront', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m(body.glass_edge(3.99, 5.33) + [(5.33, hi), (3.99, hi)])},
+         'polygon_m': side_m(body.glass_edge(body.BOW_FOOT + body.BOW_W, 5.33) + [(5.33, hi), (body.bow_line(hi, body.BOW_W), hi)])},
         {'name': 'CanopyRear', 'view': 'side', 'see_through': True,
          'polygon_m': side_m(body.glass_edge(5.41, 6.55) + [(6.55, hi), (5.41, hi)])},
         # Dark grey radome and the dark anti-glare panel ahead of the windscreen.

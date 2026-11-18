@@ -230,10 +230,25 @@ def canopy_rows():
     return out
 
 
-def glass_edge(d0, d1, rail=0.02):
-    """Side-view lower edge of a glass pane: the red line plus a thin canopy rail, d0 -> d1."""
-    ds = [d0] + [k for k, _ in TOP if d0 < k < d1] + [d1]
-    return [(d, round(interp(TOP, d) + NOSE_Y + rail, 3)) for d in ds]
+# Canopy frame (M2 side and top views, owner 2026-11-18): a rail along the glass's lower edge,
+# about 5 cm high at the windscreen, 8 cm over the front cockpit, 3 cm at the rear pane's end; a
+# windscreen bow leaning forward (foot d 4.02, top d 3.88) 8 cm wide; a straight bow d 5.33-5.41
+# between the cockpits.
+RAIL = [(2.95, 0.05), (4.8, 0.08), (6.55, 0.03)]
+BOW_FOOT, BOW_TOP, BOW_W = 4.02, 3.88, 0.08
+
+
+def glass_edge(d0, d1):
+    """Side-view lower edge of a glass pane: the red line plus the canopy rail, d0 -> d1."""
+    ds = [d0] + [k for k, _ in TOP + RAIL if d0 < k < d1] + [d1]
+    return [(d, round(interp(TOP, d) + NOSE_Y + interp(RAIL, d), 3)) for d in sorted(set(ds))]
+
+
+def bow_line(y, offset=0.0):
+    """d of the windscreen bow's rear edge (plus offset) at drawing-frame height y."""
+    y0 = interp(TOP, BOW_FOOT) + NOSE_Y + interp(RAIL, BOW_FOOT)
+    y1 = interp(CANOPY_TOP, BOW_TOP) + NOSE_Y
+    return round(BOW_FOOT + offset + (BOW_TOP - BOW_FOOT) * (y - y0) / (y1 - y0), 3)
 
 
 def _deck_edge():
