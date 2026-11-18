@@ -164,20 +164,26 @@ def main():
         (10.2, 0.45, -0.47, 0.5, 2.6, 2.6),
         (11.7, 0.4, -0.42, 0.38, 2.6, 2.5),
         (12.9, 0.36, -0.4, 0.18, 2.6, 2.4),
-        (13.9, 0.35, -0.4, 0.2, 2.4, 2.2),
+        (13.9, 0.35, -0.4, 0.18, 2.4, 2.2),
         # Brake-chute housing between the nozzles: as wide as the gap between them and rounded to
         # a point at d 15.46 in plan (M2 top view, tail-cone area marked on it); flat, not a cone:
         # the top slopes smoothly down onto the underside and ends in a thin edge, 0.4 m above the
         # underside of the fuselage (owner, 2026-11-18).
-        (14.3, 0.37, -0.15, 0.3, 2.5, 2.2),
-        (14.6, 0.38, 0.0, 0.2, 2.6, 2.0),
-        (14.9, 0.33, 0.03, 0.15, 2.6, 2.0),
+        (14.3, 0.37, -0.15, 0.2, 2.5, 2.2),
+        (14.6, 0.38, 0.0, 0.17, 2.6, 2.0),
+        (14.9, 0.33, 0.03, 0.14, 2.6, 2.0),
         (15.18, 0.24, 0.04, 0.12, 2.4, 2.0),
         (15.38, 0.13, 0.05, 0.1, 2.2, 2.0),
         (15.46, 0.03, 0.06, 0.09, 2.0, 2.0),
     ]
     # Tandem canopy (full bubble, owner's MiG-35 pictures) and the broad flat-topped spine hump
     # behind it running back between the fins; top follows the side-view upper line.
+    def spine_top(d):
+        return 0.96 + (0.19 - 0.96) * (d - 7.93) / (14.6 - 7.93)
+
+    def spine_hw(d):
+        return 0.45 + (0.34 - 0.45) * (d - 7.93) / (14.6 - 7.93)
+
     canopy = [
         # Windscreen (M2 top and side views, KUB photo 191773): blunt, with a wide rounded front arch
         # (half width 0.3 m at its foot) and a flat centre pane between two side panes back to the
@@ -186,11 +192,12 @@ def main():
         (3.6, 0.45, 0.45, 1.07, 2.6), (3.9, 0.47, 0.45, 1.19, 2.4),
         (4.18, 0.48, 0.45, 1.3, 2.3), (4.8, 0.5, 0.45, 1.43, 2.4), (5.43, 0.5, 0.45, 1.45, 2.4),
         (6.05, 0.49, 0.45, 1.4, 2.4), (6.35, 0.47, 0.45, 1.33, 2.4), (6.93, 0.46, 0.45, 1.17, 2.5),
-        (7.93, 0.45, 0.4, 0.96, 2.7), (9.18, 0.43, 0.35, 0.75, 2.9), (10.18, 0.41, 0.3, 0.66, 2.9),
-        # The spine stays broad and sinks smoothly onto the flat tail between the nozzles (owner,
-        # 2026-11-18), no pointed end.
-        (11.68, 0.33, 0.25, 0.6, 2.6), (12.6, 0.34, 0.15, 0.45, 2.6), (13.3, 0.34, 0.05, 0.36, 2.6),
-        (13.9, 0.33, 0.0, 0.32, 2.6), (14.3, 0.35, 0.05, 0.29, 2.6), (14.6, 0.34, 0.08, 0.19, 2.6),
+        (7.93, 0.45, 0.4, 0.96, 2.7),
+        # From the canopy hump to the tail the spine is one straight line, in height and in width
+        # (owner, 2026-11-18), sinking onto the flat tail between the nozzles with no pointed end.
+    ] + [(d, round(spine_hw(d), 3), yb, round(spine_top(d), 3), 2.7)
+         for d, yb in ((9.18, 0.35), (10.18, 0.3), (11.68, 0.22), (12.6, 0.12), (13.3, 0.05), (13.9, 0.0),
+                       (14.3, 0.03), (14.6, 0.06))] + [
         (14.9, 0.27, 0.06, 0.14, 2.6),
     ]
     # Intake and engine nacelle, one per side, from the MiG-29M2 sheet (side, front and sections D-G,
