@@ -339,6 +339,8 @@ def main():
         'smooth_deg': 0,
         'parts': [
             {'name': 'Body', 'type': 'loft', 'segments': body.SEGMENTS, 'stations': body_rows},
+            # The canopy and its rear frame sit on the fuselage's red line (owner, 2026-11-18).
+            {'name': 'Canopy', 'type': 'loft', 'segments': 24, 'stations': loft_rows(body.canopy_rows())},
             # Brake-chute housing between the nozzles (as in examples/mig29kub).
             {'name': 'TailCone', 'type': 'loft', 'segments': 16, 'stations': loft_rows(fuselage[-8:])},
             {'name': 'GearBulge', 'type': 'loft', 'mirror': True, 'segments': 12, 'resample': 8,

@@ -29,14 +29,19 @@ TOP = [(0, 0), (0.14, 0.13), (0.34, 0.23), (0.53, 0.33), (0.72, 0.42), (0.92, 0.
        (1.3, 0.59), (1.49, 0.64), (1.69, 0.69), (1.88, 0.73), (2.07, 0.78), (2.27, 0.83), (2.65, 0.89),
        # Windscreen: one straight line in side view (owner, 2026-11-18) from its foot (d 2.95,
        # 0.05 m below the glass edge first drawn) up to the frame at d 3.93.
-       (2.95, 0.92), (3.93, 1.54),
-       # Canopy top: the owner's blue line on the M2 side view (2026-11-18), then the green
-       # rear fairing from the glass's end down onto the red line.
-       (4.05, 1.56), (4.29, 1.65), (4.53, 1.70), (4.77, 1.74), (5.01, 1.79), (5.48, 1.80), (5.72, 1.78),
-       (5.96, 1.76), (6.2, 1.72), (6.44, 1.67), (6.6, 1.64), (7.11, 1.49), (7.72, 1.31),
-       # Behind the canopy the fuselage follows the owner's red line: straight down to the fin
-       # root (d 11.82, 0.90).
-       (11.82, 0.90)]
+       # The fuselage's top under the canopy is the owner's red line on the M2 side view
+       # (2026-11-18): from the windscreen's foot along the canopy sill, peaking at d 7.08, then
+       # straight down to the fin root. The canopy sits on it as its own part (CANOPY_TOP).
+       (2.95, 0.92), (4.11, 1.10), (7.08, 1.34), (7.42, 1.33), (11.82, 0.90)]
+SILL_FROM, SILL_TO = 2.95, 7.72          # where the canopy sits on the fuselage
+# Canopy top: straight windscreen (owner) to the frame at d 3.93, the owner's blue line over the
+# glass, then the green rear frame from the glass's end down onto the red line.
+CANOPY_TOP = [(2.95, 0.92), (3.93, 1.54), (4.05, 1.56), (4.29, 1.65), (4.53, 1.70), (4.77, 1.74),
+              (5.01, 1.79), (5.48, 1.80), (5.72, 1.78), (5.96, 1.76), (6.2, 1.72), (6.44, 1.67), (6.6, 1.64),
+              (7.11, 1.49), (7.72, 1.31)]
+# Canopy half width (M2 top view: glazing about 0.95 m wide).
+CANOPY_HW = [(2.95, 0.3), (3.3, 0.38), (3.93, 0.45), (4.5, 0.48), (5.3, 0.49), (6.1, 0.48), (6.6, 0.45),
+             (7.1, 0.38), (7.72, 0.25)]
 BOT = [(0, 0), (0.14, -0.06), (0.34, -0.09), (0.53, -0.13), (0.72, -0.16), (0.92, -0.18), (1.11, -0.2),
        (2.92, -0.2)]
 # Top view: half width of the nose, then of the LERX edge (to the wing root at d 7.83).
@@ -154,7 +159,10 @@ def body_halves():
     out = []
     for d in stations:
         H = _lerp_keys(keys, d)
-        if 2.6 < d <= 11.82 and d not in top_exact:
+        if SILL_FROM <= d <= SILL_TO:
+            # under the canopy: the fuselage's upper outline stops at the red line
+            H[:K1 + 1, 1] = np.minimum(H[:K1 + 1, 1], interp(TOP, d) + NOSE_Y)
+        elif 2.6 < d <= 11.82 and d not in top_exact:
             # top line: lift the upper outline (canopy, spine) onto the side view's top
             yT, yL = H[0, 1], H[K1, 1]
             dy = interp(TOP, d) + NOSE_Y - yT
@@ -170,6 +178,17 @@ def body_halves():
                 if H[i, 0] > x0 and span > x0 + 1e-6:
                     H[i, 0] = x0 + (H[i, 0] - x0) * (hw - x0) / (span - x0)
         out.append((d, H))
+    return out
+
+
+def canopy_rows():
+    """The canopy on top of the fuselage: (d, half width, bottom, top, n) in the drawing frame."""
+    ds = [2.95, 3.2, 3.5, 3.93, 4.29, 4.77, 5.01, 5.48, 5.96, 6.44, 6.6, 7.11, 7.45, 7.72]
+    out = []
+    for d in ds:
+        sill = interp(TOP, d) + NOSE_Y
+        top = max(interp(CANOPY_TOP, d) + NOSE_Y, sill + 0.01)
+        out.append((d, round(interp(CANOPY_HW, d), 3), round(sill - 0.15, 3), round(top, 3), 2.4))
     return out
 
 
