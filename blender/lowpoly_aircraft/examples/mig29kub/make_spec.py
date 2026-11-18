@@ -240,8 +240,10 @@ def main():
     # A diamond loft under the LERX edge; its lower half is hidden in the fuselage and nacelles.
     # Kept separate: the exact union drops its right half.
     # (d, half width, edge y, rise to the centre line, drop to the centre line)
-    shoulder = [(3.0, 0.5, 0.0, 0.5, 0.4), (4.0, 0.77, 0.0, 1.0, 0.45), (5.1, 1.08, 0.01, 0.84, 0.5),
-                (6.2, 1.34, 0.02, 0.68, 0.45), (7.05, 1.62, 0.04, 0.55, 0.3), (8.0, 1.72, 0.05, 0.4, 0.25),
+    # Flatter (owner, 2026-11-18, wireframe picture): the LERX top falls only about 20-25 deg from the
+    # fuselage side to the sharp edge instead of 40-55 deg.
+    shoulder = [(3.0, 0.5, 0.0, 0.3, 0.4), (4.0, 0.77, 0.0, 0.45, 0.45), (5.1, 1.08, 0.01, 0.4, 0.5),
+                (6.2, 1.34, 0.02, 0.36, 0.45), (7.05, 1.62, 0.04, 0.34, 0.3), (8.0, 1.72, 0.05, 0.3, 0.25),
                 (9.5, 1.72, 0.05, 0.25, 0.2), (11.0, 1.66, 0.05, 0.15, 0.15), (12.4, 1.55, 0.05, 0.08, 0.1),
                 # Aft of the wing the deck carries on to the nozzles (owner's wireframe, 2026-11-18): one
                 # flat surface from boom to boom, set low so the round nacelle tops stand clearly out of
