@@ -176,7 +176,7 @@ def main():
     # Flat fairing under the wing root outboard of each nacelle: the main wheel turns flat as the leg
     # folds forward, so it only needs a shallow bay (wheel y -0.42 to -0.18).
     gear_bulge = [(7.7, 0.1, -0.12, -0.02, 2.5), (8.1, 0.45, -0.46, 0.0, 3.0), (8.5, 0.5, -0.5, 0.0, 3.5),
-                  (9.6, 0.5, -0.5, 0.0, 3.5), (10.2, 0.4, -0.46, 0.0, 3.0), (10.7, 0.12, -0.2, -0.02, 2.5)]
+                  (9.75, 0.5, -0.5, 0.0, 3.5), (10.35, 0.4, -0.46, 0.0, 3.0), (10.85, 0.12, -0.2, -0.02, 2.5)]
     # Nozzles (pictures): short grey shroud, then long convergent dark petals.
     nozzle = [(14.15, 0.5, -0.85, 0.15, 2.0), (14.45, 0.49, -0.84, 0.14, 2.0)]
     petals = [(14.43, 0.47, -0.82, 0.12, 2.0), (14.75, 0.445, -0.795, 0.095, 2.0), (15.05, 0.4, -0.75, 0.05, 2.0)]
@@ -239,11 +239,13 @@ def main():
         pylons.append([(px, wing_y(px) + 0.02, pd, 1.7, 0.045), (px, wing_y(px) - 0.3, pd + 0.1, 1.55, 0.05),
                        (px, wing_y(px) - 0.42, pd + 0.2, 1.35, 0.055)])
 
-    # Gear (all wheels touch y = GROUND): twin nose wheels at d 6.48 retract aft into the
-    # fuselage, main wheels at d 9.95, x 1.6 (drawn track) retract forward and turn flat
+    # Gear (all wheels touch y = GROUND): twin nose wheels at d 6.0 retract aft into the
+    # fuselage, main wheels at d 10.1, x 1.6 (drawn track) retract forward and turn flat
     # into the shallow wing-root fairing. Wells: around the stowed wheels and the folded struts.
-    nose_d, nose_top, nose_r = 6.48, -0.4, 0.3
-    main_d, main_x, main_top, main_r = 9.95, 1.6, -0.3, 0.4
+    # Wheelbase 4.1 m: the KUB photo 191773 and the photo points marked in the Hangar put the nose
+    # wheel about 0.5 m further forward and the mains 0.15 m further aft than the drawings.
+    nose_d, nose_top, nose_r = 6.0, -0.4, 0.3
+    main_d, main_x, main_top, main_r = 10.1, 1.6, -0.3, 0.4
     nose_stow = nose_d + (nose_top - GROUND - nose_r)          # wheel centre, folded aft 90 deg
     main_stow = main_d - (main_top - GROUND - main_r)          # wheel centre, folded forward 90 deg
     nose_well = [(nose_d - 0.08, 0.3, -1.3, -0.2, 5), (nose_stow, 0.3, -1.3, -0.2, 5),
