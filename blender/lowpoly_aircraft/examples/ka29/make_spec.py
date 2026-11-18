@@ -294,7 +294,7 @@ def main():
         # Stub wings (second sheet top/side views, owner's photos): a flat wing only between the
         # weapon beams (x 1.95-2.6), pipes inboard of it, with two weapon beams below, held by pipes from the cabin roof
         # line: a single strut at d 3.49 and a V (d 3.55 and 4.84) meeting at the wing at d 4.30.
-        {'name': 'StubWing', 'type': 'panel', 'mirror': True, 'chord_points': 5, 'join': 'separate',
+        {'name': 'StubWing', 'type': 'panel', 'mirror': True, 'chord_points': 5,
          'stations': panel_rows([(1.95, 0.8, 3.34, 1.1, 0.1), (2.6, 0.8, 3.52, 0.9, 0.1)])},
         # Inboard of the inner beam there is no wing, only two horizontal pipes to the cabin side.
         {'name': 'WingPipeFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
@@ -304,7 +304,7 @@ def main():
         {'name': 'WeaponBeamInner', 'type': 'loft', 'mirror': True, 'segments': 8, 'join': 'separate', 'stations':
          loft_m([(3.07, 0.05, 0.6, 0.68, 2), (3.21, 0.09, 0.5, 0.8, 2.5), (3.46, 0.09, 0.47, 0.8, 3),
                  (4.60, 0.09, 0.47, 0.8, 3), (4.67, 0.07, 0.5, 0.78, 3)], 1.97)},
-        {'name': 'WeaponBeamOuter', 'type': 'loft', 'mirror': True, 'segments': 8, 'join': 'separate', 'stations':
+        {'name': 'WeaponBeamOuter', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations':
          loft_m([(3.27, 0.05, 0.6, 0.68, 2), (3.41, 0.09, 0.5, 0.8, 2.5), (3.66, 0.09, 0.47, 0.8, 3),
                  (4.83, 0.09, 0.47, 0.8, 3), (4.9, 0.07, 0.5, 0.78, 3)], 2.6)},
         {'name': 'WingStrutFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
@@ -369,6 +369,15 @@ def main():
         'parts': parts,
         'regions': windows_and_doors(),
         'surfaces': [
+            # Parking: the outer wings (outboard of the inner weapon beam, with the outer beam) fold
+            # up 110 deg about a hinge along the wing's upper skin at x 2.08 (owner).
+            # One item per side: the hinge axis comes out the same on both, so the signs differ.
+            {'type': 'wingFold', 'role': 'wingFoldLeft', 'control': 'fold', 'view': 'top', 'mirror': False,
+             'sign': -1.0, 'range_deg': 110.0, 'hinge_skin': 1.0,
+             'polygon_m': [[2.08, z_(3.0)], [2.08, z_(5.0)], [2.9, z_(5.0)], [2.9, z_(3.0)]]},
+            {'type': 'wingFold', 'role': 'wingFoldRight', 'control': 'fold', 'view': 'top', 'mirror': False,
+             'sign': 1.0, 'range_deg': 110.0, 'hinge_skin': 1.0,
+             'polygon_m': [[-2.08, z_(3.0)], [-2.08, z_(5.0)], [-2.9, z_(5.0)], [-2.9, z_(3.0)]]},
             # Rudders on the end-plate fins, hinged at d 10.35 (second sheet), above and below the
             # stabiliser (y 1.62) so they don't take its tips with them.
             {'type': 'rudder', 'view': 'side', 'mirror': True, 'depth_m': [1.3, 1.9],

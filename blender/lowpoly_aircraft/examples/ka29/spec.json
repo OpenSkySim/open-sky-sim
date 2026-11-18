@@ -6826,7 +6826,6 @@
    "type": "panel",
    "mirror": true,
    "chord_points": 5,
-   "join": "separate",
    "stations": [
     [
      1.95,
@@ -6937,7 +6936,6 @@
    "type": "loft",
    "mirror": true,
    "segments": 8,
-   "join": "separate",
    "stations": [
     [
      0.95,
@@ -8025,6 +8023,62 @@
   }
  ],
  "surfaces": [
+  {
+   "type": "wingFold",
+   "role": "wingFoldLeft",
+   "control": "fold",
+   "view": "top",
+   "mirror": false,
+   "sign": -1.0,
+   "range_deg": 110.0,
+   "hinge_skin": 1.0,
+   "polygon_m": [
+    [
+     2.08,
+     1.22
+    ],
+    [
+     2.08,
+     -0.78
+    ],
+    [
+     2.9,
+     -0.78
+    ],
+    [
+     2.9,
+     1.22
+    ]
+   ]
+  },
+  {
+   "type": "wingFold",
+   "role": "wingFoldRight",
+   "control": "fold",
+   "view": "top",
+   "mirror": false,
+   "sign": 1.0,
+   "range_deg": 110.0,
+   "hinge_skin": 1.0,
+   "polygon_m": [
+    [
+     -2.08,
+     1.22
+    ],
+    [
+     -2.08,
+     -0.78
+    ],
+    [
+     -2.9,
+     -0.78
+    ],
+    [
+     -2.9,
+     1.22
+    ]
+   ]
+  },
   {
    "type": "rudder",
    "view": "side",
