@@ -315,12 +315,6 @@ def main():
              'stations': loft_rows(gear_bulge, 1.5)},
             {'name': 'Shoulder', 'type': 'loft', 'join': 'separate', 'segments': 16,
              'stations': [[round(Z0 - d, 3), 0.0, yc, hw, up, dn, 1.15] for d, hw, yc, up, dn in shoulder]},
-            # Fillet from the spine down onto the nacelle tops (owner, 2026-11-18): the spine's
-            # flanks slope smoothly onto the nacelles instead of dropping into a groove.
-            {'name': 'SpineFillet', 'type': 'loft', 'segments': 14,
-             'stations': [[round(Z0 - d, 3), 0.0, cy, 0.85, round(max(spine_top(d) - 0.06 - cy, 0.04), 3), 0.15, 2.0, 1.6]
-                          for d, cy in ((8.3, 0.01), (8.9, 0.01), (9.5, 0.02), (10.4, 0.04), (11.2, 0.06),
-                                        (12.4, 0.08), (13.2, 0.09), (13.9, 0.09), (14.4, 0.09))]},
             {'name': 'Boom', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_rows_cx(boom)},
             {'name': 'Lerx', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(lerx)},
             {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 9, 'stations': panel_rows(wing)},
