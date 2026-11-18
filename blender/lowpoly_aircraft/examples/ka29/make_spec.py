@@ -307,6 +307,9 @@ def main():
         {'name': 'WeaponBeamOuter', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations':
          loft_m([(3.27, 0.05, 0.6, 0.68, 2), (3.41, 0.09, 0.5, 0.8, 2.5), (3.66, 0.09, 0.47, 0.8, 3),
                  (4.83, 0.09, 0.47, 0.8, 3), (4.9, 0.07, 0.5, 0.78, 3)], 2.6)},
+        # Diagonal brace underneath, from the lower cabin side up to the inner beam.
+        {'name': 'WingBraceLower', 'type': 'strut', 'mirror': True, 'join': 'separate',
+         'a': P(1.0, 0.35, 3.9), 'b': P(1.95, 0.76, 3.9), 'radius': 0.045},
         {'name': 'WingStrutFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
          'a': P(0.91, 1.81, 3.49), 'b': P(1.83, 0.86, 3.49), 'radius': 0.045},
         {'name': 'WingStrutVFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
@@ -370,13 +373,13 @@ def main():
         'regions': windows_and_doors(),
         'surfaces': [
             # Parking: the outer wings (outboard of the inner weapon beam, with the outer beam) fold
-            # up 110 deg about a hinge along the wing's upper skin at x 2.08 (owner).
+            # up 130 deg about a hinge along the wing's upper skin at x 2.08 (owner).
             # One item per side: the hinge axis comes out the same on both, so the signs differ.
             {'type': 'wingFold', 'role': 'wingFoldLeft', 'control': 'fold', 'view': 'top', 'mirror': False,
-             'sign': -1.0, 'range_deg': 110.0, 'hinge_skin': 1.0,
+             'sign': -1.0, 'range_deg': 130.0, 'hinge_skin': 1.0,
              'polygon_m': [[2.08, z_(3.0)], [2.08, z_(5.0)], [2.9, z_(5.0)], [2.9, z_(3.0)]]},
             {'type': 'wingFold', 'role': 'wingFoldRight', 'control': 'fold', 'view': 'top', 'mirror': False,
-             'sign': 1.0, 'range_deg': 110.0, 'hinge_skin': 1.0,
+             'sign': 1.0, 'range_deg': 130.0, 'hinge_skin': 1.0,
              'polygon_m': [[-2.08, z_(3.0)], [-2.08, z_(5.0)], [-2.9, z_(5.0)], [-2.9, z_(3.0)]]},
             # Rudders on the end-plate fins, hinged at d 10.35 (second sheet), above and below the
             # stabiliser (y 1.62) so they don't take its tips with them.

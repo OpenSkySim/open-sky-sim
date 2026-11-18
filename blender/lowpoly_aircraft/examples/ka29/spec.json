@@ -6985,6 +6985,23 @@
    ]
   },
   {
+   "name": "WingBraceLower",
+   "type": "strut",
+   "mirror": true,
+   "join": "separate",
+   "a": [
+    1.0,
+    0.35,
+    0.32
+   ],
+   "b": [
+    1.95,
+    0.76,
+    0.32
+   ],
+   "radius": 0.045
+  },
+  {
    "name": "WingStrutFront",
    "type": "strut",
    "mirror": true,
@@ -8030,7 +8047,7 @@
    "view": "top",
    "mirror": false,
    "sign": -1.0,
-   "range_deg": 110.0,
+   "range_deg": 130.0,
    "hinge_skin": 1.0,
    "polygon_m": [
     [
@@ -8058,7 +8075,7 @@
    "view": "top",
    "mirror": false,
    "sign": 1.0,
-   "range_deg": 110.0,
+   "range_deg": 130.0,
    "hinge_skin": 1.0,
    "polygon_m": [
     [
