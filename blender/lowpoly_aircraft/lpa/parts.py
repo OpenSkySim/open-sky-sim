@@ -71,8 +71,7 @@ def loft(name: str, stations, segments: int = 24, resample: int = 0, material: s
     if resample:
         rows = catmull_rom(rows, resample)
     rows[:, 3:6] = np.maximum(rows[:, 3:6], 0.0)
-    # n below 1 gives a concave section (a fillet that flattens outward); keep it above 0.5.
-    rows[:, 6:] = np.maximum(rows[:, 6:], 0.5)
+    rows[:, 6:] = np.maximum(rows[:, 6:], 1.2)
     bm = bmesh.new()
     rings = []
     for row in rows:
