@@ -124,22 +124,22 @@ def fuselage():
         (680, 31, 236, 149, 2.8, 3.0),
         (692, 28, 229, 150, 2.6, 2.8),
         (702, 26, 220, 151, 2.4, 2.6),
-        (730, 22, 210, 154, 2.2, 2.4),
-        (760, 18, 201, 157, 2.2, 2.3),
-        (790, 14, 193, 160, 2.2, 2.2),
-        (825, 10, 186, 163, 2.2, 2.2),
-        (848, 6, 181, 166, 2.2, 2.2),
+        (730, 22, 210, 151, 2.2, 2.4),
+        (760, 18, 201, 151, 2.2, 2.3),
+        (790, 14, 193, 153, 2.2, 2.2),
+        (825, 10, 186, 158, 2.2, 2.2),
+        (848, 6, 181, 164, 2.2, 2.2),
         (856, 0, 174, 174, 2.0, 2.0),
     ]
     # Engine and gearbox deck on top of the cabin (narrower: sections 7 and 8), with its flat front
     # face at x 424 above a low fairing over the cockpit roof, rounding down to the boom at x 705.
     deck = [
-        (376, 0, 160, 151, 2.4),
-        (386, 26, 160, 145, 2.4),
-        (400, 31, 160, 141, 2.5),
-        (421, 33, 160, 140, 2.6),
-        (425, 33, 160, 118, 2.6),
-        (431, 34, 160, 111, 2.6),
+        (375, 0, 160, 147, 2.4),
+        (386, 26, 160, 140, 2.4),
+        (400, 31, 160, 135, 2.5),
+        (422, 33, 160, 133, 2.6),
+        (427, 33, 160, 116, 2.6),
+        (432, 34, 160, 110, 2.6),
         (455, 34, 160, 109, 2.6),
         (575, 34, 160, 108, 2.6),
         (600, 33.5, 160, 112, 2.6),
@@ -159,10 +159,11 @@ def windows_and_doors():
         # Windscreen and the front quarter panes: the band behind the sloping front frame, through
         # the full width (the nose is open behind it, see open_cabin).
         {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'depth_m': [-1.3, 1.3],
-         'polygon_m': side_m([(348.5, 189), (372, 151.5), (385, 151.5), (385, 193), (360, 193)])},
+         # second sheet: glass from y 1.26 (front frame foot d 0.23) to 2.06 (top d 0.80)
+         'polygon_m': [[z_(0.23), 1.28], [z_(0.80), 2.06], [z_(1.04), 2.06], [z_(1.04), 1.26], [z_(0.3), 1.26]]},
         # Bulged cockpit door windows, both sides.
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
-         'polygon_m': side_m(rounded_rect(389, 419, 154, 195, 4))},
+         'polygon_m': side_m(rounded_rect(389, 417, 152, 185, 4))},
         {'name': 'CabinWindowFront', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
          'polygon_m': side_m(rounded_rect(456, 472, 160, 181, 3))},
         {'name': 'CabinWindowRear', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
@@ -223,7 +224,7 @@ def fuselage_sections(cabin, deck):
             keys.append((1.86, H2))
     keys += [se_key(r) for r in cabin if d_(r[0]) > 9.5 and r[1] > 0]
     keys.sort(key=lambda k: k[0])
-    stations = sorted({round(k[0], 3) for k in keys} | {0.9, 1.45, 1.7, 2.5, 3.6, 4.7, 5.9, 7.05, 8.4})
+    stations = sorted({round(k[0], 3) for k in keys} | {0.45, 0.9, 1.45, 1.7, 2.5, 3.6, 4.7, 5.9, 7.05, 8.4})
     rows, sections = [], []
     for d, H, y0 in body.build(keys, stations, bottom):
         top = y0 + H[:, 1].max()
@@ -240,12 +241,13 @@ def main():
     fuse_rows, fuse_secs = fuselage_sections(cabin, deck)
     # The engine deck loft keeps only its front (cockpit fairing and the face with the intakes);
     # from section Г back the deck is part of the fuselage's sections.
-    deck_front = [r for r in deck if r[0] <= 431] + [(436, 0, 136, 136, 2.0)]
+    deck_front = [r for r in deck if r[0] <= 432] + [(437, 0, 136, 136, 2.0)]
     mast_d = d_(532)
     y_low, y_up = y_(90), y_(22)
-    wheel_ground = y_(263)
+    wheel_ground = y_(263) - 0.11   # second sheet: the fuselage stands 0.11 m higher than on the first
     main_x, main_d = (350 - 270) / S, d_(575)
     nose_d = d_(436)
+    main_knee = 0.17
     pod_x, pod_y = 2.28, 0.68
     parts = [
         {'name': 'Fuselage', 'type': 'loft', 'segments': body.SEGMENTS, 'stations': fuse_rows},
@@ -258,9 +260,9 @@ def main():
             [(640, 0, 111, 104, 2), (641, 7, 112, 102, 2), (657, 7, 112, 102, 2), (658, 0, 111, 104, 2)])},
         # Engine intakes: round lips standing proud of the deck's front face, dark mouths inside.
         {'name': 'IntakeLip', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_m(
-            [(1.62, 0.25, 2.43, 2.93, 2), (1.80, 0.27, 2.41, 2.95, 2), (1.95, 0.27, 2.41, 2.95, 2)], 0.49)},
+            [(1.88, 0.25, 2.37, 2.87, 2), (2.0, 0.27, 2.35, 2.89, 2), (2.2, 0.27, 2.35, 2.89, 2)], 0.49)},
         {'name': 'IntakeMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': DARK,
-         'segments': 10, 'stations': loft_m([(1.60, 0.2, 2.48, 2.88, 2), (1.64, 0.2, 2.48, 2.88, 2)], 0.49)},
+         'segments': 10, 'stations': loft_m([(1.86, 0.2, 2.42, 2.82, 2), (1.9, 0.2, 2.42, 2.82, 2)], 0.49)},
         # Rotor mast and the swashplate drums between deck and hubs.
         {'name': 'Mast', 'type': 'strut', 'a': P(0, 2.8, mast_d), 'b': P(0, y_up + 0.25, mast_d),
          'radius': 0.13, 'sides': 10, 'join': 'separate'},
@@ -292,29 +294,38 @@ def main():
          'a': P(0.82, y_(156), d_(500)), 'b': P(pod_x - 0.15, pod_y + 0.3, d_(530)), 'radius': 0.05},
         {'name': 'OutriggerStrutRear', 'type': 'strut', 'mirror': True, 'join': 'separate',
          'a': P(0.82, y_(156), d_(561)), 'b': P(pod_x - 0.15, pod_y + 0.3, d_(536)), 'radius': 0.05},
-        # Main gear (fixed): oleo leg from the wheel up to the cabin roof line, two radius rods
-        # from the cabin floor to the axle (top view: wheel at half-track 1.73 m, leg top at 0.97 m).
+        # Main gear (fixed): oleo leg from the knee up to the cabin roof line, and an A-frame of two
+        # radius rods at the fuselage bottom (second sheet: d 4.83 and 5.74 to the knee at y 0.17);
+        # the gear leg runs from the knee down to the axle (top view: half-track 1.73 m).
         {'name': 'MainOleo', 'type': 'strut', 'mirror': True, 'join': 'separate',
-         'a': P(main_x - 0.12, wheel_ground + 0.4, main_d), 'b': P(0.9, y_(157), d_(563)), 'radius': 0.08,
+         'a': P(main_x - 0.1, main_knee, main_d), 'b': P(0.9, y_(157), d_(563)), 'radius': 0.08,
          'radius_b': 0.06},
         {'name': 'MainRodFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
-         'a': P(0.8, y_(232), d_(540)), 'b': P(main_x - 0.12, wheel_ground + 0.38, main_d), 'radius': 0.045},
+         'a': P(0.82, 0.12, 4.83), 'b': P(main_x - 0.1, main_knee, main_d), 'radius': 0.045},
         {'name': 'MainRodRear', 'type': 'strut', 'mirror': True, 'join': 'separate',
-         'a': P(0.8, y_(232), d_(622)), 'b': P(main_x - 0.12, wheel_ground + 0.38, main_d), 'radius': 0.045},
+         'a': P(0.82, 0.12, 5.74), 'b': P(main_x - 0.1, main_knee, main_d), 'radius': 0.045},
         # Tail: stabiliser through the boom, toed-in end-plate fins, and a brace each side from
         # the boom to the top of each fin's leading edge (top view x 450 -> 520, side 702 -> 790).
         {'name': 'Stabiliser', 'type': 'panel', 'mirror': True, 'chord_points': 6,
          'stations': panel_rows([(0.0, 1.62, d_(780), 1.27, 0.11), (1.52, 1.62, d_(780), 1.27, 0.11)])},
         {'name': 'Fin', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'resample': 6,
          'normal': [0.99, 0, 0.14], 'chord_dir': [0.14, 0, -0.99],
-         'stations': panel_rows([(1.52, y_(215), d_(793), 1.12, 0.09), (1.52, y_(206), d_(783), 1.52, 0.09),
-                                 (1.52, y_(169), d_(782), 1.6, 0.09), (1.52, y_(132), d_(787), 1.4, 0.09),
-                                 (1.52, y_(122), d_(800), 0.76, 0.09)])},
+         # second sheet: rounded bottom at 0.66 m, top 2.65 m, LE d 9.47-9.7, TE d 11.17
+         'stations': panel_rows([(1.52, 0.66, 9.85, 0.95, 0.09), (1.52, 0.8, 9.56, 1.5, 0.09),
+                                 (1.52, 1.45, 9.47, 1.7, 0.09), (1.52, 2.2, 9.53, 1.62, 0.09),
+                                 (1.52, 2.52, 9.6, 1.42, 0.09), (1.52, 2.65, 9.72, 0.95, 0.09)])},
         {'name': 'TailBrace', 'type': 'strut', 'mirror': True, 'join': 'separate',
-         'a': P(0.3, y_(156), d_(704)), 'b': P(1.5, y_(129), d_(791)), 'radius': 0.045},
-        # Ventral tail bumper under the boom (side x 742..780).
+         'a': P(0.3, y_(156), d_(704)), 'b': P(1.5, 2.45, 9.62), 'radius': 0.045},
+        # Ventral strake under the boom (second sheet: from d 8.26 back to a near-vertical
+        # trailing edge at d 9.1, 0.3 m deep).
         {'name': 'TailBumper', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 4,
-         'stations': panel_rows([(0.0, y_(203), d_(745), 0.75, 0.12), (0.0, y_(214), d_(742), 0.7, 0.12)])},
+         'stations': panel_rows([(0.0, 1.0, 8.2, 0.92, 0.1), (0.0, 0.78, 8.8, 0.3, 0.1)])},
+        # Windscreen frame (second sheet, front view): two pillars between the three front panes
+        # and the corner posts to the side panes.
+        {'name': 'WindscreenPillar', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': '#4a5056',
+         'a': P(0.28, 1.27, 0.27), 'b': P(0.28, 1.93, 0.78), 'radius': 0.03, 'sides': 6},
+        {'name': 'WindscreenCorner', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': '#4a5056',
+         'a': P(0.85, 1.25, 0.32), 'b': P(0.88, 1.78, 0.8), 'radius': 0.035, 'sides': 6},
         # Cockpit behind the glazing: one open space, two seats side by side, instrument panel,
         # dark floor, black bulkhead behind the seats.
         {'name': 'InstrumentPanel', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
@@ -345,11 +356,11 @@ def main():
         'parts': parts,
         'regions': windows_and_doors(),
         'surfaces': [
-            # Rudders on the end-plate fins, hinged at side x 817 (drawing), above and below the
-            # stabiliser (y 1.62, side y 168) so they don't take its tips with them.
+            # Rudders on the end-plate fins, hinged at d 10.35 (second sheet), above and below the
+            # stabiliser (y 1.62) so they don't take its tips with them.
             {'type': 'rudder', 'view': 'side', 'mirror': True, 'depth_m': [1.3, 1.9],
-             'polygons_m': [side_m([(817, 118), (817, 163), (870, 163), (870, 118)]),
-                            side_m([(817, 173), (817, 220), (870, 220), (870, 173)])]},
+             'polygons_m': [[[z_(10.35), 2.7], [z_(10.35), 1.67], [z_(11.4), 1.67], [z_(11.4), 2.7]],
+                            [[z_(10.35), 1.57], [z_(10.35), 0.6], [z_(11.4), 0.6], [z_(11.4), 1.57]]]},
         ],
         'gear': {'wheel_sides': 14, 'legs': [
             # Fixed gear (retract_deg 0). The drawing's nose wheels stand 0.24 m lower than the mains
@@ -359,7 +370,7 @@ def main():
             {'name': 'Nose', 'pos_m': P(0.7, wheel_ground, nose_d), 'mirror': True, 'retract_deg': 0,
              'strut_top_y_m': y_(238), 'wheel_radius_m': 0.25, 'wheel_width_m': 0.16},
             {'name': 'Main', 'pos_m': P(main_x, wheel_ground, main_d), 'mirror': True, 'retract_deg': 0,
-             'strut_top_y_m': wheel_ground + 0.42, 'wheel_radius_m': 0.3, 'wheel_width_m': 0.2},
+             'strut_top_y_m': main_knee, 'wheel_radius_m': 0.3, 'wheel_width_m': 0.2},
         ]},
         'open_cabin': {'lo': P(-1.2, 0.3, 2.42), 'hi': P(1.2, 2.05, 0.0)},
         'ground_y': -2.0,
