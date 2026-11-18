@@ -307,9 +307,10 @@ def main():
         {'name': 'WeaponBeamOuter', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations':
          loft_m([(3.27, 0.05, 0.6, 0.68, 2), (3.41, 0.09, 0.5, 0.8, 2.5), (3.66, 0.09, 0.47, 0.8, 3),
                  (4.83, 0.09, 0.47, 0.8, 3), (4.9, 0.07, 0.5, 0.78, 3)], 2.6)},
-        # Diagonal brace underneath, from the lower cabin side up to the inner beam.
-        {'name': 'WingBraceLower', 'type': 'strut', 'mirror': True, 'join': 'separate',
-         'a': P(1.0, 0.35, 3.9), 'b': P(1.95, 0.76, 3.9), 'radius': 0.045},
+        # Cross pipe between the two horizontal pipes (owner's sketch): from the outer end of the
+        # front pipe to the cabin end of the rear pipe.
+        {'name': 'WingPipeCross', 'type': 'strut', 'mirror': True, 'join': 'separate',
+         'a': P(1.95, 0.8, 3.45), 'b': P(0.87, 0.8, 4.35), 'radius': 0.045},
         {'name': 'WingStrutFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
          'a': P(0.91, 1.81, 3.49), 'b': P(1.83, 0.86, 3.49), 'radius': 0.045},
         {'name': 'WingStrutVFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
