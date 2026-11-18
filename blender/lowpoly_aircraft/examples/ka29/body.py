@@ -84,11 +84,11 @@ def build(keys, stations, bottom):
 # instead of the round outline.
 PANE_A = (0.29, 1.28, 0.23)
 PANE_B = (0.82, 1.28, 0.37)
-PANE_D = (0.29, 1.90, 0.695)
-PANE_C = (0.771, 1.90, 0.80)
+PANE_D = (0.29, 2.04, 0.80)
+PANE_C = (0.76, 2.04, 0.90)
 QUARTER_1 = (1.10, 1.28, 0.77)
 QUARTER_2 = (0.98, 1.90, 1.015)
-PANE_STATIONS = (0.235, 0.30, 0.37, 0.53, 0.695, 0.77, 0.80, 0.90, 1.015)
+PANE_STATIONS = (0.235, 0.30, 0.37, 0.57, 0.77, 0.80, 0.85, 0.90, 1.015)
 
 
 def _lerp(p, q, d):
