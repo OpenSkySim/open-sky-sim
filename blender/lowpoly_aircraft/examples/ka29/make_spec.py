@@ -168,7 +168,7 @@ def windows_and_doors():
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
         {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.8, 1.3],
-         'polygon_m': [[z_(0.435), 1.32], [z_(0.875), 2.0], [z_(0.975), 1.86], [z_(0.75), 1.32]]},
+         'polygon_m': [[z_(0.435), 1.32], [z_(0.875), 2.0], [z_(1.0), 1.93], [z_(0.75), 1.32]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          'polygon_m': [[z_(0.86), 1.26], [z_(1.11), 1.86], [z_(1.17), 1.9], [z_(1.66), 1.9], [z_(1.72), 1.84],
@@ -345,9 +345,9 @@ def main():
         {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'material': '#2a2d31',
          'segments': 6, 'stations': loft_m([(0.3, 2.0, 0.33, 0.37, 8), (2.45, 2.0, 0.33, 0.37, 8)])},
         {'name': 'Seat', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 6,
-         'stations': loft_m([(1.45, 0.24, 0.52, 0.9, 6), (1.85, 0.24, 0.52, 0.9, 6)], 0.42)},
+         'stations': loft_m([(1.45, 0.24, 0.62, 1.0, 6), (1.85, 0.24, 0.62, 1.0, 6)], 0.52)},
         {'name': 'SeatBack', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 6,
-         'stations': loft_m([(1.85, 0.24, 0.52, 1.6, 6), (2.0, 0.24, 0.52, 1.6, 6)], 0.42)},
+         'stations': loft_m([(1.85, 0.24, 0.62, 1.7, 6), (2.0, 0.24, 0.62, 1.7, 6)], 0.52)},
         {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#121314',
          'segments': 6, 'stations': loft_m([(2.42, 2.5, -1.0, 2.6, 8), (2.48, 2.5, -1.0, 2.6, 8)])},
     ]
@@ -382,7 +382,7 @@ def main():
         'ground_y': -2.0,
         'cockpit_m': P(0.42, 1.35, 1.7),
         # Pilot (left) and navigator side by side: eye points over the seats.
-        'pilot_seats_m': [P(0.42, 1.45, 1.55), P(-0.42, 1.45, 1.55)],
+        'pilot_seats_m': [P(0.52, 1.55, 1.55), P(-0.52, 1.55, 1.55)],
     }
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:
         json.dump(spec, f, indent=1)
