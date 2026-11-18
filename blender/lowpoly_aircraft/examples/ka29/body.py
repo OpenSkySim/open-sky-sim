@@ -88,6 +88,7 @@ PANE_D = (0.29, 2.04, 0.80)
 PANE_C = (0.76, 2.04, 0.90)
 QUARTER_1 = (1.10, 1.28, 0.77)
 QUARTER_2 = (0.95, 1.97, 1.042)
+ROOF_BLEND_END = 1.75
 PANE_STATIONS = (0.235, 0.30, 0.37, 0.57, 0.77, 0.80, 0.85, 0.90, 1.042)
 
 
@@ -119,9 +120,18 @@ def _pane_points(d, roof=0.0):
 
 def windscreen(d, H, y0):
     """Replace the top of a nose station's half outline (relative heights) by the glazing's frame."""
+    P = H + np.array([0.0, y0])
+    if PANE_STATIONS[-1] + 1e-6 < d <= ROOF_BLEND_END:
+        # The next rings behind the glazing get the same roof point layout (shoulder at index 3),
+        # so the loft does not twist where the glazing rings end.
+        P = P.copy()
+        sh = P[5].copy()
+        roof = lambda x: float(np.interp(x, P[:6, 0], P[:6, 1]))
+        top = [P[0], (sh[0] / 3, roof(sh[0] / 3)), (2 * sh[0] / 3, roof(2 * sh[0] / 3)), sh]
+        out = np.vstack([top, resample(P[5:HALF_N // 2 + 1], HALF_N // 2 - 3)[1:], P[HALF_N // 2 + 1:]])
+        return out - np.array([0.0, y0])
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
         return H
-    P = H + np.array([0.0, y0])
     j0, j1, j2, j3 = _pane_points(d, P[0, 1])
     fixed = [j0, j1, j2] + ([j3] if j3 else [])
     # Every glazing ring has the same frame structure (top, roof points, frame points), so the
