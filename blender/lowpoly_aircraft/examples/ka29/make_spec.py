@@ -292,13 +292,16 @@ def main():
          'tc': 0.1, 'pitch_deg': 6, 'droop_deg': 2.5, 'hand': -1, 'phase_deg': 60, 'hub_r': 0.3,
          'hub_h': 0.3, 'spin_deg_s': 1600},
         # Stub wings (second sheet top/side views, owner's photos): a flat plank from the cabin side
-        # out to x 1.95 (chord d 3.34-4.44) with a 1.8 m weapon beam under its tip, held by pipes from the cabin roof
+        # out to x 2.6 (chord d 3.34-4.44, tapering outboard of x 1.95) with two weapon beams below, held by pipes from the cabin roof
         # line: a single strut at d 3.49 and a V (d 3.55 and 4.84) meeting at the wing at d 4.30.
         {'name': 'StubWing', 'type': 'panel', 'mirror': True, 'chord_points': 5, 'join': 'separate',
-         'stations': panel_rows([(0.8, 0.8, 3.34, 1.1, 0.1), (1.9, 0.8, 3.34, 1.1, 0.1)])},
-        {'name': 'WingTipFairing', 'type': 'loft', 'mirror': True, 'segments': 8, 'join': 'separate', 'stations':
-         loft_m([(3.11, 0.05, 0.6, 0.68, 2), (3.25, 0.09, 0.5, 0.8, 2.5), (3.5, 0.09, 0.47, 0.86, 3),
-                 (4.85, 0.09, 0.47, 0.86, 3), (4.92, 0.07, 0.5, 0.82, 3)], 1.92)},
+         'stations': panel_rows([(0.8, 0.8, 3.34, 1.1, 0.1), (1.95, 0.8, 3.34, 1.1, 0.1), (2.6, 0.8, 3.52, 0.9, 0.1)])},
+        {'name': 'WeaponBeamInner', 'type': 'loft', 'mirror': True, 'segments': 8, 'join': 'separate', 'stations':
+         loft_m([(3.07, 0.05, 0.6, 0.68, 2), (3.21, 0.09, 0.5, 0.8, 2.5), (3.46, 0.09, 0.47, 0.8, 3),
+                 (4.60, 0.09, 0.47, 0.8, 3), (4.67, 0.07, 0.5, 0.78, 3)], 1.97)},
+        {'name': 'WeaponBeamOuter', 'type': 'loft', 'mirror': True, 'segments': 8, 'join': 'separate', 'stations':
+         loft_m([(3.27, 0.05, 0.6, 0.68, 2), (3.41, 0.09, 0.5, 0.8, 2.5), (3.66, 0.09, 0.47, 0.8, 3),
+                 (4.83, 0.09, 0.47, 0.8, 3), (4.9, 0.07, 0.5, 0.78, 3)], 2.6)},
         {'name': 'WingStrutFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
          'a': P(0.91, 1.81, 3.49), 'b': P(1.83, 0.86, 3.49), 'radius': 0.045},
         {'name': 'WingStrutVFront', 'type': 'strut', 'mirror': True, 'join': 'separate',
