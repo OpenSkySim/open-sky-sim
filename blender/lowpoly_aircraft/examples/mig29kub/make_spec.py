@@ -107,8 +107,8 @@ def le_cut(x0, x1, ahead=0.4):
 def canopy_glass():
     """Windscreen and the two canopy panes (front and rear cockpit), split by their frames.
 
-    Windscreen d 2.9-3.88 (M2 sheet), frame bar, front pane to d 4.97, frame bow, rear pane to
-    d 6.05 where the canopy meets its rear fairing (owner's KUB photo, 2026-11-18).
+    Side view (M2 sheet): windscreen d 2.9-3.88, frame bar, front pane to d 5.3, frame bar, rear
+    pane to d 6.35 where the hump begins; the sill rises from y 0.6 to 0.95.
     """
     hi = 1.8
     return [
@@ -120,11 +120,10 @@ def canopy_glass():
              top_m([(-0.15, 2.97), (0.15, 2.97), (0.15, 3.88), (-0.15, 3.88)]),
              top_m([(0.19, 2.99), (0.7, 3.05), (0.7, 3.88), (0.19, 3.88)]),
              top_m([(-0.19, 2.99), (-0.19, 3.88), (-0.7, 3.88), (-0.7, 3.05)])]}},
-        # One canopy with a single frame bow between the cockpits (owner's photo, 2026-11-18).
         {'name': 'CanopyFront', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(3.98, 0.86), (4.97, 0.87), (4.99, hi), (3.98, hi)])},
+         'polygon_m': side_m([(3.98, 0.86), (5.3, 0.9), (5.3, hi), (3.98, hi)])},
         {'name': 'CanopyRear', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(5.05, 0.87), (6.05, 0.88), (6.05, hi), (5.07, hi)])},
+         'polygon_m': side_m([(5.38, 0.91), (6.35, 0.95), (6.35, hi), (5.38, hi)])},
         # Dark grey radome and the dark anti-glare panel ahead of the windscreen.
         {'name': 'Radome', 'view': 'side', 'material': '#4b5056',
          'polygon_m': side_m([(-0.1, -1.0), (-0.1, 1.0), (1.7, 1.0), (1.7, -1.0)])},
@@ -190,14 +189,10 @@ def main():
         # Windscreen (M2 top and side views, KUB photo 191773): blunt, with a wide rounded front arch
         # (half width 0.3 m at its foot) and a flat centre pane between two side panes back to the
         # frame at d 3.9; not a pointed bubble.
-        (2.9, 0.26, 0.5, 0.64, 2.6), (3.05, 0.34, 0.47, 0.84, 2.7), (3.3, 0.4, 0.45, 1.08, 2.6),
-        (3.6, 0.45, 0.45, 1.27, 2.5), (3.9, 0.47, 0.45, 1.4, 2.4),
-        # Owner's side photo of an Indian Navy KUB (2026-11-18, levelled by the ~4 deg the jet sat
-        # nose-up): one tall, full canopy peaking at y 1.52 over the front seat, its top falling in a
-        # smooth curve to the glass's rear end at d 6.05; behind it a short fairing onto the spine.
-        (4.18, 0.48, 0.45, 1.47, 2.3), (4.6, 0.5, 0.45, 1.52, 2.3), (5.0, 0.5, 0.45, 1.51, 2.3),
-        (5.43, 0.49, 0.45, 1.45, 2.4), (5.75, 0.48, 0.45, 1.36, 2.4), (6.05, 0.47, 0.45, 1.22, 2.5),
-        (6.4, 0.46, 0.45, 1.06, 2.6), (6.93, 0.46, 0.45, 0.99, 2.6),
+        (2.9, 0.26, 0.5, 0.62, 2.6), (3.05, 0.34, 0.47, 0.76, 2.7), (3.3, 0.4, 0.45, 0.93, 2.7),
+        (3.6, 0.45, 0.45, 1.07, 2.6), (3.9, 0.47, 0.45, 1.19, 2.4),
+        (4.18, 0.48, 0.45, 1.3, 2.3), (4.8, 0.5, 0.45, 1.43, 2.4), (5.43, 0.5, 0.45, 1.45, 2.4),
+        (6.05, 0.49, 0.45, 1.4, 2.4), (6.35, 0.47, 0.45, 1.33, 2.4), (6.93, 0.46, 0.45, 1.17, 2.5),
         (7.93, 0.45, 0.4, 0.96, 2.7),
         # From the canopy hump to the tail the spine is one straight line, in height and in width
         # (owner, 2026-11-18), sinking onto the flat tail between the nozzles with no pointed end;
@@ -449,9 +444,9 @@ def main():
                 {'name': 'Nose', 'well': 'NoseWell', 'open_deg': 88, 'thickness_m': 0.035},
                 {'name': 'Main', 'well': 'MainWell', 'mirror': True, 'open_deg': 90, 'thickness_m': 0.035},
             ]},
-        'cockpit_m': P(0.0, 1.2, 4.3),
-        # Eye points of the two crew seats (heads in the owner's KUB photo, either side of the frame bow).
-        'pilot_seats_m': [P(0.0, 1.2, 4.3), P(0.0, 1.17, 5.65)],
+        'cockpit_m': P(0.0, 1.2, 4.4),
+        # Eye points of the two crew seats (front instructor/student, rear behind the frame at d 5.3).
+        'pilot_seats_m': [P(0.0, 1.2, 4.4), P(0.0, 1.2, 5.95)],
     }
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:
         json.dump(spec, f, indent=1)
