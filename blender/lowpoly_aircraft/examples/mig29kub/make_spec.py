@@ -115,7 +115,7 @@ def canopy_glass():
         # Three panes (a flat centre one and two side ones) inside 4 cm frame bars, as in the
         # M2 top view and the KUB photo.
         {'name': 'Windscreen', 'view': 'side', 'see_through': True,
-         'polygon_m': side_m([(2.86, 0.6), (3.88, 0.84), (3.88, hi), (2.86, hi)]),
+         'polygon_m': side_m([(2.92, 0.64), (3.88, 0.84), (3.88, hi), (2.92, hi)]),
          'clip': {'view': 'top', 'polygons_m': [
              top_m([(-0.15, 2.97), (0.15, 2.97), (0.15, 3.88), (-0.15, 3.88)]),
              top_m([(0.19, 2.99), (0.7, 3.05), (0.7, 3.88), (0.19, 3.88)]),
@@ -133,7 +133,7 @@ def canopy_glass():
         {'name': 'FinCapRight', 'view': 'side', 'material': '#2b2f33', 'depth_m': [-2.4, -1.7],
          'polygon_m': side_m([(13.9, 2.3), (15.3, 2.3), (15.3, 2.9), (13.9, 2.9)])},
         {'name': 'AntiGlare', 'view': 'top', 'material': '#1d2024', 'depth_m': [0.3, 1.2],
-         'polygon_m': top_m([(0.0, 1.7), (0.3, 2.0), (0.36, 2.93), (-0.36, 2.93), (-0.3, 2.0)])},
+         'polygon_m': top_m([(0.0, 1.7), (0.3, 2.0), (0.34, 2.86), (-0.34, 2.86), (-0.3, 2.0)])},
     ]
 
 
@@ -164,11 +164,14 @@ def main():
         (10.2, 0.45, -0.47, 0.5, 2.6, 2.6),
         (11.7, 0.4, -0.42, 0.38, 2.6, 2.5),
         (12.9, 0.36, -0.4, 0.18, 2.6, 2.4),
-        (13.9, 0.32, -0.4, 0.1, 2.4, 2.2),
-        # Blunt brake-chute housing between the nozzles (Drive photo rXtwVyWPOdQ).
-        (14.8, 0.27, -0.36, 0.06, 2.4, 2.2),
-        (15.1, 0.24, -0.33, 0.03, 2.4, 2.2),
-        (15.25, 0.12, -0.25, -0.05, 2.2, 2.0),
+        (13.9, 0.35, -0.4, 0.1, 2.4, 2.2),
+        # Brake-chute housing between the nozzles: as wide as the gap between them, then rounded
+        # to a point at d 15.46 (M2 top view and the tail-cone area marked on it).
+        (14.6, 0.38, -0.37, 0.07, 2.4, 2.2),
+        (14.9, 0.33, -0.35, 0.05, 2.3, 2.2),
+        (15.18, 0.24, -0.31, 0.02, 2.2, 2.1),
+        (15.38, 0.13, -0.26, -0.03, 2.0, 2.0),
+        (15.46, 0.03, -0.2, -0.08, 2.0, 2.0),
     ]
     # Tandem canopy (full bubble, owner's MiG-35 pictures) and the broad flat-topped spine hump
     # behind it running back between the fins; top follows the side-view upper line.
@@ -214,8 +217,8 @@ def main():
     # Booms end in pointed tail stingers beside the nozzles (pictures).
     # The M2 top view fills the gap to the nacelles: the booms widen inboard to x 1.39 aft of d 8.4.
     boom = [(7.6, 1.72, 0.03, -0.1, 0.05, 2.0), (8.0, 1.7, 0.12, -0.18, 0.11, 2.3), (8.4, 1.66, 0.22, -0.22, 0.14, 2.5),
-            (12.0, 1.64, 0.25, -0.23, 0.15, 2.5), (14.7, 1.65, 0.24, -0.22, 0.14, 2.5),
-            (15.3, 1.72, 0.07, -0.12, 0.06, 2.0), (15.65, 1.72, 0.01, -0.04, -0.02, 2.0)]
+            (12.0, 1.64, 0.25, -0.23, 0.15, 2.5), (14.55, 1.65, 0.24, -0.22, 0.14, 2.5),
+            (14.95, 1.71, 0.07, -0.12, 0.06, 2.0), (15.1, 1.72, 0.01, -0.04, -0.02, 2.0)]
     # LERX shoulders (front view and sections C-E): the upper skin rises from the sharp LERX edge
     # to the fuselage side (meeting it at y 0.4 in the front view), about 17 deg at D, almost flat by E.
     # A diamond loft under the LERX edge; its lower half is hidden in the fuselage and nacelles.
@@ -241,8 +244,11 @@ def main():
            (1.8 + 2.79 * math.tan(cant), 2.84, 14.57, 0.5, 0.035)]
     fin_fillet = [(1.8, 0.12, 10.45, 1.65, 0.03), (1.8 + 0.74 * math.tan(cant), 0.86, 12.65, 0.12, 0.03)]
     # Stabilators with the MiG-29K/M dogtooth: the outer leading edge steps 0.13 m forward at x 2.9.
-    stab = [(1.85, -0.03, 13.08, 2.8, 0.045), (2.9, -0.077, 14.27, 1.88, 0.045),
-            (2.92, -0.078, 14.14, 2.01, 0.045), (3.88, -0.12, 15.24, 1.16, 0.04)]
+    # M2 top view (stabilator area marked on it): trailing edge from d 15.7 at the root to the
+    # outer corner at x 3.65, d 16.5; the tip is rounded, widest at x 3.93.
+    stab = [(1.85, -0.03, 13.08, 15.7 - 13.08, 0.045), (2.9, -0.077, 14.27, 16.17 - 14.27, 0.045),
+            (2.92, -0.078, 14.14, 16.18 - 14.14, 0.045), (3.65, -0.11, 15.07, 16.5 - 15.07, 0.04),
+            (3.86, -0.12, 15.34, 16.05 - 15.34, 0.04), (3.93, -0.12, 15.6, 0.28, 0.04)]
     # Pitot: long thin probe on a thicker tapered base (pictures).
     pitot = [(-1.08, 0.0, -0.39, -0.37, 2.0), (-1.0, 0.012, -0.392, -0.368, 2.0), (-0.42, 0.016, -0.396, -0.364, 2.0),
              (-0.36, 0.032, -0.412, -0.348, 2.0), (0.1, 0.05, -0.43, -0.33, 2.0)]
@@ -255,8 +261,8 @@ def main():
     # RWR pods near each fin tip (pictures). The rounded wing tip carries no pod (pasted top view).
     fin_pod = [(13.7, 0.01, 2.410, 2.430, 2.0), (13.85, 0.04, 2.380, 2.460, 2.0), (14.0, 0.05, 2.370, 2.470, 2.0),
                (14.6, 0.05, 2.370, 2.470, 2.0), (14.75, 0.01, 2.410, 2.430, 2.0)]
-    fin_pod_rear = [(14.9, 0.01, 2.210, 2.230, 2.0), (15.0, 0.045, 2.175, 2.265, 2.0), (15.35, 0.04, 2.180, 2.260, 2.0),
-                    (15.5, 0.01, 2.210, 2.230, 2.0)]
+    fin_pod_rear = [(14.9, 0.01, 2.210, 2.230, 2.0), (15.0, 0.045, 2.175, 2.265, 2.0), (15.15, 0.04, 2.180, 2.260, 2.0),
+                    (15.25, 0.01, 2.210, 2.230, 2.0)]
     # Two pylons under each inner wing (outer ones would sit on the folding panel).
     pylons = []
     for px, pd in ((2.35, 9.0), (3.15, 9.6)):
@@ -380,9 +386,10 @@ def main():
             {'type': 'wingFold', 'role': 'wingFold', 'control': 'fold', 'view': 'top', 'mirror': True,
              'sign': 1.0, 'range_deg': 100.0, 'hinge_skin': 1.0,
              'polygon_m': top_m([(FOLD_X, 9.0), (FOLD_X, 13.5), (8.0, 13.5), (8.0, 9.0)])},
-            # Rudders: hinge at d 14.3, y 0.2-1.73 (side view).
+            # Rudders (M2 side view, rudder area marked on it): raked hinge from d 14.37 at y 0.51
+            # to d 14.66 at y 1.88.
             {'type': 'rudder', 'view': 'side', 'mirror': True, 'depth_m': [1.65, 2.35],
-             'polygon_m': side_m([(14.3, 1.73), (14.3, 0.2), (15.3, 0.2), (15.3, 1.73)])},
+             'polygon_m': side_m([(14.66, 1.88), (14.37, 0.51), (15.3, 0.51), (15.3, 1.88)])},
             # Large dorsal airbrake on the spine behind the canopy hump (MiG-29K), hinged at its front.
             {'type': 'airbrake', 'view': 'top', 'mirror': False, 'depth_m': [0.0, 1.2],
              'polygon_m': top_m([(0.28, 11.9), (-0.28, 11.9), (-0.3, 13.2), (0.3, 13.2)])},
