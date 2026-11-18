@@ -162,24 +162,25 @@ def main():
         # (9-12 sections 16-24).
         (9.5, 0.47, -0.55, 0.52, 2.4, 2.6),
         (10.2, 0.45, -0.47, 0.5, 2.6, 2.6),
-        (11.7, 0.4, -0.42, 0.38, 2.6, 2.5),
-        (12.9, 0.36, -0.4, 0.18, 2.6, 2.4),
-        (13.9, 0.35, -0.4, 0.18, 2.4, 2.2),
+        (11.7, 0.4, -0.42, 0.3, 2.6, 2.5),
+        (12.9, 0.36, -0.4, 0.05, 2.6, 2.4),
+        (13.9, 0.35, -0.4, -0.1, 2.4, 2.2),
         # Brake-chute housing between the nozzles: as wide as the gap between them and rounded to
         # a point at d 15.46 in plan (M2 top view, tail-cone area marked on it); flat, not a cone:
         # the top slopes smoothly down onto the underside and ends in a thin edge, 0.4 m above the
         # underside of the fuselage (owner, 2026-11-18).
-        (14.3, 0.37, -0.15, 0.2, 2.5, 2.2),
-        (14.6, 0.38, 0.0, 0.17, 2.6, 2.0),
-        (14.9, 0.33, 0.03, 0.14, 2.6, 2.0),
-        (15.18, 0.24, 0.04, 0.12, 2.4, 2.0),
-        (15.38, 0.13, 0.05, 0.1, 2.2, 2.0),
-        (15.46, 0.03, 0.06, 0.09, 2.0, 2.0),
+        # Lowered 0.3 m with the spine end (owner, 2026-11-18).
+        (14.3, 0.37, -0.45, -0.1, 2.5, 2.2),
+        (14.6, 0.38, -0.3, -0.13, 2.6, 2.0),
+        (14.9, 0.33, -0.27, -0.16, 2.6, 2.0),
+        (15.18, 0.24, -0.26, -0.18, 2.4, 2.0),
+        (15.38, 0.13, -0.25, -0.2, 2.2, 2.0),
+        (15.46, 0.03, -0.24, -0.21, 2.0, 2.0),
     ]
     # Tandem canopy (full bubble, owner's MiG-35 pictures) and the broad flat-topped spine hump
     # behind it running back between the fins; top follows the side-view upper line.
     def spine_top(d):
-        return 0.96 + (0.19 - 0.96) * (d - 7.93) / (14.6 - 7.93)
+        return 0.96 + (-0.11 - 0.96) * (d - 7.93) / (14.6 - 7.93)
 
     def spine_hw(d):
         return 0.45 + (0.34 - 0.45) * (d - 7.93) / (14.6 - 7.93)
@@ -194,11 +195,12 @@ def main():
         (6.05, 0.49, 0.45, 1.4, 2.4), (6.35, 0.47, 0.45, 1.33, 2.4), (6.93, 0.46, 0.45, 1.17, 2.5),
         (7.93, 0.45, 0.4, 0.96, 2.7),
         # From the canopy hump to the tail the spine is one straight line, in height and in width
-        # (owner, 2026-11-18), sinking onto the flat tail between the nozzles with no pointed end.
-    ] + [(d, round(spine_hw(d), 3), yb, round(spine_top(d), 3), 2.7)
+        # (owner, 2026-11-18), sinking onto the flat tail between the nozzles with no pointed end;
+        # its end sits 0.3 m lower than first built, below the nacelle tops (owner, 2026-11-18).
+    ] + [(d, round(spine_hw(d), 3), round(min(yb, spine_top(d) - 0.12), 3), round(spine_top(d), 3), 2.7)
          for d, yb in ((9.18, 0.35), (10.18, 0.3), (11.68, 0.22), (12.6, 0.12), (13.3, 0.05), (13.9, 0.0),
                        (14.3, 0.03), (14.6, 0.06))] + [
-        (14.9, 0.27, 0.06, 0.14, 2.6),
+        (14.9, 0.27, -0.24, -0.16, 2.6),
     ]
     # Intake and engine nacelle, one per side, from the MiG-29M2 sheet (side, front and sections D-G,
     # 41.5 px/m): a box 0.84 m wide (x 0.37-1.21) hanging under the LERX with a flat shelf between the
