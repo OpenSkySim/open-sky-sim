@@ -119,7 +119,7 @@ def tidy(obj: bpy.types.Object, material: str, smooth_deg: float | None = None) 
     bmesh.ops.dissolve_degenerate(bm, edges=bm.edges, dist=1e-4)
     bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(0.5 if smooth_deg else 1.0),
                              verts=bm.verts, edges=bm.edges)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
+    bmesh.ops.triangulate(bm, faces=bm.faces, quad_method='BEAUTY', ngon_method='BEAUTY')
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     if smooth_deg:
         limit = math.radians(smooth_deg)
