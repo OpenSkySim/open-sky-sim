@@ -252,7 +252,7 @@ def fuselage_sections(cabin, deck):
     keys.sort(key=lambda k: k[0])
     stations = {round(k[0], 3) for k in keys} | {1.45, 1.7, 2.5, 3.6, 4.7, 5.9, 7.05, 8.4}
     # Nose: the flat front panes need rings exactly at their corners (body.PANE_STATIONS).
-    stations = sorted({d for d in stations if not 0.2 < d < 1.1} | set(body.PANE_STATIONS))
+    stations = sorted({d for d in stations if not 0.0 < d < 1.1} | set(body.PANE_STATIONS))   # nose tip: cap + pane rings only
     rows, sections = [], []
     for d, H, y0 in body.build(keys, stations, bottom):
         H = body.windscreen(d, H, y0)
