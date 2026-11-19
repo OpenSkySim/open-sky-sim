@@ -851,6 +851,9 @@ def build_parts(spec: dict) -> None:
         # Body only: moving parts and gear legs must stay one material each.
         paint.apply_camo([o for o in bpy.data.objects if o.type == 'MESH'
                           and o.users_collection[0].name == 'Body' or o is hull], spec['camo'])
+    if spec.get('lining'):
+        # Dark inside skin, so no opening shows through the hull (back faces are culled).
+        paint.add_lining(hull, spec['lining'])
     hull.name = hull.data.name = '0_Body'
     bpy.data.collections['Construction'].objects.unlink(hull)
     geo._link(hull, 'Body')

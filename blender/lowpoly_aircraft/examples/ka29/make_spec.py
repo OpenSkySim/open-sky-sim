@@ -447,6 +447,8 @@ def main():
         'symmetrize': True,
         # Nose front under the windscreen: fewer, larger faces (owner: halve the triangles there).
         'planar_deg_final': 2.5,
+        # Dark inside skin: no look through the windows or intakes out the far side of the hull.
+        'lining': '#1d2024',
         # Navy scheme from the owner's deck photo: light grey with blue-grey and pale blotches (paint.json),
         # red stars with a white rim on the outer fins, yellow side number 21 on the engine cowling.
         # Camo outlines: paint.json next to the spec (cut into the skin by the builder).

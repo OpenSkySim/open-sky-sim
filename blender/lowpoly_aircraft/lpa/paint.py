@@ -298,3 +298,35 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
     bm.to_mesh(me)
     bm.free()
     return painted
+
+
+def add_lining(hull: bpy.types.Object, cfg) -> int:
+    """Inside skin: every hull face again, turned inwards, in a dark interior colour.
+
+    The game (and the Hangar) cull back faces, so without it a look through a window, an
+    intake or any opening shows straight through the far wall to the outside. The lining
+    faces only show from inside; from outside they are back faces and culled. Separate
+    vertices, so the outer skin's normals stay as they are. Returns the faces added.
+    """
+    cfg = cfg if isinstance(cfg, dict) else {'color': cfg if isinstance(cfg, str) else '#1d2024'}
+    me = hull.data
+    mats = [m.name for m in me.materials]
+    color = cfg.get('color', '#1d2024')
+    if color not in mats:
+        me.materials.append(geo.get_material(color))
+        mats.append(color)
+    mi = mats.index(color)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    src = list(bm.faces)
+    added = 0
+    for f in src:
+        vs = [bm.verts.new(v.co) for v in reversed(f.verts)]
+        nf = bm.faces.new(vs)
+        nf.material_index = mi
+        nf.smooth = False
+        added += 1
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    return added
