@@ -244,8 +244,9 @@ def fuselage_sections(cabin, deck):
         if k == 'V':
             # Just ahead of the deck's front face the fuselage still ends at the cockpit fairing,
             # so the rise to section Г stays behind the face (EngineDeck).
-            H2 = H.copy()
+            H2 = H0.copy()
             H2[:, 1] *= (env_top(1.80) - bottom(1.86)) / H2[:, 1].max()
+            H2 = body.resample_at_height(H2, crease(1.86))   # the side line runs on to the intakes
             keys.append((1.86, H2))
     keys += [se_key(r) for r in cabin if d_(r[0]) > 9.5 and r[1] > 0]
     keys.sort(key=lambda k: k[0])
