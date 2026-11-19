@@ -445,7 +445,7 @@ def main():
         'planar_deg_final': 2.5,
         'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 25},
                          {'min': [-1.3, 1.96, z_(2.3)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 70},   # 2nd: cockpit roof
-                         {'min': [-1.3, -1, z_(8.6)], 'max': [1.3, 4, z_(2.6)], 'deg': 3, 'relax': 2}],   # 4th: cabin (owner: smoothen)
+                         {'min': [-1.3, -1, z_(7.9)], 'max': [1.3, 4, z_(2.6)], 'deg': 3, 'relax': 2}],   # 4th: cabin (owner: smoothen)
         'sections': fuse_secs,
         'parts': parts,
         'regions': windows_and_doors(),
