@@ -3502,9 +3502,11 @@ function paintDraw() {
     stage.querySelector('.hint').textContent = paintView() ? 'Paint on: click to place points, scroll to zoom, right-drag to pan'
                                                            : 'Paint on: click on the model to place points, drag beside it to rotate, scroll to zoom';
   }
-  if (!current || !$('paintShow').checked) return;
+  if (!current) return;
+  // "Show the outlines" off: the fill stays, only the lines and point handles go.
+  const lines = $('paintShow').checked;
   const view = paintView();
-  if (!view) { paintDrawFree(); return; }
+  if (!view) { if (lines) paintDrawFree(); else paintOverlay(); return; }
   const g = new THREE.Group(), plane = paintPlane(view);
   const shape = (pts, color, mirror, sel, closed) => {
     const sides = view === 'side' ? [false] : mirror ? [false, true] : [false];
@@ -3518,6 +3520,7 @@ function paintDraw() {
         fill.renderOrder = 18;
         g.add(fill);
       }
+      if (!lines && closed) continue;
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(closed ? [...P3, P3[0]] : P3),
                                   new THREE.LineBasicMaterial({ color: sel ? 0xff8a00 : 0x1d2024, depthTest: false, transparent: true }));
       line.renderOrder = 19;
