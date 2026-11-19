@@ -356,8 +356,6 @@ def main():
          'stations': panel_rows([(1.52, 0.66, 9.85, 0.95, 0.09), (1.52, 0.8, 9.56, 1.5, 0.09),
                                  (1.52, 1.45, 9.47, 1.7, 0.09), (1.52, 2.2, 9.53, 1.62, 0.09),
                                  (1.52, 2.52, 9.6, 1.42, 0.09), (1.52, 2.65, 9.72, 0.95, 0.09)])},
-        {'name': 'TailBrace', 'type': 'strut', 'mirror': True, 'join': 'separate',
-         'a': P(0.3, y_(156), d_(704)), 'b': P(1.5, 2.45, 9.62), 'radius': 0.045},
         # Ventral strake under the boom (second sheet: from d 8.26 back to a near-vertical
         # trailing edge at d 9.1, 0.3 m deep).
         {'name': 'TailBumper', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 4,

@@ -7516,23 +7516,6 @@
    ]
   },
   {
-   "name": "TailBrace",
-   "type": "strut",
-   "mirror": true,
-   "join": "separate",
-   "a": [
-    0.3,
-    1.883,
-    -3.724
-   ],
-   "b": [
-    1.5,
-    2.45,
-    -5.4
-   ],
-   "radius": 0.045
-  },
-  {
    "name": "TailBumper",
    "type": "panel",
    "normal": [
