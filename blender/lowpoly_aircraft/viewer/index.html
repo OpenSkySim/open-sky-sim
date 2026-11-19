@@ -3580,9 +3580,16 @@ function paintDrawFree() {
           const n = Math.min(40, Math.max(1, Math.ceil(L / step)));
           const P = (i, j) => { const a = i / n, b = j / n; return [A[0] + (Bp[0] - A[0]) * a + (C[0] - A[0]) * b, A[1] + (Bp[1] - A[1]) * a + (C[1] - A[1]) * b]; };
           const lim = step * 6;
+          // A corner with no hull under it (beside a window, over a gap) takes the depth of the
+          // corners that have one, so the fill still reaches the outline there.
+          const axis = view === 'side' ? 'x' : 'y';
           const put = (p, q, r) => {
-            const a = at(...p), b = at(...q), c = at(...r);
-            if (!a || !b || !c || a.distanceTo(b) > lim || b.distanceTo(c) > lim || c.distanceTo(a) > lim) return;
+            const uv = [p, q, r], hits = uv.map(t => at(...t)), ok = hits.filter(Boolean);
+            if (!ok.length) return;
+            const depth = ok.reduce((sum, h) => sum + h[axis], 0) / ok.length;
+            const [a, b, c] = hits.map((h, k) => h || (view === 'side' ? new THREE.Vector3(depth, uv[k][1] + PT.shift[1], uv[k][0] + PT.shift[2])
+                                                                        : new THREE.Vector3((m ? -uv[k][1] : uv[k][1]) + PT.shift[0], depth, uv[k][0] + PT.shift[2])));
+            if (a.distanceTo(b) > lim || b.distanceTo(c) > lim || c.distanceTo(a) > lim) return;
             out.push(a, b, c);
           };
           for (let i = 0; i < n; i++) for (let j = 0; j < n - i; j++) {
