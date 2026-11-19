@@ -90,7 +90,7 @@ QUARTER_1 = (1.10, 1.24, 0.77)
 QUARTER_2 = (0.95, 1.97, 1.042)
 ROOF_BLEND_END = 1.75
 # Deck fairing roof profile (x, height) at the first roof ring behind the glazing (d ROOF_RING_D).
-ROOF_PROFILE = ((0.0, 2.29), (0.22, 2.29), (0.38, 2.29), (0.81, 2.26))   # level across, no ridge
+ROOF_PROFILE = ((0.0, 2.29), (0.22, 2.29), (0.38, 1.99), (0.81, 1.99))   # raised centre strip, sides 0.30 m lower
 ROOF_RING_D = 1.141
 PANE_STATIONS = (0.235, 0.30, 0.37, 0.45, 0.50, 0.56, 0.62, 0.67, 0.72, 0.77, 1.042)
 
