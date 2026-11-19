@@ -377,7 +377,7 @@ button.ok { color: var(--ok); }
         <label><input type="checkbox" id="paintShow" checked> show the outlines</label></div>
       <div class="xs-list" id="paintList" aria-label="Painted shapes"></div>
       <div class="row"><button type="button" id="paintFinish" disabled>Finish shape</button><button type="button" id="paintDel" class="danger" disabled>Delete shape</button><button type="button" id="paintExport">Copy paint.json</button></div>
-      <p class="note" id="paintNote">Camo outlines, cut into the skin by the next build. Open the <b>Side</b>, <b>Top</b> or <b>Bottom</b> view and turn Paint on. Click to place points, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). Side shapes paint the skin facing sideways, top and bottom shapes the skin facing up or down.</p>
+      <p class="note" id="paintNote">Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b> or <b>Bottom</b> view. Click to place points, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). Side shapes paint the skin facing sideways, top and bottom shapes the skin facing up or down.</p>
       <p class="note" id="paintState"></p>
       <textarea id="paintExportText" readonly aria-label="paint.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
     </div>
@@ -3426,19 +3426,51 @@ function paintFromWorld(view, p) {
   const s = PT.shift;
   return view === 'side' ? [paintRound(p.z - s[2]), paintRound(p.y - s[1])] : [paintRound(p.z - s[2]), paintRound(p.x - s[0])];
 }
-function paintPick(e) {
-  const view = paintView();
-  if (!current || !view) return null;
-  const r = renderer.domElement.getBoundingClientRect();
-  const ray = new THREE.Raycaster();
-  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam);
-  const n = view === 'side' ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
-  const w = new THREE.Vector3();
-  if (!ray.ray.intersectPlane(new THREE.Plane(n, 0), w)) return null;
-  return paintFromWorld(view, w);
+// Free view: shapes are drawn on the model itself. A shape still belongs to one drawing view
+// (side, top or bottom, from where the first point was set) and is stored like one drawn there.
+const paintFree = () => !!current && !paintView();
+// Only the hull takes paint (the build cuts the outlines into the body mesh, 0_Body).
+function paintObjs() {
+  if (!current) return [];
+  const out = [];
+  current.root.children[0].traverse(o => { if (o.isMesh && !o.userData.edge && /^0_Body/.test(o.name || (o.parent && o.parent.name) || '')) out.push(o); });
+  return out.length ? out : current.brushMeshes.map(m => m.o);
 }
-function paintScreen(view, uv) {
-  const p = paintToWorld(view, uv[0], uv[1], paintPlane(view)).project(cam), r = renderer.domElement.getBoundingClientRect();
+function paintRay(e) {
+  const r = renderer.domElement.getBoundingClientRect(), ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam);
+  return ray;
+}
+const paintViewOfNormal = n => Math.abs(n.x) >= Math.abs(n.y) ? 'side' : n.y > 0 ? 'top' : 'bottom';
+// { uv, view, xs } under the pointer; *want* forces the drawing view (a shape being drawn or dragged).
+function paintPick(e, want = null) {
+  if (!current) return null;
+  const ray = paintRay(e), view = paintView();
+  if (view) {
+    const n = view === 'side' ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    const w = new THREE.Vector3();
+    if (!ray.ray.intersectPlane(new THREE.Plane(n, 0), w)) return null;
+    return { uv: paintFromWorld(view, w), view, xs: -1 };
+  }
+  const hit = ray.intersectObjects(paintObjs(), false).find(h => { for (let a = h.object; a; a = a.parent) if (!a.visible) return false; return true; });
+  if (!hit) return null;
+  const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
+  const v = want || paintViewOfNormal(n);
+  return { uv: paintFromWorld(v, hit.point), view: v, xs: hit.point.x >= 0 ? 1 : -1 };
+}
+// A drawing point laid on the model (free view): cast along the view axis from outside.
+function paintSurf(view, u, v, xs = 1, mirror = false) {
+  const s = PT.shift, far = 60;
+  let o, d;
+  if (view === 'side') { const sx = mirror ? -xs : xs; o = new THREE.Vector3(sx * far, v + s[1], u + s[2]); d = new THREE.Vector3(-sx, 0, 0); }
+  else { const x = (mirror ? -v : v) + s[0], sy = view === 'top' ? 1 : -1; o = new THREE.Vector3(x, sy * far, u + s[2]); d = new THREE.Vector3(0, -sy, 0); }
+  const hit = new THREE.Raycaster(o, d).intersectObjects(paintObjs(), false)[0];
+  if (!hit) return null;
+  return hit.point.clone().addScaledVector(d, -0.015);
+}
+function paintScreen(view, uv, xs = -1) {
+  const w = paintFree() ? (paintSurf(view, uv[0], uv[1], xs) || paintToWorld(view, uv[0], uv[1], 0)) : paintToWorld(view, uv[0], uv[1], paintPlane(view));
+  const p = w.project(cam), r = renderer.domElement.getBoundingClientRect();
   return [(p.x + 1) / 2 * r.width, (1 - p.y) / 2 * r.height];
 }
 function paintInside(pt, poly) {
@@ -3455,8 +3487,14 @@ function paintDraw() {
     PT.group.removeFromParent();
     PT.group = null;
   }
-  const view = current && paintView();
-  if (!view || !$('paintShow').checked) return;
+  if (PT.on) {
+    controls.enableRotate = !paintView();
+    stage.querySelector('.hint').textContent = paintView() ? 'Paint on: click to place points, scroll to zoom, right-drag to pan'
+                                                           : 'Paint on: click on the model to place points, drag beside it to rotate, scroll to zoom';
+  }
+  if (!current || !$('paintShow').checked) return;
+  const view = paintView();
+  if (!view) { paintDrawFree(); return; }
   const g = new THREE.Group(), plane = paintPlane(view);
   const shape = (pts, color, mirror, sel, closed) => {
     const sides = view === 'side' ? [false] : mirror ? [false, true] : [false];
@@ -3483,6 +3521,49 @@ function paintDraw() {
   };
   for (const r of paintRegions()) if (r.view === view) shape(r.pts, r.color, r.mirror !== false, PT.sel === r.id, true);
   if (PT.draft && PT.draft.view === view) shape(PT.draft.pts, $('paintColor').value, PT.draft.mirror, true, false);
+  g.traverse(o => { o.userData.reference = true; });
+  scene.add(g);
+  PT.group = g;
+}
+// Free view: every shape's outline laid on the model (both sides when mirrored), points of the
+// selected shape and the shape being drawn as handles.
+function paintDrawFree() {
+  const g = new THREE.Group();
+  const outline = (view, pts, xs, mirror, color, sel, closed) => {
+    const sides = view === 'side' ? (mirror ? [false, true] : [false]) : (mirror ? [false, true] : [false]);
+    for (const m of sides) {
+      const seg = [];
+      const n = closed ? pts.length : pts.length - 1;
+      for (let i = 0; i < n; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.12));
+        for (let k = 0; k <= steps; k++) {
+          const t = k / steps, p = paintSurf(view, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, xs, m);
+          seg.push(p);
+        }
+      }
+      // Break the line where it leaves the model.
+      let run = [];
+      const flush = () => {
+        if (run.length > 1) {
+          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(run), new THREE.LineBasicMaterial({ color: sel ? 0xff8a00 : color, depthTest: true }));
+          line.renderOrder = 19; g.add(line);
+        }
+        run = [];
+      };
+      for (const p of seg) { if (p) run.push(p); else flush(); }
+      flush();
+      if (sel && !m) {
+        const hp = pts.map(([u, v]) => paintSurf(view, u, v, xs, false)).filter(Boolean);
+        if (hp.length) {
+          const pts3 = new THREE.Points(new THREE.BufferGeometry().setFromPoints(hp), new THREE.PointsMaterial({ color: 0xff8a00, size: 8, sizeAttenuation: false, depthTest: false, transparent: true }));
+          pts3.renderOrder = 20; g.add(pts3);
+        }
+      }
+    }
+  };
+  for (const r of paintRegions()) outline(r.view, r.pts, r.x_side || 1, r.mirror !== false, new THREE.Color(r.color).multiplyScalar(0.6), PT.sel === r.id, true);
+  if (PT.draft) outline(PT.draft.view, PT.draft.pts, PT.draft.xs || 1, false, 0xff8a00, true, false);
   g.traverse(o => { o.userData.reference = true; });
   scene.add(g);
   PT.group = g;
@@ -3554,6 +3635,8 @@ function paintFinish() {
   const id = 'p-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   PT.draft = null;
   PT.docs[id] = { view: D.view, color: $('paintColor').value, mirror: D.mirror, pts: D.pts, t: new Date().toISOString() };
+  // A one-sided side shape keeps the side it was drawn on (+1 left wing side, -1 right).
+  if (D.view === 'side' && !D.mirror) PT.docs[id].x_side = D.xs || -1;
   PT.sel = id;
   paintSave(id);
 }
@@ -3570,11 +3653,12 @@ function paintSetOn(on) {
   const b = $('paintOn');
   b.setAttribute('aria-pressed', on);
   b.textContent = on ? 'Paint on' : 'Paint off';
-  if (on) { setDemo(false); if (B.on) brushSetOn(false); if (!paintView()) setView('side'); }
+  if (on) { setDemo(false); if (B.on) brushSetOn(false); }
   else PT.draft = null;
-  controls.enableRotate = !on;
+  controls.enableRotate = !on || !paintView();
   renderer.domElement.style.cursor = on ? 'crosshair' : '';
-  stage.querySelector('.hint').textContent = on ? 'Paint on: click to place points, scroll to zoom, right-drag to pan'
+  stage.querySelector('.hint').textContent = on ? (paintView() ? 'Paint on: click to place points, scroll to zoom, right-drag to pan'
+                                                                : 'Paint on: click on the model to place points, drag beside it to rotate, scroll to zoom')
                                                 : 'Drag to rotate, scroll to zoom, right-drag to pan';
   paintUi(); paintDraw();
 }
@@ -3589,32 +3673,39 @@ $('paintColor').addEventListener('input', () => {
 $('paintBase').addEventListener('change', () => { PT.docs.base = { base: $('paintBase').value, t: new Date().toISOString() }; paintSave('base'); });
 stage.addEventListener('pointerdown', e => {
   if (!PT.on || e.button !== 0 || e.target !== renderer.domElement) return;
-  const view = paintView(), uv = paintPick(e);
-  if (!view || !uv) return;
   const r = renderer.domElement.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
-  const near = (p, px = 9) => { const s = paintScreen(view, p); return Math.hypot(s[0] - mx, s[1] - my) < px; };
+  const near = (view, p, xs, px = 9) => { const s = paintScreen(view, p, xs); return Math.hypot(s[0] - mx, s[1] - my) < px; };
+  const selR = paintRegions().find(x => x.id === PT.sel && (paintFree() || x.view === paintView()));
+  // A point of the selected shape to drag?
+  if (selR && !PT.draft) {
+    const k = selR.pts.findIndex(p => near(selR.view, p, selR.x_side || (paintFree() ? 1 : -1)));
+    if (k >= 0) {
+      e.stopPropagation();
+      if (!PT.docs[selR.id]) { const { id, ...x } = selR; PT.docs[selR.id] = x; }
+      PT.drag = { id: selR.id, view: selR.view, k, pts: selR.pts.map(p => p.slice()) };
+      renderer.domElement.setPointerCapture(e.pointerId);
+      return;
+    }
+  }
+  const pk = paintPick(e, PT.draft ? PT.draft.view : null);
+  if (!pk) return;   // beside the model (free view): the view turns
   e.stopPropagation();
   if (PT.draft) {
-    if (PT.draft.pts.length >= 3 && near(PT.draft.pts[0])) paintFinish();
-    else { PT.draft.pts.push(uv); paintUi(); paintDraw(); }
+    if (PT.draft.pts.length >= 3 && near(PT.draft.view, PT.draft.pts[0], PT.draft.xs)) paintFinish();
+    else { PT.draft.pts.push(pk.uv); paintUi(); paintDraw(); }
     return;
   }
-  const sel = paintRegions().find(x => x.id === PT.sel && x.view === view);
-  if (sel) {
-    const k = sel.pts.findIndex(p => near(p));
-    if (k >= 0) { if (!PT.docs[sel.id]) { const { id, ...x } = sel; PT.docs[sel.id] = x; } PT.drag = { id: sel.id, k, pts: sel.pts.map(p => p.slice()) }; renderer.domElement.setPointerCapture(e.pointerId); return; }
-  }
-  const hit = e.shiftKey && paintRegions().filter(x => x.view === view && paintInside(uv, x.pts)).pop();
+  const hit = e.shiftKey && paintRegions().filter(x => x.view === pk.view && paintInside(pk.uv, x.pts)).pop();
   if (hit) { PT.sel = hit.id; $('paintColor').value = hit.color; paintUi(); paintDraw(); return; }
   PT.sel = null;
-  PT.draft = { view, mirror: $('paintMirror').checked, pts: [uv] };
+  PT.draft = { view: pk.view, mirror: $('paintMirror').checked, xs: pk.xs, pts: [pk.uv] };
   paintUi(); paintDraw();
 }, true);
 renderer.domElement.addEventListener('pointermove', e => {
   if (!PT.on || !PT.drag) return;
-  const uv = paintPick(e);
-  if (!uv) return;
-  PT.drag.pts[PT.drag.k] = uv;
+  const pk = paintPick(e, PT.drag.view);
+  if (!pk) return;
+  PT.drag.pts[PT.drag.k] = pk.uv;
   PT.docs[PT.drag.id].pts = PT.drag.pts.map(p => p.slice());
   paintDraw();
 });
@@ -3633,7 +3724,7 @@ document.addEventListener('keydown', e => {
   else if ((e.key === 'Delete' || e.key === 'Backspace') && PT.sel && !PT.draft) { e.preventDefault(); paintDelete(); }
 });
 $('paintExport').addEventListener('click', async () => {
-  const regions = paintRegions().map(({ view, color, mirror, pts }) => ({ view, color, mirror: mirror !== false, pts }));
+  const regions = paintRegions().map(({ view, color, mirror, pts, x_side }) => ({ view, color, mirror: mirror !== false, pts, ...(x_side ? { x_side } : {}) }));
   const text = JSON.stringify({ aircraft: PT.entry && PT.entry.id, base: paintBase(), regions }, null, 1);
   const ta = $('paintExportText');
   ta.value = text; ta.hidden = false;

@@ -29,8 +29,11 @@ def merge(base: dict, docs: dict) -> dict:
     for r in regions.values():
         if r.get('removed') or len(r.get('pts') or []) < 3:
             continue
-        out['regions'].append({'view': r['view'], 'color': r['color'], 'mirror': r.get('mirror', True) is not False,
-                               'pts': [[round(float(a), 3), round(float(b), 3)] for a, b in r['pts']]})
+        reg = {'view': r['view'], 'color': r['color'], 'mirror': r.get('mirror', True) is not False,
+               'pts': [[round(float(a), 3), round(float(b), 3)] for a, b in r['pts']]}
+        if r.get('x_side'):
+            reg['x_side'] = int(r['x_side'])
+        out['regions'].append(reg)
     return out
 
 

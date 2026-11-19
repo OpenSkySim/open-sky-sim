@@ -156,7 +156,7 @@ def add_decals(hull: bpy.types.Object, decals: list) -> None:
 #
 # {"base": "#aeb2b4", "material": "VEHICLE_PLANE_GREY",
 #  "regions": [{"view": "side" | "top" | "bottom", "color": "#7f888f", "mirror": true,
-#               "pts": [[z, h], ...]}]}
+#               "x_side": 1, "pts": [[z, h], ...]}]}
 # Body frame (x left wing, y up, z nose), before the shift onto the wheels. A side outline is
 # [z, y] seen along x and paints the skin facing sideways (both sides when mirrored, else +x);
 # a top/bottom outline is [z, x] seen along y and paints the skin facing up/down (mirrored
@@ -207,7 +207,8 @@ def _variants(region):
     pts = [tuple(map(float, p)) for p in region['pts']]
     mirror = region.get('mirror', True)
     if view == 'side':
-        return [('side', 1, pts)] + ([('side', -1, pts)] if mirror else [])
+        side = int(region.get('x_side', 1))   # one-sided: +1 the left-wing side, -1 the right
+        return [('side', side, pts)] + ([('side', -side, pts)] if mirror else [])
     out = [(view, 0, pts)]
     if mirror:
         out.append((view, 0, [(z, -x) for z, x in pts]))
