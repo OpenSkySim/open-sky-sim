@@ -6725,7 +6725,7 @@
     5.034,
     -0.001
    ],
-   "radius": 0.13,
+   "radius": 0.12,
    "sides": 10,
    "join": "separate"
   },
@@ -6739,10 +6739,29 @@
    ],
    "b": [
     0,
-    3.12,
+    2.97,
     -0.001
    ],
-   "radius": 0.3,
+   "radius": 0.4,
+   "sides": 16,
+   "join": "separate",
+   "material": "VEHICLE_PLANE_ENGINE"
+  },
+  {
+   "name": "SwashLowerHub",
+   "type": "strut",
+   "a": [
+    0,
+    2.75,
+    -0.001
+   ],
+   "b": [
+    0,
+    2.97,
+    -0.001
+   ],
+   "radius": 0.22,
+   "radius_b": 0.18,
    "sides": 10,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6752,17 +6771,88 @@
    "type": "strut",
    "a": [
     0,
-    3.6,
+    4.314,
     -0.001
    ],
    "b": [
     0,
-    3.95,
+    4.384,
     -0.001
    ],
-   "radius": 0.24,
-   "radius_b": 0.2,
+   "radius": 0.32,
+   "sides": 16,
+   "join": "separate",
+   "material": "VEHICLE_PLANE_ENGINE"
+  },
+  {
+   "name": "MastGearbox",
+   "type": "strut",
+   "a": [
+    0,
+    3.762,
+    -0.001
+   ],
+   "b": [
+    0,
+    4.062,
+    -0.001
+   ],
+   "radius": 0.17,
    "sides": 10,
+   "join": "separate",
+   "material": "VEHICLE_PLANE_ENGINE"
+  },
+  {
+   "name": "ControlRod1",
+   "type": "strut",
+   "a": [
+    0.18,
+    2.6,
+    0.311
+   ],
+   "b": [
+    0.18,
+    2.92,
+    0.311
+   ],
+   "radius": 0.03,
+   "sides": 6,
+   "join": "separate",
+   "material": "VEHICLE_PLANE_ENGINE"
+  },
+  {
+   "name": "ControlRod2",
+   "type": "strut",
+   "a": [
+    0.18,
+    2.6,
+    -0.313
+   ],
+   "b": [
+    0.18,
+    2.92,
+    -0.313
+   ],
+   "radius": 0.03,
+   "sides": 6,
+   "join": "separate",
+   "material": "VEHICLE_PLANE_ENGINE"
+  },
+  {
+   "name": "ControlRod3",
+   "type": "strut",
+   "a": [
+    -0.36,
+    2.6,
+    -0.001
+   ],
+   "b": [
+    -0.36,
+    2.92,
+    -0.001
+   ],
+   "radius": 0.03,
+   "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -6791,7 +6881,16 @@
    "hand": 1,
    "hub_r": 0.32,
    "hub_h": 0.3,
-   "spin_deg_s": 1600
+   "spin_deg_s": 1600,
+   "head": {
+    "link": 0.32,
+    "ring_r": 0.34,
+    "tie_rods": [
+     0.15,
+     1.0,
+     0.24
+    ]
+   }
   },
   {
    "name": "RotorUpper",
@@ -6819,7 +6918,12 @@
    "phase_deg": 60,
    "hub_r": 0.3,
    "hub_h": 0.3,
-   "spin_deg_s": 1600
+   "spin_deg_s": 1600,
+   "head": {
+    "link": 0.3,
+    "ring_r": 0.3,
+    "cap": true
+   }
   },
   {
    "name": "StubWing",

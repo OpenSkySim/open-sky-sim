@@ -274,23 +274,36 @@ def main():
             [(1.88, 0.25, 2.37, 2.87, 2), (2.0, 0.27, 2.35, 2.89, 2), (2.2, 0.27, 2.35, 2.89, 2)], 0.49)},
         {'name': 'IntakeMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': DARK,
          'segments': 10, 'stations': loft_m([(1.86, 0.2, 2.42, 2.82, 2), (1.9, 0.2, 2.42, 2.82, 2)], 0.49)},
-        # Rotor mast and the swashplate drums between deck and hubs.
+        # Rotor mast and the head mechanics (owner's photo): a fixed swashplate ring under the lower
+        # rotor worked by three control rods from the deck, and a bearing plate between the rotors
+        # where the tie rods from the lower head drive the upper head's swashplate.
         {'name': 'Mast', 'type': 'strut', 'a': P(0, 2.8, mast_d), 'b': P(0, y_up + 0.25, mast_d),
-         'radius': 0.13, 'sides': 10, 'join': 'separate'},
-        {'name': 'SwashLower', 'type': 'strut', 'a': P(0, 2.9, mast_d), 'b': P(0, 3.12, mast_d),
-         'radius': 0.3, 'sides': 10, 'join': 'separate', 'material': DARK},
-        {'name': 'SwashUpper', 'type': 'strut', 'a': P(0, 3.6, mast_d), 'b': P(0, 3.95, mast_d),
-         'radius': 0.24, 'radius_b': 0.2, 'sides': 10, 'join': 'separate', 'material': DARK},
+         'radius': 0.12, 'sides': 10, 'join': 'separate'},
+        {'name': 'SwashLower', 'type': 'strut', 'a': P(0, 2.9, mast_d), 'b': P(0, 2.97, mast_d),
+         'radius': 0.4, 'sides': 16, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashLowerHub', 'type': 'strut', 'a': P(0, 2.75, mast_d), 'b': P(0, 2.97, mast_d),
+         'radius': 0.22, 'radius_b': 0.18, 'sides': 10, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashUpper', 'type': 'strut', 'a': P(0, y_up - 0.47, mast_d), 'b': P(0, y_up - 0.4, mast_d),
+         'radius': 0.32, 'sides': 16, 'join': 'separate', 'material': DARK},
+        {'name': 'MastGearbox', 'type': 'strut', 'a': P(0, y_low + 0.45, mast_d), 'b': P(0, y_low + 0.75, mast_d),
+         'radius': 0.17, 'sides': 10, 'join': 'separate', 'material': DARK},
+        {'name': 'ControlRod1', 'type': 'strut', 'a': P(0.18, 2.6, mast_d - (0.312)), 'b': P(0.18, 2.92, mast_d - (0.312)),
+         'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'ControlRod2', 'type': 'strut', 'a': P(0.18, 2.6, mast_d - (-0.312)), 'b': P(0.18, 2.92, mast_d - (-0.312)),
+         'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'ControlRod3', 'type': 'strut', 'a': P(-0.36, 2.6, mast_d - (-0.0)), 'b': P(-0.36, 2.92, mast_d - (-0.0)),
+         'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
         # Coaxial rotors, 3 blades each, 15.9 m across, 1.47 m apart (drawing: hubs at y 90 and 22).
         # Contra-rotating: lower anticlockwise seen from above (hand +1), upper clockwise (hand -1).
         {'name': 'RotorLower', 'type': 'rotor', 'join': 'spin', 'spin_axis': [0, 1, 0], 'material': DARK,
          'center': P(0, y_low, mast_d), 'radius': 7.95, 'blades': 3, 'root_r': 0.75, 'chord': 0.52,
          'tc': 0.1, 'pitch_deg': 6, 'droop_deg': 3, 'hand': 1, 'hub_r': 0.32, 'hub_h': 0.3,
-         'spin_deg_s': 1600},
+         'spin_deg_s': 1600, 'head': {'link': 0.32, 'ring_r': 0.34, 'tie_rods': [0.15, 1.0, 0.24]}},
         {'name': 'RotorUpper', 'type': 'rotor', 'join': 'spin', 'spin_axis': [0, 1, 0], 'material': DARK,
          'center': P(0, y_up, mast_d), 'radius': 7.95, 'blades': 3, 'root_r': 0.75, 'chord': 0.52,
          'tc': 0.1, 'pitch_deg': 6, 'droop_deg': 2.5, 'hand': -1, 'phase_deg': 60, 'hub_r': 0.3,
-         'hub_h': 0.3, 'spin_deg_s': 1600},
+         'hub_h': 0.3, 'spin_deg_s': 1600,
+         'head': {'link': 0.3, 'ring_r': 0.3, 'cap': True}},
         # Stub wings (second sheet top/side views, owner's photos): a flat wing only between the
         # weapon beams (x 1.95-2.6), pipes inboard of it, with two weapon beams below, held by pipes from the cabin roof
         # line: a single strut at d 3.49 and a V (d 3.55 and 4.84) meeting at the wing at d 4.30.
