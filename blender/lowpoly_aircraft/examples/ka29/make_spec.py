@@ -163,12 +163,12 @@ def windows_and_doors():
          'polygon_m': [[z_(0.2), 1.26], [z_(0.63), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.26]],
          'clip': {'view': 'top', 'polygons_m': [
              [[-0.26, z_(0.2)], [0.26, z_(0.2)], [0.26, z_(0.60)], [-0.26, z_(0.60)]],
-             [[0.32, z_(0.25)], [0.78, z_(0.385)], [0.86, z_(0.70)], [0.32, z_(0.60)]],
-             [[-0.32, z_(0.25)], [-0.32, z_(0.60)], [-0.86, z_(0.70)], [-0.78, z_(0.385)]]]}},
+             [[0.32, z_(0.25)], [0.91, z_(0.465)], [0.86, z_(0.70)], [0.32, z_(0.60)]],
+             [[-0.32, z_(0.25)], [-0.32, z_(0.60)], [-0.86, z_(0.70)], [-0.91, z_(0.465)]]]}},
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
         {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.8, 1.3],
-         'polygon_m': [[z_(0.43), 1.29], [z_(0.73), 2.0], [z_(1.0), 1.93], [z_(0.76), 1.29]]},
+         'polygon_m': [[z_(0.5), 1.29], [z_(0.73), 2.0], [z_(1.0), 1.93], [z_(0.76), 1.29]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          'polygon_m': [[z_(0.86), 1.26], [z_(1.11), 1.86], [z_(1.17), 1.9], [z_(1.66), 1.9], [z_(1.72), 1.84],
@@ -215,12 +215,18 @@ def fuselage_sections(cabin, deck):
         H = body.resample(sec['half'])
         d = sec['d']
         target = None
-        if k in ('K', 'L') and False:
-            pass
+        if k == 'A':
+            target = body.PANE_A[1] - bottom(d)      # the nose top meets the windscreen sill
         elif k in ('K', 'L'):
             target = cab_top(d) - bottom(d)          # the boom, without the deck's tail end
         if target:
             H[:, 1] *= target / H[:, 1].max()
+        if k == 'B':
+            # Below the glazing only: the outline above the sill is replaced by the panes anyway,
+            # and blending its tall top into the nose rings creases the skin under the side panes.
+            cap = body.PANE_A[1] - bottom(d)
+            keys.append((body.PANE_C[2], H.copy()))   # the full outline from the side panes' top back
+            H = body.resample(np.stack([H[:, 0], np.minimum(H[:, 1], cap)], axis=1))
         keys.append((d, H))
         if k == 'V':
             # Just ahead of the deck's front face the fuselage still ends at the cockpit fairing,

@@ -83,13 +83,13 @@ def build(keys, stations, bottom):
 # pillar Q1-Q2 (side view d 0.77 -> 1.07), so the nose rings there are built from these corners
 # instead of the round outline.
 PANE_A = (0.29, 1.24, 0.23)
-PANE_B = (0.82, 1.24, 0.37)
+PANE_B = (0.95, 1.24, 0.45)
 PANE_D = (0.29, 2.04, 0.62)
 PANE_C = (0.90, 2.04, 0.72)
 QUARTER_1 = (1.10, 1.24, 0.77)
 QUARTER_2 = (0.95, 1.97, 1.042)
 ROOF_BLEND_END = 1.75
-PANE_STATIONS = (0.235, 0.30, 0.37, 0.50, 0.62, 0.67, 0.72, 0.77, 1.042)
+PANE_STATIONS = (0.235, 0.30, 0.37, 0.45, 0.50, 0.56, 0.62, 0.67, 0.72, 0.77, 1.042)
 
 
 def _lerp(p, q, d):
@@ -113,7 +113,11 @@ def _pane_points(d, roof=0.0):
     else:
         j1 = (0.5 * j2[0], top)
     j3 = None
-    if B[2] + 1e-6 < d < Q2[2] - 1e-6:
+    if d <= B[2] + 1e-6:
+        # Ahead of the side pane's foot: a point just outboard on the sill, so these rings have the
+        # same point layout as the ones with a quarter pane foot (no crease where it starts).
+        j3 = (j2[0] + 0.04, j2[1] - 0.02)
+    elif d < Q2[2] - 1e-6:
         j3 = _lerp(B, Q1, d) if d <= Q1[2] else _lerp(Q1, Q2, d)
     return (0.0, top), j1, j2, j3
 
