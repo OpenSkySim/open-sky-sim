@@ -6,6 +6,7 @@
  "material": "VEHICLE_PLANE_GREY",
  "smooth_deg": 0,
  "symmetrize": true,
+ "planar_deg_final": 12.0,
  "sections": [
   {
    "part": "Fuselage",
@@ -7047,7 +7048,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 16,
+   "sides": 10,
    "material": "VEHICLE_PLANE_ENGINE",
    "a": [
     0.43,
@@ -7069,7 +7070,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 16,
+   "sides": 10,
    "material": "VEHICLE_PLANE_ENGINE",
    "a": [
     0.43,
@@ -7103,7 +7104,7 @@
     2.12
    ],
    "radius": 0.235,
-   "sides": 16
+   "sides": 10
   },
   {
    "name": "IntakeCone",
@@ -7130,7 +7131,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 16,
+   "sides": 10,
    "a": [
     0.45,
     2.56,
@@ -7151,7 +7152,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 16,
+   "sides": 10,
    "a": [
     0.98,
     2.501,
@@ -7172,7 +7173,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 16,
+   "sides": 8,
    "material": "VEHICLE_PLANE_ENGINE",
    "a": [
     0.6,
@@ -7206,7 +7207,7 @@
     0.381
    ],
    "radius": 0.205,
-   "sides": 16
+   "sides": 10
   },
   {
    "name": "MastFairing",
@@ -7223,7 +7224,7 @@
    ],
    "radius": 0.42,
    "radius_b": 0.24,
-   "sides": 16,
+   "sides": 12,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7242,7 +7243,7 @@
    ],
    "radius": 0.1,
    "radius_b": 0.09,
-   "sides": 12,
+   "sides": 10,
    "join": "separate",
    "material": "#8a8f94"
   },
@@ -7260,7 +7261,7 @@
     -0.001
    ],
    "radius": 0.38,
-   "sides": 20,
+   "sides": 12,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7279,7 +7280,7 @@
    ],
    "radius": 0.14,
    "radius_b": 0.12,
-   "sides": 12,
+   "sides": 10,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7406,7 +7407,7 @@
    ],
    "radius": 0.08,
    "radius_b": 0.075,
-   "sides": 12,
+   "sides": 10,
    "join": "separate",
    "material": "#8a8f94"
   },
@@ -7425,7 +7426,7 @@
    ],
    "radius": 0.13,
    "radius_b": 0.12,
-   "sides": 12,
+   "sides": 10,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7443,7 +7444,7 @@
     -0.001
    ],
    "radius": 0.15,
-   "sides": 14,
+   "sides": 12,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7461,7 +7462,7 @@
     -0.001
    ],
    "radius": 0.32,
-   "sides": 20,
+   "sides": 12,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7480,7 +7481,7 @@
    ],
    "radius": 0.11,
    "radius_b": 0.095,
-   "sides": 12,
+   "sides": 10,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7553,7 +7554,7 @@
    ],
    "radius": 0.065,
    "radius_b": 0.06,
-   "sides": 12,
+   "sides": 10,
    "join": "separate",
    "material": "#8a8f94"
   },
@@ -8901,7 +8902,7 @@
   }
  ],
  "gear": {
-  "wheel_sides": 14,
+  "wheel_sides": 12,
   "legs": [
    {
     "name": "Nose",

@@ -303,9 +303,9 @@ def rotor(name: str, center, radius: float, blades: int = 3, root_r: float = 0.5
         if head:
             lead = travel / max(np.linalg.norm(travel), 1e-9)
             # Grip sleeve over the spar, a vertical hinge knuckle at the hub and a damper beside it.
-            _tube_into(bm, c + span * (hub_r + 0.12), c + span * (root_r - 0.05), 0.065, 0.055, 8)
+            _tube_into(bm, c + span * (hub_r + 0.12), c + span * (root_r - 0.05), 0.065, 0.055, 6)
             k0 = c + span * (hub_r + 0.05)
-            _tube_into(bm, k0 - up * 0.1, k0 + up * 0.1, 0.045, 0.045, 8)
+            _tube_into(bm, k0 - up * 0.1, k0 + up * 0.1, 0.045, 0.045, 6)
             _tube_into(bm, c + span * (hub_r * 0.5) - lead * 0.16 + up * 0.08,
                        c + span * (hub_r + 0.3) - lead * 0.12 + up * 0.08, 0.02, 0.02, 6)
             # Pitch horn to the leading side, pitch link down to the rotating swashplate ring.
@@ -330,7 +330,7 @@ def rotor(name: str, center, radius: float, blades: int = 3, root_r: float = 0.5
         foot = c - up * head.get('link', 0.3)
         ring_r = head.get('ring_r', 0.34)
         # Rotating swashplate ring and its hub on the mast.
-        _tube_into(bm, foot - up * 0.018, foot + up * 0.018, ring_r + 0.025, ring_r + 0.025, 16)
+        _tube_into(bm, foot - up * 0.018, foot + up * 0.018, ring_r + 0.025, ring_r + 0.025, 12)
         _tube_into(bm, foot, c - up * 0.5 * hub_h, 0.075, 0.09, 10)
         if head.get('cap'):
             _tube_into(bm, c + up * 0.5 * hub_h, c + up * (0.5 * hub_h + 0.12), hub_r * 0.8, hub_r * 0.35, hub_sides)
