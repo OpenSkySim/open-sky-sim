@@ -134,10 +134,10 @@ def fuselage():
     # Engine and gearbox deck on top of the cabin (narrower: sections 7 and 8), with its flat front
     # face at x 424 above a low fairing over the cockpit roof, rounding down to the boom at x 705.
     deck = [
-        (375, 0, 160, 141, 6),
-        (386, 30, 160, 139, 6),
-        (400, 32, 160, 139, 6),
-        (422, 33, 160, 139, 6),
+        (375, 0, 160, 141, 1.6),
+        (386, 9, 160, 139, 1.6),
+        (400, 10, 160, 139, 1.6),
+        (422, 11, 160, 139, 1.6),
         (427, 33, 160, 116, 2.6),
         (432, 34, 160, 110, 2.6),
         (455, 34, 160, 109, 2.6),
