@@ -757,6 +757,10 @@ def build_parts(spec: dict) -> None:
                     # Seen from within (a cockpit tub behind the glazing): faces point inwards.
                     obj.data.flip_normals()
                 separate.append(obj)
+    if spec.get('symmetrize'):
+        # The boolean union of mirrored parts is not exactly symmetric (cut order, slivers):
+        # mirror the left half (+X) onto the right before anything is cut from the hull.
+        geo.symmetrize(hull)
     if spec.get('planar_deg'):
         # Fewer polygons where the hull is near flat (wing and tail skins, boolean slivers),
         # keeping the round sections round.

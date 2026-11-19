@@ -206,6 +206,15 @@ def drop_off_skin(obj: bpy.types.Object, skin: BVHTree, cutter: BVHTree, tol: fl
     bm.free()
 
 
+def symmetrize(obj: bpy.types.Object) -> None:
+    """Make a mesh exactly symmetric about the body's X: its left half (+X) mirrored onto the right."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.symmetrize(bm, input=bm.verts[:] + bm.edges[:] + bm.faces[:], direction='-X', dist=1e-4)
+    bm.to_mesh(obj.data)
+    bm.free()
+
+
 def decimate(obj: bpy.types.Object, ratio: float = 1.0, planar_deg: float = 0.0) -> None:
     """Decimate a mesh in place: merge near-flat faces (within *planar_deg*), else collapse to
     *ratio* of its faces symmetric about the body's X."""

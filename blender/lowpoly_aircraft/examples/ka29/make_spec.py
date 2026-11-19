@@ -406,6 +406,7 @@ def main():
         'span_m': 15.9,
         'material': 'VEHICLE_PLANE_GREY',
         'smooth_deg': 0,
+        'symmetrize': True,
         'sections': fuse_secs,
         'parts': parts,
         'regions': windows_and_doors(),

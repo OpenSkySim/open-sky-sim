@@ -5,6 +5,7 @@
  "span_m": 15.9,
  "material": "VEHICLE_PLANE_GREY",
  "smooth_deg": 0,
+ "symmetrize": true,
  "sections": [
   {
    "part": "Fuselage",
