@@ -77,19 +77,19 @@ def build(keys, stations, bottom):
 
 
 # Flat windscreen (owner's photo, 2026-11-18): three flat front panes over the nose box. The centre
-# pane spans x +-0.29 from A (y 1.28, d 0.23) to D (y 2.04, d 0.80); each side pane is the plane
+# pane spans x +-0.29 from A (y 1.28, d 0.23) to D (y 2.04, d 0.62); each side pane is the plane
 # through A, B, D and C, swept back in plan (its bottom and top edges are parallel, so it is flat).
 # Behind each side pane a quarter pane B-C-Q2-Q1 steps out to the cabin wall at the sloping door
 # pillar Q1-Q2 (side view d 0.77 -> 1.07), so the nose rings there are built from these corners
 # instead of the round outline.
 PANE_A = (0.29, 1.28, 0.23)
 PANE_B = (0.82, 1.28, 0.37)
-PANE_D = (0.29, 2.04, 0.80)
-PANE_C = (0.76, 2.04, 0.90)
+PANE_D = (0.29, 2.04, 0.62)
+PANE_C = (0.76, 2.04, 0.72)
 QUARTER_1 = (1.10, 1.28, 0.77)
 QUARTER_2 = (0.95, 1.97, 1.042)
 ROOF_BLEND_END = 1.75
-PANE_STATIONS = (0.235, 0.30, 0.37, 0.57, 0.77, 0.80, 0.85, 0.90, 1.042)
+PANE_STATIONS = (0.235, 0.30, 0.37, 0.50, 0.62, 0.67, 0.72, 0.77, 1.042)
 
 
 def _lerp(p, q, d):
@@ -127,7 +127,9 @@ def windscreen(d, H, y0):
         P = P.copy()
         sh = P[5].copy()
         roof = lambda x: float(np.interp(x, P[:6, 0], P[:6, 1]))
-        top = [P[0], (sh[0] / 3, roof(sh[0] / 3)), (2 * sh[0] / 3, roof(2 * sh[0] / 3)), sh]
+        # Flat roof (section В): level with the outline's top out to two thirds of the shoulder.
+        flat = float(P[:4, 1].max())
+        top = [(0.0, flat), (sh[0] / 3, flat), (2 * sh[0] / 3, max(flat - 0.03, roof(2 * sh[0] / 3))), sh]
         out = np.vstack([top, resample(P[5:HALF_N // 2 + 1], HALF_N // 2 - 3)[1:], P[HALF_N // 2 + 1:]])
         return out - np.array([0.0, y0])
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
