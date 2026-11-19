@@ -274,25 +274,31 @@ def main():
             [(1.88, 0.25, 2.37, 2.87, 2), (2.0, 0.27, 2.35, 2.89, 2), (2.2, 0.27, 2.35, 2.89, 2)], 0.49)},
         {'name': 'IntakeMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': DARK,
          'segments': 10, 'stations': loft_m([(1.86, 0.2, 2.42, 2.82, 2), (1.9, 0.2, 2.42, 2.82, 2)], 0.49)},
-        # Rotor mast and the head mechanics (owner's photo): a fixed swashplate ring under the lower
-        # rotor worked by three control rods from the deck, and a bearing plate between the rotors
-        # where the tie rods from the lower head drive the upper head's swashplate.
-        {'name': 'Mast', 'type': 'strut', 'a': P(0, 2.8, mast_d), 'b': P(0, y_up + 0.25, mast_d),
-         'radius': 0.12, 'sides': 10, 'join': 'separate'},
-        {'name': 'SwashLower', 'type': 'strut', 'a': P(0, 2.9, mast_d), 'b': P(0, 2.97, mast_d),
-         'radius': 0.4, 'sides': 16, 'join': 'separate', 'material': DARK},
-        {'name': 'SwashLowerHub', 'type': 'strut', 'a': P(0, 2.75, mast_d), 'b': P(0, 2.97, mast_d),
-         'radius': 0.22, 'radius_b': 0.18, 'sides': 10, 'join': 'separate', 'material': DARK},
-        {'name': 'SwashUpper', 'type': 'strut', 'a': P(0, y_up - 0.47, mast_d), 'b': P(0, y_up - 0.4, mast_d),
-         'radius': 0.32, 'sides': 16, 'join': 'separate', 'material': DARK},
-        {'name': 'MastGearbox', 'type': 'strut', 'a': P(0, y_low + 0.45, mast_d), 'b': P(0, y_low + 0.75, mast_d),
-         'radius': 0.17, 'sides': 10, 'join': 'separate', 'material': DARK},
-        {'name': 'ControlRod1', 'type': 'strut', 'a': P(0.18, 2.6, mast_d - (0.312)), 'b': P(0.18, 2.92, mast_d - (0.312)),
-         'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
-        {'name': 'ControlRod2', 'type': 'strut', 'a': P(0.18, 2.6, mast_d - (-0.312)), 'b': P(0.18, 2.92, mast_d - (-0.312)),
-         'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
-        {'name': 'ControlRod3', 'type': 'strut', 'a': P(-0.36, 2.6, mast_d - (-0.0)), 'b': P(-0.36, 2.92, mast_d - (-0.0)),
-         'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
+        # Rotor mast, rebuilt after the owner's photo (bottom to top): a conical fairing on the deck,
+        # the fixed lower swashplate (ring on three arms, three control rods from the deck), the
+        # stepped lower mast into the lower hub, the gearbox drum and collar between the rotors, the
+        # fixed upper swashplate (ring on three arms) under the upper head, and a slim upper mast
+        # with a nut through the upper hub. The rotating parts are in the rotors' 'head'.
+        {'name': 'MastFairing', 'type': 'strut', 'a': P(0.0, 2.7, mast_d - (0.0)), 'b': P(0.0, 2.86, mast_d - (0.0)), 'radius': 0.42, 'radius_b': 0.24, 'sides': 16, 'join': 'separate', 'material': DARK},
+        {'name': 'MastLower', 'type': 'strut', 'a': P(0.0, 2.86, mast_d - (0.0)), 'b': P(0.0, y_low - 0.1, mast_d - (0.0)), 'radius': 0.17, 'radius_b': 0.15, 'sides': 12, 'join': 'separate', 'material': '#8a8f94'},
+        {'name': 'SwashLowerRing', 'type': 'strut', 'a': P(0.0, 2.92, mast_d - (0.0)), 'b': P(0.0, 2.97, mast_d - (0.0)), 'radius': 0.42, 'sides': 20, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashLowerHub', 'type': 'strut', 'a': P(0.0, 2.86, mast_d - (0.0)), 'b': P(0.0, 3.0, mast_d - (0.0)), 'radius': 0.24, 'radius_b': 0.2, 'sides': 12, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashLowerArm1', 'type': 'strut', 'a': P(0.11, 2.945, mast_d - (0.191)), 'b': P(0.18, 2.945, mast_d - (0.312)), 'radius': 0.035, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'ControlRod1', 'type': 'strut', 'a': P(0.18, 2.62, mast_d - (0.312)), 'b': P(0.18, 2.93, mast_d - (0.312)), 'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashLowerArm2', 'type': 'strut', 'a': P(0.11, 2.945, mast_d - (-0.191)), 'b': P(0.18, 2.945, mast_d - (-0.312)), 'radius': 0.035, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'ControlRod2', 'type': 'strut', 'a': P(0.18, 2.62, mast_d - (-0.312)), 'b': P(0.18, 2.93, mast_d - (-0.312)), 'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashLowerArm3', 'type': 'strut', 'a': P(-0.22, 2.945, mast_d - (-0.0)), 'b': P(-0.36, 2.945, mast_d - (-0.0)), 'radius': 0.035, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'ControlRod3', 'type': 'strut', 'a': P(-0.36, 2.62, mast_d - (-0.0)), 'b': P(-0.36, 2.93, mast_d - (-0.0)), 'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'MastMid', 'type': 'strut', 'a': P(0.0, y_low + 0.15, mast_d - (0.0)), 'b': P(0.0, y_up - 0.4, mast_d - (0.0)), 'radius': 0.13, 'radius_b': 0.12, 'sides': 12, 'join': 'separate', 'material': '#8a8f94'},
+        {'name': 'MastGearbox', 'type': 'strut', 'a': P(0.0, y_low + 0.3, mast_d - (0.0)), 'b': P(0.0, y_low + 0.62, mast_d - (0.0)), 'radius': 0.21, 'radius_b': 0.19, 'sides': 12, 'join': 'separate', 'material': DARK},
+        {'name': 'MastCollar', 'type': 'strut', 'a': P(0.0, y_low + 0.62, mast_d - (0.0)), 'b': P(0.0, y_low + 0.7, mast_d - (0.0)), 'radius': 0.24, 'sides': 14, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashUpperRing', 'type': 'strut', 'a': P(0.0, y_up - 0.47, mast_d - (0.0)), 'b': P(0.0, y_up - 0.42, mast_d - (0.0)), 'radius': 0.34, 'sides': 20, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashUpperHub', 'type': 'strut', 'a': P(0.0, y_up - 0.52, mast_d - (0.0)), 'b': P(0.0, y_up - 0.38, mast_d - (0.0)), 'radius': 0.19, 'radius_b': 0.17, 'sides': 12, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashUpperArm1', 'type': 'strut', 'a': P(0.18, y_up - 0.445, mast_d - (0.0)), 'b': P(0.3, y_up - 0.445, mast_d - (0.0)), 'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashUpperArm2', 'type': 'strut', 'a': P(-0.09, y_up - 0.445, mast_d - (-0.156)), 'b': P(-0.15, y_up - 0.445, mast_d - (-0.26)), 'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashUpperArm3', 'type': 'strut', 'a': P(-0.09, y_up - 0.445, mast_d - (0.156)), 'b': P(-0.15, y_up - 0.445, mast_d - (0.26)), 'radius': 0.03, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'MastUpper', 'type': 'strut', 'a': P(0.0, y_up - 0.38, mast_d - (0.0)), 'b': P(0.0, y_up + 0.3, mast_d - (0.0)), 'radius': 0.1, 'radius_b': 0.09, 'sides': 12, 'join': 'separate', 'material': '#8a8f94'},
+        {'name': 'MastNut', 'type': 'strut', 'a': P(0.0, y_up + 0.3, mast_d - (0.0)), 'b': P(0.0, y_up + 0.38, mast_d - (0.0)), 'radius': 0.07, 'radius_b': 0.05, 'sides': 8, 'join': 'separate', 'material': DARK},
         # Coaxial rotors, 3 blades each, 15.9 m across, 1.47 m apart (drawing: hubs at y 90 and 22).
         # Contra-rotating: lower anticlockwise seen from above (hand +1), upper clockwise (hand -1).
         {'name': 'RotorLower', 'type': 'rotor', 'join': 'spin', 'spin_axis': [0, 1, 0], 'material': DARK,
