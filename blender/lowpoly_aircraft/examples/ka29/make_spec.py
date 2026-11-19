@@ -42,7 +42,7 @@ def z_(d):
 
 # Cockpit (owner 2026-11-19): seats 20 cm out from the first 0.52 m, then 10 cm back in.
 SEAT_X = 0.62
-COCKPIT_DY = 0.3     # owner: cockpit 30 cm higher than first laid out
+COCKPIT_DY = 0.15    # owner: cockpit 30 cm up, then 15 cm back down
 COCKPIT_PARTS = ('InstrumentPanel', 'PanelCentre', 'GlareShield', 'Gauges', 'GaugesCentre', 'Pedestal', 'PedestalTop',
                  'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack')
 TURQ = '#1f5c5a'      # cockpit: dark turquoise (owner)
@@ -452,7 +452,7 @@ def main():
         {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#101113',
          'segments': 6, 'stations': loft_m([(2.42, 2.5, -1.0, 2.6, 8), (2.48, 2.5, -1.0, 2.6, 8)])},
     ]
-    # Owner (2026-11-19): the whole cockpit (floor, panel, consoles, seats, sticks) 30 cm higher;
+    # Owner (2026-11-19): the whole cockpit (floor, panel, consoles, seats, sticks) COCKPIT_DY higher;
     # the pilots' eye points go up with it below.
     for part in parts:
         if part['name'] in COCKPIT_PARTS:
