@@ -7,15 +7,6 @@
  "smooth_deg": 0,
  "symmetrize": true,
  "planar_deg_final": 2.5,
- "camo": {
-  "colors": [
-   "#aeb2b4",
-   "#7f888f",
-   "#c9cccd"
-  ],
-  "scale_m": 2.2,
-  "seed": 3
- },
  "decals": [
   {
    "shape": "star",

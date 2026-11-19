@@ -64,6 +64,8 @@ def main() -> None:
     check = next((a.src / n for n in (os.listdir(a.src) if a.src.is_dir() else []) if n.endswith('_refs_check.json')), None)
     # The lofted parts' rings (build_aircraft.py), for the cross-section window.
     lofts = next((a.src / n for n in (os.listdir(a.src) if a.src.is_dir() else []) if n.endswith('_lofts.json')), None)
+    # The camo outlines built in (paint.json), for the Paint card.
+    paint = next((a.src / n for n in (os.listdir(a.src) if a.src.is_dir() else []) if n.endswith('_paint.json')), None)
     manifest = json.loads(files['manifest.json'])
     mid = manifest['id']
     out = HERE / 'models' / mid
@@ -90,6 +92,8 @@ def main() -> None:
         shutil.copy(check, out / 'refs_check.json')
     if lofts:
         shutil.copy(lofts, out / 'lofts.json')
+    if paint:
+        shutil.copy(paint, out / 'paint.json')
     pilot = REPO / 'assets' / 'pilot.glb'
     if pilot.exists():
         (HERE / 'models' / 'pilot.gltf.json').write_text(glb_to_gltf_json(pilot.read_bytes()))

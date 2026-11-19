@@ -149,3 +149,148 @@ def add_decals(hull: bpy.types.Object, decals: list) -> None:
     bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4])
     bm.to_mesh(me)
     bm.free()
+
+
+# ---------------------------------------------------------------------------------------------
+# Painted pattern: outlines cut into the skin (paint.json)
+#
+# {"base": "#aeb2b4", "material": "VEHICLE_PLANE_GREY",
+#  "regions": [{"view": "side" | "top" | "bottom", "color": "#7f888f", "mirror": true,
+#               "pts": [[z, h], ...]}]}
+# Body frame (x left wing, y up, z nose), before the shift onto the wheels. A side outline is
+# [z, y] seen along x and paints the skin facing sideways (both sides when mirrored, else +x);
+# a top/bottom outline is [z, x] seen along y and paints the skin facing up/down (mirrored
+# across x = 0 by default). Every outline edge is cut into the faces it crosses, so the colour
+# boundary follows the drawn shape, not the existing triangles. Later regions paint over
+# earlier ones.
+
+def load_pattern(spec: dict, spec_dir: str) -> dict | None:
+    """The paint pattern: spec "paint" (a dict, or a file name; default paint.json next to the spec)."""
+    import json
+    import os
+    p = spec.get('paint', 'paint.json')
+    if isinstance(p, dict):
+        return p
+    path = os.path.join(spec_dir, p)
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def _inside(pt, poly) -> bool:
+    x, y = pt
+    c = False
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+            c = not c
+    return c
+
+
+def _view_of(n) -> str:
+    """Which drawing view a face (body-frame normal n) is painted from."""
+    return 'side' if abs(n[0]) >= abs(n[1]) else ('top' if n[1] > 0 else 'bottom')
+
+
+def _uv(p, view):
+    """2-D drawing coordinates of a body-frame point: side [z, y], top/bottom [z, x]."""
+    return (p[2], p[1]) if view == 'side' else (p[2], p[0])
+
+
+def _variants(region):
+    """(view, sign, pts) for a region and its mirror. sign: which x side a side view paints
+    (+1/-1) or 0 for any; top/bottom mirrors flip the drawing's x."""
+    view = region['view']
+    pts = [tuple(map(float, p)) for p in region['pts']]
+    mirror = region.get('mirror', True)
+    if view == 'side':
+        return [('side', 1, pts)] + ([('side', -1, pts)] if mirror else [])
+    out = [(view, 0, pts)]
+    if mirror:
+        out.append((view, 0, [(z, -x) for z, x in pts]))
+    return out
+
+
+def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
+    """Cut the paint.json outlines into *hull* and colour them; returns the painted face count.
+    *others* (separate body meshes) only get the base colour."""
+    base_mat = cfg.get('material', 'VEHICLE_PLANE_GREY')
+    base = cfg.get('base', '#aeb2b4')
+    for obj in list(others) + [hull]:
+        mats = [m.name for m in obj.data.materials]
+        if base_mat in mats:
+            obj.data.materials[mats.index(base_mat)] = geo.get_material(base)
+    me = hull.data
+    mats = [m.name for m in me.materials]
+
+    def slot(color):
+        if color not in mats:
+            me.materials.append(geo.get_material(color))
+            mats.append(color)
+        return mats.index(color)
+
+    paintable = {slot(base)}
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    mw = hull.matrix_world
+    xax = geo.to_bl((1, 0, 0)) - geo.to_bl((0, 0, 0))
+    yax = geo.to_bl((0, 1, 0)) - geo.to_bl((0, 0, 0))
+    painted = 0
+    for region in cfg.get('regions', []):
+        ci = slot(region['color'])
+        for view, sign, pts in _variants(region):
+            if len(pts) < 3:
+                continue
+
+            def faces_here():
+                out = []
+                for f in bm.faces:
+                    if f.material_index not in paintable:
+                        continue
+                    f.normal_update()
+                    n = geo.from_bl(mw.to_3x3() @ f.normal)
+                    if _view_of(n) != view or (view == 'side' and sign and n[0] * sign <= 0):
+                        continue
+                    out.append(f)
+                return out
+
+            # Cut every outline edge into the faces it crosses (plane through the edge, along
+            # the view axis), limited to faces whose drawing bbox meets the edge's.
+            for i in range(len(pts)):
+                (a0, a1), (b0, b1) = pts[i], pts[(i + 1) % len(pts)]
+                lo0, hi0 = min(a0, b0) - 0.02, max(a0, b0) + 0.02
+                lo1, hi1 = min(a1, b1) - 0.02, max(a1, b1) + 0.02
+                cand = []
+                for f in faces_here():
+                    uvs = [_uv(geo.from_bl(mw @ v.co), view) for v in f.verts]
+                    if (max(u for u, _ in uvs) < lo0 or min(u for u, _ in uvs) > hi0
+                            or max(v for _, v in uvs) < lo1 or min(v for _, v in uvs) > hi1):
+                        continue
+                    cand.append(f)
+                if not cand:
+                    continue
+                if view == 'side':
+                    p0 = geo.to_bl((0.0, a1, a0))
+                    e = geo.to_bl((0.0, b1, b0)) - p0
+                    nrm = e.cross(xax)
+                else:
+                    p0 = geo.to_bl((a1, 0.0, a0))
+                    e = geo.to_bl((b1, 0.0, b0)) - p0
+                    nrm = e.cross(yax)
+                if nrm.length < 1e-9:
+                    continue
+                geom = list(cand) + list({ed for f in cand for ed in f.edges}) + list({v for f in cand for v in f.verts})
+                bmesh.ops.bisect_plane(bm, geom=geom, plane_co=p0, plane_no=nrm.normalized(), dist=1e-4)
+            for f in faces_here():
+                c = f.calc_center_median()
+                if _inside(_uv(geo.from_bl(mw @ c), view), pts):
+                    f.material_index = ci
+                    painted += 1
+            paintable.add(ci)
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 3])
+    bm.to_mesh(me)
+    bm.free()
+    return painted

@@ -158,6 +158,8 @@ button.ok { color: var(--ok); }
 .xs-list { display: grid; gap: 2px; margin-top: 8px; max-height: 160px; overflow: auto; }
 .xs-list button { text-align: left; background: transparent; border: 1px solid transparent; color: var(--ink); border-radius: 4px; padding: 3px 6px; font: 12px var(--font-mono); cursor: pointer; }
 .xs-list button[aria-pressed="true"] { border-color: var(--xs); }
+.paint-col { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-size: 12px; }
+.paint-col input { width: 32px; height: 22px; padding: 0; border: 1px solid var(--line, #ccc); background: none; }
 .xs-win { position: fixed; z-index: 50; right: 24px; top: 24px; width: min(620px, calc(100vw - 32px)); height: min(600px, calc(100vh - 48px));
   min-width: 300px; min-height: 320px; resize: both; overflow: hidden; display: flex; flex-direction: column;
   background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22); }
@@ -365,6 +367,19 @@ button.ok { color: var(--ok); }
       <p class="note" id="brushNote">x + is the left wing, y up, z + towards the nose. With the brush on, drag over the model: what lies under the brush moves by this vector, fading out to the brush's edge. <b>Follow the mouse:</b> press on the model and drag; the part under the brush follows the pointer (in the screen's plane; Shift keeps it to one axis). Drag beside the model to turn the view. Ctrl-Z undoes a stroke, Ctrl-Shift-Z or Ctrl-Y redoes it.</p>
       <p class="note" id="brushState"></p>
       <textarea id="brushExportText" readonly aria-label="brush.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
+    </div>
+    <div class="card" id="paintCard">
+      <h2>Paint</h2>
+      <div class="row" style="margin: 0 0 8px"><button type="button" id="paintOn" aria-pressed="false">Paint off</button>
+        <label class="paint-col">Colour <input type="color" id="paintColor" value="#7f888f"></label>
+        <label class="paint-col">Base <input type="color" id="paintBase" value="#aeb2b4"></label></div>
+      <div class="xs-opts"><label><input type="checkbox" id="paintMirror" checked> mirror left / right</label>
+        <label><input type="checkbox" id="paintShow" checked> show the outlines</label></div>
+      <div class="xs-list" id="paintList" aria-label="Painted shapes"></div>
+      <div class="row"><button type="button" id="paintFinish" disabled>Finish shape</button><button type="button" id="paintDel" class="danger" disabled>Delete shape</button><button type="button" id="paintExport">Copy paint.json</button></div>
+      <p class="note" id="paintNote">Camo outlines, cut into the skin by the next build. Open the <b>Side</b>, <b>Top</b> or <b>Bottom</b> view and turn Paint on. Click to place points, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). Side shapes paint the skin facing sideways, top and bottom shapes the skin facing up or down.</p>
+      <p class="note" id="paintState"></p>
+      <textarea id="paintExportText" readonly aria-label="paint.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
     </div>
     <div class="card">
       <h2>Highlight surfaces</h2>
@@ -667,6 +682,7 @@ async function showModel(entry, keep = null) {
   loadRefs(entry, stale).catch(err => { refsNote.textContent = 'References failed to load: ' + err.message; });
   xsModelChanged(entry, stale).catch(err => { $('xsNote').textContent = 'Cross-section failed: ' + err.message; });
   brushModelChanged(entry, stale).catch(err => { $('brushState').textContent = 'Brush strokes failed to load: ' + err.message; });
+  paintModelChanged(entry, stale).catch(err => { $('paintState').textContent = 'Paint shapes failed to load: ' + err.message; });
   statusEl.textContent = manifest.id;
 }
 
@@ -766,6 +782,7 @@ function setView(name) {
   controls.update();
   document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', b.dataset.view === name));
   showReference3d();
+  if (typeof paintDraw === 'function' && PT_READY) paintDraw();
 }
 function fitOrtho() {
   if (!current) return;
@@ -3378,6 +3395,252 @@ if (window.claude && window.claude.use) {
     else renderThumbs();
   }).catch(() => {});
 }
+
+// ---- Paint: camo outlines drawn in the Side / Top / Bottom views (paint.json for the build) ----
+// Shapes are in the build's spec frame (models/<id>/lofts.json 'shift' = pack - spec): side [z, y],
+// top / bottom [z, x]. Built-in shapes come from models/<id>/paint.json (ids r0, r1 …); edits
+// live in the db at aircraft/<id>/paint/<shape id> (a removed built-in shape keeps {removed: true}).
+var PT_READY = true;
+const PT = { entry: null, built: null, docs: {}, shift: [0, 0, 0], on: false, draft: null, sel: null, drag: null, group: null };
+const PAINT_VIEWS = ['side', 'top', 'bottom'];
+const paintView = () => PAINT_VIEWS.includes(viewName) ? viewName : null;
+const paintRound = v => Math.round(v * 1000) / 1000;
+function paintRegions() {
+  const out = new Map();
+  ((PT.built && PT.built.regions) || []).forEach((r, i) => out.set(r.id || 'r' + i, { ...r, id: r.id || 'r' + i }));
+  for (const [id, d] of Object.entries(PT.docs)) if (id !== 'base') out.set(id, { ...(out.get(id) || {}), ...d, id });
+  return [...out.values()].filter(r => !r.removed && Array.isArray(r.pts) && r.pts.length >= 3);
+}
+const paintBase = () => (PT.docs.base && PT.docs.base.base) || (PT.built && PT.built.base) || '#aeb2b4';
+// Drawing coordinates <-> the shown (pack) frame, on the plane the outlines are drawn on.
+function paintPlane(view) {
+  const b = current.box;
+  return view === 'side' ? b.min.x - 0.05 : view === 'top' ? b.max.y + 0.05 : b.min.y - 0.05;
+}
+function paintToWorld(view, u, v, plane, mirror = false) {
+  const s = PT.shift;
+  if (view === 'side') return new THREE.Vector3(mirror ? -plane : plane, v + s[1], u + s[2]);
+  return new THREE.Vector3((mirror ? -v : v) + s[0], plane, u + s[2]);
+}
+function paintFromWorld(view, p) {
+  const s = PT.shift;
+  return view === 'side' ? [paintRound(p.z - s[2]), paintRound(p.y - s[1])] : [paintRound(p.z - s[2]), paintRound(p.x - s[0])];
+}
+function paintPick(e) {
+  const view = paintView();
+  if (!current || !view) return null;
+  const r = renderer.domElement.getBoundingClientRect();
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam);
+  const n = view === 'side' ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const w = new THREE.Vector3();
+  if (!ray.ray.intersectPlane(new THREE.Plane(n, 0), w)) return null;
+  return paintFromWorld(view, w);
+}
+function paintScreen(view, uv) {
+  const p = paintToWorld(view, uv[0], uv[1], paintPlane(view)).project(cam), r = renderer.domElement.getBoundingClientRect();
+  return [(p.x + 1) / 2 * r.width, (1 - p.y) / 2 * r.height];
+}
+function paintInside(pt, poly) {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [x1, y1] = poly[i], [x2, y2] = poly[j];
+    if ((y1 > pt[1]) !== (y2 > pt[1]) && pt[0] < (x2 - x1) * (pt[1] - y1) / (y2 - y1) + x1) c = !c;
+  }
+  return c;
+}
+function paintDraw() {
+  if (PT.group) {
+    PT.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    PT.group.removeFromParent();
+    PT.group = null;
+  }
+  const view = current && paintView();
+  if (!view || !$('paintShow').checked) return;
+  const g = new THREE.Group(), plane = paintPlane(view);
+  const shape = (pts, color, mirror, sel, closed) => {
+    const sides = view === 'side' ? [false] : mirror ? [false, true] : [false];
+    for (const m of sides) {
+      const P3 = pts.map(([u, v]) => paintToWorld(view, u, v, plane, m));
+      if (closed && pts.length >= 3) {
+        const tri = THREE.ShapeUtils.triangulateShape(pts.map(([u, v]) => new THREE.Vector2(u, v)), []);
+        const geo = new THREE.BufferGeometry().setFromPoints(P3);
+        geo.setIndex(tri.flat());
+        const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: sel ? 0.8 : 0.6, depthTest: false, side: THREE.DoubleSide }));
+        fill.renderOrder = 18;
+        g.add(fill);
+      }
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(closed ? [...P3, P3[0]] : P3),
+                                  new THREE.LineBasicMaterial({ color: sel ? 0xff8a00 : 0x1d2024, depthTest: false, transparent: true }));
+      line.renderOrder = 19;
+      g.add(line);
+      if (sel && !m) {
+        const pts3 = new THREE.Points(new THREE.BufferGeometry().setFromPoints(P3), new THREE.PointsMaterial({ color: 0xff8a00, size: 8, sizeAttenuation: false, depthTest: false, transparent: true }));
+        pts3.renderOrder = 20;
+        g.add(pts3);
+      }
+    }
+  };
+  for (const r of paintRegions()) if (r.view === view) shape(r.pts, r.color, r.mirror !== false, PT.sel === r.id, true);
+  if (PT.draft && PT.draft.view === view) shape(PT.draft.pts, $('paintColor').value, PT.draft.mirror, true, false);
+  g.traverse(o => { o.userData.reference = true; });
+  scene.add(g);
+  PT.group = g;
+}
+function paintUi() {
+  const regs = paintRegions(), list = $('paintList');
+  list.textContent = '';
+  for (const r of regs) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', PT.sel === r.id);
+    b.innerHTML = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:${r.color}"></span>${r.view} · ${r.pts.length} points${r.mirror === false ? '' : ' · mirrored'}`;
+    b.addEventListener('click', () => { PT.sel = r.id; $('paintColor').value = r.color; if (viewName !== r.view) setView(r.view); paintUi(); paintDraw(); });
+    list.appendChild(b);
+  }
+  $('paintFinish').disabled = !(PT.draft && PT.draft.pts.length >= 3);
+  $('paintDel').disabled = !PT.sel;
+  $('paintBase').value = paintBase();
+  const n = Object.keys(PT.docs).length;
+  $('paintState').textContent = `${regs.length} shape${regs.length === 1 ? '' : 's'}` +
+    (n ? (cap.db ? ', changes saved for Claude to pick up (paint.json for the build).' : ', changes kept in this tab only: use Copy paint.json.') : (regs.length ? ' as built.' : '.'));
+}
+async function paintModelChanged(entry, stale) {
+  PT.entry = entry; PT.built = null; PT.docs = {}; PT.sel = null; PT.draft = null; PT.shift = [0, 0, 0];
+  try { const r = await fetch(`models/${entry.id}/paint.json`); if (r.ok) PT.built = await r.json(); } catch (e) { /* none built in */ }
+  try { const r = await fetch(`models/${entry.id}/lofts.json`); if (r.ok) PT.shift = (await r.json()).shift || [0, 0, 0]; } catch (e) { /* pack frame */ }
+  if (stale()) return;
+  if (cap.db) {
+    try {
+      const snap = await cap.db.collection(`aircraft/${entry.id}/paint`).get();
+      for (const d of snap.docs) PT.docs[d.id] = JSON.parse(JSON.stringify(d.data() || {}));
+    } catch (e) { $('paintState').textContent = 'Could not read saved shapes: ' + (e.message || e.code); }
+  }
+  if (stale()) return;
+  paintUi(); paintDraw();
+}
+function paintSave(id) {
+  paintUi(); paintDraw();
+  if (!cap.db || !PT.entry) return;
+  const path = `aircraft/${PT.entry.id}/paint`, key = path + '/' + id;
+  const st = saving.get(key) || { busy: false, again: false };
+  saving.set(key, st);
+  if (st.busy) { st.again = true; return; }
+  st.busy = true;
+  (async () => {
+    try {
+      do {
+        st.again = false;
+        const cur = PT.docs[id];
+        if (cur) await cap.db.collection(path).doc(id).set(JSON.parse(JSON.stringify(cur)));
+        else await cap.db.collection(path).doc(id).delete();
+      } while (st.again);
+      paintUi();
+    } catch (e) {
+      $('paintState').textContent = 'Not saved: ' + (e.code === 'not_granted' || e.code === 'permission_denied' ? 'you can view but not edit this Hangar.' : (e.message || e.code));
+    } finally { st.busy = false; }
+  })();
+}
+const paintIsBuilt = id => ((PT.built && PT.built.regions) || []).some((r, i) => (r.id || 'r' + i) === id);
+function paintSet(id, patch) {
+  const cur = paintRegions().find(r => r.id === id) || {};
+  const { id: _, ...rest } = { ...cur, ...patch };
+  PT.docs[id] = { ...rest, t: new Date().toISOString() };
+  paintSave(id);
+}
+function paintFinish() {
+  const D = PT.draft;
+  if (!D || D.pts.length < 3) return;
+  const id = 'p-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  PT.draft = null;
+  PT.docs[id] = { view: D.view, color: $('paintColor').value, mirror: D.mirror, pts: D.pts, t: new Date().toISOString() };
+  PT.sel = id;
+  paintSave(id);
+}
+function paintDelete() {
+  const id = PT.sel;
+  if (!id) return;
+  PT.sel = null;
+  if (paintIsBuilt(id)) PT.docs[id] = { removed: true, t: new Date().toISOString() };
+  else delete PT.docs[id];
+  paintSave(id);
+}
+function paintSetOn(on) {
+  PT.on = on;
+  const b = $('paintOn');
+  b.setAttribute('aria-pressed', on);
+  b.textContent = on ? 'Paint on' : 'Paint off';
+  if (on) { setDemo(false); if (B.on) brushSetOn(false); if (!paintView()) setView('side'); }
+  else PT.draft = null;
+  controls.enableRotate = !on;
+  renderer.domElement.style.cursor = on ? 'crosshair' : '';
+  stage.querySelector('.hint').textContent = on ? 'Paint on: click to place points, scroll to zoom, right-drag to pan'
+                                                : 'Drag to rotate, scroll to zoom, right-drag to pan';
+  paintUi(); paintDraw();
+}
+$('paintOn').addEventListener('click', () => paintSetOn(!PT.on));
+$('paintFinish').addEventListener('click', paintFinish);
+$('paintDel').addEventListener('click', paintDelete);
+$('paintShow').addEventListener('change', paintDraw);
+$('paintColor').addEventListener('input', () => {
+  if (PT.sel) paintSet(PT.sel, { color: $('paintColor').value });
+  else paintDraw();
+});
+$('paintBase').addEventListener('change', () => { PT.docs.base = { base: $('paintBase').value, t: new Date().toISOString() }; paintSave('base'); });
+stage.addEventListener('pointerdown', e => {
+  if (!PT.on || e.button !== 0 || e.target !== renderer.domElement) return;
+  const view = paintView(), uv = paintPick(e);
+  if (!view || !uv) return;
+  const r = renderer.domElement.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const near = (p, px = 9) => { const s = paintScreen(view, p); return Math.hypot(s[0] - mx, s[1] - my) < px; };
+  e.stopPropagation();
+  if (PT.draft) {
+    if (PT.draft.pts.length >= 3 && near(PT.draft.pts[0])) paintFinish();
+    else { PT.draft.pts.push(uv); paintUi(); paintDraw(); }
+    return;
+  }
+  const sel = paintRegions().find(x => x.id === PT.sel && x.view === view);
+  if (sel) {
+    const k = sel.pts.findIndex(p => near(p));
+    if (k >= 0) { if (!PT.docs[sel.id]) { const { id, ...x } = sel; PT.docs[sel.id] = x; } PT.drag = { id: sel.id, k, pts: sel.pts.map(p => p.slice()) }; renderer.domElement.setPointerCapture(e.pointerId); return; }
+  }
+  const hit = e.shiftKey && paintRegions().filter(x => x.view === view && paintInside(uv, x.pts)).pop();
+  if (hit) { PT.sel = hit.id; $('paintColor').value = hit.color; paintUi(); paintDraw(); return; }
+  PT.sel = null;
+  PT.draft = { view, mirror: $('paintMirror').checked, pts: [uv] };
+  paintUi(); paintDraw();
+}, true);
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!PT.on || !PT.drag) return;
+  const uv = paintPick(e);
+  if (!uv) return;
+  PT.drag.pts[PT.drag.k] = uv;
+  PT.docs[PT.drag.id].pts = PT.drag.pts.map(p => p.slice());
+  paintDraw();
+});
+renderer.domElement.addEventListener('pointerup', () => {
+  if (!PT.drag) return;
+  const id = PT.drag.id;
+  PT.drag = null;
+  paintSet(id, {});
+});
+document.addEventListener('keydown', e => {
+  if (!PT.on) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' && t.type !== 'checkbox' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+  if (e.key === 'Enter' && PT.draft) { e.preventDefault(); paintFinish(); }
+  else if (e.key === 'Escape' && PT.draft) { PT.draft = null; paintUi(); paintDraw(); }
+  else if ((e.key === 'Delete' || e.key === 'Backspace') && PT.sel && !PT.draft) { e.preventDefault(); paintDelete(); }
+});
+$('paintExport').addEventListener('click', async () => {
+  const regions = paintRegions().map(({ view, color, mirror, pts }) => ({ view, color, mirror: mirror !== false, pts }));
+  const text = JSON.stringify({ aircraft: PT.entry && PT.entry.id, base: paintBase(), regions }, null, 1);
+  const ta = $('paintExportText');
+  ta.value = text; ta.hidden = false;
+  try { await navigator.clipboard.writeText(text); $('paintExport').textContent = 'Copied'; }
+  catch (e) { ta.select(); }
+  setTimeout(() => { $('paintExport').textContent = 'Copy paint.json'; }, 2000);
+});
 
 let active = null;
 const list = await (await fetch('models/index.json')).json();

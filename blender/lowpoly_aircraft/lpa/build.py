@@ -839,6 +839,12 @@ def build_parts(spec: dict) -> None:
         # vertex moves (wells, doors and panes still fit).
         geo.decimate(hull, planar_deg=float(spec['planar_deg_final']))
     geo.tidy(hull, spec.get('material', 'VEHICLE_PLANE_GREY'), smooth)
+    pattern = spec.get('_paint')
+    if pattern:
+        bpy.context.scene['lpa_paint'] = json.dumps(pattern, indent=1)
+        # Real camo outlines cut into the skin (paint.json next to the spec, or spec "paint").
+        paint.apply_pattern(hull, pattern, [o for o in bpy.data.objects if o.type == 'MESH'
+                                            and o.users_collection[0].name == 'Body'])
     if spec.get('decals'):
         paint.add_decals(hull, spec['decals'])
     if spec.get('camo'):
@@ -888,6 +894,7 @@ def build(spec_path: str) -> None:
     if 'parts' in spec:
         from . import sections
         sections.attach(spec, spec_dir)
+        spec['_paint'] = paint.load_pattern(spec, spec_dir)
         build_parts(spec)
         return
 

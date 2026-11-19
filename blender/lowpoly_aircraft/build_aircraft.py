@@ -123,6 +123,11 @@ def main() -> None:
     print(f'[lpa] wrote {out}: {len(manifest["surfaces"])} surfaces, gear={"yes" if manifest["gear"] else "no"}')
     if sections.LOG:
         sections.write_log(os.path.join(out, f'{aid}_lofts.json'), aid, bpy.context.scene.get('lpa_shift', [0.0, 0.0, 0.0]))
+    pattern = bpy.context.scene.get('lpa_paint')
+    if pattern:
+        # The camo outlines built in, for the Hangar's Paint card.
+        with open(os.path.join(out, f'{aid}_paint.json'), 'w') as f:
+            f.write(pattern)
     refs_check(args.spec, out, aid)
 
 
