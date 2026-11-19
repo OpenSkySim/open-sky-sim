@@ -228,7 +228,8 @@ def _all_moving(views, solid, surf: dict, side_name: str, mirrored: bool, materi
 
 
 def _spinning(obj, item: dict, side_name: str, mirrored: bool, material: str) -> None:
-    """A propeller (or its painted tips) that spins about body +Z through its 'center'.
+    """A propeller (or its painted tips) that spins about body +Z through its 'center'
+    (or about 'spin_axis', e.g. [0, 1, 0] for a helicopter rotor).
 
     Exported as a surface with control 'spin': its sign is the prop's hand (the turn
     direction, see parts.prop) and its range is the spin rate in deg/s.
@@ -245,8 +246,49 @@ def _spinning(obj, item: dict, side_name: str, mirrored: bool, material: str) ->
     obj['lpa_control'] = 'spin'
     obj['lpa_sign'] = float(item.get('hand', 1.0))
     obj['lpa_range_deg'] = float(item.get('spin_deg_s', 700.0))
-    obj['lpa_axis'] = [0.0, 0.0, 1.0]
+    # A propeller turns about body +Z; a helicopter rotor gives 'spin_axis' [0, 1, 0].
+    obj['lpa_axis'] = [float(c) for c in item.get('spin_axis', (0.0, 0.0, 1.0))]
     print(f'[lpa] spinning {role}: centre {np.round(centre, 3).tolist()} hand {obj["lpa_sign"]:+.0f}')
+
+
+def _folding_blades(parts, item: dict, side_name: str, material: str) -> None:
+    """Blades of a 'fold_blades' rotor as fold surfaces on the spinning hub (sweepParent).
+
+    fold_blades: {'aft_deg': direction they fold to (rotor angle, 180 = +d / tail),
+    'spread_deg': fan between neighbours}. Rotor angle th: radial (sin th, 0, cos th).
+    """
+    fb = item['fold_blades']
+    n = int(item.get('blades', 3))
+    phase = float(item.get('phase_deg', 0.0))
+    aft = float(fb.get('aft_deg', 180.0))
+    spread = float(fb.get('spread_deg', 6.0))
+    droop = math.radians(float(item.get('droop_deg', 0.0)))
+    root_r = float(item.get('root_r', 0.5))
+    c = np.asarray(item['center'], dtype=np.float64)
+    wrap = lambda a: (a + 180.0) % 360.0 - 180.0
+    th = [phase + 360.0 * k / n for k in range(n)]
+    order = sorted(range(n), key=lambda k: wrap(th[k] - aft))
+    parent = item.get('name', 'prop') + side_name
+    for slot, k in enumerate(order):
+        target = aft + spread * (slot - 0.5 * (n - 1))
+        a = wrap(target - th[k])
+        obj = parts.build_part({**item, '_blade_set': [k], '_hub': False}, False)
+        bpy.data.collections['Construction'].objects.unlink(obj)
+        role = f'{parent}Blade{k + 1}'
+        obj.name = role
+        geo._link(obj, 'Surfaces')
+        geo.tidy(obj, material)
+        t = math.radians(th[k])
+        radial = np.array([math.sin(t), 0.0, math.cos(t)])
+        hinge = c + radial * root_r * math.cos(droop) - np.array([0.0, 1.0, 0.0]) * root_r * math.sin(droop)
+        geo.set_origin(obj, hinge.tolist())
+        obj['lpa_role'] = role
+        obj['lpa_control'] = fb.get('control', 'fold')
+        obj['lpa_sign'] = 1.0 if a >= 0 else -1.0
+        obj['lpa_range_deg'] = abs(a)
+        obj['lpa_axis'] = [0.0, 1.0, 0.0]
+        obj['lpa_sweep_parent'] = parent
+        print(f'[lpa] folding blade {role}: {th[k]:.0f} deg -> {target:.0f} deg ({a:+.0f})')
 
 
 def _sliding(obj, item: dict, side_name: str, material: str, smooth_deg: float | None) -> None:
@@ -371,21 +413,33 @@ def _add_gear(views, hull, spec) -> None:
             objs = geo.gear_leg(name, top, (xi, y_ground, z), radius, width, 'Gear',
                                 wheel_sides=int(gear.get('wheel_sides', 16 if 'parts' in spec else 8)),
                                 twin=bool(leg.get('twin', False)))
+            if 'leg_door' in leg:
+                # Door on the leg (e.g. MiG-29 mains): the side that faces down once retracted.
+                ld = leg['leg_door']
+                ahead = 1.0 if leg.get('retract', 'aft') == 'forward' else -1.0
+                objs.append(geo.leg_door(name, top, ahead * float(ld.get('offset_m', radius + 0.05)),
+                                         float(ld.get('width_m', 2 * width)), float(ld.get('length_m', 1.0)),
+                                         'Gear', thickness=float(ld.get('thickness_m', 0.03))))
             axis_body, sgn = GEAR_RETRACT_AXES[leg.get('retract', 'aft')]
             if axis_body[2] != 0 and xi < 0:
                 sgn = -sgn  # inward/outward mirror across the plane of symmetry
             angle = sgn * math.radians(float(leg.get('retract_deg', 90.0)))
-            q_up = Quaternion(geo.to_bl(axis_body), angle)
+            # 'stow_twist_deg' turns the wheel about its strut while the leg folds, so it stows flat
+            # (MiG-29 mains). Keyed in steps so the combined turn stays on its path.
+            twist = math.radians(float(leg.get('stow_twist_deg', 0.0)))
+            steps = 4 if twist else 1
             for i, o in enumerate(objs):
                 o.name = f'{i}_{o.name}'
                 o.rotation_mode = 'QUATERNION'
-                o.rotation_quaternion = q_up
-                for frame in (GEAR_FRAMES[0], GEAR_MID):
-                    o.keyframe_insert('location', frame=frame)
-                    o.keyframe_insert('rotation_quaternion', frame=frame)
-                o.rotation_quaternion = Quaternion()
-                o.keyframe_insert('location', frame=GEAR_FRAMES[1])
-                o.keyframe_insert('rotation_quaternion', frame=GEAR_FRAMES[1])
+                turns = twist if o.name.endswith(('_Wheel', '_Hub')) else 0.0
+                for k in range(steps + 1):
+                    t = k / steps                      # 0 = folded, 1 = down
+                    o.rotation_quaternion = (Quaternion(geo.to_bl(axis_body), angle * (1.0 - t))
+                                             @ Quaternion((0.0, 0.0, 1.0), turns * (1.0 - t)))
+                    frames = (GEAR_FRAMES[0], GEAR_MID) if k == 0 else (GEAR_MID + t * (GEAR_FRAMES[1] - GEAR_MID),)
+                    for frame in frames:
+                        o.keyframe_insert('location', frame=frame)
+                        o.keyframe_insert('rotation_quaternion', frame=frame)
                 o.animation_data.action.name = f'{o.name}Action'
             print(f'[lpa] gear {name}: pivot {np.round(top, 2).tolist()} retracts {leg.get("retract", "aft")}')
     _add_gear_doors(gear)
@@ -629,6 +683,8 @@ def _stand_on_wheels(ground_y: float | None, dz: float = 0.0) -> None:
             hook[k][1] = round(hook[k][1] + dy, 4)
             hook[k][2] = round(hook[k][2] + dz, 4)
         scene['lpa_tailhook'] = json.dumps(hook)
+    # Spec frame -> pack frame, for the Hangar's cross-section window (sections.py).
+    scene['lpa_shift'] = [0.0, dy, dz]
     bpy.context.view_layer.update()
     print(f'[lpa] moved the aircraft by y {dy:+.3f} m (wheels at y {ground_y}), z {dz:+.3f} m')
 
@@ -642,6 +698,9 @@ def build_parts(spec: dict) -> None:
     whole (all-moving canards and tailplanes). Everything is in body metres.
     """
     from . import parts
+    from . import sections
+    sections.LOG.clear()
+    bpy.context.scene['lpa_shift'] = [0.0, 0.0, 0.0]
     smooth = spec.get('smooth_deg', 35.0)
     spec.setdefault('smooth_deg', smooth)
     hull = None
@@ -668,6 +727,15 @@ def build_parts(spec: dict) -> None:
                 continue
             bpy.data.collections['Construction'].objects.unlink(obj)
             if join == 'spin':
+                if item.get('type') == 'rotor' and item.get('fold_blades'):
+                    # Folding blades: the hub spins, each blade is its own part riding on it
+                    # and swinging back about a vertical hinge at its root for parking.
+                    bpy.data.objects.remove(obj)
+                    obj = parts.build_part({**item, '_blade_set': []}, mirrored)
+                    bpy.data.collections['Construction'].objects.unlink(obj)
+                    _spinning(obj, item, side_name, mirrored, material)
+                    _folding_blades(parts, item, side_name, material)
+                    continue
                 _spinning(obj, item, side_name, mirrored, material)
                 continue
             if join == 'slide':
@@ -689,6 +757,10 @@ def build_parts(spec: dict) -> None:
                     # Seen from within (a cockpit tub behind the glazing): faces point inwards.
                     obj.data.flip_normals()
                 separate.append(obj)
+    if spec.get('symmetrize'):
+        # The boolean union of mirrored parts is not exactly symmetric (cut order, slivers):
+        # mirror the left half (+X) onto the right before anything is cut from the hull.
+        geo.symmetrize(hull)
     if spec.get('planar_deg'):
         # Fewer polygons where the hull is near flat (wing and tail skins, boolean slivers),
         # keeping the round sections round.
@@ -738,6 +810,10 @@ def build_parts(spec: dict) -> None:
                                 cutters=cutters, clip=clip)
             if part is not None:
                 part['lpa_region'] = item.get('name', 'Region')
+                if item.get('flat_panes'):
+                    # Flat panes as few triangles as possible: merge each flat pane into one face
+                    # (straight edges lose their in-between vertices), so a 4-cornered pane is 2 tris.
+                    geo.flatten_panes(part, float(item.get('flat_deg', 1.0)))
                 if skin is not None:
                     geo.keep_skin(part, skin)
                     see_through.append((skin, cutters[-1]))
@@ -752,6 +828,15 @@ def build_parts(spec: dict) -> None:
         bpy.data.objects.remove(skin)
     _WELL_SKINS.clear()
 
+    for zone in spec.get('planar_zones', []):
+        # Local merge of near-flat faces inside a body-frame box (e.g. a busy nose front).
+        geo.merge_flat_in_box(hull, zone['min'], zone['max'], float(zone.get('deg', 10.0)),
+                               int(zone.get('relax', 0)))
+    if spec.get('planar_deg_final'):
+        # Fewer polygons on the finished hull: near-flat neighbours merged after every cut, so
+        # no boolean sees the dissolved n-gons (dissolving first can break the later cuts) and no
+        # vertex moves (wells, doors and panes still fit).
+        geo.decimate(hull, planar_deg=float(spec['planar_deg_final']))
     geo.tidy(hull, spec.get('material', 'VEHICLE_PLANE_GREY'), smooth)
     hull.name = hull.data.name = '0_Body'
     bpy.data.collections['Construction'].objects.unlink(hull)
@@ -780,7 +865,8 @@ def build_parts(spec: dict) -> None:
         # origin_d: where the body origin (the sim's centre of gravity) sits, in metres from the nose.
         dz = float(spec['z0_m']) - float(spec['origin_d']) if 'origin_d' in spec else 0.0
         _stand_on_wheels(spec.get('ground_y'), -dz)
-    tris = sum(len(o.data.polygons) for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name != 'Shadow')
+    tris = sum(len(p.vertices) - 2 for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name != 'Shadow'
+               for p in o.data.polygons)
     print(f'[lpa] built {spec["id"]}: {tris} triangles')
 
 
@@ -793,6 +879,8 @@ def build(spec_path: str) -> None:
     scene = bpy.context.scene
     scene.unit_settings.system = 'METRIC'
     if 'parts' in spec:
+        from . import sections
+        sections.attach(spec, spec_dir)
         build_parts(spec)
         return
 
