@@ -171,8 +171,10 @@ def windows_and_doors():
          'polygon_m': [[z_(0.5), 1.29], [z_(0.81), 2.0], [z_(1.03), 2.0], [z_(0.84), 1.29]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
-         'polygon_m': [[z_(0.86), 1.36], [z_(1.11), 1.96], [z_(1.17), 2.0], [z_(1.66), 2.0], [z_(1.72), 1.94],
-                       [z_(1.73), 1.41], [z_(1.69), 1.36]]},   # 10 cm up (owner)
+         # Owner's marked form: front edge parallel to the quarter pane's rear edge (4 cm post),
+         # sharp top corners, rear edge straight down then slanting forward to the sill.
+         'polygon_m': [[z_(0.88), 1.36], [z_(1.07), 2.0], [z_(1.72), 2.0], [z_(1.72), 1.66],
+                       [z_(1.62), 1.36]]},
         {'name': 'CabinWindowFront', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
          'polygon_m': side_m(rounded_rect(456, 472, 160, 181, 3))},
         {'name': 'CabinWindowRear', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
