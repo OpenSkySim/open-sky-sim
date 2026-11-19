@@ -147,6 +147,39 @@ button.ok { color: var(--ok); }
 .editor.marking .ed-help, .editor.photo .ed-help { min-height: 2.9em; }   /* no jump while clicking */
 .refctl { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px 10px; margin-top: 10px; font-size: 12px; }
 .refctl input[type="range"] { width: 100%; accent-color: var(--ref-ink); }
+/* Cross-section: a station along the nose-to-tail axis, cut in 3D and edited as a polygon in its own window. */
+:root { --xs: #e0702a; --xs-ring: #2f6db5; --xs-mesh: #7d8894; }
+.xs-ctl { display: grid; grid-template-columns: 64px minmax(0, 1fr) 64px; align-items: center; gap: 8px; font-size: 13px; }
+.xs-ctl input[type="range"] { width: 100%; accent-color: var(--xs); }
+.xs-ctl input[type="number"], .xs-win input[type="number"] { width: 100%; box-sizing: border-box; font: 12px var(--font-mono); color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 3px 4px; }
+.xs-opts { display: grid; gap: 4px; font-size: 12px; margin-top: 8px; }
+.xs-list { display: grid; gap: 2px; margin-top: 8px; max-height: 160px; overflow: auto; }
+.xs-list button { text-align: left; background: transparent; border: 1px solid transparent; color: var(--ink); border-radius: 4px; padding: 3px 6px; font: 12px var(--font-mono); cursor: pointer; }
+.xs-list button[aria-pressed="true"] { border-color: var(--xs); }
+.xs-win { position: fixed; z-index: 50; right: 24px; top: 24px; width: min(620px, calc(100vw - 32px)); height: min(600px, calc(100vh - 48px));
+  min-width: 300px; min-height: 320px; resize: both; overflow: hidden; display: flex; flex-direction: column;
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22); }
+.xs-win[hidden] { display: none; }
+.xs-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line); cursor: move; user-select: none; touch-action: none; }
+.xs-head h2 { font-size: 13px; font-weight: 600; margin: 0; flex: 1; }
+.xs-head .sub { font: 12px var(--font-mono); }
+.xs-win button, .xs-win select { font: 12px var(--font-ui); color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 4px 8px; cursor: pointer; }
+.xs-win button:disabled { opacity: 0.45; cursor: default; }
+.xs-win button:focus-visible, .xs-win select:focus-visible, .xs-win input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.xs-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 10px 0; font-size: 12px; }
+.xs-bar label { display: inline-flex; align-items: center; gap: 4px; }
+.xs-bar input[type="number"] { width: 72px; }
+.xs-help { font-size: 12px; color: var(--muted); margin: 6px 10px; min-height: 1.4em; }
+.xs-help b { color: var(--ink); }
+.xs-canvas { position: relative; flex: 1; min-height: 0; margin: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--stage); overflow: hidden; }
+.xs-canvas svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+.xs-foot { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 10px 10px; font-size: 12px; }
+.xs-foot label { display: inline-flex; align-items: center; gap: 4px; }
+.xs-foot input[type="number"] { width: 76px; }
+.xs-foot .cal-out { margin-left: auto; }
+.xs-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--muted); padding: 0 10px; }
+.xs-legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+@media (max-width: 640px) { .xs-win { left: 16px; right: 16px; top: 16px; width: auto; } }
 </style>
 </head>
 <body>
@@ -283,6 +316,18 @@ button.ok { color: var(--ok); }
         <label for="refOpacity">Opacity</label><input type="range" id="refOpacity" min="0.1" max="1" step="0.05" value="0.8">
       </div>
     </div>
+    <div class="card" id="xsCard">
+      <h2>Cross-section</h2>
+      <div class="xs-ctl"><label for="xsD">Station</label><input id="xsD" type="range" min="0" max="20" step="0.01" value="5"><input id="xsDNum" type="number" step="0.01" aria-label="Station in metres aft of the nose"></div>
+      <div class="xs-opts">
+        <label><input type="checkbox" id="xsShow"> show the cut in the 3D view</label>
+        <label><input type="checkbox" id="xsClip"> hide the part ahead of the cut</label>
+      </div>
+      <div class="row"><button type="button" id="xsOpen">Open section window</button><button type="button" id="xsExport">Copy sections.json</button></div>
+      <div class="xs-list" id="xsList" aria-label="Saved sections"></div>
+      <p class="note" id="xsNote">Metres aft of the nose tip. Cut the model anywhere along its length and refine the section as a polygon.</p>
+      <textarea id="xsExportText" readonly aria-label="sections.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
+    </div>
     <div class="card">
       <h2>Highlight surfaces</h2>
       <div class="chips" id="chips"></div>
@@ -294,6 +339,31 @@ button.ok { color: var(--ok); }
       <dl id="facts"></dl>
     </div>
   </aside>
+</div>
+
+<div class="xs-win" id="xsWin" role="dialog" aria-labelledby="xsTitle" hidden>
+  <div class="xs-head" id="xsHead">
+    <h2 id="xsTitle">Cross-section</h2>
+    <span class="sub" id="xsWhere"></span>
+    <button type="button" id="xsClose" aria-label="Close the section window">×</button>
+  </div>
+  <div class="xs-bar">
+    <label>Part <select id="xsPart"></select></label>
+    <label>Station <input type="number" id="xsDWin" step="0.01" aria-label="Station in metres aft of the nose"> m</label>
+    <button type="button" id="xsPrev" title="Previous ring of this part (towards the nose)">‹ ring</button>
+    <button type="button" id="xsNext" title="Next ring of this part (towards the tail)">ring ›</button>
+    <button type="button" id="xsFit">Fit</button>
+  </div>
+  <p class="xs-help" id="xsHelp"></p>
+  <div class="xs-legend" aria-hidden="true"><span><i style="border-color:var(--xs-mesh)"></i>model cut</span><span><i style="border-color:var(--xs-ring);border-top-style:dashed"></i>part as built</span><span><i style="border-color:var(--xs)"></i>your section</span></div>
+  <div class="xs-canvas" id="xsCanvas"><svg id="xsSvg" aria-label="Cross-section editor"></svg></div>
+  <div class="xs-foot">
+    <label>x <input type="number" id="xsX" step="0.01" disabled aria-label="Point x in metres, + is the left wing"></label>
+    <label>y <input type="number" id="xsY" step="0.01" disabled aria-label="Point y in metres, up"></label>
+    <button type="button" id="xsDel" disabled>Remove point</button>
+    <button type="button" id="xsReset" class="danger" disabled>Back to the model</button>
+    <span class="cal-out" id="xsSave"></span>
+  </div>
 </div>
 
 <script type="importmap">
@@ -554,6 +624,7 @@ async function showModel(entry, keep = null) {
     <dt>Source</dt><dd>${entry.source}</dd>
     <dt>Status</dt><dd>${entry.status}</dd>`;
   loadRefs(entry, stale).catch(err => { refsNote.textContent = 'References failed to load: ' + err.message; });
+  xsModelChanged(entry, stale).catch(err => { $('xsNote').textContent = 'Cross-section failed: ' + err.message; });
   statusEl.textContent = manifest.id;
 }
 
@@ -2251,13 +2322,551 @@ function bodyMapper(v, c) {
 $('refOn').addEventListener('change', showReference3d);
 $('refOpacity').addEventListener('input', () => { if (R.plane) R.plane.material.uniforms.opacity.value = parseFloat($('refOpacity').value); });
 
+// ---- Cross-section: a station along the nose-to-tail axis, cut in 3D and refined as a polygon ----
+// The cut goes through every mesh of the model as shown (the pack's frame). The lofted parts'
+// rings come from models/<id>/lofts.json: the build's spec frame, with 'shift' = pack - spec.
+// A refined section is a closed polygon of [x, y, t] in the spec frame (t: the ring parameter
+// each point stands for, see lpa/sections.py), saved at aircraft/<id>/sections/<part>_<z mm>;
+// sections_tool.py from-hangar turns those docs into sections.json for the build.
+const TWO_PI = Math.PI * 2;
+const normT = t => { t %= TWO_PI; return t < 0 ? t + TWO_PI : t; };
+const mirrorT = t => normT(Math.PI - t);
+const tDiff = (a, b) => { const d = Math.abs(normT(a) - normT(b)); return Math.min(d, TWO_PI - d); };
+const XS = { entry: null, lofts: null, shift: [0, 0, 0], d: null, part: null, poly: null, built: null, sym: false, sel: -1,
+             docs: {}, view: null, cut: [], obj3d: null, drag: null, pan: null, plane: new THREE.Plane(new THREE.Vector3(0, 0, -1), 0) };
+const xsSvg = $('xsSvg');
+const xsLen = () => current ? current.nose.z - current.box.min.z : 0;
+const xsZPack = () => current.nose.z - XS.d;
+const xsZSpec = () => xsZPack() - XS.shift[2];
+const xsFmt = n => (Math.round(n * 100) / 100).toFixed(2);
+
+async function xsModelChanged(entry, stale) {
+  const same = XS.entry && XS.entry.id === entry.id;
+  XS.entry = entry;
+  if (!same) {
+    XS.lofts = null; XS.shift = [0, 0, 0]; XS.docs = {}; XS.part = null; XS.d = null;
+    try {
+      const r = await fetch(`models/${entry.id}/lofts.json`);
+      if (r.ok) { const j = await r.json(); XS.lofts = j.lofts || null; XS.shift = j.shift || [0, 0, 0]; }
+    } catch (e) { /* older model: cut only */ }
+    if (stale()) return;
+    await xsLoadDocs();
+    if (stale()) return;
+  }
+  const L = xsLen();
+  for (const id of ['xsD']) { $(id).max = L.toFixed(2); }
+  if (XS.d == null || XS.d > L) XS.d = Math.round(L * 0.3 * 100) / 100;
+  xsSetD(XS.d, true);
+  xsList();
+}
+async function xsLoadDocs() {
+  if (!cap.db || !XS.entry) return;
+  try {
+    const snap = await cap.db.collection(`aircraft/${XS.entry.id}/sections`).get();
+    XS.docs = {};
+    for (const d of snap.docs) XS.docs[d.id] = JSON.parse(JSON.stringify(d.data() || {}));
+  } catch (e) { $('xsNote').textContent = 'Could not read saved sections: ' + (e.message || e.code); }
+}
+
+// A loft's ring at z (spec frame): its points [x, y, t], or null outside the part or where it is a point.
+function xsRingAt(loft, z) {
+  const R_ = loft.rings;
+  for (let i = 0; i < R_.length - 1; i++) {
+    const [z0, a] = R_[i], [z1, b] = R_[i + 1];
+    if (z < Math.min(z0, z1) - 1e-4 || z > Math.max(z0, z1) + 1e-4) continue;
+    if (a.length === 1 && b.length === 1) return null;
+    const f = Math.abs(z1 - z0) < 1e-9 ? 0 : Math.min(Math.max((z - z0) / (z1 - z0), 0), 1);
+    const n = Math.max(a.length, b.length);
+    const pts = [];
+    for (let k = 0; k < n; k++) {
+      const p = a[a.length === 1 ? 0 : k], q = b[b.length === 1 ? 0 : k];
+      pts.push([p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f, loft.ts[k]]);
+    }
+    if ((f < 1e-6 && a.length === 1) || (f > 1 - 1e-6 && b.length === 1)) return null;
+    return pts;
+  }
+  return null;
+}
+const polyArea = pts => Math.abs(pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+// The parts that can be refined here: one per spec part (a mirrored pair is edited on its spec side).
+function xsPartsAt(z) {
+  if (!XS.lofts) return [];
+  const out = [];
+  for (const l of XS.lofts) {
+    if (l.mirrored || l.join === 'cut') continue;
+    const ring = xsRingAt(l, z);
+    if (ring) out.push({ loft: l, ring, area: polyArea(ring) });
+  }
+  return out.sort((a, b) => (b.loft.join === 'body') - (a.loft.join === 'body') || b.area - a.area);
+}
+const xsDocId = (part, z) => `${part}_${Math.round(z * 1000)}`;
+function xsDocAt(part, z) {
+  return Object.values(XS.docs).find(d => d.part === part && !d.removed && Math.abs(d.z - z) < 0.0015) || null;
+}
+
+function xsSetD(d, keepView = false) {
+  if (!current) return;
+  const L = xsLen();
+  XS.d = Math.min(Math.max(Number.isFinite(d) ? d : 0, 0), L);
+  $('xsD').value = XS.d;
+  $('xsDNum').value = xsFmt(XS.d);
+  $('xsDWin').value = xsFmt(XS.d);
+  XS.plane.constant = xsZPack();
+  XS.cut = xsCutMesh(xsZPack());
+  xsPick(keepView);
+  xsDraw3d();
+}
+// Picks the part (kept when it is still there) and loads its saved section or its ring as built.
+function xsPick(keepView = false) {
+  const z = xsZSpec(), parts = xsPartsAt(z);
+  const sel = $('xsPart');
+  sel.textContent = '';
+  for (const p of parts) {
+    const o = document.createElement('option');
+    o.value = p.loft.part;
+    const doc = xsDocAt(p.loft.part, z);
+    o.textContent = p.loft.part + (p.loft.join !== 'body' ? ` (${p.loft.join})` : '') + (doc ? ' ✎' : '');
+    sel.appendChild(o);
+  }
+  if (!parts.some(p => p.loft.part === XS.part)) XS.part = parts.length ? parts[0].loft.part : null;
+  sel.value = XS.part || '';
+  sel.disabled = !parts.length;
+  const cur = parts.find(p => p.loft.part === XS.part);
+  XS.built = cur ? cur.ring : null;
+  XS.sym = !!(cur && cur.loft.sym);
+  XS.mirrorPart = !!(cur && XS.lofts.some(l => l.part === cur.loft.part && l.mirrored));
+  const doc = cur && xsDocAt(cur.loft.part, z);
+  XS.poly = doc ? doc.pts.map(p => [...p]) : cur ? cur.ring.map(p => [...p]) : null;
+  if (XS.poly) XS.poly.sort((a, b) => normT(a[2]) - normT(b[2]));
+  XS.sel = -1;
+  if (!keepView || !XS.view) XS.view = null;
+  xsUi();
+  xsDraw();
+}
+$('xsPart').addEventListener('change', e => { XS.part = e.target.value; xsPick(); xsDraw3d(); });
+for (const id of ['xsD', 'xsDNum', 'xsDWin']) $(id).addEventListener('input', e => {
+  const v = parseFloat(e.target.value);
+  if (Number.isFinite(v)) xsSetD(v, true);
+});
+// Step to the part's neighbouring rings (the stations the mesh has).
+function xsStep(dir) {
+  const l = XS.lofts && XS.lofts.find(l => l.part === XS.part && !l.mirrored);
+  if (!l) return;
+  const zs = l.rings.map(r => current.nose.z - (r[0] + XS.shift[2]));   // as d, nose first
+  const d = XS.d;
+  const next = dir > 0 ? zs.filter(v => v > d + 0.005).sort((a, b) => a - b)[0] : zs.filter(v => v < d - 0.005).sort((a, b) => b - a)[0];
+  if (next != null) xsSetD(next, true);
+}
+$('xsPrev').addEventListener('click', () => xsStep(-1));
+$('xsNext').addEventListener('click', () => xsStep(1));
+
+function xsCutMesh(z) {
+  const segs = [];
+  if (!current) return segs;
+  const P = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  current.root.updateMatrixWorld(true);
+  current.root.traverse(o => {
+    if (!o.isMesh || o.userData.edge || o.userData.reference) return;
+    for (let a = o; a; a = a.parent) if (!a.visible) return;
+    const pos = o.geometry.attributes.position, idx = o.geometry.index;
+    const n = idx ? idx.count : pos.count;
+    for (let i = 0; i + 2 < n; i += 3) {
+      let lo = Infinity, hi = -Infinity;
+      for (let k = 0; k < 3; k++) {
+        P[k].fromBufferAttribute(pos, idx ? idx.getX(i + k) : i + k).applyMatrix4(o.matrixWorld);
+        lo = Math.min(lo, P[k].z); hi = Math.max(hi, P[k].z);
+      }
+      if (lo > z || hi < z) continue;
+      const hits = [];
+      for (let k = 0; k < 3; k++) {
+        const p = P[k], q = P[(k + 1) % 3], dp = p.z - z, dq = q.z - z;
+        if ((dp < 0) !== (dq < 0)) { const f = dp / (dp - dq); hits.push([p.x + (q.x - p.x) * f, p.y + (q.y - p.y) * f]); }
+      }
+      if (hits.length === 2) segs.push(hits);
+    }
+  });
+  return segs;
+}
+
+// ---- 3D: the cutting plane, the model's cut and the refined section; optionally the nose part hidden ----
+function xsDraw3d() {
+  if (XS.obj3d) {
+    XS.obj3d.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    XS.obj3d.removeFromParent();
+    XS.obj3d = null;
+  }
+  xsClip();
+  if (!current || !$('xsShow').checked) return;
+  const g = new THREE.Group(), z = xsZPack(), b = current.box;
+  const w = b.max.x - b.min.x + 1, h = b.max.y - b.min.y + 1;
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: 0xe0702a, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }));
+  plane.position.set((b.max.x + b.min.x) / 2, (b.max.y + b.min.y) / 2, z);
+  g.add(plane);
+  const frame = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => new THREE.Vector3(x, y, 0))),
+                                   new THREE.LineBasicMaterial({ color: 0xe0702a, transparent: true, opacity: 0.6 }));
+  frame.position.copy(plane.position);
+  g.add(frame);
+  if (XS.cut.length) {
+    const pos = XS.cut.flatMap(([p, q]) => [p[0], p[1], z, q[0], q[1], z]);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    const cut = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xd0342c, depthTest: false, transparent: true }));
+    cut.renderOrder = 14;
+    g.add(cut);
+  }
+  if (XS.poly && XS.poly.length > 2) {
+    const sy = XS.shift[1];
+    const loop = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(XS.poly.map(p => new THREE.Vector3(p[0], p[1] + sy, z))),
+                                    new THREE.LineBasicMaterial({ color: 0xff8a00, depthTest: false, transparent: true }));
+    loop.renderOrder = 15;
+    g.add(loop);
+  }
+  g.traverse(o => { o.userData.reference = true; });
+  scene.add(g);
+  XS.obj3d = g;
+}
+function xsClip() {
+  if (!current) return;
+  const on = $('xsClip').checked;
+  renderer.localClippingEnabled = on;
+  current.root.traverse(o => {
+    if (!o.material) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      const want = on ? [XS.plane] : null;
+      if ((m.clippingPlanes && m.clippingPlanes.length) !== (want && want.length)) { m.clippingPlanes = want; m.needsUpdate = true; }
+    }
+  });
+}
+$('xsShow').addEventListener('change', xsDraw3d);
+$('xsClip').addEventListener('change', () => { if ($('xsClip').checked && !$('xsShow').checked) $('xsShow').checked = true; xsDraw3d(); });
+
+// ---- The section window ----
+function xsUi() {
+  const z = current ? xsZSpec() : 0;
+  $('xsWhere').textContent = current ? `d ${xsFmt(XS.d)} m` : '';
+  $('xsTitle').textContent = XS.part ? `Cross-section · ${XS.part}` : 'Cross-section';
+  const doc = XS.part && xsDocAt(XS.part, z);
+  const has = XS.sel >= 0 && XS.poly && XS.poly[XS.sel];
+  $('xsX').disabled = $('xsY').disabled = !has;
+  $('xsDel').disabled = !has;
+  $('xsReset').disabled = !doc;
+  if (has) { $('xsX').value = XS.poly[XS.sel][0].toFixed(3); $('xsY').value = XS.poly[XS.sel][1].toFixed(3); }
+  else { $('xsX').value = ''; $('xsY').value = ''; }
+  let help;
+  if (!XS.lofts) help = '<b>Cut only:</b> this model was built before the section editor, so its parts are not known here. Rebuild it to edit sections.';
+  else if (!XS.poly) help = '<b>No lofted part at this station.</b> Move the station, or pick another part.';
+  else help = '<b>Drag</b> a point to move it; <b>double-click</b> an edge to add a point, a point to remove it. Scroll to zoom, drag the background to pan. Seen from the front: the left wing is on the right.' +
+    (XS.sym ? ' Both halves move together.' : XS.mirrorPart ? ' The part on the other side is its mirror image.' : '') + (doc ? ' <b>Refined</b> (saved).' : '');
+  $('xsHelp').innerHTML = help;
+}
+function xsSize() { const r = xsSvg.getBoundingClientRect(); return [Math.max(r.width, 1), Math.max(r.height, 1)]; }
+function xsFit() {
+  const pts = (XS.poly || []).concat(XS.built || []).map(p => [p[0], p[1]]);
+  const all = pts.length ? pts : XS.cut.flat().map(p => [p[0], p[1] - XS.shift[1]]);
+  const [W, H] = xsSize();
+  if (!all.length) { XS.view = { cx: 0, cy: 0, k: 40 }; return; }
+  const xs = all.map(p => p[0]), ys = all.map(p => p[1]);
+  const x0 = Math.min(...xs, -0.1), x1 = Math.max(...xs, 0.1), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const k = Math.min(W / ((x1 - x0) * 1.35 || 1), H / ((y1 - y0) * 1.35 || 1));
+  XS.view = { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, k: Math.max(Math.min(k, 4000), 2) };
+}
+$('xsFit').addEventListener('click', () => { XS.view = null; xsDraw(); });
+const xsToS = p => { const [W, H] = xsSize(), v = XS.view; return [W / 2 + (p[0] - v.cx) * v.k, H / 2 - (p[1] - v.cy) * v.k]; };
+function xsToM(e) {
+  const r = xsSvg.getBoundingClientRect(), v = XS.view;
+  return [v.cx + (e.clientX - r.left - r.width / 2) / v.k, v.cy - (e.clientY - r.top - r.height / 2) / v.k];
+}
+function xsDraw() {
+  if ($('xsWin').hidden) return;
+  xsSvg.textContent = '';
+  if (!current) return;
+  if (!XS.view) xsFit();
+  const [W, H] = xsSize(), v = XS.view;
+  // Grid: 10 cm (when it has room), 1 m lines darker; the centreline dashed.
+  const gx0 = v.cx - W / 2 / v.k, gx1 = v.cx + W / 2 / v.k, gy0 = v.cy - H / 2 / v.k, gy1 = v.cy + H / 2 / v.k;
+  const steps = [0.1, 0.5, 1, 5].filter(s => s * v.k >= 8);
+  const minor = steps[0] || 10;
+  let dMin = '', dMaj = '';
+  for (let x = Math.ceil(gx0 / minor) * minor; x <= gx1; x += minor) {
+    const sx = xsToS([x, 0])[0].toFixed(1), major = Math.abs(x - Math.round(x)) < 1e-6;
+    (major ? (dMaj += `M${sx} 0V${H}`) : (dMin += `M${sx} 0V${H}`));
+  }
+  for (let y = Math.ceil(gy0 / minor) * minor; y <= gy1; y += minor) {
+    const sy = xsToS([0, y])[1].toFixed(1), major = Math.abs(y - Math.round(y)) < 1e-6;
+    (major ? (dMaj += `M0 ${sy}H${W}`) : (dMin += `M0 ${sy}H${W}`));
+  }
+  el('path', { d: dMin, stroke: 'var(--line)', 'stroke-width': 0.6, fill: 'none' }, xsSvg);
+  el('path', { d: dMaj, stroke: 'var(--muted)', 'stroke-width': 0.6, 'stroke-opacity': 0.5, fill: 'none' }, xsSvg);
+  const c0 = xsToS([0, 0])[0];
+  el('line', { x1: c0, y1: 0, x2: c0, y2: H, stroke: 'var(--muted)', 'stroke-width': 1, 'stroke-dasharray': '6 4' }, xsSvg);
+  const bar = minor >= 1 ? minor : 1;
+  if (bar * v.k < W * 0.6) {
+    const t = el('text', { x: 12, y: H - 16, fill: 'var(--muted)', 'font-size': 11, 'font-family': 'var(--font-mono)' }, xsSvg);
+    t.textContent = `${bar} m`;
+    el('line', { x1: 12, y1: H - 10, x2: 12 + bar * v.k, y2: H - 10, stroke: 'var(--muted)', 'stroke-width': 2 }, xsSvg);
+  }
+  // The model's cut (pack frame -> spec frame).
+  const sy = XS.shift[1];
+  let d = '';
+  for (const [p, q] of XS.cut) {
+    const a = xsToS([p[0], p[1] - sy]), b = xsToS([q[0], q[1] - sy]);
+    d += `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}`;
+  }
+  el('path', { d, stroke: 'var(--xs-mesh)', 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round' }, xsSvg);
+  const z = xsZSpec();
+  const ringPath = pts => pts.map((p, i) => { const s = xsToS(p); return `${i ? 'L' : 'M'}${s[0].toFixed(1)} ${s[1].toFixed(1)}`; }).join('') + 'Z';
+  // The other parts at this station, faint; the picked part (both sides) as built, dashed.
+  for (const l of XS.lofts || []) {
+    const ring = xsRingAt(l, z);
+    if (!ring || l.join === 'cut') continue;
+    const mine = l.part === XS.part;
+    el('path', { d: ringPath(ring), fill: 'none', stroke: 'var(--xs-ring)', 'stroke-width': mine ? 1.4 : 0.8,
+                 'stroke-dasharray': mine ? '5 4' : '2 3', 'stroke-opacity': mine ? 0.9 : 0.35 }, xsSvg);
+  }
+  if (!XS.poly) return;
+  const P = XS.poly, n = P.length;
+  el('path', { d: ringPath(P), fill: 'var(--xs)', 'fill-opacity': 0.12, stroke: 'var(--xs)', 'stroke-width': 2, 'stroke-linejoin': 'round' }, xsSvg);
+  // Wide invisible edges to double-click on, then the points.
+  P.forEach((p, i) => {
+    const a = xsToS(p), b = xsToS(P[(i + 1) % n]);
+    el('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: 'transparent', 'stroke-width': 12, 'data-edge': i, style: 'cursor: copy' }, xsSvg);
+  });
+  const partner = XS.sel >= 0 ? xsPartner(XS.sel) : -1;
+  P.forEach((p, i) => {
+    const s = xsToS(p), on = i === XS.sel;
+    if (i === partner && partner !== XS.sel) el('circle', { cx: s[0], cy: s[1], r: 8, fill: 'none', stroke: 'var(--xs)', 'stroke-width': 1, 'stroke-dasharray': '2 2', 'pointer-events': 'none' }, xsSvg);
+    el('circle', { cx: s[0], cy: s[1], r: on ? 6.5 : 4.5, fill: on ? 'var(--xs)' : 'var(--panel)', stroke: 'var(--xs)', 'stroke-width': 1.6, 'pointer-events': 'none' }, xsSvg);
+    el('circle', { cx: s[0], cy: s[1], r: 10, fill: 'transparent', 'data-v': i, style: 'cursor: grab' }, xsSvg);
+  });
+}
+function xsPartner(i) {
+  if (!XS.sym || !XS.poly) return -1;
+  const tm = mirrorT(XS.poly[i][2]);
+  return XS.poly.findIndex(p => tDiff(p[2], tm) < 1e-5);
+}
+// Moves point i (and its mirror image on a centreline part); a point on the centreline stays on it.
+function xsMove(i, x, y) {
+  const j = xsPartner(i);
+  if (j === i) x = 0;
+  XS.poly[i][0] = x; XS.poly[i][1] = y;
+  if (j >= 0 && j !== i) { XS.poly[j][0] = -x; XS.poly[j][1] = y; }
+}
+function xsInsert(edge, m) {
+  const P = XS.poly, n = P.length, a = P[edge], b = P[(edge + 1) % n];
+  let t0 = normT(a[2]), t1 = normT(b[2]);
+  if (t1 <= t0) t1 += TWO_PI;
+  if (t1 - t0 < 2e-4) return;
+  const t = normT((t0 + t1) / 2);
+  const ab = [b[0] - a[0], b[1] - a[1]], L2 = ab[0] * ab[0] + ab[1] * ab[1] || 1;
+  const f = Math.min(Math.max(((m[0] - a[0]) * ab[0] + (m[1] - a[1]) * ab[1]) / L2, 0.05), 0.95);
+  let p = [a[0] + ab[0] * f, a[1] + ab[1] * f, t];
+  const add = [p];
+  if (XS.sym) {
+    const tm = mirrorT(t);
+    if (tDiff(tm, t) < 1e-5) p[0] = 0;
+    else if (!P.some(q => tDiff(q[2], tm) < 1e-5)) add.push([-p[0], p[1], tm]);
+  }
+  P.push(...add);
+  P.sort((u, w) => normT(u[2]) - normT(w[2]));
+  XS.sel = P.indexOf(p);
+  xsCommit();
+}
+function xsRemove(i) {
+  const j = xsPartner(i);
+  const drop = j >= 0 && j !== i ? [i, j] : [i];
+  if (XS.poly.length - drop.length < 3) { $('xsSave').textContent = 'A section needs at least 3 points.'; return; }
+  XS.poly = XS.poly.filter((_, k) => !drop.includes(k));
+  XS.sel = -1;
+  xsCommit();
+}
+xsSvg.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !XS.view) return;
+  const vi = e.target.dataset && e.target.dataset.v;
+  if (vi !== undefined && XS.poly) {
+    XS.sel = +vi;
+    XS.drag = { i: +vi, moved: false };
+    xsUi(); xsDraw();
+  } else {
+    XS.pan = { x: e.clientX, y: e.clientY, cx: XS.view.cx, cy: XS.view.cy, moved: false };
+  }
+  xsSvg.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+xsSvg.addEventListener('pointermove', e => {
+  if (XS.drag) {
+    const m = xsToM(e);
+    xsMove(XS.drag.i, Math.round(m[0] * 1000) / 1000, Math.round(m[1] * 1000) / 1000);
+    XS.drag.moved = true;
+    xsUi(); xsDraw(); xsDraw3d();
+  } else if (XS.pan) {
+    const dx = e.clientX - XS.pan.x, dy = e.clientY - XS.pan.y;
+    if (Math.hypot(dx, dy) > 2) XS.pan.moved = true;
+    XS.view.cx = XS.pan.cx - dx / XS.view.k; XS.view.cy = XS.pan.cy + dy / XS.view.k;
+    xsDraw();
+  }
+});
+xsSvg.addEventListener('pointerup', () => {
+  const D = XS.drag, Pn = XS.pan;
+  XS.drag = null; XS.pan = null;
+  if (D && D.moved) xsCommit();
+  if (Pn && !Pn.moved && XS.sel >= 0) { XS.sel = -1; xsUi(); xsDraw(); }
+});
+xsSvg.addEventListener('dblclick', e => {
+  if (!XS.poly) return;
+  // The pointer capture of the clicks before retargets this event: look at what is under the pointer.
+  const hit = document.elementFromPoint(e.clientX, e.clientY);
+  const ds = (hit && hit.dataset) || {};
+  if (ds.v !== undefined) xsRemove(+ds.v);
+  else if (ds.edge !== undefined) xsInsert(+ds.edge, xsToM(e));
+  e.preventDefault();
+});
+xsSvg.addEventListener('wheel', e => {
+  if (!XS.view) return;
+  e.preventDefault();
+  const m = xsToM(e), f = Math.exp(-e.deltaY * 0.0015);
+  XS.view.k = Math.min(Math.max(XS.view.k * f, 2), 6000);
+  const m2 = xsToM(e);
+  XS.view.cx += m[0] - m2[0]; XS.view.cy += m[1] - m2[1];
+  xsDraw();
+}, { passive: false });
+document.addEventListener('keydown', e => {
+  if ($('xsWin').hidden || XS.sel < 0 || !XS.poly) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  const step = e.shiftKey ? 0.1 : 0.01, p = XS.poly[XS.sel];
+  const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+  if (e.key === 'Delete' || e.key === 'Backspace') xsRemove(XS.sel);
+  else if (e.key === 'Escape') { XS.sel = -1; xsUi(); xsDraw(); }
+  else if (moves[e.key]) { xsMove(XS.sel, p[0] + moves[e.key][0], p[1] + moves[e.key][1]); xsCommit(); }
+  else return;
+  e.preventDefault();
+});
+for (const [id, k] of [['xsX', 0], ['xsY', 1]]) $(id).addEventListener('change', e => {
+  const v = parseFloat(e.target.value), p = XS.poly && XS.poly[XS.sel];
+  if (!p || !Number.isFinite(v)) return;
+  xsMove(XS.sel, k ? p[0] : v, k ? v : p[1]);
+  xsCommit();
+});
+$('xsDel').addEventListener('click', () => { if (XS.sel >= 0) xsRemove(XS.sel); });
+
+// Saving: one doc per part and station, written after each edit (a section back on the model's ring is removed).
+function xsSame(a, b) {
+  return a && b && a.length === b.length && a.every((p, i) => Math.abs(p[0] - b[i][0]) < 5e-4 && Math.abs(p[1] - b[i][1]) < 5e-4 && tDiff(p[2], b[i][2]) < 1e-6);
+}
+function xsCommit() {
+  const z = xsZSpec(), id = xsDocId(XS.part, z);
+  const old = xsDocAt(XS.part, z);
+  const docId = old ? old.id : id;
+  if (xsSame(XS.poly, XS.built)) xsWrite(docId, null);
+  else xsWrite(docId, { id: docId, aircraft: XS.entry.id, part: XS.part, z: Math.round(z * 10000) / 10000, d: Math.round(XS.d * 1000) / 1000,
+                         pts: XS.poly.map(p => [Math.round(p[0] * 10000) / 10000, Math.round(p[1] * 10000) / 10000, Math.round(normT(p[2]) * 1e7) / 1e7]),
+                         sym: XS.sym, updated: new Date().toISOString() });
+  xsUi(); xsDraw(); xsDraw3d(); xsList();
+  // The part list marks refined parts.
+  const o = [...$('xsPart').options].find(o => o.value === XS.part);
+  if (o) o.textContent = o.textContent.replace(/ ✎$/, '') + (xsDocAt(XS.part, z) ? ' ✎' : '');
+}
+function xsWrite(id, doc) {
+  if (doc) XS.docs[id] = doc; else delete XS.docs[id];
+  if (!cap.db || !XS.entry) { $('xsSave').textContent = 'Kept in this tab only (no storage here): use Copy sections.json.'; return; }
+  const path = `aircraft/${XS.entry.id}/sections`, key = path + '/' + id;
+  const st = saving.get(key) || { busy: false, again: false };
+  saving.set(key, st);
+  if (st.busy) { st.again = true; return; }
+  st.busy = true;
+  $('xsSave').textContent = 'Saving …';
+  (async () => {
+    try {
+      do {
+        st.again = false;
+        const cur = XS.docs[id];
+        if (cur) await cap.db.collection(path).doc(id).set(JSON.parse(JSON.stringify(cur)));
+        else await cap.db.collection(path).doc(id).delete();
+      } while (st.again);
+      $('xsSave').textContent = XS.docs[id] ? 'Saved.' : 'Back to the model.';
+    } catch (e) {
+      $('xsSave').textContent = 'Not saved: ' + (e.code === 'not_granted' || e.code === 'permission_denied' ? 'you can view but not edit this Hangar.' : (e.message || e.code));
+    } finally { st.busy = false; }
+  })();
+}
+{
+  const btn = $('xsReset');
+  let armed = false;
+  btn.addEventListener('click', () => {
+    if (!armed) {
+      armed = true; btn.textContent = 'Click again to drop it';
+      setTimeout(() => { armed = false; btn.textContent = 'Back to the model'; }, 3000);
+      return;
+    }
+    armed = false; btn.textContent = 'Back to the model';
+    const old = XS.part && xsDocAt(XS.part, xsZSpec());
+    if (!old) return;
+    xsWrite(old.id, null);
+    xsPick(true); xsDraw3d(); xsList();
+  });
+}
+function xsList() {
+  const box = $('xsList');
+  box.textContent = '';
+  if (!current) return;
+  const docs = Object.values(XS.docs).filter(d => !d.removed).map(d => ({ d, at: current.nose.z - (d.z + XS.shift[2]) })).sort((a, b) => a.at - b.at);
+  for (const { d, at } of docs) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', d.part === XS.part && Math.abs(at - XS.d) < 0.002);
+    b.textContent = `${d.part} · d ${xsFmt(at)} m · ${d.pts.length} pts`;
+    b.addEventListener('click', () => { XS.part = d.part; xsSetD(at); xsOpen(); });
+    box.appendChild(b);
+  }
+  const n = docs.length;
+  $('xsNote').textContent = (n ? `${n} refined section${n === 1 ? '' : 's'}. ` : '') +
+    (XS.lofts ? 'Metres aft of the nose tip. Open the window to refine the section as a polygon.' : 'Metres aft of the nose tip. This model has no part data yet: the cut shows, editing needs a rebuild.');
+}
+$('xsExport').addEventListener('click', async () => {
+  const secs = Object.values(XS.docs).filter(d => !d.removed).sort((a, b) => a.part.localeCompare(b.part) || b.z - a.z)
+    .map(({ part, z, d, pts }) => ({ part, z, d, pts }));
+  const text = JSON.stringify({ aircraft: XS.entry && XS.entry.id, sections: secs }, null, 1);
+  const ta = $('xsExportText');
+  ta.value = text; ta.hidden = false;
+  try { await navigator.clipboard.writeText(text); $('xsExport').textContent = 'Copied'; }
+  catch (e) { ta.select(); }
+  setTimeout(() => { $('xsExport').textContent = 'Copy sections.json'; }, 2000);
+});
+
+function xsOpen() {
+  $('xsWin').hidden = false;
+  if (!$('xsShow').checked) { $('xsShow').checked = true; xsDraw3d(); }
+  XS.view = null;
+  xsUi(); xsDraw();
+}
+$('xsOpen').addEventListener('click', xsOpen);
+$('xsClose').addEventListener('click', () => { $('xsWin').hidden = true; });
+new ResizeObserver(() => xsDraw()).observe($('xsCanvas'));
+// The window moves by its title bar.
+{
+  const win = $('xsWin'), head = $('xsHead');
+  let drag = null;
+  head.addEventListener('pointerdown', e => {
+    if (e.target.closest('button')) return;
+    const r = win.getBoundingClientRect();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    head.setPointerCapture(e.pointerId);
+  });
+  head.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const x = Math.min(Math.max(e.clientX - drag.dx, 0), innerWidth - 80), y = Math.min(Math.max(e.clientY - drag.dy, 0), innerHeight - 40);
+    win.style.left = x + 'px'; win.style.top = y + 'px'; win.style.right = 'auto';
+  });
+  head.addEventListener('pointerup', () => { drag = null; });
+}
+
 // Storage lights up once the viewer answers (null when served without it, e.g. locally).
 if (window.claude && window.claude.use) {
   Promise.all([window.claude.use('db'), window.claude.use('assets')]).then(([db, assets]) => {
     cap.db = db; cap.assets = assets;
     $('addLabel').hidden = !assets;
     $('dropHint').hidden = !assets;
-    if (db && active) loadRefs(active, () => false, true);
+    if (db && active) { loadRefs(active, () => false, true); xsLoadDocs().then(() => { if (current) { xsPick(true); xsDraw3d(); xsList(); } }); }
     else renderThumbs();
   }).catch(() => {});
 }

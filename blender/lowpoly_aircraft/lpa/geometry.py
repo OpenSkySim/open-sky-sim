@@ -484,6 +484,29 @@ def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: flo
     return parts
 
 
+def leg_door(name: str, top, offset: float, width: float, length: float, collection: str,
+             thickness: float = 0.03) -> bpy.types.Object:
+    """A door plate carried by a gear leg, standing *offset* ahead (+) or behind (-) the strut.
+
+    It hangs from just below the pivot down *length* metres and is *width* wide, so when the
+    leg swings 90 deg fore or aft the plate lies flat under the well and closes it. Its origin
+    is the strut's top, like the leg's own parts, so it takes the leg's animation unchanged.
+    """
+    x, y_top, z = top
+    zc = z + offset
+    bm = bmesh.new()
+    box(bm, (x - width / 2, y_top - length, zc - thickness / 2), (x + width / 2, y_top - 0.05, zc + thickness / 2))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(f'{name}_Door')
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.append(get_material('VEHICLE_PLANE_GREY'))
+    obj = bpy.data.objects.new(f'{name}_Door', me)
+    _link(obj, collection)
+    set_origin(obj, top)
+    return obj
+
+
 def gear_door(name: str, hinge_x: float, hinge_y: float, z0: float, z1: float, height: float,
               collection: str, thickness: float = 0.03, chamfer: float = 0.12) -> bpy.types.Object:
     """A thin gear door hanging straight down from a fore-and-aft hinge line (its open pose).

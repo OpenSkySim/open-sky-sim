@@ -371,21 +371,33 @@ def _add_gear(views, hull, spec) -> None:
             objs = geo.gear_leg(name, top, (xi, y_ground, z), radius, width, 'Gear',
                                 wheel_sides=int(gear.get('wheel_sides', 16 if 'parts' in spec else 8)),
                                 twin=bool(leg.get('twin', False)))
+            if 'leg_door' in leg:
+                # Door on the leg (e.g. MiG-29 mains): the side that faces down once retracted.
+                ld = leg['leg_door']
+                ahead = 1.0 if leg.get('retract', 'aft') == 'forward' else -1.0
+                objs.append(geo.leg_door(name, top, ahead * float(ld.get('offset_m', radius + 0.05)),
+                                         float(ld.get('width_m', 2 * width)), float(ld.get('length_m', 1.0)),
+                                         'Gear', thickness=float(ld.get('thickness_m', 0.03))))
             axis_body, sgn = GEAR_RETRACT_AXES[leg.get('retract', 'aft')]
             if axis_body[2] != 0 and xi < 0:
                 sgn = -sgn  # inward/outward mirror across the plane of symmetry
             angle = sgn * math.radians(float(leg.get('retract_deg', 90.0)))
-            q_up = Quaternion(geo.to_bl(axis_body), angle)
+            # 'stow_twist_deg' turns the wheel about its strut while the leg folds, so it stows flat
+            # (MiG-29 mains). Keyed in steps so the combined turn stays on its path.
+            twist = math.radians(float(leg.get('stow_twist_deg', 0.0)))
+            steps = 4 if twist else 1
             for i, o in enumerate(objs):
                 o.name = f'{i}_{o.name}'
                 o.rotation_mode = 'QUATERNION'
-                o.rotation_quaternion = q_up
-                for frame in (GEAR_FRAMES[0], GEAR_MID):
-                    o.keyframe_insert('location', frame=frame)
-                    o.keyframe_insert('rotation_quaternion', frame=frame)
-                o.rotation_quaternion = Quaternion()
-                o.keyframe_insert('location', frame=GEAR_FRAMES[1])
-                o.keyframe_insert('rotation_quaternion', frame=GEAR_FRAMES[1])
+                turns = twist if o.name.endswith(('_Wheel', '_Hub')) else 0.0
+                for k in range(steps + 1):
+                    t = k / steps                      # 0 = folded, 1 = down
+                    o.rotation_quaternion = (Quaternion(geo.to_bl(axis_body), angle * (1.0 - t))
+                                             @ Quaternion((0.0, 0.0, 1.0), turns * (1.0 - t)))
+                    frames = (GEAR_FRAMES[0], GEAR_MID) if k == 0 else (GEAR_MID + t * (GEAR_FRAMES[1] - GEAR_MID),)
+                    for frame in frames:
+                        o.keyframe_insert('location', frame=frame)
+                        o.keyframe_insert('rotation_quaternion', frame=frame)
                 o.animation_data.action.name = f'{o.name}Action'
             print(f'[lpa] gear {name}: pivot {np.round(top, 2).tolist()} retracts {leg.get("retract", "aft")}')
     _add_gear_doors(gear)
@@ -629,6 +641,8 @@ def _stand_on_wheels(ground_y: float | None, dz: float = 0.0) -> None:
             hook[k][1] = round(hook[k][1] + dy, 4)
             hook[k][2] = round(hook[k][2] + dz, 4)
         scene['lpa_tailhook'] = json.dumps(hook)
+    # Spec frame -> pack frame, for the Hangar's cross-section window (sections.py).
+    scene['lpa_shift'] = [0.0, dy, dz]
     bpy.context.view_layer.update()
     print(f'[lpa] moved the aircraft by y {dy:+.3f} m (wheels at y {ground_y}), z {dz:+.3f} m')
 
@@ -642,6 +656,9 @@ def build_parts(spec: dict) -> None:
     whole (all-moving canards and tailplanes). Everything is in body metres.
     """
     from . import parts
+    from . import sections
+    sections.LOG.clear()
+    bpy.context.scene['lpa_shift'] = [0.0, 0.0, 0.0]
     smooth = spec.get('smooth_deg', 35.0)
     spec.setdefault('smooth_deg', smooth)
     hull = None
@@ -752,6 +769,11 @@ def build_parts(spec: dict) -> None:
         bpy.data.objects.remove(skin)
     _WELL_SKINS.clear()
 
+    if spec.get('planar_deg_final'):
+        # Fewer polygons on the finished hull: near-flat neighbours merged after every cut, so
+        # no boolean sees the dissolved n-gons (dissolving first can break the later cuts) and no
+        # vertex moves (wells, doors and panes still fit).
+        geo.decimate(hull, planar_deg=float(spec['planar_deg_final']))
     geo.tidy(hull, spec.get('material', 'VEHICLE_PLANE_GREY'), smooth)
     hull.name = hull.data.name = '0_Body'
     bpy.data.collections['Construction'].objects.unlink(hull)
@@ -780,7 +802,8 @@ def build_parts(spec: dict) -> None:
         # origin_d: where the body origin (the sim's centre of gravity) sits, in metres from the nose.
         dz = float(spec['z0_m']) - float(spec['origin_d']) if 'origin_d' in spec else 0.0
         _stand_on_wheels(spec.get('ground_y'), -dz)
-    tris = sum(len(o.data.polygons) for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name != 'Shadow')
+    tris = sum(len(p.vertices) - 2 for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name != 'Shadow'
+               for p in o.data.polygons)
     print(f'[lpa] built {spec["id"]}: {tris} triangles')
 
 
@@ -793,6 +816,8 @@ def build(spec_path: str) -> None:
     scene = bpy.context.scene
     scene.unit_settings.system = 'METRIC'
     if 'parts' in spec:
+        from . import sections
+        sections.attach(spec, spec_dir)
         build_parts(spec)
         return
 

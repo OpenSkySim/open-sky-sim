@@ -23,66 +23,29 @@ import bpy  # type: ignore
 import numpy as np
 
 from . import geometry as geo
+from . import sections
 
 
-def catmull_rom(rows: np.ndarray, count: int) -> np.ndarray:
-    """Resample a table of stations (rows) along a centripetal-free uniform Catmull-Rom spline."""
-    rows = np.asarray(rows, dtype=np.float64)
-    if len(rows) < 3 or count <= len(rows):
-        return rows
-    p = np.vstack([2 * rows[0] - rows[1], rows, 2 * rows[-1] - rows[-2]])
-    seg = len(rows) - 1
-    out = []
-    for k in range(count):
-        t = k / (count - 1) * seg
-        i = min(int(t), seg - 1)
-        u = t - i
-        p0, p1, p2, p3 = p[i], p[i + 1], p[i + 2], p[i + 3]
-        out.append(0.5 * ((2 * p1) + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u
-                          + (-p0 + 3 * p1 - 3 * p2 + p3) * u ** 3))
-    return np.array(out)
-
-
-def _superellipse_ring(cx, cy, a, top, bot, n, segments, n_top=None):
-    pts = []
-    for k in range(segments):
-        t = 2 * math.pi * k / segments
-        c, s = math.cos(t), math.sin(t)
-        if n_top is not None and s > 0:
-            n_k = n_top
-        else:
-            n_k = n
-        x = cx + a * math.copysign(abs(c) ** (2.0 / n_k), c)
-        h = top if s >= 0 else bot
-        y = cy + h * math.copysign(abs(s) ** (2.0 / n_k), s)
-        pts.append((x, y))
-    return pts
+catmull_rom = sections.catmull_rom   # kept here for older imports
 
 
 def loft(name: str, stations, segments: int = 24, resample: int = 0, material: str = 'VEHICLE_PLANE_GREY',
-         collection: str = 'Construction') -> bpy.types.Object:
+         collection: str = 'Construction', refined=(), log: dict | None = None) -> bpy.types.Object:
     """Closed tube through superellipse sections.
 
     stations: rows of (z, cx, cy, half_width, above, below, n[, n_top]), nose first. The optional n_top
     gives the upper half its own squareness (lower = sides leaning in more towards the top).
-    A station with half_width or height ~0 closes the tube to a point.
+    A station with half_width or height ~0 closes the tube to a point. ``refined``: cross-sections
+    drawn in the Hangar (see sections.py) that replace the ring at their station.
     """
-    rows = np.asarray(stations, dtype=np.float64)
-    if resample:
-        rows = catmull_rom(rows, resample)
-    rows[:, 3:6] = np.maximum(rows[:, 3:6], 0.0)
-    rows[:, 6:] = np.maximum(rows[:, 6:], 1.2)
+    rings, ts, _ = sections.loft_rings(stations, segments, resample, refined, name)
+    if log is not None:
+        sections.log_loft(log['part'], log['instance'], log['mirrored'], rings, ts)
     bm = bmesh.new()
-    rings = []
-    for row in rows:
-        z, cx, cy, a, top, bot, n = row[:7]
-        n_top = row[7] if len(row) > 7 else None
-        if a < 1e-3 or top + bot < 1e-3:
-            rings.append([bm.verts.new(geo.to_bl((cx, cy, z)))])
-        else:
-            rings.append([bm.verts.new(geo.to_bl((x, y, z))) for x, y in
-                          _superellipse_ring(cx, cy, a, top, bot, n, segments, n_top)])
-    _skin(bm, rings)
+    verts = []
+    for z, pts in rings:
+        verts.append([bm.verts.new(geo.to_bl((x, y, z))) for x, y in pts])
+    _skin(bm, verts)
     return _object(bm, name, material, collection)
 
 
@@ -233,7 +196,12 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
     name = spec_part.get('name', kind)
     material = spec_part.get('material', 'VEHICLE_PLANE_GREY')
     if kind == 'loft':
-        return loft(name, rows, int(spec_part.get('segments', 24)), int(spec_part.get('resample', 0)), material)
+        refined = spec_part.get('_sections', [])
+        if mirrored:
+            refined = [sections.mirror_section(s) for s in refined]
+        side = '' if not spec_part.get('mirror') else ('Right' if mirrored else 'Left')
+        return loft(name, rows, int(spec_part.get('segments', 24)), int(spec_part.get('resample', 0)), material,
+                    refined=refined, log={'part': spec_part, 'instance': name + side, 'mirrored': mirrored})
     if kind == 'panel':
         normal = spec_part.get('normal')
         if normal is not None and mirrored:
