@@ -42,9 +42,9 @@ def z_(d):
 
 # Cockpit (owner 2026-11-19): seats 20 cm out from the first 0.52 m, then 10 cm back in.
 SEAT_X = 0.62
-COCKPIT_DY = 0.15    # owner: cockpit 30 cm up, then 15 cm back down
-PANEL_UP = ('Pedestal', 'PedestalTop')   # owner: centre console 20 cm higher
-COCKPIT_PARTS = ('PanelSide', 'GaugesSide', 'NoseConsole', 'PanelCentre', 'GlareShield', 'GaugesCentre', 'Pedestal', 'PedestalTop',
+COCKPIT_DY = 0.05    # owner: cockpit 30 cm up, 15 cm back down, then 10 cm more
+PANEL_UP = ('Pedestal',)   # owner: centre console 20 cm higher
+COCKPIT_PARTS = ('PanelSide', 'NoseConsole', 'PanelCentre', 'GlareShield', 'Pedestal',
                  'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack', 'SeatBeltIn', 'SeatBeltOut')
 BULK_D = 1.78          # bulkhead right behind the seat backs (second photo)
 WALL = '#a3abb2'       # light grey walls, floor, console sides (second photo)
@@ -432,22 +432,14 @@ def main():
         # console, a black hood on top, and a sloping console against each nose wall.
         {'name': 'PanelSide', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
          'stations': loft_m([(0.5, 0.33, 1.32, 1.42, 8), (0.64, 0.33, 0.95, 1.05, 8)], 0.6)},
-        {'name': 'GaugesSide', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': GAUGE,
-         'stations': loft_m([(0.52, 0.25, 1.372, 1.387, 8), (0.62, 0.25, 1.108, 1.123, 8)], 0.6)},
         {'name': 'PanelCentre', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
          'stations': loft_m([(0.48, 0.27, 1.38, 1.52, 8), (0.66, 0.27, 0.62, 1.0, 8)])},
-        {'name': 'GaugesCentre', 'type': 'loft', 'box': True, 'join': 'separate', 'material': GAUGE,
-         'stations': loft_m([(0.5, 0.21, 1.467, 1.482, 8), (0.62, 0.21, 1.12, 1.135, 8)])},
-        # Owner: the top of the front panel is black.
         {'name': 'GlareShield', 'type': 'loft', 'box': True, 'join': 'separate', 'material': '#101113',
          'stations': loft_m([(0.42, 0.23, 1.5, 1.6, 8), (0.55, 0.23, 1.48, 1.56, 8)])},
         {'name': 'NoseConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
          'stations': loft_m([(0.48, 0.05, 0.62, 1.1, 8), (0.66, 0.05, 0.62, 0.95, 8)], 0.88)},
         {'name': 'Pedestal', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
          'stations': loft_m([(0.66, 0.18, 0.6, 0.8, 8), (1.75, 0.14, 0.6, 0.8, 8)])},
-        {'name': 'PedestalTop', 'type': 'quad', 'join': 'separate', 'material': GAUGE,
-         'points': [P(0.12, 0.805, 0.72), P(-0.12, 0.805, 0.72), P(-0.1, 0.805, 1.6), P(0.1, 0.805, 1.6)]},
-        # Low, inside the walls (no hull clip): narrower and further in at the nose.
         {'name': 'SideConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': WALL,
          'stations': [[z_(0.6), 0.9, 0.775, 0.04, 0.145, 0.145, 8], [z_(BULK_D), 1.0, 0.775, 0.07, 0.145, 0.145, 8]]},
         {'name': 'SideConsoleTop', 'type': 'quad', 'join': 'separate', 'mirror': True, 'material': TURQ_LIGHT,
