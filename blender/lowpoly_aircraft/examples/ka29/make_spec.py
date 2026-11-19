@@ -183,9 +183,6 @@ def windows_and_doors():
         # Engine exhausts: two dark outlets on each side of the engine deck (x 581..606).
         {'name': 'Exhaust', 'view': 'side', 'mirror': True, 'depth_m': [0.45, 1.0], 'material': DARK,
          'polygons_m': [side_m(rounded_rect(581, 592, 127, 150, 2)), side_m(rounded_rect(595, 606, 127, 150, 2))]},
-        # Round hatch on the engine deck side (x 483).
-        {'name': 'DeckHatch', 'view': 'side', 'mirror': True, 'depth_m': [0.5, 1.0], 'material': DOOR,
-         'polygon_m': side_m(circle_px(483, 129, 15, 12))},
     ]
 
 
@@ -269,11 +266,20 @@ def main():
         # Round dome on top of the deck, aft of the rotor (top view circle at x 400).
         {'name': 'TopDome', 'type': 'loft', 'segments': 10, 'stations': loft_px(
             [(640, 0, 111, 104, 2), (641, 7, 112, 102, 2), (657, 7, 112, 102, 2), (658, 0, 111, 104, 2)])},
-        # Engine intakes: round lips standing proud of the deck's front face, dark mouths inside.
-        {'name': 'IntakeLip', 'type': 'loft', 'mirror': True, 'segments': 10, 'stations': loft_m(
-            [(1.88, 0.25, 2.37, 2.87, 2), (2.0, 0.27, 2.35, 2.89, 2), (2.2, 0.27, 2.35, 2.89, 2)], 0.49)},
+        # Engine intakes (second sheet front view): two large round lips filling the deck's front
+        # face (centres x +-0.43, y 2.52, outer r 0.29), dark mouths with a light centre cone.
+        {'name': 'IntakeLip', 'type': 'loft', 'mirror': True, 'segments': 12, 'stations': loft_m(
+            [(1.86, 0.27, 2.25, 2.79, 2), (1.97, 0.29, 2.23, 2.81, 2), (2.2, 0.29, 2.23, 2.81, 2)], 0.43)},
         {'name': 'IntakeMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': DARK,
-         'segments': 10, 'stations': loft_m([(1.86, 0.2, 2.42, 2.82, 2), (1.9, 0.2, 2.42, 2.82, 2)], 0.49)},
+         'segments': 12, 'stations': loft_m([(1.845, 0.225, 2.295, 2.745, 2), (1.9, 0.225, 2.295, 2.745, 2)], 0.43)},
+        {'name': 'IntakeCone', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DOOR,
+         'a': P(0.43, 2.52, 1.78), 'b': P(0.43, 2.52, 1.86), 'radius': 0.02, 'radius_b': 0.08, 'sides': 8},
+        # Engine exhausts (second sheet side view: round outlet d 3.54-4.15, y 2.23-2.83 on the
+        # deck side): short round pipes standing out of the deck side, slightly aft, dark inside.
+        {'name': 'ExhaustPipe', 'type': 'strut', 'mirror': True, 'join': 'separate',
+         'a': P(0.55, 2.53, 3.82), 'b': P(0.93, 2.53, 3.92), 'radius': 0.3, 'radius_b': 0.29, 'sides': 14},
+        {'name': 'ExhaustMouth', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
+         'a': P(0.925, 2.53, 3.918), 'b': P(0.94, 2.53, 3.922), 'radius': 0.24, 'sides': 14},
         # Rotor mast, rebuilt after the owner's photo (bottom to top): a conical fairing on the deck,
         # the fixed lower swashplate (ring on three arms, three control rods from the deck), the
         # stepped lower mast into the lower hub, the gearbox drum and collar between the rotors, the
