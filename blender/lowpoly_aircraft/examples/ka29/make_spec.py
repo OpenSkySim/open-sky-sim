@@ -40,6 +40,13 @@ def z_(d):
     return round(Z0 - d, 3)
 
 
+# Cockpit (owner 2026-11-19): seats 20 cm further out than first built (0.52 m).
+SEAT_X = 0.72
+TURQ = '#35a9a6'      # instrument panels and console tops (photo)
+GREY_IN = '#7c838a'   # cockpit structure, floor, consoles
+GAUGE = '#14171a'     # instrument faces
+
+
 def P(x, y, d):
     return [round(x, 3), round(y, 3), z_(d)]
 
@@ -403,33 +410,48 @@ def main():
         # trailing edge at d 9.1, 0.3 m deep).
         {'name': 'TailBumper', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 4,
          'stations': panel_rows([(0.0, 1.0, 8.2, 0.92, 0.1), (0.0, 0.78, 8.8, 0.3, 0.1)])},
-        # Cockpit behind the glazing: one open space, two seats side by side, instrument panel,
-        # dark floor, black bulkhead behind the seats.
-        {'name': 'InstrumentPanel', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
-         'segments': 6, 'stations': loft_m([(0.78, 0.95, 0.55, 1.12, 6), (0.9, 0.95, 0.55, 1.12, 6)])},
-        {'name': 'GlareShield', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#16181b',
-         'segments': 6, 'stations': loft_m([(0.7, 0.95, 1.1, 1.16, 6), (0.98, 0.95, 1.1, 1.16, 6)])},
-        {'name': 'Screens', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#2f5263',
-         'segments': 6, 'stations': loft_m([(0.9, 0.16, 0.75, 1.0, 8), (0.92, 0.16, 0.75, 1.0, 8)], 0.42)},
-        {'name': 'Pedestal', 'type': 'loft', 'join': 'separate', 'material': '#2e3236', 'segments': 6,
-         'stations': loft_m([(0.9, 0.12, 0.35, 0.95, 6), (1.6, 0.12, 0.35, 0.75, 6)])},
-        {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'material': '#2a2d31',
+        # Cockpit behind the glazing, after the owner's photo of a Ka-27/29 cockpit kit (2026-11-19):
+        # turquoise instrument panel across the cockpit with a taller centre section and dark
+        # instrument faces, grey coaming on top, a centre console running aft between the seats
+        # (turquoise top), side consoles along both walls, a cyclic stick in front of each seat,
+        # grey floor. One open space; black bulkhead behind the seats.
+        {'name': 'InstrumentPanel', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': TURQ,
+         'segments': 8, 'stations': loft_m([(0.80, 0.95, 0.55, 1.06, 8), (0.88, 0.95, 0.55, 1.02, 8)])},
+        {'name': 'PanelCentre', 'type': 'loft', 'join': 'separate', 'material': TURQ,
+         'segments': 8, 'stations': loft_m([(0.78, 0.24, 0.55, 1.2, 8), (0.9, 0.24, 0.55, 1.16, 8)])},
+        {'name': 'GlareShield', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': GREY_IN,
+         'segments': 8, 'stations': loft_m([(0.7, 0.95, 1.02, 1.09, 8), (0.95, 0.95, 1.0, 1.06, 8)])},
+        {'name': 'GlareShieldCentre', 'type': 'loft', 'join': 'separate', 'material': GREY_IN,
+         'segments': 8, 'stations': loft_m([(0.72, 0.27, 1.16, 1.24, 8), (0.96, 0.27, 1.13, 1.2, 8)])},
+        {'name': 'Gauges', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': GAUGE,
+         'segments': 8, 'stations': loft_m([(0.875, 0.2, 0.68, 0.98, 8), (0.895, 0.2, 0.68, 0.96, 8)], 0.5)},
+        {'name': 'GaugesCentre', 'type': 'loft', 'join': 'separate', 'material': GAUGE,
+         'segments': 8, 'stations': loft_m([(0.895, 0.17, 0.7, 1.12, 8), (0.915, 0.17, 0.7, 1.1, 8)])},
+        {'name': 'Pedestal', 'type': 'loft', 'join': 'separate', 'material': GREY_IN, 'segments': 8,
+         'stations': loft_m([(0.88, 0.15, 0.35, 0.78, 8), (1.75, 0.15, 0.35, 0.62, 8)])},
+        {'name': 'PedestalTop', 'type': 'loft', 'join': 'separate', 'material': TURQ, 'segments': 8,
+         'stations': loft_m([(0.9, 0.14, 0.77, 0.81, 8), (1.73, 0.14, 0.61, 0.65, 8)])},
+        {'name': 'SideConsole', 'type': 'loft', 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': GREY_IN,
+         'segments': 8, 'stations': loft_m([(0.95, 0.1, 0.35, 0.8, 8), (2.2, 0.1, 0.35, 0.8, 8)], 1.06)},
+        {'name': 'SideConsoleTop', 'type': 'loft', 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
+         'segments': 8, 'stations': loft_m([(0.97, 0.09, 0.8, 0.83, 8), (2.18, 0.09, 0.8, 0.83, 8)], 1.06)},
+        {'name': 'Cyclic', 'type': 'strut', 'mirror': True, 'a': P(SEAT_X, 0.37, 1.02), 'b': P(SEAT_X, 0.95, 1.1),
+         'radius': 0.025, 'sides': 4, 'join': 'separate', 'material': GREY_IN},
+        {'name': 'CyclicGrip', 'type': 'strut', 'mirror': True, 'a': P(SEAT_X, 0.95, 1.1), 'b': P(SEAT_X, 1.05, 1.08),
+         'radius': 0.04, 'sides': 4, 'join': 'separate', 'material': GAUGE},
+        {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'material': GREY_IN,
          'segments': 6, 'stations': loft_m([(0.3, 2.0, 0.33, 0.37, 8), (2.45, 2.0, 0.33, 0.37, 8)])},
-        {'name': 'Seat', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 6,
-         'stations': loft_m([(1.2, 0.24, 0.77, 1.15, 6), (1.6, 0.24, 0.77, 1.15, 6)], 0.52)},
-        {'name': 'SeatBack', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 6,
-         'stations': loft_m([(1.6, 0.24, 0.77, 1.85, 6), (1.75, 0.24, 0.77, 1.85, 6)], 0.52)},
-        {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#121314',
+        {'name': 'Seat', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#2a2d31', 'segments': 6,
+         'stations': loft_m([(1.2, 0.22, 0.77, 1.15, 6), (1.6, 0.22, 0.77, 1.15, 6)], SEAT_X)},
+        {'name': 'SeatBack', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#2a2d31', 'segments': 6,
+         'stations': loft_m([(1.6, 0.22, 0.77, 1.85, 6), (1.75, 0.22, 0.77, 1.85, 6)], SEAT_X)},
+        {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#101113',
          'segments': 6, 'stations': loft_m([(2.42, 2.5, -1.0, 2.6, 8), (2.48, 2.5, -1.0, 2.6, 8)])},
     ]
     # Owner: plain bracing and gear rods are triangular tubes (3 sides).
     for part in parts:
         if part.get('type') == 'strut' and 'sides' not in part:
             part['sides'] = 3
-    # Owner (2026-11-19): the cockpit interior is black.
-    for part in parts:
-        if part['name'] in ('InstrumentPanel', 'GlareShield', 'Screens', 'Pedestal', 'CockpitFloor', 'Seat', 'SeatBack', 'Bulkhead'):
-            part['material'] = '#101113'
     # Owner (2026-11-19): 500 fewer triangles without losing shape: hidden inner duct parts go,
     # rotor blades get 3 chord points and the heads lose the tie rods.
     parts[:] = [p for p in parts if p['name'] not in ('ExhaustLiner', 'ExhaustInside', 'IntakeCone')]
@@ -492,9 +514,9 @@ def main():
         ]},
         'open_cabin': {'lo': P(-1.2, 0.3, 2.42), 'hi': P(1.2, 2.05, 0.0)},
         'ground_y': -2.0,
-        'cockpit_m': P(0.42, 1.35, 1.7),
+        'cockpit_m': P(SEAT_X - 0.1, 1.35, 1.7),
         # Pilot (left) and navigator side by side: eye points over the seats.
-        'pilot_seats_m': [P(0.52, 1.7, 1.3), P(-0.52, 1.7, 1.3)],
+        'pilot_seats_m': [P(SEAT_X, 1.7, 1.3), P(-SEAT_X, 1.7, 1.3)],
     }
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:
         json.dump(spec, f, indent=1)
