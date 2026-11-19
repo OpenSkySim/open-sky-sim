@@ -3563,29 +3563,35 @@ function paintDrawFree() {
       for (const p of seg) { if (p) run.push(p); else flush(); }
       flush();
       if (closed && pts.length >= 3) {
-        // Filled: the hull skin inside the outline, as the build will paint it (a fine grid of
-        // the shape laid on the faces facing its view; cells off those faces stay empty).
-        const us = pts.map(p => p[0]), vs = pts.map(p => p[1]);
-        const u0 = Math.min(...us), u1 = Math.max(...us), v0 = Math.min(...vs), v1 = Math.max(...vs);
-        const st = Math.max(0.05, Math.max(u1 - u0, v1 - v0) / 48);
-        const nu = Math.ceil((u1 - u0) / st), nv = Math.ceil((v1 - v0) / st);
+        // Filled: exactly the outlined polygon, laid on the hull. The outline is triangulated as
+        // drawn, every triangle is split into small ones and each corner is cast onto the faces
+        // the build will paint, so the edge follows the outline and the fill the skin.
+        const tri2 = THREE.ShapeUtils.triangulateShape(pts.map(([u, v]) => new THREE.Vector2(u, v)), []);
         const cache = new Map();
-        const at = (i, j) => {
-          const k = i * (nv + 1) + j;
-          if (!cache.has(k)) cache.set(k, paintSurf(view, u0 + i * st, v0 + j * st, xs, m));
+        const at = (u, v) => {
+          const k = u.toFixed(4) + ',' + v.toFixed(4);
+          if (!cache.has(k)) cache.set(k, paintSurf(view, u, v, xs, m));
           return cache.get(k);
         };
-        const tri = [];
-        for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
-          if (!paintInside([u0 + (i + 0.5) * st, v0 + (j + 0.5) * st], pts)) continue;
-          const a = at(i, j), b = at(i + 1, j), c2 = at(i + 1, j + 1), d = at(i, j + 1);
-          if (!a || !b || !c2 || !d) continue;
-          // Skip cells that jump between surfaces (an edge of the hull seen along the view).
-          if (Math.max(a.distanceTo(c2), b.distanceTo(d)) > st * 8) continue;
-          tri.push(a, b, c2, a, c2, d);
+        const out = [], step = 0.08;
+        for (const [ia, ib, ic] of tri2) {
+          const A = pts[ia], Bp = pts[ib], C = pts[ic];
+          const L = Math.max(Math.hypot(Bp[0] - A[0], Bp[1] - A[1]), Math.hypot(C[0] - Bp[0], C[1] - Bp[1]), Math.hypot(A[0] - C[0], A[1] - C[1]));
+          const n = Math.min(40, Math.max(1, Math.ceil(L / step)));
+          const P = (i, j) => { const a = i / n, b = j / n; return [A[0] + (Bp[0] - A[0]) * a + (C[0] - A[0]) * b, A[1] + (Bp[1] - A[1]) * a + (C[1] - A[1]) * b]; };
+          const lim = step * 6;
+          const put = (p, q, r) => {
+            const a = at(...p), b = at(...q), c = at(...r);
+            if (!a || !b || !c || a.distanceTo(b) > lim || b.distanceTo(c) > lim || c.distanceTo(a) > lim) return;
+            out.push(a, b, c);
+          };
+          for (let i = 0; i < n; i++) for (let j = 0; j < n - i; j++) {
+            put(P(i, j), P(i + 1, j), P(i, j + 1));
+            if (i + j < n - 1) put(P(i + 1, j), P(i + 1, j + 1), P(i, j + 1));
+          }
         }
-        if (tri.length) {
-          const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints(tri),
+        if (out.length) {
+          const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints(out),
             new THREE.MeshBasicMaterial({ color: new THREE.Color(fillColor), transparent: true, opacity: sel ? 0.9 : 0.8, side: THREE.DoubleSide, depthWrite: false,
                                           polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
           fill.renderOrder = 18; g.add(fill);
