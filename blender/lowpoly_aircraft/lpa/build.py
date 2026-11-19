@@ -828,6 +828,9 @@ def build_parts(spec: dict) -> None:
         bpy.data.objects.remove(skin)
     _WELL_SKINS.clear()
 
+    for zone in spec.get('planar_zones', []):
+        # Local merge of near-flat faces inside a body-frame box (e.g. a busy nose front).
+        geo.merge_flat_in_box(hull, zone['min'], zone['max'], float(zone.get('deg', 10.0)))
     if spec.get('planar_deg_final'):
         # Fewer polygons on the finished hull: near-flat neighbours merged after every cut, so
         # no boolean sees the dissolved n-gons (dissolving first can break the later cuts) and no

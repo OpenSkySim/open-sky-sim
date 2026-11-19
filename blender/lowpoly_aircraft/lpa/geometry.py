@@ -588,3 +588,20 @@ def flatten_panes(obj: bpy.types.Object, angle_deg: float = 1.0) -> None:
     bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method='BEAUTY', ngon_method='BEAUTY')
     bm.to_mesh(obj.data)
     bm.free()
+
+
+def merge_flat_in_box(obj: bpy.types.Object, lo, hi, angle_deg: float = 10.0) -> None:
+    """Dissolve near-flat edges whose both ends lie in the body-frame box [lo, hi], then
+    triangulate the merged faces evenly (BEAUTY)."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    lo, hi = np.asarray(lo, float), np.asarray(hi, float)
+    inside = lambda v: bool(np.all(np.asarray(from_bl(v.co)) >= lo) and np.all(np.asarray(from_bl(v.co)) <= hi))
+    verts = [v for v in bm.verts if inside(v) and not v.is_boundary]
+    edges = [e for e in bm.edges if all(inside(v) for v in e.verts) and not e.is_boundary]
+    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(angle_deg), use_dissolve_boundaries=False,
+                             verts=verts, edges=edges)
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 3],
+                          quad_method='BEAUTY', ngon_method='BEAUTY')
+    bm.to_mesh(obj.data)
+    bm.free()
