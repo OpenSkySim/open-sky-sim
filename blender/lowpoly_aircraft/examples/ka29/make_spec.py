@@ -134,10 +134,10 @@ def fuselage():
     # Engine and gearbox deck on top of the cabin (narrower: sections 7 and 8), with its flat front
     # face at x 424 above a low fairing over the cockpit roof, rounding down to the boom at x 705.
     deck = [
-        (375, 0, 160, 150, 6),
-        (386, 28, 160, 150, 6),
-        (400, 31, 160, 150, 6),
-        (422, 33, 160, 150, 6),
+        (375, 0, 160, 141, 6),
+        (386, 30, 160, 139, 6),
+        (400, 32, 160, 139, 6),
+        (422, 33, 160, 139, 6),
         (427, 33, 160, 116, 2.6),
         (432, 34, 160, 110, 2.6),
         (455, 34, 160, 109, 2.6),
@@ -270,15 +270,15 @@ def main():
         # 0.15 m proud of the deck's front face (d 1.95; centres x +-0.43, y 2.52): a thick lip, an
         # open duct, the engine face at its back and a centre bullet.
         {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 16, 'material': DARK,
-         'a': P(0.43, 2.4, 1.8), 'b': P(0.43, 2.4, 1.85), 'radius': 0.29, 'radius_b': 0.305,
+         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.85), 'radius': 0.29, 'radius_b': 0.305,
          'inner': 0.215, 'inner_b': 0.23},
         {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 16, 'material': DARK,
-         'a': P(0.43, 2.4, 1.85), 'b': P(0.43, 2.4, 2.15), 'radius': 0.305, 'radius_b': 0.3,
+         'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
          'inner': 0.23, 'inner_b': 0.23},
         {'name': 'IntakeFace', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.43, 2.4, 1.86), 'b': P(0.43, 2.4, 2.1), 'radius': 0.235, 'sides': 16},
+         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.235, 'sides': 16},
         {'name': 'IntakeCone', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.43, 2.4, 1.8), 'b': P(0.43, 2.4, 1.86), 'radius': 0.02, 'radius_b': 0.09, 'sides': 10},
+         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.02, 'radius_b': 0.09, 'sides': 10},
         # Engine exhausts (second sheet side view d 3.54-4.15, owner's photos): a hollow round pipe
         # standing out of the deck side, angled a little aft and down, with a thick lip; dark inside.
         {'name': 'ExhaustPipe', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 16,
