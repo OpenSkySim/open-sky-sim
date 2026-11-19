@@ -33,6 +33,24 @@ def resample(half, n=HALF_N):
     return np.stack([np.interp(u, s, P[:, 0]), np.interp(u, s, P[:, 1])], axis=1)
 
 
+def resample_at_height(half, h, n=HALF_N, pin=HALF_N // 2):
+    """Like resample, but the outline's side point at relative height h lands on point index pin
+    in every ring, so the loft runs one straight vertex row along a line of constant height."""
+    P = np.asarray(half, dtype=float)
+    w = int(np.argmax(P[:, 0]))
+    h = min(max(h, P[:, 1].min() + 0.05), P[:, 1].max() - 0.05)
+    # Search outward-side points (from the widest down, else from the top down to the widest).
+    rng = range(w, len(P) - 1) if P[w, 1] >= h else range(0, w)
+    for i in rng:
+        a, b = P[i], P[i + 1]
+        if (a[1] - h) * (b[1] - h) <= 0 and a[1] != b[1]:
+            f = (a[1] - h) / (a[1] - b[1])
+            q = a + (b - a) * f
+            return np.vstack([resample(np.vstack([P[:i + 1], [q]]), pin),
+                              resample(np.vstack([[q], P[i + 1:]]), n - pin)[1:]])
+    return resample(P, n)
+
+
 def superellipse_half(a, top, bot, n, n_top=None, m=60):
     """Half outline of a superellipse station (relative to its bottom)."""
     out = []

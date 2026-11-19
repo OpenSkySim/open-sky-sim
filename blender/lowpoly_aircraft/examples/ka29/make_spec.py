@@ -211,8 +211,21 @@ def fuselage_sections(cabin, deck):
 
     secs = body.load_sections()
     keys = [se_key(r) for r in cabin[:3]]
+    # The side's bend runs along one straight line (side view): fitted through the bends of the
+    # cabin sections, and every ring puts a vertex on it.
+    fit = [(sec['d'], bottom(sec['d']) + float(np.asarray(sec['half'])[int(np.argmax(np.asarray(sec['half'])[:, 0] >= 0.98 * np.asarray(sec['half'])[:, 0].max())), 1]))
+           for k, sec in secs.items() if k in ('G', 'D', 'Zh', 'Z', 'I')]
+    line_k, line_c = np.polyfit([f[0] for f in fit], [f[1] for f in fit], 1)
+    crease = lambda d, scale=1.0: (line_k * d + line_c - bottom(d)) / scale
     for k, sec in secs.items():
-        H = body.resample(sec['half'])
+        d = sec['d']
+        H0 = np.asarray(sec['half'], dtype=float)
+        sc = 1.0
+        if k == 'A':
+            sc = (body.PANE_A[1] - bottom(d)) / H0[:, 1].max()
+        elif k in ('K', 'L'):
+            sc = (cab_top(d) - bottom(d)) / H0[:, 1].max()
+        H = body.resample_at_height(H0, crease(d, sc))
         d = sec['d']
         target = None
         if k == 'A':
@@ -226,7 +239,7 @@ def fuselage_sections(cabin, deck):
             # and blending its tall top into the nose rings creases the skin under the side panes.
             cap = body.PANE_A[1] - bottom(d)
             keys.append((body.PANE_C[2], H.copy()))   # the full outline from the side panes' top back
-            H = body.resample(np.stack([H[:, 0], np.minimum(H[:, 1], cap)], axis=1))
+            H = body.resample_at_height(np.stack([H[:, 0], np.minimum(H[:, 1], cap)], axis=1), crease(d))
         keys.append((d, H))
         if k == 'V':
             # Just ahead of the deck's front face the fuselage still ends at the cockpit fairing,
