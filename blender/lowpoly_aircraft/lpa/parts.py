@@ -289,7 +289,7 @@ def rotor(name: str, center, radius: float, blades: int = 3, root_r: float = 0.5
         ring_r = head.get('ring_r', 0.34)
         # Rotating swashplate ring and its hub on the mast.
         _tube_into(bm, foot - up * 0.018, foot + up * 0.018, ring_r + 0.025, ring_r + 0.025, 16)
-        _tube_into(bm, foot, c - up * 0.5 * hub_h, 0.1, 0.12, 10)
+        _tube_into(bm, foot, c - up * 0.5 * hub_h, 0.075, 0.09, 10)
         if head.get('cap'):
             _tube_into(bm, c + up * 0.5 * hub_h, c + up * (0.5 * hub_h + 0.12), hub_r * 0.8, hub_r * 0.35, hub_sides)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
