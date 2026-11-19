@@ -168,7 +168,7 @@ def windows_and_doors():
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
         {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.8, 1.3],
-         'polygon_m': [[z_(0.5), 1.29], [z_(0.73), 2.0], [z_(1.0), 1.93], [z_(0.76), 1.29]]},
+         'polygon_m': [[z_(0.5), 1.29], [z_(0.73), 2.0], [z_(1.03), 2.0], [z_(0.76), 1.29]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          'polygon_m': [[z_(0.86), 1.26], [z_(1.11), 1.86], [z_(1.17), 1.9], [z_(1.66), 1.9], [z_(1.72), 1.84],
