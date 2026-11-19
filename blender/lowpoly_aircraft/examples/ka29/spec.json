@@ -6,7 +6,6 @@
  "material": "VEHICLE_PLANE_GREY",
  "smooth_deg": 0,
  "symmetrize": true,
- "planar_deg_final": 8.0,
  "sections": [
   {
    "part": "Fuselage",
