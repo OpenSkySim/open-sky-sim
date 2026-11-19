@@ -431,7 +431,7 @@ def main():
         'smooth_deg': 0,
         'symmetrize': True,
         # Nose front under the windscreen: fewer, larger faces (owner: halve the triangles there).
-        'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 12}],
+        'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 25}],
         'sections': fuse_secs,
         'parts': parts,
         'regions': windows_and_doors(),
