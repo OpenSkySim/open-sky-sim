@@ -4950,7 +4950,7 @@
    "type": "loft",
    "join": "separate",
    "clip_hull": true,
-   "material": "#1d2024",
+   "material": "#101113",
    "segments": 6,
    "stations": [
     [
@@ -4978,7 +4978,7 @@
    "type": "loft",
    "join": "separate",
    "clip_hull": true,
-   "material": "#16181b",
+   "material": "#101113",
    "segments": 6,
    "stations": [
     [
@@ -5006,7 +5006,7 @@
    "type": "loft",
    "join": "separate",
    "mirror": true,
-   "material": "#2f5263",
+   "material": "#101113",
    "segments": 6,
    "stations": [
     [
@@ -5033,7 +5033,7 @@
    "name": "Pedestal",
    "type": "loft",
    "join": "separate",
-   "material": "#2e3236",
+   "material": "#101113",
    "segments": 6,
    "stations": [
     [
@@ -5061,7 +5061,7 @@
    "type": "loft",
    "join": "separate",
    "fill_hull": "floor",
-   "material": "#2a2d31",
+   "material": "#101113",
    "segments": 6,
    "stations": [
     [
@@ -5089,7 +5089,7 @@
    "type": "loft",
    "join": "separate",
    "mirror": true,
-   "material": "#3a3e44",
+   "material": "#101113",
    "segments": 6,
    "stations": [
     [
@@ -5117,7 +5117,7 @@
    "type": "loft",
    "join": "separate",
    "mirror": true,
-   "material": "#3a3e44",
+   "material": "#101113",
    "segments": 6,
    "stations": [
     [
@@ -5145,7 +5145,7 @@
    "type": "loft",
    "join": "separate",
    "fill_hull": "section",
-   "material": "#121314",
+   "material": "#101113",
    "segments": 6,
    "stations": [
     [

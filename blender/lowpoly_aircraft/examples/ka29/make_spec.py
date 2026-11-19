@@ -426,6 +426,10 @@ def main():
     for part in parts:
         if part.get('type') == 'strut' and 'sides' not in part:
             part['sides'] = 3
+    # Owner (2026-11-19): the cockpit interior is black.
+    for part in parts:
+        if part['name'] in ('InstrumentPanel', 'GlareShield', 'Screens', 'Pedestal', 'CockpitFloor', 'Seat', 'SeatBack', 'Bulkhead'):
+            part['material'] = '#101113'
     # Owner (2026-11-19): 500 fewer triangles without losing shape: hidden inner duct parts go,
     # rotor blades get 3 chord points and the heads lose the tie rods.
     parts[:] = [p for p in parts if p['name'] not in ('ExhaustLiner', 'ExhaustInside', 'IntakeCone')]
