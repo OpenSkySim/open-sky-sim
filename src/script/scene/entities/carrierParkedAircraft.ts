@@ -108,9 +108,10 @@ export interface ParkedAircraftSlot {
 /** The Su-33s are the user's own model (aircraftRegistry.ts buildSu33Def, assets/su33d*.glb). */
 const SU33_IDS = ['su33d'] as const;
 const YAK44_IDS = ['lp_yak44'] as const;
+const KA29_IDS = ['lp_ka29'] as const;
 
 /**
- * Three Su-33s and two Yak-44s, clear of the turntables (z -43, 53.75), the
+ * Three Su-33s, two Yak-44s and two Ka-29s, clear of the turntables (z -43, 53.75), the
  * lift doors and the curtain bays. The hangar runs x -7.7..18.3, z -55..98.
  * The two forward Su-33s stand out at the sides, leaving the centreline clear
  * from the third one's spot to the forward turntable: that is the hangar
@@ -121,9 +122,13 @@ export const KUZ_PARKED_AIRCRAFT: readonly ParkedAircraftSlot[] = [
     { ids: SU33_IDS, x: 13.2, z: -20, heading: 0, chaseDistance: 20 },
     // The Yak-44 behind it noses in at z 20.
     { ids: SU33_IDS, x: 5.3, z: 4, heading: 0, chaseDistance: 14 },
-    { ids: YAK44_IDS, x: 5.3, z: 30, heading: 0, chaseDistance: 18 },
+    // Its camera stays in the gap to the next one's nose (z 38.5..44.6 for the Yak-44E).
+    { ids: YAK44_IDS, x: 5.3, z: 30, heading: 0, chaseDistance: 12 },
     // On the aft turntable, all its wheels on it (x, z: until its gear is in).
     { ids: YAK44_IDS, x: 5.3, z: 53.75, heading: 0, chaseDistance: 18, turntable: 1 },
+    // Aft of it, side by side, blades folded back past the tail; the camera clears them (aft wall z 98).
+    { ids: KA29_IDS, x: -1.0, z: 78, heading: 0, chaseDistance: 15 },
+    { ids: KA29_IDS, x: 11.6, z: 78, heading: 0, chaseDistance: 15 },
 ];
 /** The slot the hangar spawn's aircraft starts from (left empty while it is out). */
 export const KUZ_HANGAR_SPAWN_SLOT = 2;
