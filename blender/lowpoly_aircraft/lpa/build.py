@@ -546,7 +546,7 @@ def _fcurves(action):
     return out
 
 
-def _fill_section(obj, hull, how='section') -> None:
+def _fill_section(obj, hull, how='section', inset: float = 0.98) -> None:
     """Cut a slab part down to the hull section it spans, keeping only its two broad faces.
 
     *how* 'floor' keeps the top and bottom faces (a deck), anything else the fore and aft ones.
@@ -562,11 +562,12 @@ def _fill_section(obj, hull, how='section') -> None:
     k = 2 if how == 'floor' else 1                        # Blender Z is up, Blender Y fore-aft
     rim = [f for f in bm.faces if abs(f.normal[k]) < 0.9]
     bmesh.ops.delete(bm, geom=rim, context='FACES')
-    # Pull the edge 2 % in off the skin so it cannot show through it as a seam.
+    # Pull the edge in off the skin (by default 2 %, spec 'fill_inset') so it cannot show
+    # through it as a seam; a deck where the hull tapers fast (a nose) needs more.
     centre = sum((v.co for v in bm.verts), Vector()) / max(len(bm.verts), 1)
     for v in bm.verts:
         for j in {0, 1, 2} - {k}:
-            v.co[j] = centre[j] + 0.98 * (v.co[j] - centre[j])
+            v.co[j] = centre[j] + inset * (v.co[j] - centre[j])
     bm.to_mesh(obj.data)
     bm.free()
 
@@ -750,10 +751,10 @@ def build_parts(spec: dict) -> None:
                 geo.tidy(obj, material, smooth)
                 if item.get('fill_hull'):
                     # A bulkhead: the part is cut down to the fuselage section it spans (below).
-                    fills.append((obj, item['fill_hull']))
+                    fills.append((obj, item['fill_hull'], float(item.get('fill_inset', 0.98))))
                 elif item.get('clip_hull'):
                     # Cockpit furniture: trimmed where it would poke through the skin (below).
-                    fills.append((obj, 'clip'))
+                    fills.append((obj, 'clip', 0.0))
                 if item.get('inside_out'):
                     # Seen from within (a cockpit tub behind the glazing): faces point inwards.
                     obj.data.flip_normals()
@@ -777,8 +778,8 @@ def build_parts(spec: dict) -> None:
         _, skin = geo.recess(hull, obj, f'1_{well_name}', material, 'Body')
         if skin is not None:
             _WELL_SKINS[well_name] = (skin, centre_x)
-    for obj, how in fills:
-        _clip_to_hull(obj, hull) if how == 'clip' else _fill_section(obj, hull, how)
+    for obj, how, inset in fills:
+        _clip_to_hull(obj, hull) if how == 'clip' else _fill_section(obj, hull, how, inset)
     wingtips = _wingtips(hull)
     see_through = []
     for i, item in enumerate(spec.get('regions', [])):

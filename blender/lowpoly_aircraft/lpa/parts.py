@@ -418,6 +418,17 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
         rows = mirror_rows(kind, rows)
     name = spec_part.get('name', kind)
     material = spec_part.get('material', 'VEHICLE_PLANE_GREY')
+    if kind == 'loft' and spec_part.get('box'):
+        # Plain box sections (4 corners per station: half width a, above/below the centre):
+        # the cheapest closed block, 12 triangles for two stations (cockpit furniture).
+        bm = bmesh.new()
+        rings = []
+        for r in rows:
+            z, cx, cy, a, top, bot = (float(v) for v in r[:6])
+            rings.append([bm.verts.new(geo.to_bl((x, y, z))) for x, y in
+                          ((cx + a, cy + top), (cx - a, cy + top), (cx - a, cy - bot), (cx + a, cy - bot))])
+        _skin(bm, rings)
+        return _object(bm, name, material, 'Construction')
     if kind == 'loft':
         refined = spec_part.get('_sections', [])
         if mirrored:

@@ -4949,10 +4949,10 @@
   {
    "name": "InstrumentPanel",
    "type": "loft",
+   "box": true,
    "join": "separate",
    "clip_hull": true,
    "material": "#1f5c5a",
-   "segments": 8,
    "stations": [
     [
      3.72,
@@ -4977,9 +4977,9 @@
   {
    "name": "PanelCentre",
    "type": "loft",
+   "box": true,
    "join": "separate",
    "material": "#1f5c5a",
-   "segments": 8,
    "stations": [
     [
      3.74,
@@ -5004,10 +5004,10 @@
   {
    "name": "GlareShield",
    "type": "loft",
+   "box": true,
    "join": "separate",
    "clip_hull": true,
-   "material": "#163f3e",
-   "segments": 8,
+   "material": "#101113",
    "stations": [
     [
      3.8,
@@ -5032,13 +5032,13 @@
   {
    "name": "Gauges",
    "type": "loft",
+   "box": true,
    "join": "separate",
    "mirror": true,
    "material": "#14171a",
-   "segments": 8,
    "stations": [
     [
-     3.625,
+     3.62,
      0.57,
      1.055,
      0.18,
@@ -5049,10 +5049,10 @@
     [
      3.605,
      0.57,
-     1.05,
+     1.055,
      0.18,
-     0.09,
-     0.09,
+     0.095,
+     0.095,
      8
     ]
    ]
@@ -5060,26 +5060,26 @@
   {
    "name": "GaugesCentre",
    "type": "loft",
+   "box": true,
    "join": "separate",
    "material": "#14171a",
-   "segments": 8,
    "stations": [
     [
-     3.565,
+     3.56,
      0.0,
-     0.975,
+     0.97,
      0.22,
-     0.225,
-     0.225,
+     0.22,
+     0.22,
      8
     ],
     [
      3.545,
      0.0,
-     0.965,
+     0.97,
      0.22,
-     0.215,
-     0.215,
+     0.22,
+     0.22,
      8
     ]
    ]
@@ -5087,9 +5087,9 @@
   {
    "name": "Pedestal",
    "type": "loft",
+   "box": true,
    "join": "separate",
    "material": "#1f5c5a",
-   "segments": 8,
    "stations": [
     [
      3.56,
@@ -5113,86 +5113,86 @@
   },
   {
    "name": "PedestalTop",
-   "type": "loft",
+   "type": "quad",
    "join": "separate",
    "material": "#14171a",
-   "segments": 8,
-   "stations": [
+   "points": [
     [
-     3.47,
-     0.0,
-     0.975,
      0.12,
-     0.015,
-     0.015,
-     8
+     0.985,
+     3.47
     ],
     [
-     2.62,
-     0.0,
+     -0.12,
+     0.985,
+     3.47
+    ],
+    [
+     -0.1,
      0.815,
+     2.62
+    ],
+    [
      0.1,
-     0.015,
-     0.015,
-     8
+     0.815,
+     2.62
     ]
    ]
   },
   {
    "name": "SideConsole",
    "type": "loft",
+   "box": true,
    "join": "separate",
    "mirror": true,
-   "clip_hull": true,
    "material": "#1f5c5a",
-   "segments": 8,
    "stations": [
     [
-     3.27,
-     1.07,
-     0.76,
-     0.11,
-     0.16,
-     0.16,
+     3.62,
+     0.9,
+     0.775,
+     0.04,
+     0.145,
+     0.145,
      8
     ],
     [
      2.02,
-     1.07,
-     0.76,
-     0.11,
-     0.16,
-     0.16,
+     1.0,
+     0.775,
+     0.07,
+     0.145,
+     0.145,
      8
     ]
    ]
   },
   {
    "name": "SideConsoleTop",
-   "type": "loft",
+   "type": "quad",
    "join": "separate",
    "mirror": true,
-   "clip_hull": true,
    "material": "#14171a",
-   "segments": 8,
-   "stations": [
+   "points": [
     [
-     3.17,
-     1.05,
-     0.93,
-     0.07,
-     0.01,
-     0.01,
-     8
+     0.87,
+     0.925,
+     3.52
     ],
     [
-     2.22,
-     1.05,
-     0.93,
-     0.07,
-     0.01,
-     0.01,
-     8
+     0.94,
+     0.925,
+     2.22
+    ],
+    [
+     1.06,
+     0.925,
+     2.22
+    ],
+    [
+     0.94,
+     0.925,
+     3.52
     ]
    ]
   },
@@ -5207,30 +5207,11 @@
    ],
    "b": [
     0.62,
-    0.98,
-    3.34
+    1.05,
+    3.35
    ],
-   "radius": 0.022,
-   "sides": 4,
-   "join": "separate",
-   "material": "#163f3e"
-  },
-  {
-   "name": "CyclicGrip",
-   "type": "strut",
-   "mirror": true,
-   "a": [
-    0.62,
-    0.98,
-    3.34
-   ],
-   "b": [
-    0.62,
-    1.06,
-    3.36
-   ],
-   "radius": 0.035,
-   "sides": 4,
+   "radius": 0.025,
+   "sides": 3,
    "join": "separate",
    "material": "#14171a"
   },
@@ -5239,25 +5220,26 @@
    "type": "loft",
    "join": "separate",
    "fill_hull": "floor",
+   "fill_inset": 0.95,
    "material": "#163f3e",
    "segments": 6,
    "stations": [
     [
-     3.92,
+     3.8,
      0.0,
-     0.6,
+     0.613,
      2.0,
-     0.02,
-     0.02,
+     0.007,
+     0.008,
      8
     ],
     [
      1.77,
      0.0,
-     0.6,
+     0.613,
      2.0,
-     0.02,
-     0.02,
+     0.007,
+     0.008,
      8
     ]
    ]
@@ -5265,10 +5247,10 @@
   {
    "name": "Seat",
    "type": "loft",
+   "box": true,
    "join": "separate",
    "mirror": true,
    "material": "#2a2d31",
-   "segments": 6,
    "stations": [
     [
      3.02,
@@ -5293,10 +5275,10 @@
   {
    "name": "SeatBack",
    "type": "loft",
+   "box": true,
    "join": "separate",
    "mirror": true,
    "material": "#2a2d31",
-   "segments": 6,
    "stations": [
     [
      2.62,
