@@ -87,7 +87,7 @@ PANE_B = (0.95, 1.24, 0.45)
 PANE_D = (0.29, 2.04, 0.62)
 PANE_C = (0.90, 2.04, 0.72)
 QUARTER_1 = (1.10, 1.24, 0.77)
-QUARTER_2 = (0.95, 1.97, 1.042)
+QUARTER_2 = (0.95, 2.03, 1.042)
 ROOF_BLEND_END = 1.75
 # Deck fairing roof profile (x, height) at the first roof ring behind the glazing (d ROOF_RING_D).
 ROOF_PROFILE = ((0.0, 2.29), (0.22, 2.29), (0.38, 2.09), (0.81, 2.09))   # raised centre strip, sides 0.20 m lower
