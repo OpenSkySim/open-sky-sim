@@ -253,10 +253,10 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
                         continue
                     f.normal_update()
                     n = geo.from_bl(mw.to_3x3() @ f.normal)
-                    # Every face turned towards the view (more than ~9 deg), so a shape across a
+                    # Every face turned towards the view at all, so a shape across a
                     # rounded nose fills completely, not only the faces facing mostly sideways.
                     facing = n[0] * sign if view == 'side' else (n[1] if view == 'top' else -n[1])
-                    if facing <= 0.15:
+                    if facing <= 0.02:
                         continue
                     out.append(f)
                 return out
