@@ -17,6 +17,11 @@ viewer/add_model.py hands to the Hangar.
 Refined cross-sections drawn in the Hangar's cross-section window go into sections.json
 next to the spec (lpa/sections.py; sections_tool.py from-hangar writes it). The build
 also writes <id>_lofts.json: every lofted part's rings, so the Hangar can show and edit them.
+
+Brush strokes made in the Hangar's Brush card go into brush.json next to the spec
+(lpa/brush.py; brush_tool.py from-hangar writes it). They move the body and control
+surfaces just before export; <id>_brush.json lists the strokes applied, so the Hangar
+does not apply them a second time.
 """
 import argparse
 import json
@@ -37,8 +42,9 @@ import numpy as np  # noqa: E402
 
 from lpa import from_refs as F  # noqa: E402
 from lpa import refs as R  # noqa: E402
+from lpa import brush  # noqa: E402
 from lpa import sections  # noqa: E402
-from lpa.geometry import from_bl  # noqa: E402
+from lpa.geometry import from_bl, to_bl  # noqa: E402
 
 
 def model_triangles() -> tuple[np.ndarray, list[str]]:
@@ -65,6 +71,45 @@ def model_triangles() -> tuple[np.ndarray, list[str]]:
                 names += [o.name] * len(idx)
             ev.to_mesh_clear()
     return (np.concatenate(tris) if tris else np.zeros((0, 3, 3))), names
+
+
+def apply_brush(spec_path: str) -> list[str]:
+    """Moves the body and control surfaces by the spec's brush strokes (in the exported frame); returns the stroke ids."""
+    strokes, path = brush.for_spec(spec_path)
+    if not strokes:
+        return []
+    objs = []
+    for coll in ('Body', 'Surfaces'):
+        c = bpy.data.collections.get(coll)
+        objs += [o for o in (c.objects if c else []) if o.type == 'MESH']
+    # The strokes act on the final shapes (as the Hangar shows them): modifiers applied, linked copies split.
+    dg = bpy.context.evaluated_depsgraph_get()
+    for o in objs:
+        if o.modifiers:
+            me = bpy.data.meshes.new_from_object(o.evaluated_get(dg))
+            o.modifiers.clear()
+            o.data = me
+        elif o.data.users > 1:
+            o.data = o.data.copy()
+    pts = {o.name: np.array([from_bl(o.matrix_world @ v.co) for v in o.data.vertices], dtype=np.float64).reshape(-1, 3) for o in objs}
+    touched = set()
+    for s in strokes:
+        for o in objs:
+            if not brush.applies_to(s, o.name):
+                continue
+            P, moved = brush.apply(pts[o.name], s)
+            if moved:
+                pts[o.name] = P
+                touched.add(o.name)
+    for o in objs:
+        if o.name not in touched:
+            continue
+        inv = o.matrix_world.inverted()
+        for v, p in zip(o.data.vertices, pts[o.name]):
+            v.co = inv @ to_bl(p)
+        o.data.update()
+    print(f'[lpa] brush: {len(strokes)} stroke(s) from {os.path.relpath(path)} moved {len(touched)} part(s)')
+    return [s['id'] for s in strokes]
 
 
 def refs_check(spec_path: str, out: str, aid: str) -> None:
@@ -110,7 +155,14 @@ def main() -> None:
     build(args.spec)
     aid = bpy.context.scene['lpa_id']
     out = args.out or os.path.join(os.path.dirname(os.path.abspath(args.spec)), 'build', aid)
+    applied = apply_brush(args.spec)
     manifest = export_pack(out, pack=not args.no_pack)
+    brush_log = os.path.join(out, f'{aid}_brush.json')
+    if applied:
+        with open(brush_log, 'w') as f:
+            json.dump({'aircraft': aid, 'applied': applied}, f, indent=1)
+    elif os.path.exists(brush_log):
+        os.remove(brush_log)
     if not args.no_blend:
         blend = os.path.join(out, f'{aid}.blend')
         if os.path.exists(blend):
