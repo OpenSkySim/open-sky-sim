@@ -89,6 +89,9 @@ PANE_C = (0.90, 2.04, 0.72)
 QUARTER_1 = (1.10, 1.24, 0.77)
 QUARTER_2 = (0.95, 1.97, 1.042)
 ROOF_BLEND_END = 1.75
+# Deck fairing roof profile (x, height) at the first roof ring behind the glazing (d ROOF_RING_D).
+ROOF_PROFILE = ((0.0, 2.29), (0.22, 2.29), (0.38, 2.16), (0.81, 2.12))
+ROOF_RING_D = 1.141
 PANE_STATIONS = (0.235, 0.30, 0.37, 0.45, 0.50, 0.56, 0.62, 0.67, 0.72, 0.77, 1.042)
 
 
@@ -130,9 +133,6 @@ def windscreen(d, H, y0):
         # so the loft does not twist where the glazing rings end.
         P = P.copy()
         sh = P[4].copy()
-        roof = lambda x: float(np.interp(x, P[:6, 0], P[:6, 1]))
-        # Flat roof (section В): level with the outline's top out to two thirds of the shoulder.
-        flat = float(P[:4, 1].max())
         top = [P[0], P[1], P[2], sh]
         out = np.vstack([top, resample(P[4:HALF_N // 2 + 1], HALF_N // 2 - 3)[1:], P[HALF_N // 2 + 1:]])
         return out - np.array([0.0, y0])
@@ -148,8 +148,12 @@ def windscreen(d, H, y0):
         # Behind the side panes the roof follows the outline (no lower than the pane tops).
         k_ = max(2, int(np.argmax(P[:HALF_N // 2, 0])))
         xs, ys = P[:k_ + 1, 0], P[:k_ + 1, 1]
-        roof = lambda x: max(float(np.interp(x, xs, ys)), j2[1])
-        fixed = [(0.0, roof(0.0))] + [(j2[0] * f, roof(j2[0] * f)) for f in (1 / 3, 2 / 3)] + [j2] + ([j3] if j3 else [])
+        # The roof eases from the flat pane tops (C) up into the deck fairing's profile (the first
+        # roof ring behind the glazing), with the same point layout, so it stays smooth.
+        t = min(1.0, max(0.0, (d - PANE_C[2]) / (ROOF_RING_D - PANE_C[2])))
+        t = t * t * (3 - 2 * t)
+        roof = lambda x: max(PANE_C[1] + t * (float(np.interp(x, *zip(*ROOF_PROFILE))) - PANE_C[1]), j2[1])
+        fixed = [(x, roof(x)) for x in (0.0, ROOF_PROFILE[1][0], ROOF_PROFILE[2][0])] + [j2] + ([j3] if j3 else [])
     foot = fixed[-1]
     # The outline continues below the last frame point on the outside: skip outline points that
     # lie inboard of it (the roof or nose top dipping under it), or the ring folds back. From the
