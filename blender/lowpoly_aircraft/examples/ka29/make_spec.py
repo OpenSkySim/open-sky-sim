@@ -153,26 +153,38 @@ def fuselage():
     return rows, deck
 
 
+def frame_posts():
+    """Window frame posts as single flat quads just outside the glass (2 triangles each)."""
+    A, B, C, D = body.PANE_A, body.PANE_B, body.PANE_C, body.PANE_D
+    k = (D[2] - A[2]) / (D[1] - A[1])            # front pane: d per metre of height
+    n = np.array([-(D[1] - A[1]), D[2] - A[2]]); n /= np.linalg.norm(n)   # (d, y) outward
+    o = 0.012
+    def fp(x, y):
+        return P(x, y + o * n[1], A[2] + (y - A[1]) * k + o * n[0])
+    y0, y1 = A[1] + 0.02, D[1]
+    centre = [fp(0.26, y0), fp(0.32, y0), fp(0.32, y1), fp(0.26, y1)]
+    w = 0.035
+    corner = [P(B[0] + o, B[1] + 0.02, B[2] - w), P(C[0] + o, C[1], C[2] - w), P(C[0] + o, C[1], C[2] + w), P(B[0] + o, B[1] + 0.02, B[2] + w)]
+    return [{'name': 'FramePostCentre', 'type': 'quad', 'mirror': True, 'join': 'separate', 'points': centre},
+            {'name': 'FramePostCorner', 'type': 'quad', 'mirror': True, 'join': 'separate', 'points': corner}]
+
+
 def windows_and_doors():
     side_skin = [0.6, 1.3]       # depth reaching only the left cabin wall
     return [
         # Three flat front panes (owner's photo): the hull itself is cut flat there (body.windscreen),
-        # and the glass is the side-view band clipped to three top-view strips, so the frames between
-        # them (x +-0.29, 6 cm) and the corner frames stay hull skin.
+        # all glass from the sill to the door pillar; the frame posts are flat quads on top (owner:
+        # a frame is 2 triangles), see frame_posts().
         {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'depth_m': [-1.3, 1.3],
-         'polygon_m': [[z_(0.2), 1.26], [z_(0.71), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.26]],
-         'clip': {'view': 'top', 'polygons_m': [
-             [[-0.26, z_(0.2)], [0.26, z_(0.2)], [0.26, z_(0.68)], [-0.26, z_(0.68)]],
-             [[0.32, z_(0.25)], [0.91, z_(0.465)], [0.86, z_(0.78)], [0.32, z_(0.68)]],
-             [[-0.32, z_(0.25)], [-0.32, z_(0.68)], [-0.86, z_(0.78)], [-0.91, z_(0.465)]]]}},
+         'polygon_m': [[z_(0.2), 1.26], [z_(0.71), 2.055], [z_(1.0), 2.055], [z_(0.81), 1.26]]},
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
         {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.8, 1.3],
          'polygon_m': [[z_(0.5), 1.29], [z_(0.81), 2.0], [z_(1.03), 2.0], [z_(0.84), 1.29]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
-         'polygon_m': [[z_(0.86), 1.26], [z_(1.11), 1.86], [z_(1.17), 1.9], [z_(1.66), 1.9], [z_(1.72), 1.84],
-                       [z_(1.73), 1.31], [z_(1.69), 1.26]]},
+         'polygon_m': [[z_(0.86), 1.36], [z_(1.11), 1.96], [z_(1.17), 2.0], [z_(1.66), 2.0], [z_(1.72), 1.94],
+                       [z_(1.73), 1.41], [z_(1.69), 1.36]]},   # 10 cm up (owner)
         {'name': 'CabinWindowFront', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
          'polygon_m': side_m(rounded_rect(456, 472, 160, 181, 3))},
         {'name': 'CabinWindowRear', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
@@ -278,7 +290,7 @@ def main():
     main_x, main_d = (350 - 270) / S, d_(575)
     nose_d = d_(436)
     main_knee = 0.17
-    parts = [
+    parts = frame_posts() + [
         {'name': 'Fuselage', 'type': 'loft', 'segments': body.SEGMENTS, 'stations': fuse_rows},
         {'name': 'EngineDeck', 'type': 'loft', 'segments': 16, 'resample': 4, 'stations': loft_px(deck_front)},
         # Sensor fairing under the nose (side x 375..410).

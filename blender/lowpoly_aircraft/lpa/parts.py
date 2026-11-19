@@ -371,6 +371,14 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
             chord_dir = [-chord_dir[0], chord_dir[1], chord_dir[2]]
         return panel(name, rows, int(spec_part.get('chord_points', 9)), int(spec_part.get('resample', 0)),
                      material, normal=normal, chord_dir=chord_dir)
+    if kind == 'quad':
+        # One flat four-cornered face (2 triangles), e.g. a window frame post on a flat pane.
+        pts = [list(q) for q in spec_part['points']]
+        if mirrored:
+            pts = [[-q[0], q[1], q[2]] for q in reversed(pts)]
+        bm = bmesh.new()
+        bm.faces.new([bm.verts.new(geo.to_bl(q)) for q in pts])
+        return _object(bm, name, material, 'Construction')
     if kind == 'duct':
         a, b = list(spec_part['a']), list(spec_part['b'])
         if mirrored:
