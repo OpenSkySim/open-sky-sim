@@ -299,30 +299,30 @@ def rotor(name: str, center, radius: float, blades: int = 3, root_r: float = 0.5
         if not hub:
             continue
         # Spar tube from the hub out to the blade root.
-        _tube_into(bm, c + span * (0.6 * hub_r), c + span * (root_r + 0.05), 0.05, 0.045, 6)
+        _tube_into(bm, c + span * (0.6 * hub_r), c + span * (root_r + 0.05), 0.05, 0.045, 4)
         if head:
             lead = travel / max(np.linalg.norm(travel), 1e-9)
             # Grip sleeve over the spar, a vertical hinge knuckle at the hub and a damper beside it.
-            _tube_into(bm, c + span * (hub_r + 0.12), c + span * (root_r - 0.05), 0.065, 0.055, 6)
+            _tube_into(bm, c + span * (hub_r + 0.12), c + span * (root_r - 0.05), 0.065, 0.055, 4)
             k0 = c + span * (hub_r + 0.05)
-            _tube_into(bm, k0 - up * 0.1, k0 + up * 0.1, 0.045, 0.045, 6)
+            _tube_into(bm, k0 - up * 0.1, k0 + up * 0.1, 0.045, 0.045, 4)
             _tube_into(bm, c + span * (hub_r * 0.5) - lead * 0.16 + up * 0.08,
-                       c + span * (hub_r + 0.3) - lead * 0.12 + up * 0.08, 0.02, 0.02, 6)
+                       c + span * (hub_r + 0.3) - lead * 0.12 + up * 0.08, 0.02, 0.02, 4)
             # Pitch horn to the leading side, pitch link down to the rotating swashplate ring.
             g = c + span * (hub_r + 0.22)
             horn = g + lead * 0.26 - up * 0.04
-            _tube_into(bm, g, horn, 0.028, 0.022, 6)
+            _tube_into(bm, g, horn, 0.028, 0.022, 4)
             foot = c - up * head.get('link', 0.3)
             ring_r = head.get('ring_r', 0.34)
             rh = horn - up * float(np.dot(horn - c, up))
             rdir = (rh - c) / max(np.linalg.norm(rh - c), 1e-9)
             link_foot = foot + rdir * ring_r
-            _tube_into(bm, horn, link_foot, 0.015, 0.015, 6)
+            _tube_into(bm, horn, link_foot, 0.015, 0.015, 4)
             if head.get('tie_rods'):
                 dy0, dy1, tr = head['tie_rods']
                 th2 = th + math.pi / blades
                 rd = np.array([math.sin(th2), 0.0, math.cos(th2)])
-                _tube_into(bm, c + rd * tr + up * dy0, c + rd * tr + up * dy1, 0.018, 0.018, 6)
+                _tube_into(bm, c + rd * tr + up * dy0, c + rd * tr + up * dy1, 0.018, 0.018, 4)
     # Hub: a short drum on the axis.
     if hub:
         _tube_into(bm, c - up * 0.5 * hub_h, c + up * 0.5 * hub_h, hub_r, hub_r, hub_sides)

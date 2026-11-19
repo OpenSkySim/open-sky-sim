@@ -250,7 +250,7 @@ def fuselage_sections(cabin, deck):
             keys.append((1.86, H2))
     keys += [se_key(r) for r in cabin if d_(r[0]) > 9.5 and r[1] > 0]
     keys.sort(key=lambda k: k[0])
-    stations = {round(k[0], 3) for k in keys} | {1.45, 1.7, 2.5, 3.6, 4.7, 5.9, 7.05, 8.4}
+    stations = {round(k[0], 3) for k in keys} | {1.45, 1.7, 2.5, 7.05}   # fewer in-between rings (owner: simplify)
     # Nose: the flat front panes need rings exactly at their corners (body.PANE_STATIONS).
     stations = sorted({d for d in stations if not 0.0 < d < 1.1} | set(body.PANE_STATIONS))   # nose tip: cap + pane rings only
     rows, sections = [], []
@@ -289,14 +289,14 @@ def main():
         # Engine intakes (second sheet front view, owner's photos): black hollow rings standing
         # 0.15 m proud of the deck's front face (d 1.95; centres x +-0.43, y 2.52): a thick lip, an
         # open duct, the engine face at its back and a centre bullet.
-        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 8, 'material': DARK,
+        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6, 'material': DARK,
          'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.85), 'radius': 0.29, 'radius_b': 0.305,
          'inner': 0.215, 'inner_b': 0.23},
-        {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 8, 'material': DARK,
+        {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6, 'material': DARK,
          'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
          'inner': 0.23, 'inner_b': 0.23},
         {'name': 'IntakeFace', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.235, 'sides': 8},
+         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.235, 'sides': 6},
         {'name': 'IntakeCone', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
          'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.02, 'radius_b': 0.09, 'sides': 8},
         # Engine exhausts (second sheet side view d 3.54-4.15, owner's photos): a hollow round pipe
