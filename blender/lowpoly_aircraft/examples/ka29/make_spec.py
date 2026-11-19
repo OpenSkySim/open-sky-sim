@@ -43,6 +43,8 @@ def z_(d):
 # Cockpit (owner 2026-11-19): seats 20 cm out from the first 0.52 m, then 10 cm back in.
 SEAT_X = 0.62
 COCKPIT_DY = 0.15    # owner: cockpit 30 cm up, then 15 cm back down
+PANEL_UP = ('InstrumentPanel', 'PanelCentre', 'GlareShield', 'Gauges', 'GaugesCentre', 'Pedestal', 'PedestalTop',
+            'SideConsole', 'SideConsoleTop')
 COCKPIT_PARTS = ('InstrumentPanel', 'PanelCentre', 'GlareShield', 'Gauges', 'GaugesCentre', 'Pedestal', 'PedestalTop',
                  'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack')
 TURQ = '#1f5c5a'      # cockpit: dark turquoise (owner)
@@ -454,6 +456,18 @@ def main():
     ]
     # Owner (2026-11-19): the whole cockpit (floor, panel, consoles, seats, sticks) COCKPIT_DY higher;
     # the pilots' eye points go up with it below.
+    # Owner (2026-11-19): the four consoles (front panel with its top and instruments, centre
+    # console, both side consoles) 20 cm higher; the ones standing on the floor grow up from it.
+    for part in parts:
+        if part['name'] in PANEL_UP:
+            if part['type'] == 'quad':
+                part['points'] = [[q[0], round(q[1] + 0.2, 3), q[2]] for q in part['points']]
+            elif part['name'] in ('Pedestal', 'SideConsole', 'PanelCentre'):
+                # cy up by 0.1, height (above and below) by 0.1 each: the bottom stays put
+                part['stations'] = [r[:2] + [round(r[2] + 0.1, 3), r[3], round(r[4] + 0.1, 3), round(r[5] + 0.1, 3)] + r[6:]
+                                    for r in part['stations']]
+            else:
+                part['stations'] = [r[:2] + [round(r[2] + 0.2, 3)] + r[3:] for r in part['stations']]
     for part in parts:
         if part['name'] in COCKPIT_PARTS:
             if part['type'] == 'loft':
