@@ -192,7 +192,12 @@ def fuselage_sections(cabin, deck):
     dd = [d_(r[0]) for r in deck]
 
     def bottom(d):
-        return float(np.interp(d, cd, [y_(r[2]) for r in cabin]))
+        b = float(np.interp(d, cd, [y_(r[2]) for r in cabin]))
+        if d < 1.14:
+            # Side view: the keel runs level to the nose and only turns up in a small round
+            # at the very front (owner, with the drawing's red line).
+            b = min(b, float(np.interp(d, [-0.05, 0.1, 0.23, 1.14], [0.5, 0.34, 0.30, 0.29])))
+        return b
 
     def cab_top(d):
         return float(np.interp(d, cd, [y_(r[3]) for r in cabin]))
