@@ -7103,6 +7103,7 @@
    "pitch_deg": 6,
    "droop_deg": 3,
    "hand": 1,
+   "phase_deg": 180,
    "hub_r": 0.22,
    "hub_h": 0.22,
    "spin_deg_s": 1600,
@@ -7114,6 +7115,10 @@
      1.0,
      0.24
     ]
+   },
+   "fold_blades": {
+    "aft_deg": 180,
+    "spread_deg": 7
    }
   },
   {
@@ -7147,6 +7152,10 @@
     "link": 0.3,
     "ring_r": 0.3,
     "cap": true
+   },
+   "fold_blades": {
+    "aft_deg": 180,
+    "spread_deg": 5
    }
   },
   {

@@ -221,7 +221,8 @@ def rotor(name: str, center, radius: float, blades: int = 3, root_r: float = 0.5
           tc: float = 0.1, pitch_deg: float = 6.0, droop_deg: float = 0.0, phase_deg: float = 0.0,
           hand: float = 1.0, hub_r: float = 0.3, hub_h: float = 0.3, hub_sides: int = 8,
           tip_chord: float | None = None, chord_points: int = 5, material: str = 'VEHICLE_PLANE_ENGINE',
-          collection: str = 'Construction', head: dict | None = None) -> bpy.types.Object:
+          collection: str = 'Construction', head: dict | None = None, blade_set=None,
+          hub: bool = True) -> bpy.types.Object:
     """Helicopter rotor about the body +Y axis through *center*: straight blades and a hub, one object.
 
     *hand* is the turn about +Y: +1 is anticlockwise seen from above (the nose swings towards the
@@ -234,6 +235,9 @@ def rotor(name: str, center, radius: float, blades: int = 3, root_r: float = 0.5
     ('link' m below the hub, ring radius 'ring_r'); optional 'tie_rods' [dy0, dy1, r] (rods
     parallel to the axis between the blades, e.g. up to the other rotor's swashplate) and 'cap'
     (a dome on top of the hub).
+
+    *blade_set* limits the airfoil panels to those blade indices (None: all) and *hub* False
+    leaves out everything else, so folding blades can be built as their own objects.
     """
     c = np.asarray(center, dtype=np.float64)
     bm = bmesh.new()
@@ -256,7 +260,10 @@ def rotor(name: str, center, radius: float, blades: int = 3, root_r: float = 0.5
             mid = c + span * r
             le = mid - cd * ch * 0.25
             rows.append([*le, ch, tc])
-        _panel_into(bm, np.array(rows), chord_points, normal=nrm, chord_dir=cd)
+        if blade_set is None or k in blade_set:
+            _panel_into(bm, np.array(rows), chord_points, normal=nrm, chord_dir=cd)
+        if not hub:
+            continue
         # Spar tube from the hub out to the blade root.
         _tube_into(bm, c + span * (0.6 * hub_r), c + span * (root_r + 0.05), 0.05, 0.045, 6)
         if head:
@@ -283,8 +290,9 @@ def rotor(name: str, center, radius: float, blades: int = 3, root_r: float = 0.5
                 rd = np.array([math.sin(th2), 0.0, math.cos(th2)])
                 _tube_into(bm, c + rd * tr + up * dy0, c + rd * tr + up * dy1, 0.018, 0.018, 6)
     # Hub: a short drum on the axis.
-    _tube_into(bm, c - up * 0.5 * hub_h, c + up * 0.5 * hub_h, hub_r, hub_r, hub_sides)
-    if head:
+    if hub:
+        _tube_into(bm, c - up * 0.5 * hub_h, c + up * 0.5 * hub_h, hub_r, hub_r, hub_sides)
+    if head and hub:
         foot = c - up * head.get('link', 0.3)
         ring_r = head.get('ring_r', 0.34)
         # Rotating swashplate ring and its hub on the mast.
@@ -346,7 +354,8 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
                      float(spec_part.get('hand', 1.0)), float(spec_part.get('hub_r', 0.3)),
                      float(spec_part.get('hub_h', 0.3)), int(spec_part.get('hub_sides', 8)),
                      spec_part.get('tip_chord'), int(spec_part.get('chord_points', 5)), material,
-                     head=spec_part.get('head'))
+                     head=spec_part.get('head'), blade_set=spec_part.get('_blade_set'),
+                     hub=spec_part.get('_hub', True))
     if kind == 'prop':
         c = list(spec_part['center'])
         if mirrored:

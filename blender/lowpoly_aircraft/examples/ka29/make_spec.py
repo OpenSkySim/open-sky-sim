@@ -303,13 +303,15 @@ def main():
         # Contra-rotating: lower anticlockwise seen from above (hand +1), upper clockwise (hand -1).
         {'name': 'RotorLower', 'type': 'rotor', 'join': 'spin', 'spin_axis': [0, 1, 0], 'material': DARK,
          'center': P(0, y_low, mast_d), 'radius': 7.95, 'blades': 3, 'root_r': 0.75, 'chord': 0.52,
-         'tc': 0.1, 'pitch_deg': 6, 'droop_deg': 3, 'hand': 1, 'hub_r': 0.22, 'hub_h': 0.22,
-         'spin_deg_s': 1600, 'head': {'link': 0.32, 'ring_r': 0.34, 'tie_rods': [0.15, 1.0, 0.24]}},
+         'tc': 0.1, 'pitch_deg': 6, 'droop_deg': 3, 'hand': 1, 'phase_deg': 180, 'hub_r': 0.22, 'hub_h': 0.22,
+         'spin_deg_s': 1600, 'head': {'link': 0.32, 'ring_r': 0.34, 'tie_rods': [0.15, 1.0, 0.24]},
+         'fold_blades': {'aft_deg': 180, 'spread_deg': 7}},
         {'name': 'RotorUpper', 'type': 'rotor', 'join': 'spin', 'spin_axis': [0, 1, 0], 'material': DARK,
          'center': P(0, y_up, mast_d), 'radius': 7.95, 'blades': 3, 'root_r': 0.75, 'chord': 0.52,
          'tc': 0.1, 'pitch_deg': 6, 'droop_deg': 2.5, 'hand': -1, 'phase_deg': 60, 'hub_r': 0.2,
          'hub_h': 0.22, 'spin_deg_s': 1600,
-         'head': {'link': 0.3, 'ring_r': 0.3, 'cap': True}},
+         'head': {'link': 0.3, 'ring_r': 0.3, 'cap': True},
+         'fold_blades': {'aft_deg': 180, 'spread_deg': 5}},
         # Stub wings (second sheet top/side views, owner's photos): a flat wing only between the
         # weapon beams (x 1.95-2.6), pipes inboard of it, with two weapon beams below, held by pipes from the cabin roof
         # line: a single strut at d 3.49 and a V (d 3.55 and 4.84) meeting at the wing at d 4.30.

@@ -251,6 +251,46 @@ def _spinning(obj, item: dict, side_name: str, mirrored: bool, material: str) ->
     print(f'[lpa] spinning {role}: centre {np.round(centre, 3).tolist()} hand {obj["lpa_sign"]:+.0f}')
 
 
+def _folding_blades(parts, item: dict, side_name: str, material: str) -> None:
+    """Blades of a 'fold_blades' rotor as fold surfaces on the spinning hub (sweepParent).
+
+    fold_blades: {'aft_deg': direction they fold to (rotor angle, 180 = +d / tail),
+    'spread_deg': fan between neighbours}. Rotor angle th: radial (sin th, 0, cos th).
+    """
+    fb = item['fold_blades']
+    n = int(item.get('blades', 3))
+    phase = float(item.get('phase_deg', 0.0))
+    aft = float(fb.get('aft_deg', 180.0))
+    spread = float(fb.get('spread_deg', 6.0))
+    droop = math.radians(float(item.get('droop_deg', 0.0)))
+    root_r = float(item.get('root_r', 0.5))
+    c = np.asarray(item['center'], dtype=np.float64)
+    wrap = lambda a: (a + 180.0) % 360.0 - 180.0
+    th = [phase + 360.0 * k / n for k in range(n)]
+    order = sorted(range(n), key=lambda k: wrap(th[k] - aft))
+    parent = item.get('name', 'prop') + side_name
+    for slot, k in enumerate(order):
+        target = aft + spread * (slot - 0.5 * (n - 1))
+        a = wrap(target - th[k])
+        obj = parts.build_part({**item, '_blade_set': [k], '_hub': False}, False)
+        bpy.data.collections['Construction'].objects.unlink(obj)
+        role = f'{parent}Blade{k + 1}'
+        obj.name = role
+        geo._link(obj, 'Surfaces')
+        geo.tidy(obj, material)
+        t = math.radians(th[k])
+        radial = np.array([math.sin(t), 0.0, math.cos(t)])
+        hinge = c + radial * root_r * math.cos(droop) - np.array([0.0, 1.0, 0.0]) * root_r * math.sin(droop)
+        geo.set_origin(obj, hinge.tolist())
+        obj['lpa_role'] = role
+        obj['lpa_control'] = fb.get('control', 'fold')
+        obj['lpa_sign'] = 1.0 if a >= 0 else -1.0
+        obj['lpa_range_deg'] = abs(a)
+        obj['lpa_axis'] = [0.0, 1.0, 0.0]
+        obj['lpa_sweep_parent'] = parent
+        print(f'[lpa] folding blade {role}: {th[k]:.0f} deg -> {target:.0f} deg ({a:+.0f})')
+
+
 def _sliding(obj, item: dict, side_name: str, material: str, smooth_deg: float | None) -> None:
     """A part that moves in a straight line by 'slide_m' (body metres) with its control
     (default 'fold': a rotodome lowered for parking). Exported as a surface with 'slide'."""
@@ -687,6 +727,15 @@ def build_parts(spec: dict) -> None:
                 continue
             bpy.data.collections['Construction'].objects.unlink(obj)
             if join == 'spin':
+                if item.get('type') == 'rotor' and item.get('fold_blades'):
+                    # Folding blades: the hub spins, each blade is its own part riding on it
+                    # and swinging back about a vertical hinge at its root for parking.
+                    bpy.data.objects.remove(obj)
+                    obj = parts.build_part({**item, '_blade_set': []}, mirrored)
+                    bpy.data.collections['Construction'].objects.unlink(obj)
+                    _spinning(obj, item, side_name, mirrored, material)
+                    _folding_blades(parts, item, side_name, material)
+                    continue
                 _spinning(obj, item, side_name, mirrored, material)
                 continue
             if join == 'slide':
