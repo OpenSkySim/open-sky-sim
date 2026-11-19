@@ -90,7 +90,7 @@ QUARTER_1 = (1.10, 1.24, 0.77)
 QUARTER_2 = (0.95, 1.97, 1.042)
 ROOF_BLEND_END = 1.75
 # Deck fairing roof profile (x, height) at the first roof ring behind the glazing (d ROOF_RING_D).
-ROOF_PROFILE = ((0.0, 2.29), (0.22, 2.29), (0.38, 2.16), (0.81, 2.12))
+ROOF_PROFILE = ((0.0, 2.29), (0.22, 2.277), (0.38, 2.253), (0.81, 2.12))   # smooth crown, no step
 ROOF_RING_D = 1.141
 PANE_STATIONS = (0.235, 0.30, 0.37, 0.45, 0.50, 0.56, 0.62, 0.67, 0.72, 0.77, 1.042)
 
@@ -133,7 +133,10 @@ def windscreen(d, H, y0):
         # so the loft does not twist where the glazing rings end.
         P = P.copy()
         sh = P[4].copy()
+        # Simple smooth crown over the cockpit (no raised strip): the profile's heights.
         top = [P[0], P[1], P[2], sh]
+        top = [(q[0], float(np.interp(abs(q[0]), *zip(*ROOF_PROFILE)))) if i < 3 else q
+               for i, q in enumerate(top)]
         out = np.vstack([top, resample(P[4:HALF_N // 2 + 1], HALF_N // 2 - 3)[1:], P[HALF_N // 2 + 1:]])
         return out - np.array([0.0, y0])
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
