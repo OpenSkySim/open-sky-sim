@@ -168,7 +168,7 @@ def _panel_into(bm, rows, chord_points, normal=None, chord_dir=None) -> None:
 def prop(name: str, center, radius: float, blades: int = 6, root_r: float = 0.4, chord: float = 0.4,
          pitch_deg: float = 30.0, phase_deg: float = 0.0, hand: float = 1.0, material: str = 'VEHICLE_PLANE_ENGINE',
          collection: str = 'Construction', sweep: float = 0.0, span_range=(0.0, 1.0),
-         chord_points: int = 5) -> bpy.types.Object:
+         chord_points: int = 5, blade=None) -> bpy.types.Object:
     """Propeller blades about the +Z axis through *center*, one object.
 
     *hand* is the turn about +Z (body): +1 turns the top of the disc towards -X, which is
@@ -181,6 +181,11 @@ def prop(name: str, center, radius: float, blades: int = 6, root_r: float = 0.4,
     """
     c = np.asarray(center, dtype=np.float64)
     bm = bmesh.new()
+    if blade is not None:
+        for k in range(blades):
+            th = math.radians(phase_deg) + 2 * math.pi * k / blades
+            _shaped_blade(bm, c, th, radius, root_r, chord, hand, blade, span_range)
+        return _object(bm, name, material, collection)
     pitch = math.radians(pitch_deg)
     span = [(root_r, 0.65), (root_r + 0.45 * (radius - root_r), 1.0), (root_r + 0.86 * (radius - root_r), 0.85),
             (radius, 0.3)]
@@ -208,6 +213,64 @@ def prop(name: str, center, radius: float, blades: int = 6, root_r: float = 0.4,
         # One chord direction per blade (the mid station's) keeps the sections parallel.
         _panel_into(bm, np.array(rows), chord_points, chord_dir=_prop_chord_dir(th, hand, pitch))
     return _object(bm, name, material, collection)
+
+
+def _shaped_blade(bm, c, th, radius, root_r, chord, hand, blade: dict, span_range) -> None:
+    """One blade drawn from a planform table (a propfan's wide scimitar blade).
+
+    blade = {'planform': [[s, chord_frac, aft_m], ...]  s 0 (root) .. 1 (tip); chord as a
+             fraction of *chord*; aft_m how far the blade's pivot line (30 % chord) trails the
+             straight radial line, in metres along the arc against the turn,
+             'pitch_deg': [root, tip] blade angle from the disc plane (twist in between),
+             'tc': thickness ratio, 'camber': camber ratio (bulging forward, the thrust side),
+             'stations': spanwise rows, 'chord_u': chordwise fractions (0 = LE, 1 = TE) of this object,
+             'chord_range' is implied by chord_u, so a leading-edge strip and the rest of the blade
+             can be separate objects (painted differently) that meet flush.}
+    """
+    pf = np.asarray(blade['planform'], dtype=np.float64)
+    p0, p1 = blade.get('pitch_deg', [45.0, 28.0])
+    tc = float(blade.get('tc', 0.05))
+    camber = float(blade.get('camber', 0.03))
+    us = np.asarray(blade.get('chord_u', [0.0, 0.4, 1.0]), dtype=np.float64)
+    n = int(blade.get('stations', 7))
+    s0, s1 = span_range
+    ss = np.linspace(s0, s1, max(n, 2))
+    # Rounded tip: the last stations bunch up towards the tip.
+    if s1 >= 1.0:
+        ss = s0 + (s1 - s0) * np.sin(0.5 * math.pi * np.linspace(0, 1, max(n, 2))) ** 0.8
+    half = naca_half_thickness(np.clip(us, 0, 1), 1.0)
+    halfc = np.maximum(half, 0.004)                      # a hair of thickness at the TE: no zero-area faces
+    camb = 4 * camber * us * (1 - us)
+    rings = []
+    for s in ss:
+        r = root_r + s * (radius - root_r)
+        f = float(np.interp(s, pf[:, 0], pf[:, 1]))
+        aft = float(np.interp(s, pf[:, 0], pf[:, 2]))
+        ch = f * chord
+        phi = th - hand * aft / max(r, 1e-6)
+        radial = np.array([math.cos(phi), math.sin(phi), 0.0])
+        tangent = -hand * np.array([-math.sin(phi), math.cos(phi), 0.0])
+        pitch = math.radians(p0 + (p1 - p0) * s)
+        cd = tangent * math.cos(pitch) + np.array([0.0, 0.0, -1.0]) * math.sin(pitch)
+        nrm = np.cross(radial, cd)
+        if nrm[2] < 0:
+            nrm = -nrm
+        nrm /= np.linalg.norm(nrm)
+        le = c + radial * r - cd * ch * 0.3
+        upper = [le + cd * ch * u + nrm * ch * (cb + tc * h) for u, h, cb in zip(us, halfc, camb)]
+        lower = [le + cd * ch * u + nrm * ch * (cb - tc * h) for u, h, cb in zip(us, halfc, camb)]
+        ring = list(upper)
+        if us[-1] >= 1.0:
+            ring[-1] = le + cd * ch                       # sharp trailing edge: one point
+            tail = lower[-2::-1]
+        else:
+            tail = lower[::-1]
+        if us[0] <= 0.0:
+            ring[0] = le
+            tail = tail[:-1]                              # sharp leading edge: one point
+        ring += tail
+        rings.append([bm.verts.new(geo.to_bl(p)) for p in ring])
+    _skin(bm, rings)
 
 
 def _prop_chord_dir(th: float, hand: float, pitch: float) -> np.ndarray:
@@ -251,7 +314,7 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
                     float(spec_part.get('hand', 1.0)) * (-1.0 if mirrored and spec_part.get('mirror_hand') else 1.0),
                     material,
                     sweep=float(spec_part.get('sweep', 0.0)), span_range=tuple(spec_part.get('span_range', (0.0, 1.0))),
-                    chord_points=int(spec_part.get('chord_points', 5)))
+                    chord_points=int(spec_part.get('chord_points', 5)), blade=spec_part.get('blade'))
     raise ValueError(f'unknown part type {kind!r}')
 
 
