@@ -576,3 +576,15 @@ def disc(name: str, center, radius: float, normal_axis: str, material: str, coll
     me.materials.append(get_material(material))
     obj = bpy.data.objects.new(name, me)
     return _link(obj, collection)
+
+
+def flatten_panes(obj: bpy.types.Object, angle_deg: float = 1.0) -> None:
+    """Merge coplanar faces and drop vertices on straight edges, then triangulate (BEAUTY)."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-4)
+    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(angle_deg), use_dissolve_boundaries=True,
+                             verts=bm.verts[:], edges=bm.edges[:])
+    bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method='BEAUTY', ngon_method='BEAUTY')
+    bm.to_mesh(obj.data)
+    bm.free()

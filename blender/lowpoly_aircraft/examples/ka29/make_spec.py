@@ -159,7 +159,7 @@ def windows_and_doors():
         # Three flat front panes (owner's photo): the hull itself is cut flat there (body.windscreen),
         # and the glass is the side-view band clipped to three top-view strips, so the frames between
         # them (x +-0.29, 6 cm) and the corner frames stay hull skin.
-        {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'depth_m': [-1.3, 1.3],
+        {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'depth_m': [-1.3, 1.3],
          'polygon_m': [[z_(0.2), 1.28], [z_(0.71), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.28]],
          'clip': {'view': 'top', 'polygons_m': [
              [[-0.27, z_(0.2)], [0.27, z_(0.2)], [0.27, z_(0.66)], [-0.27, z_(0.66)]],
@@ -167,7 +167,7 @@ def windows_and_doors():
              [[-0.31, z_(0.25)], [-0.31, z_(0.66)], [-0.875, z_(0.76)], [-0.92, z_(0.465)]]]}},
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
-        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.8, 1.3],
+        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'depth_m': [0.8, 1.3],
          'polygon_m': [[z_(0.5), 1.29], [z_(0.81), 2.0], [z_(1.03), 2.0], [z_(0.84), 1.29]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
@@ -304,26 +304,26 @@ def main():
          'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.02, 'radius_b': 0.09, 'sides': 8},
         # Engine exhausts (second sheet side view d 3.54-4.15, owner's photos): a hollow round pipe
         # standing out of the deck side, angled a little aft and down, with a thick lip; dark inside.
-        {'name': 'ExhaustPipe', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 8,
+        {'name': 'ExhaustPipe', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6,
          'a': P(0.45, 2.56, 3.76), 'b': P(0.99, 2.5, 3.93), 'radius': 0.26, 'radius_b': 0.27,
          'inner': 0.2, 'inner_b': 0.215},
-        {'name': 'ExhaustLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 8,
+        {'name': 'ExhaustLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6,
          'a': P(0.98, 2.501, 3.927), 'b': P(1.04, 2.494, 3.946), 'radius': 0.285, 'radius_b': 0.29,
          'inner': 0.215, 'inner_b': 0.225},
         {'name': 'ExhaustLiner', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6, 'material': DARK,
          'a': P(0.6, 2.543, 3.807), 'b': P(1.02, 2.496, 3.94), 'radius': 0.197, 'radius_b': 0.21,
          'inner': 0.185, 'inner_b': 0.198},
         {'name': 'ExhaustInside', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.45, 2.56, 3.76), 'b': P(0.7, 2.532, 3.839), 'radius': 0.205, 'sides': 8},
+         'a': P(0.45, 2.56, 3.76), 'b': P(0.7, 2.532, 3.839), 'radius': 0.205, 'sides': 6},
         # Rotor mast, rebuilt after the owner's photo (bottom to top): a conical fairing on the deck,
         # the fixed lower swashplate (ring on three arms, three control rods from the deck), the
         # stepped lower mast into the lower hub, the gearbox drum and collar between the rotors, the
         # fixed upper swashplate (ring on three arms) under the upper head, and a slim upper mast
         # with a nut through the upper hub. The rotating parts are in the rotors' 'head'.
-        {'name': 'MastFairing', 'type': 'strut', 'a': P(0.0, 2.7, mast_d - (0.0)), 'b': P(0.0, 2.86, mast_d - (0.0)), 'radius': 0.42, 'radius_b': 0.24, 'sides': 10, 'join': 'separate', 'material': DARK},
-        {'name': 'MastLower', 'type': 'strut', 'a': P(0.0, 2.86, mast_d - (0.0)), 'b': P(0.0, y_low - 0.1, mast_d - (0.0)), 'radius': 0.1, 'radius_b': 0.09, 'sides': 8, 'join': 'separate', 'material': '#8a8f94'},
-        {'name': 'SwashLowerRing', 'type': 'strut', 'a': P(0.0, 2.935, mast_d - (0.0)), 'b': P(0.0, 2.97, mast_d - (0.0)), 'radius': 0.38, 'sides': 10, 'join': 'separate', 'material': DARK},
-        {'name': 'SwashLowerHub', 'type': 'strut', 'a': P(0.0, 2.86, mast_d - (0.0)), 'b': P(0.0, 3.0, mast_d - (0.0)), 'radius': 0.14, 'radius_b': 0.12, 'sides': 8, 'join': 'separate', 'material': DARK},
+        {'name': 'MastFairing', 'type': 'strut', 'a': P(0.0, 2.7, mast_d - (0.0)), 'b': P(0.0, 2.86, mast_d - (0.0)), 'radius': 0.42, 'radius_b': 0.24, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'MastLower', 'type': 'strut', 'a': P(0.0, 2.86, mast_d - (0.0)), 'b': P(0.0, y_low - 0.1, mast_d - (0.0)), 'radius': 0.1, 'radius_b': 0.09, 'sides': 6, 'join': 'separate', 'material': '#8a8f94'},
+        {'name': 'SwashLowerRing', 'type': 'strut', 'a': P(0.0, 2.935, mast_d - (0.0)), 'b': P(0.0, 2.97, mast_d - (0.0)), 'radius': 0.38, 'sides': 6, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashLowerHub', 'type': 'strut', 'a': P(0.0, 2.86, mast_d - (0.0)), 'b': P(0.0, 3.0, mast_d - (0.0)), 'radius': 0.14, 'radius_b': 0.12, 'sides': 6, 'join': 'separate', 'material': DARK},
         {'name': 'SwashLowerArm1', 'type': 'strut', 'a': P(0.11, 2.945, mast_d - (0.191)), 'b': P(0.18, 2.945, mast_d - (0.312)), 'radius': 0.022, 'sides': 6, 'join': 'separate', 'material': DARK},
         {'name': 'ControlRod1', 'type': 'strut', 'a': P(0.18, 2.62, mast_d - (0.312)), 'b': P(0.18, 2.93, mast_d - (0.312)), 'radius': 0.016, 'sides': 6, 'join': 'separate', 'material': DARK},
         {'name': 'SwashLowerArm2', 'type': 'strut', 'a': P(0.11, 2.945, mast_d - (-0.191)), 'b': P(0.18, 2.945, mast_d - (-0.312)), 'radius': 0.022, 'sides': 6, 'join': 'separate', 'material': DARK},

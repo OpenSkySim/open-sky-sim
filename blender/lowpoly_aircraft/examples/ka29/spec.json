@@ -4014,7 +4014,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 8,
+   "sides": 6,
    "a": [
     0.45,
     2.56,
@@ -4035,7 +4035,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 8,
+   "sides": 6,
    "a": [
     0.98,
     2.501,
@@ -4090,7 +4090,7 @@
     0.381
    ],
    "radius": 0.205,
-   "sides": 8
+   "sides": 6
   },
   {
    "name": "MastFairing",
@@ -4107,7 +4107,7 @@
    ],
    "radius": 0.42,
    "radius_b": 0.24,
-   "sides": 10,
+   "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -4126,7 +4126,7 @@
    ],
    "radius": 0.1,
    "radius_b": 0.09,
-   "sides": 8,
+   "sides": 6,
    "join": "separate",
    "material": "#8a8f94"
   },
@@ -4144,7 +4144,7 @@
     -0.001
    ],
    "radius": 0.38,
-   "sides": 10,
+   "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -4163,7 +4163,7 @@
    ],
    "radius": 0.14,
    "radius_b": 0.12,
-   "sides": 8,
+   "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -5161,6 +5161,8 @@
    "name": "Windscreen",
    "view": "side",
    "see_through": true,
+   "flat_panes": true,
+   "flat_deg": 8,
    "depth_m": [
     -1.3,
     1.3
@@ -5248,6 +5250,8 @@
    "view": "side",
    "mirror": true,
    "see_through": true,
+   "flat_panes": true,
+   "flat_deg": 8,
    "depth_m": [
     0.8,
     1.3

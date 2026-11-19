@@ -810,6 +810,10 @@ def build_parts(spec: dict) -> None:
                                 cutters=cutters, clip=clip)
             if part is not None:
                 part['lpa_region'] = item.get('name', 'Region')
+                if item.get('flat_panes'):
+                    # Flat panes as few triangles as possible: merge each flat pane into one face
+                    # (straight edges lose their in-between vertices), so a 4-cornered pane is 2 tris.
+                    geo.flatten_panes(part, float(item.get('flat_deg', 1.0)))
                 if skin is not None:
                     geo.keep_skin(part, skin)
                     see_through.append((skin, cutters[-1]))
