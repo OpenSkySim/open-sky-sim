@@ -3467,9 +3467,15 @@ function paintSurf(view, u, v, xs = 1, mirror = false) {
   let o, d;
   if (view === 'side') { const sx = mirror ? -xs : xs; o = new THREE.Vector3(sx * far, v + s[1], u + s[2]); d = new THREE.Vector3(-sx, 0, 0); }
   else { const x = (mirror ? -v : v) + s[0], sy = view === 'top' ? 1 : -1; o = new THREE.Vector3(x, sy * far, u + s[2]); d = new THREE.Vector3(0, -sy, 0); }
-  const hit = new THREE.Raycaster(o, d).intersectObjects(paintObjs(), false)[0];
-  if (!hit) return null;
-  return hit.point.clone().addScaledVector(d, -0.015);
+  // The first face the build would paint for this view (facing it, like lpa/paint.py), so a
+  // wing or a part in front with other facing does not catch the shape.
+  for (const hit of new THREE.Raycaster(o, d).intersectObjects(paintObjs(), false)) {
+    if (!hit.face) continue;
+    const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    if (paintViewOfNormal(n) !== view || n.dot(d) > 0) continue;
+    return hit.point.clone().addScaledVector(d, -0.015);
+  }
+  return null;
 }
 function paintScreen(view, uv, xs = -1) {
   const w = paintFree() ? (paintSurf(view, uv[0], uv[1], xs) || paintToWorld(view, uv[0], uv[1], 0)) : paintToWorld(view, uv[0], uv[1], paintPlane(view));
@@ -3557,18 +3563,31 @@ function paintDrawFree() {
       for (const p of seg) { if (p) run.push(p); else flush(); }
       flush();
       if (closed && pts.length >= 3) {
-        // Filled: the outlined polygon itself (its points laid on the model), not the mesh under it.
-        const P2 = [], P3 = [];
-        for (let k = 0; k < pts.length; k++) {
-          const p = paintSurf(view, pts[k][0], pts[k][1], xs, m);
-          if (p) { P2.push(new THREE.Vector2(pts[k][0], pts[k][1])); P3.push(p); }
+        // Filled: the hull skin inside the outline, as the build will paint it (a fine grid of
+        // the shape laid on the faces facing its view; cells off those faces stay empty).
+        const us = pts.map(p => p[0]), vs = pts.map(p => p[1]);
+        const u0 = Math.min(...us), u1 = Math.max(...us), v0 = Math.min(...vs), v1 = Math.max(...vs);
+        const st = Math.max(0.05, Math.max(u1 - u0, v1 - v0) / 48);
+        const nu = Math.ceil((u1 - u0) / st), nv = Math.ceil((v1 - v0) / st);
+        const cache = new Map();
+        const at = (i, j) => {
+          const k = i * (nv + 1) + j;
+          if (!cache.has(k)) cache.set(k, paintSurf(view, u0 + i * st, v0 + j * st, xs, m));
+          return cache.get(k);
+        };
+        const tri = [];
+        for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+          if (!paintInside([u0 + (i + 0.5) * st, v0 + (j + 0.5) * st], pts)) continue;
+          const a = at(i, j), b = at(i + 1, j), c2 = at(i + 1, j + 1), d = at(i, j + 1);
+          if (!a || !b || !c2 || !d) continue;
+          // Skip cells that jump between surfaces (an edge of the hull seen along the view).
+          if (Math.max(a.distanceTo(c2), b.distanceTo(d)) > st * 4) continue;
+          tri.push(a, b, c2, a, c2, d);
         }
-        if (P3.length >= 3) {
-          const tri = THREE.ShapeUtils.triangulateShape(P2, []);
-          const geo = new THREE.BufferGeometry().setFromPoints(P3);
-          geo.setIndex(tri.flat());
-          const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color(fillColor), transparent: true, opacity: sel ? 0.85 : 0.75,
-            side: THREE.DoubleSide, depthWrite: false, depthTest: !!m }));   // the mirror image stays behind the hull
+        if (tri.length) {
+          const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints(tri),
+            new THREE.MeshBasicMaterial({ color: new THREE.Color(fillColor), transparent: true, opacity: sel ? 0.9 : 0.8, side: THREE.DoubleSide, depthWrite: false,
+                                          polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
           fill.renderOrder = 18; g.add(fill);
         }
       }
