@@ -212,7 +212,7 @@ def fuselage_sections(cabin, deck):
     secs = body.load_sections()
     keys = [se_key(r) for r in cabin[:3]]
     for k, sec in secs.items():
-        H = body.resample_pinned(sec['half'])
+        H = body.resample(sec['half'])
         d = sec['d']
         target = None
         if k == 'A':
@@ -226,7 +226,7 @@ def fuselage_sections(cabin, deck):
             # and blending its tall top into the nose rings creases the skin under the side panes.
             cap = body.PANE_A[1] - bottom(d)
             keys.append((body.PANE_C[2], H.copy()))   # the full outline from the side panes' top back
-            H = body.resample_pinned(np.stack([H[:, 0], np.minimum(H[:, 1], cap)], axis=1))
+            H = body.resample(np.stack([H[:, 0], np.minimum(H[:, 1], cap)], axis=1))
         keys.append((d, H))
         if k == 'V':
             # Just ahead of the deck's front face the fuselage still ends at the cockpit fairing,
