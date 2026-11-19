@@ -187,6 +187,8 @@ button.ok { color: var(--ok); }
 .brush-fall { font-size: 12px; margin-top: 8px; }
 .brush-vec input, .brush-fall select { width: 100%; min-width: 0; box-sizing: border-box; font: 12px var(--font-mono); color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 3px 4px; }
 .brush-fall select { width: auto; font-family: var(--font-ui); }
+.brush-mode { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; margin-top: 8px; }
+.brush-mode label { display: inline-flex; align-items: center; gap: 4px; }
 #brushOn[aria-pressed="true"] { border-color: var(--xs); color: var(--xs); font-weight: 600; box-shadow: inset 0 -2px 0 var(--xs); }
 .row button:disabled { opacity: 0.45; cursor: default; }
 </style>
@@ -342,6 +344,10 @@ button.ok { color: var(--ok); }
       <h2>Brush</h2>
       <div class="row" style="margin: 0 0 8px"><button type="button" id="brushOn" aria-pressed="false">Brush off</button></div>
       <div class="xs-ctl"><label for="brushR">Radius</label><input id="brushR" type="range" min="0.05" max="3" step="0.01" value="0.5"><input id="brushRNum" type="number" min="0.01" step="0.01" value="0.50" aria-label="Brush radius in metres"></div>
+      <div class="brush-mode" role="radiogroup" aria-label="How the move is set">
+        <label><input type="radio" name="brushMode" value="vector" checked> typed vector</label>
+        <label title="Press on the model and drag: the part under the brush follows the mouse. Shift keeps the move to one axis."><input type="radio" name="brushMode" value="grab"> follow the mouse</label>
+      </div>
       <div class="brush-vec" role="group" aria-label="Move by, in metres">
         <span>Move (m)</span>
         <label title="+ towards the left wing">x <input id="brushX" type="number" step="0.01" value="0"></label>
@@ -352,9 +358,10 @@ button.ok { color: var(--ok); }
       <div class="xs-opts">
         <label><input type="checkbox" id="brushMirror" checked> mirror left / right</label>
         <label><input type="checkbox" id="brushPart"> only the part under the brush</label>
+        <label><input type="checkbox" id="brushShow" checked> colour the vertices it moves</label>
       </div>
       <div class="row"><button type="button" id="brushUndo" disabled>Undo stroke</button><button type="button" id="brushClear" class="danger" disabled>Clear all</button><button type="button" id="brushExport">Copy brush.json</button></div>
-      <p class="note" id="brushNote">x + is the left wing, y up, z + towards the nose. With the brush on, drag over the model: what lies under the brush moves by this vector, fading out to the brush's edge. Drag beside the model to turn the view.</p>
+      <p class="note" id="brushNote">x + is the left wing, y up, z + towards the nose. With the brush on, drag over the model: what lies under the brush moves by this vector, fading out to the brush's edge. <b>Follow the mouse:</b> press on the model and drag; the part under the brush follows the pointer (in the screen's plane; Shift keeps it to one axis). Drag beside the model to turn the view. Ctrl-Z undoes a stroke, Ctrl-Shift-Z or Ctrl-Y redoes it.</p>
       <p class="note" id="brushState"></p>
       <textarea id="brushExportText" readonly aria-label="brush.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
     </div>
@@ -2925,7 +2932,7 @@ new ResizeObserver(() => xsDraw()).observe($('xsCanvas'));
 // aircraft/<id>/brush/<strokeId> as { id, aircraft, t, path: [[x, y, z]], radius, vec, falloff, mirror, parts };
 // brush_tool.py from-hangar turns them into brush.json for the build (lpa/brush.py, same maths).
 // A build lists the strokes it applied in models/<id>/brush.json: those are in the model already.
-const B = { on: false, entry: null, docs: {}, baked: new Set(), stroke: null, cursor: null, ray: new THREE.Raycaster() };
+const B = { on: false, entry: null, docs: {}, baked: new Set(), stroke: null, cursor: null, ray: new THREE.Raycaster(), redo: [], dots: null, tinted: new Set() };
 const BRUSH_FALLOFF = { smooth: f => 0.5 * (1 + Math.cos(Math.PI * f)), linear: f => 1 - f, constant: () => 1 };
 
 function brushPrepare(scenes) {
@@ -2935,6 +2942,8 @@ function brushPrepare(scenes) {
     o.geometry = o.geometry.clone();   // parts sharing one mesh must not move together
     const rest = o.matrixWorld.clone(), pos = o.geometry.attributes.position, P = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(rest); P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z; }
+    o.geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pos.count * 3).fill(1), 3));
+    for (const mat of Array.isArray(o.material) ? o.material : [o.material]) if (mat) { mat.vertexColors = true; mat.needsUpdate = true; }
     const nrm = o.geometry.attributes.normal;
     out.push({ o, part: node.name, rest, restInv: rest.clone().invert(), orig: P, cur: P, normal0: nrm ? nrm.array.slice() : null, moved: false });
   });
@@ -2979,6 +2988,68 @@ function strokeApply(s, P, out) {
     any = true;
   }
   return any;
+}
+// Weight of each vertex (0..1) under a stroke's brush, with the same rules as strokeApply; null if none.
+function brushWeights(s, P) {
+  const r = s.radius, fall = BRUSH_FALLOFF[s.falloff] || BRUSH_FALLOFF.smooth;
+  const paths = [s.path].concat(s.mirror ? [s.path.map(q => [-q[0], q[1], q[2]])] : []);
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const p of paths) for (const q of p) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], q[k] - r); hi[k] = Math.max(hi[k], q[k] + r); }
+  let W = null;
+  for (let i = 0; i < P.length; i += 3) {
+    const x = P[i], y = P[i + 1], z = P[i + 2];
+    if (x < lo[0] || x > hi[0] || y < lo[1] || y > hi[1] || z < lo[2] || z > hi[2]) continue;
+    let w = 0;
+    for (const path of paths) { const d = brushPathDist(x, y, z, path); if (d < r) w = Math.max(w, fall(d / r)); }
+    if (w > 0) { (W || (W = new Float32Array(P.length / 3)))[i / 3] = w; }
+  }
+  return W;
+}
+// Marks what a stroke (or the brush where the pointer is) moves: those vertices tinted on the
+// model, from white to orange by how much of the move they take, and dotted.
+const BRUSH_TINT = new THREE.Color(0xff6a00);
+function brushMark(s) {
+  if (B.dots) { B.dots.geometry.dispose(); B.dots.material.dispose(); B.dots.removeFromParent(); B.dots = null; }
+  const show = s && B.on && $('brushShow').checked && current;
+  const tinted = new Set(), dots = [], cols = [], v = new THREE.Vector3(), toCam = new THREE.Vector3(), c = new THREE.Color();
+  if (show) {
+    for (const m of brushTargets(s)) {
+      const W = brushWeights(s, m.cur);
+      if (!W) continue;
+      const col = m.o.geometry.attributes.color, pos = m.o.geometry.attributes.position;
+      col.array.fill(1);
+      for (let i = 0; i < W.length; i++) {
+        const w = W[i];
+        if (!(w > 0)) continue;
+        c.setRGB(1, 1, 1).lerp(BRUSH_TINT, 0.25 + 0.75 * w);
+        col.setXYZ(i, c.r, c.g, c.b);
+        v.fromBufferAttribute(pos, i).applyMatrix4(m.o.matrixWorld);
+        // A hair towards the camera, so the dot is not hidden in its own face.
+        toCam.copy(cam.position).sub(v).normalize().multiplyScalar(0.015);
+        v.add(toCam);
+        dots.push(v.x, v.y, v.z);
+        cols.push(c.r, c.g, c.b);
+      }
+      col.needsUpdate = true;
+      tinted.add(m);
+    }
+  }
+  for (const m of B.tinted) if (!tinted.has(m)) { const col = m.o.geometry.attributes.color; if (col) { col.array.fill(1); col.needsUpdate = true; } }
+  B.tinted = tinted;
+  if (!dots.length) return;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(dots, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  B.dots = new THREE.Points(g, new THREE.PointsMaterial({ size: 5, sizeAttenuation: false, vertexColors: true }));
+  B.dots.renderOrder = 15;
+  B.dots.userData.reference = true;
+  scene.add(B.dots);
+}
+// The stroke the pointer would start here (for marking while hovering).
+function brushHoverStroke(hit) {
+  const st = brushSettings();
+  return { path: [hit.p], radius: st.radius, falloff: st.falloff, mirror: st.mirror,
+           parts: $('brushPart').checked ? [...new Set([hit.m.part].concat(st.mirror ? [brushMirrorPart(hit.p)] : []))].filter(Boolean) : null };
 }
 const brushStrokes = () => Object.values(B.docs).filter(d => d && !d.removed && d.path && d.path.length && d.radius > 0 && d.vec)
   .sort((a, b) => String(a.t || '').localeCompare(String(b.t || '')) || String(a.id).localeCompare(String(b.id)));
@@ -3025,7 +3096,7 @@ async function brushLoadDocs() {
 }
 async function brushModelChanged(entry, stale) {
   if (!B.entry || B.entry.id !== entry.id) {
-    B.entry = entry; B.docs = {}; B.baked = new Set();
+    B.entry = entry; B.docs = {}; B.baked = new Set(); B.redo = [];
     try {
       const r = await fetch(`models/${entry.id}/brush.json`);
       if (r.ok) B.baked = new Set(((await r.json()).applied) || []);
@@ -3048,7 +3119,8 @@ function brushUi() {
 function brushSettings() {
   const num = id => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : 0; };
   return { radius: Math.max(num('brushRNum'), 0.01), vec: [num('brushX'), num('brushY'), num('brushZ')],
-           falloff: $('brushFall').value, mirror: $('brushMirror').checked };
+           falloff: $('brushFall').value, mirror: $('brushMirror').checked,
+           grab: (document.querySelector('input[name="brushMode"]:checked') || {}).value === 'grab' };
 }
 function brushSetOn(on) {
   B.on = on;
@@ -3058,6 +3130,7 @@ function brushSetOn(on) {
   if (on) setDemo(false);
   controls.enabled = true;
   renderer.domElement.style.cursor = '';
+  brushMark(null);
   stage.querySelector('.hint').textContent = on ? 'Brush on: drag over the model to move it, drag beside it to rotate, scroll to zoom'
                                                 : 'Drag to rotate, scroll to zoom, right-drag to pan';
   brushCursor(null);
@@ -3105,7 +3178,7 @@ function brushCursor(hit) {
   ringAt(hit.point, hit.normal);
   if (st.mirror && Math.abs(hit.point.x) > st.radius * 0.25)
     ringAt(new THREE.Vector3(-hit.point.x, hit.point.y, hit.point.z), new THREE.Vector3(-hit.normal.x, hit.normal.y, hit.normal.z));
-  const v = new THREE.Vector3(...st.vec), len = v.length();
+  const v = new THREE.Vector3(...(B.stroke ? B.stroke.s.vec : st.grab ? [0, 0, 0] : st.vec)), len = v.length();
   if (len > 1e-6) {
     const shown = Math.max(len, st.radius * 0.5);
     const arrow = new THREE.ArrowHelper(v.clone().normalize(), hit.point, shown, 0x2f6db5, Math.min(shown * 0.35, 0.3), Math.min(shown * 0.2, 0.15));
@@ -3127,6 +3200,7 @@ function brushPreview() {
     else if (S.touched.has(m)) brushWrite(m, m.cur, false);
     if (S.out.has(m)) S.touched.add(m);
   }
+  brushMark(S.s);
 }
 // The mirror image's part: the one with a vertex nearest the mirrored point.
 function brushMirrorPart(p) {
@@ -3152,6 +3226,14 @@ stage.addEventListener('pointerdown', e => {
               path: [hit.p.map(c => Math.round(c * 10000) / 10000)], radius: Math.round(st.radius * 1000) / 1000,
               vec: st.vec.map(c => Math.round(c * 10000) / 10000), falloff: st.falloff, mirror: st.mirror, parts };
   B.stroke = { s, touched: new Set(), pointerId: e.pointerId };
+  if (st.grab) {
+    // Follow the mouse: the point pressed moves with the pointer, in the plane facing the camera.
+    s.vec = [0, 0, 0];
+    const n = new THREE.Vector3();
+    cam.getWorldDirection(n);
+    const toRest = new THREE.Matrix4().multiplyMatrices(hit.m.rest, hit.m.o.matrixWorld.clone().invert());
+    B.stroke.grab = { plane: new THREE.Plane().setFromNormalAndCoplanarPoint(n, hit.point), start: hit.point.clone(), toRest };
+  }
   renderer.domElement.setPointerCapture(e.pointerId);
   brushCursor(hit);
   brushPreview();
@@ -3161,9 +3243,13 @@ renderer.domElement.addEventListener('pointermove', e => {
   const hit = brushHit(e);
   if (!B.stroke) {
     // Over the model the brush takes the drag; beside it the view turns.
-    if (e.buttons === 0) { controls.enabled = !hit; renderer.domElement.style.cursor = hit ? 'crosshair' : ''; brushCursor(hit); }
+    if (e.buttons === 0) {
+      controls.enabled = !hit; renderer.domElement.style.cursor = hit ? 'crosshair' : ''; brushCursor(hit);
+      brushMark(hit && brushHoverStroke(hit));
+    }
     return;
   }
+  if (B.stroke.grab) { brushGrabMove(e); return; }
   if (!hit) return;
   brushCursor(hit);
   const S = B.stroke, last = S.s.path[S.s.path.length - 1];
@@ -3171,6 +3257,21 @@ renderer.domElement.addEventListener('pointermove', e => {
   S.s.path.push(hit.p.map(c => Math.round(c * 10000) / 10000));
   brushPreview();
 });
+// Follow the mouse: the vector is how far the pointer has gone in the grab plane (rest frame of the part pressed).
+function brushGrabMove(e) {
+  const S = B.stroke, G = S.grab, r = renderer.domElement.getBoundingClientRect();
+  B.ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam);
+  const w = new THREE.Vector3();
+  if (!B.ray.ray.intersectPlane(G.plane, w)) return;
+  const d = w.sub(G.start), len = d.length();
+  d.transformDirection(G.toRest).multiplyScalar(len);
+  let v = [d.x, d.y, d.z];
+  if (e.shiftKey) { const k = v.map(Math.abs).indexOf(Math.max(...v.map(Math.abs))); v = v.map((c, i) => i === k ? c : 0); }
+  S.s.vec = v.map(c => Math.round(c * 1000) / 1000);
+  ['brushX', 'brushY', 'brushZ'].forEach((id, i) => { $(id).value = S.s.vec[i].toFixed(3); });
+  brushPreview();
+  if (B.cursor) brushCursor(B.cursor.userData.hit);
+}
 function brushEnd() {
   const S = B.stroke;
   if (!S) return;
@@ -3179,12 +3280,14 @@ function brushEnd() {
   if (!S.out || !S.out.size) { brushUi(); return; }
   for (const [m, out] of S.out) { m.cur = out; brushWrite(m, out, true); }
   B.docs[S.s.id] = S.s;
+  B.redo = [];
   brushSave(S.s.id);
   brushAfter();
 }
 renderer.domElement.addEventListener('pointerup', brushEnd);
 renderer.domElement.addEventListener('pointercancel', brushEnd);
-renderer.domElement.addEventListener('pointerleave', () => { if (!B.stroke) brushCursor(null); });
+renderer.domElement.addEventListener('pointerleave', () => { if (!B.stroke) { brushCursor(null); brushMark(null); } });
+$('brushShow').addEventListener('change', () => { if (!$('brushShow').checked) brushMark(null); });
 
 function brushSave(id) {
   if (!cap.db || !B.entry) { brushUi(); return; }
@@ -3207,13 +3310,33 @@ function brushSave(id) {
     } finally { st.busy = false; }
   })();
 }
-$('brushUndo').addEventListener('click', () => {
+function brushUndo() {
   const live = brushLive();
-  if (!live.length) return;
+  if (!live.length || B.stroke) return false;
   const last = live[live.length - 1];
   delete B.docs[last.id];
+  B.redo.push(last);
   brushSave(last.id);
   brushReplay();
+  return true;
+}
+function brushRedo() {
+  const s = B.redo.pop();
+  if (!s || B.stroke) return false;
+  B.docs[s.id] = s;
+  brushSave(s.id);
+  brushReplay();
+  return true;
+}
+$('brushUndo').addEventListener('click', brushUndo);
+// Ctrl-Z / Cmd-Z undoes the last stroke while the brush is on; Ctrl-Shift-Z or Ctrl-Y redoes it.
+document.addEventListener('keydown', e => {
+  if (!B.on || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' && t.type !== 'checkbox' && t.type !== 'radio' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  const k = e.key.toLowerCase();
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); brushUndo(); }
+  else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); brushRedo(); }
 });
 {
   const btn = $('brushClear');
@@ -3226,6 +3349,7 @@ $('brushUndo').addEventListener('click', () => {
     }
     armed = false; btn.textContent = 'Clear all';
     for (const s of brushLive()) { delete B.docs[s.id]; brushSave(s.id); }
+    B.redo = [];
     brushReplay();
   });
 }
