@@ -134,10 +134,10 @@ def fuselage():
     # Engine and gearbox deck on top of the cabin (narrower: sections 7 and 8), with its flat front
     # face at x 424 above a low fairing over the cockpit roof, rounding down to the boom at x 705.
     deck = [
-        (375, 0, 160, 141, 6),
-        (386, 30, 160, 139, 6),
-        (400, 32, 160, 139, 6),
-        (422, 33, 160, 139, 6),
+        (375, 0, 160, 145, 4),
+        (386, 11, 160, 138, 4),
+        (400, 11, 160, 137, 4),
+        (422, 11, 160, 137, 4),
         (427, 33, 160, 116, 2.6),
         (432, 34, 160, 110, 2.6),
         (455, 34, 160, 109, 2.6),
@@ -160,7 +160,7 @@ def windows_and_doors():
         # and the glass is the side-view band clipped to three top-view strips, so the frames between
         # them (x +-0.29, 6 cm) and the corner frames stay hull skin.
         {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'depth_m': [-1.3, 1.3],
-         'polygon_m': [[z_(0.2), 1.18], [z_(0.63), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.18]],
+         'polygon_m': [[z_(0.2), 1.14], [z_(0.63), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.14]],
          'clip': {'view': 'top', 'polygons_m': [
              [[-0.26, z_(0.2)], [0.26, z_(0.2)], [0.26, z_(0.60)], [-0.26, z_(0.60)]],
              [[0.32, z_(0.25)], [0.79, z_(0.385)], [0.735, z_(0.695)], [0.32, z_(0.60)]],
@@ -168,7 +168,7 @@ def windows_and_doors():
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
         {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.8, 1.3],
-         'polygon_m': [[z_(0.45), 1.26], [z_(0.695), 2.0], [z_(1.0), 1.93], [z_(0.75), 1.82]]},
+         'polygon_m': [[z_(0.45), 1.22], [z_(0.695), 2.0], [z_(1.0), 1.93], [z_(0.75), 1.82]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          'polygon_m': [[z_(0.86), 1.26], [z_(1.11), 1.86], [z_(1.17), 1.9], [z_(1.66), 1.9], [z_(1.72), 1.84],
