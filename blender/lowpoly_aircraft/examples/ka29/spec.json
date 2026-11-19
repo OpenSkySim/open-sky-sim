@@ -24,14 +24,14 @@
    "min": [
     -1.3,
     1.96,
-    2.37
+    1.92
    ],
    "max": [
     1.3,
     2.4,
     3.62
    ],
-   "deg": 20
+   "deg": 70
   }
  ],
  "sections": [
@@ -4605,7 +4605,8 @@
     0.8,
     0.77
    ],
-   "radius": 0.05
+   "radius": 0.05,
+   "sides": 3
   },
   {
    "name": "WingPipeRear",
@@ -4622,7 +4623,8 @@
     0.8,
     -0.13
    ],
-   "radius": 0.05
+   "radius": 0.05,
+   "sides": 3
   },
   {
    "name": "WeaponBeamInner",
@@ -4746,7 +4748,8 @@
     0.8,
     -0.13
    ],
-   "radius": 0.045
+   "radius": 0.045,
+   "sides": 3
   },
   {
    "name": "WingStrutFront",
@@ -4763,7 +4766,8 @@
     0.86,
     0.73
    ],
-   "radius": 0.045
+   "radius": 0.045,
+   "sides": 3
   },
   {
    "name": "WingStrutVFront",
@@ -4780,7 +4784,8 @@
     0.86,
     -0.08
    ],
-   "radius": 0.045
+   "radius": 0.045,
+   "sides": 3
   },
   {
    "name": "WingStrutVRear",
@@ -4797,7 +4802,8 @@
     0.86,
     -0.08
    ],
-   "radius": 0.045
+   "radius": 0.045,
+   "sides": 3
   },
   {
    "name": "MainOleo",
@@ -4815,7 +4821,8 @@
     -0.672
    ],
    "radius": 0.08,
-   "radius_b": 0.06
+   "radius_b": 0.06,
+   "sides": 3
   },
   {
    "name": "MainRodFront",
@@ -4832,7 +4839,8 @@
     0.17,
     -0.932
    ],
-   "radius": 0.045
+   "radius": 0.045,
+   "sides": 3
   },
   {
    "name": "MainRodRear",
@@ -4849,7 +4857,8 @@
     0.17,
     -0.932
    ],
-   "radius": 0.045
+   "radius": 0.045,
+   "sides": 3
   },
   {
    "name": "Stabiliser",
