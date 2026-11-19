@@ -82,11 +82,11 @@ def build(keys, stations, bottom):
 # Behind each side pane a quarter pane B-C-Q2-Q1 steps out to the cabin wall at the sloping door
 # pillar Q1-Q2 (side view d 0.77 -> 1.07), so the nose rings there are built from these corners
 # instead of the round outline.
-PANE_A = (0.29, 1.12, 0.23)
-PANE_B = (0.82, 1.12, 0.37)
+PANE_A = (0.29, 1.24, 0.23)
+PANE_B = (0.82, 1.24, 0.37)
 PANE_D = (0.29, 2.04, 0.62)
 PANE_C = (0.90, 2.04, 0.72)
-QUARTER_1 = (1.10, 1.12, 0.77)
+QUARTER_1 = (1.10, 1.24, 0.77)
 QUARTER_2 = (0.95, 1.97, 1.042)
 ROOF_BLEND_END = 1.75
 PANE_STATIONS = (0.235, 0.30, 0.37, 0.50, 0.62, 0.67, 0.72, 0.77, 1.042)
