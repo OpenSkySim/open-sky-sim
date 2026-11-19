@@ -266,25 +266,35 @@ def main():
         # Round dome on top of the deck, aft of the rotor (top view circle at x 400).
         {'name': 'TopDome', 'type': 'loft', 'segments': 10, 'stations': loft_px(
             [(640, 0, 111, 104, 2), (641, 7, 112, 102, 2), (657, 7, 112, 102, 2), (658, 0, 111, 104, 2)])},
-        # Engine intakes (second sheet front view, owner's photos): two round pods standing well
-        # forward of the deck's front face (centres x +-0.43, y 2.52), a thick rounded lip, dark
-        # mouth set into the lip and a light centre bullet.
-        {'name': 'IntakeLip', 'type': 'loft', 'mirror': True, 'segments': 14, 'stations': loft_m(
-            [(1.5, 0.25, 2.27, 2.77, 2), (1.53, 0.29, 2.23, 2.81, 2), (1.6, 0.305, 2.215, 2.825, 2),
-             (1.75, 0.3, 2.22, 2.82, 2), (2.2, 0.3, 2.22, 2.82, 2)], 0.43)},
-        {'name': 'IntakeMouth', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': DARK,
-         'segments': 14, 'stations': loft_m([(1.495, 0.215, 2.305, 2.735, 2), (1.55, 0.215, 2.305, 2.735, 2)], 0.43)},
+        # Engine intakes (second sheet front view, owner's photos): hollow round pods standing
+        # forward of the deck's front face (centres x +-0.43, y 2.52): a thick lip ring, an open
+        # duct 0.4 m deep, a dark engine face at its back and a light centre bullet.
+        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 16,
+         'a': P(0.43, 2.52, 1.5), 'b': P(0.43, 2.52, 1.56), 'radius': 0.29, 'radius_b': 0.305,
+         'inner': 0.215, 'inner_b': 0.23},
+        {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 16,
+         'a': P(0.43, 2.52, 1.56), 'b': P(0.43, 2.52, 2.0), 'radius': 0.305, 'radius_b': 0.3,
+         'inner': 0.23, 'inner_b': 0.23},
+        {'name': 'IntakeLiner', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 16, 'material': DARK,
+         'a': P(0.43, 2.52, 1.53), 'b': P(0.43, 2.52, 1.95), 'radius': 0.212, 'radius_b': 0.226,
+         'inner': 0.2, 'inner_b': 0.214},
+        {'name': 'IntakeFace', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
+         'a': P(0.43, 2.52, 1.9), 'b': P(0.43, 2.52, 2.2), 'radius': 0.235, 'sides': 16},
         {'name': 'IntakeCone', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DOOR,
-         'a': P(0.43, 2.52, 1.42), 'b': P(0.43, 2.52, 1.5), 'radius': 0.02, 'radius_b': 0.09, 'sides': 8},
-        # Engine exhausts (second sheet side view d 3.54-4.15, owner's photos): a round pipe
-        # standing out of the deck side, angled a little aft and down, with a thick lip and a dark
-        # outlet facing out.
-        {'name': 'ExhaustPipe', 'type': 'strut', 'mirror': True, 'join': 'separate',
-         'a': P(0.5, 2.55, 3.78), 'b': P(1.0, 2.5, 3.93), 'radius': 0.26, 'radius_b': 0.27, 'sides': 14},
-        {'name': 'ExhaustLip', 'type': 'strut', 'mirror': True, 'join': 'separate',
-         'a': P(0.985, 2.5015, 3.9255), 'b': P(1.03, 2.497, 3.939), 'radius': 0.29, 'sides': 14},
-        {'name': 'ExhaustMouth', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(1.025, 2.4975, 3.9375), 'b': P(1.036, 2.4964, 3.941), 'radius': 0.22, 'sides': 14},
+         'a': P(0.43, 2.52, 1.62), 'b': P(0.43, 2.52, 1.9), 'radius': 0.02, 'radius_b': 0.1, 'sides': 10},
+        # Engine exhausts (second sheet side view d 3.54-4.15, owner's photos): a hollow round pipe
+        # standing out of the deck side, angled a little aft and down, with a thick lip; dark inside.
+        {'name': 'ExhaustPipe', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 16,
+         'a': P(0.45, 2.56, 3.76), 'b': P(0.99, 2.5, 3.93), 'radius': 0.26, 'radius_b': 0.27,
+         'inner': 0.2, 'inner_b': 0.215},
+        {'name': 'ExhaustLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 16,
+         'a': P(0.98, 2.501, 3.927), 'b': P(1.04, 2.494, 3.946), 'radius': 0.285, 'radius_b': 0.29,
+         'inner': 0.215, 'inner_b': 0.225},
+        {'name': 'ExhaustLiner', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 16, 'material': DARK,
+         'a': P(0.6, 2.543, 3.807), 'b': P(1.02, 2.496, 3.94), 'radius': 0.197, 'radius_b': 0.21,
+         'inner': 0.185, 'inner_b': 0.198},
+        {'name': 'ExhaustInside', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
+         'a': P(0.45, 2.56, 3.76), 'b': P(0.7, 2.532, 3.839), 'radius': 0.205, 'sides': 16},
         # Rotor mast, rebuilt after the owner's photo (bottom to top): a conical fairing on the deck,
         # the fixed lower swashplate (ring on three arms, three control rods from the deck), the
         # stepped lower mast into the lower hub, the gearbox drum and collar between the rotors, the

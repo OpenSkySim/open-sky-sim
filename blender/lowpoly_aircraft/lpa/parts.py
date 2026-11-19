@@ -208,6 +208,40 @@ def _tube_into(bm, a, b, r0: float, r1: float, sides: int) -> None:
     bm.faces.new(rings[1])
 
 
+def _ring_into(bm, a, b, ro0: float, ro1: float, ri0: float, ri1: float, sides: int) -> None:
+    """Hollow round duct from a to b: outer wall ro0 -> ro1, inner wall ri0 -> ri1, annular ends."""
+    a, b = np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64)
+    ax = b - a
+    length = np.linalg.norm(ax)
+    if length < 1e-6:
+        return
+    ax /= length
+    ref = np.array([0.0, 1.0, 0.0]) if abs(ax[1]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    u = np.cross(ax, ref)
+    u /= np.linalg.norm(u)
+    v = np.cross(ax, u)
+    def ring(c, r):
+        return [bm.verts.new(geo.to_bl(c + r * (math.cos(t) * u + math.sin(t) * v)))
+                for t in (2 * math.pi * (k + 0.5) / sides for k in range(sides))]
+    oa, ob, ia, ib = ring(a, ro0), ring(b, ro1), ring(a, ri0), ring(b, ri1)
+    m = sides
+    for k in range(m):
+        n = (k + 1) % m
+        bm.faces.new((oa[k], oa[n], ob[n], ob[k]))
+        bm.faces.new((ia[n], ia[k], ib[k], ib[n]))
+        bm.faces.new((oa[n], oa[k], ia[k], ia[n]))
+        bm.faces.new((ob[k], ob[n], ib[n], ib[k]))
+
+
+def duct(name: str, a, b, radius: float, radius_b: float, inner: float, inner_b: float, sides: int = 12,
+         material: str = 'VEHICLE_PLANE_GREY', collection: str = 'Construction') -> bpy.types.Object:
+    """A hollow round duct (intake or exhaust) from *a* to *b*: open at both ends."""
+    bm = bmesh.new()
+    _ring_into(bm, a, b, radius, radius_b, inner, inner_b, sides)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return _object(bm, name, material, collection)
+
+
 def strut(name: str, a, b, radius: float, radius_b: float | None = None, sides: int = 6,
           material: str = 'VEHICLE_PLANE_GREY', collection: str = 'Construction') -> bpy.types.Object:
     """A round tube from point *a* to point *b* (body metres): gear legs, braces, a mast."""
@@ -337,6 +371,14 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
             chord_dir = [-chord_dir[0], chord_dir[1], chord_dir[2]]
         return panel(name, rows, int(spec_part.get('chord_points', 9)), int(spec_part.get('resample', 0)),
                      material, normal=normal, chord_dir=chord_dir)
+    if kind == 'duct':
+        a, b = list(spec_part['a']), list(spec_part['b'])
+        if mirrored:
+            a[0], b[0] = -a[0], -b[0]
+        r = float(spec_part['radius'])
+        ri = float(spec_part['inner'])
+        return duct(name, a, b, r, float(spec_part.get('radius_b', r)), ri, float(spec_part.get('inner_b', ri)),
+                    int(spec_part.get('sides', 12)), material)
     if kind == 'strut':
         a, b = list(spec_part['a']), list(spec_part['b'])
         if mirrored:
