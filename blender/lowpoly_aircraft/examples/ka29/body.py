@@ -153,7 +153,6 @@ def windscreen(d, H, y0):
         # The roof eases from the flat pane tops (C) up into the deck fairing's profile (the first
         # roof ring behind the glazing), with the same point layout, so it stays smooth.
         t = min(1.0, max(0.0, (d - PANE_C[2]) / (ROOF_RING_D - PANE_C[2])))
-        t = t * t * (3 - 2 * t)
         roof = lambda x: max(PANE_C[1] + t * (float(np.interp(x, *zip(*ROOF_PROFILE))) - PANE_C[1]), j2[1])
         fixed = [(x, roof(x)) for x in (0.0, ROOF_PROFILE[1][0], ROOF_PROFILE[2][0])] + [j2] + ([j3] if j3 else [])
     foot = fixed[-1]
