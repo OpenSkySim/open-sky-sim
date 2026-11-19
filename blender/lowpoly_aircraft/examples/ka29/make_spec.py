@@ -42,6 +42,9 @@ def z_(d):
 
 # Cockpit (owner 2026-11-19): seats 20 cm out from the first 0.52 m, then 10 cm back in.
 SEAT_X = 0.62
+COCKPIT_DY = 0.3     # owner: cockpit 30 cm higher than first laid out
+COCKPIT_PARTS = ('InstrumentPanel', 'PanelCentre', 'GlareShield', 'Gauges', 'GaugesCentre', 'Pedestal', 'PedestalTop',
+                 'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack')
 TURQ = '#1f5c5a'      # cockpit: dark turquoise (owner)
 TURQ_DARK = '#163f3e' # floor, coaming, sticks
 GAUGE = '#14171a'     # instrument faces
@@ -449,6 +452,17 @@ def main():
         {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#101113',
          'segments': 6, 'stations': loft_m([(2.42, 2.5, -1.0, 2.6, 8), (2.48, 2.5, -1.0, 2.6, 8)])},
     ]
+    # Owner (2026-11-19): the whole cockpit (floor, panel, consoles, seats, sticks) 30 cm higher;
+    # the pilots' eye points go up with it below.
+    for part in parts:
+        if part['name'] in COCKPIT_PARTS:
+            if part['type'] == 'loft':
+                part['stations'] = [r[:2] + [round(r[2] + COCKPIT_DY, 3)] + r[3:] for r in part['stations']]
+            elif part['type'] == 'quad':
+                part['points'] = [[q[0], round(q[1] + COCKPIT_DY, 3), q[2]] for q in part['points']]
+            elif part['type'] == 'strut':
+                for k in ('a', 'b'):
+                    part[k] = [part[k][0], round(part[k][1] + COCKPIT_DY, 3), part[k][2]]
     # Owner: plain bracing and gear rods are triangular tubes (3 sides).
     for part in parts:
         if part.get('type') == 'strut' and 'sides' not in part:
@@ -515,9 +529,9 @@ def main():
         ]},
         'open_cabin': {'lo': P(-1.2, 0.3, 2.42), 'hi': P(1.2, 2.05, 0.0)},
         'ground_y': -2.0,
-        'cockpit_m': P(SEAT_X - 0.1, 1.35, 1.7),
+        'cockpit_m': P(SEAT_X - 0.1, 1.35 + COCKPIT_DY, 1.7),
         # Pilot (left) and navigator side by side: eye points over the seats.
-        'pilot_seats_m': [P(SEAT_X, 1.7, 1.3), P(-SEAT_X, 1.7, 1.3)],
+        'pilot_seats_m': [P(SEAT_X, 1.7 + COCKPIT_DY, 1.3), P(-SEAT_X, 1.7 + COCKPIT_DY, 1.3)],
     }
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:
         json.dump(spec, f, indent=1)
