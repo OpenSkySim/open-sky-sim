@@ -191,8 +191,9 @@ def main():
                   (9.5, 0.0, -0.12, -0.12, 2)]
     # Engine inlet behind the rear propfan row (owner's photo): a bright metal lip ring round the
     # nacelle face and a dark annular entry between the lip and the white hub that runs through it.
-    inlet_lip = [(6.46, 0.6, -0.4, 0.8, 2), (6.5, 0.655, -0.46, 0.86, 2), (6.62, 0.7, -0.55, 0.95, 2),
-                 (6.66, 0.69, -0.54, 0.94, 2)]
+    # The lip uses the nacelle's 8-sided ring, 1.2 cm proud at the face, and runs back into the
+    # nacelle skin (aft ring just inside it) so the two meshes meet without a step (user).
+    inlet_lip = [(6.46, 0.6, -0.4, 0.8, 2), (6.5, 0.632, -0.432, 0.832, 2), (6.6, 0.655, -0.49, 0.89, 2)]
     inlet_gap = [(6.445, 0.57, -0.37, 0.77, 2), (6.46, 0.57, -0.37, 0.77, 2)]
     # Dark seam between the two counter-rotating hub barrels.
     hub_seam = [(5.74, 0.5, -0.3, 0.7, 2), (5.78, 0.5, -0.3, 0.7, 2)]
@@ -203,8 +204,9 @@ def main():
                 (d1, 0.0, 0.74, 0.74, 2)]
     # White spinner (long pointed cone) running into a cylindrical hub barrel that carries both
     # blade rows and passes through the inlet into the nacelle (owner's photo).
-    spinner = [(4.1, 0.0, 0.2, 0.2, 2), (4.3, 0.13, 0.07, 0.33, 2), (4.6, 0.27, -0.07, 0.47, 2),
-               (5.0, 0.39, -0.19, 0.59, 2), (5.4, 0.47, -0.27, 0.67, 2), (5.8, 0.48, -0.28, 0.68, 2),
+    # Rounded nose (user: not so pointed).
+    spinner = [(4.18, 0.0, 0.2, 0.2, 2), (4.2, 0.09, 0.11, 0.29, 2), (4.27, 0.17, 0.03, 0.37, 2),
+               (4.4, 0.25, -0.05, 0.45, 2), (4.65, 0.33, -0.13, 0.53, 2), (5.0, 0.4, -0.2, 0.6, 2), (5.4, 0.47, -0.27, 0.67, 2), (5.8, 0.48, -0.28, 0.68, 2),
                (6.75, 0.48, -0.28, 0.68, 2)]
     nacelle = [(6.5, 0.62, -0.42, 0.82, 2), (6.64, 0.68, -0.53, 0.93, 2), (7.0, 0.72, -0.61, 1.0, 2.1),
                (7.5, 0.77, -0.75, 1.15, 2.2), (8.5, 0.78, -0.91, 1.25, 2.3), (9.5, 0.78, -0.95, 1.25, 2.3),
@@ -264,11 +266,11 @@ def main():
             {'name': 'Nacelle', 'type': 'loft', 'mirror': True, 'segments': 8, 'resample': 7,
              'stations': loft_rows(nacelle, 4.05)},
             {'name': 'Spinner', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': HUB_WHITE,
-             'segments': 10, 'resample': 6, 'stations': loft_rows(spinner, 4.05)},
+             'segments': 10, 'stations': loft_rows(spinner, 4.05)},
             {'name': 'HubSeam', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': dark,
              'segments': 10, 'stations': loft_rows(hub_seam, 4.05)},
             {'name': 'InletLip', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': INLET_METAL,
-             'segments': 10, 'stations': loft_rows(inlet_lip, 4.05)},
+             'segments': 8, 'stations': loft_rows(inlet_lip, 4.05)},
             {'name': 'InletGap', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': dark,
              'segments': 10, 'stations': loft_rows(inlet_gap, 4.05)},
             {'name': 'Wing', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'stations': panel_rows(wing)},
