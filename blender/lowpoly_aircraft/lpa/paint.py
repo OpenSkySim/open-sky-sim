@@ -159,7 +159,7 @@ def add_decals(hull: bpy.types.Object, decals: list) -> None:
 #               "x_side": 1, "pts": [[z, h], ...]}]}
 # Body frame (x left wing, y up, z nose), before the shift onto the wheels. A side outline is
 # [z, y] seen along x and paints the skin facing sideways (both sides when mirrored, else +x);
-# a top/bottom outline is [z, x] seen along y and paints the skin facing up/down (mirrored
+# a top/bottom outline is [z, x] seen along y and paints the skin turned up/down (mirrored
 # across x = 0 by default). Every outline edge is cut into the faces it crosses, so the colour
 # boundary follows the drawn shape, not the existing triangles. Later regions paint over
 # earlier ones.
@@ -253,7 +253,10 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
                         continue
                     f.normal_update()
                     n = geo.from_bl(mw.to_3x3() @ f.normal)
-                    if _view_of(n) != view or (view == 'side' and sign and n[0] * sign <= 0):
+                    # Every face turned towards the view (more than ~9 deg), so a shape across a
+                    # rounded nose fills completely, not only the faces facing mostly sideways.
+                    facing = n[0] * sign if view == 'side' else (n[1] if view == 'top' else -n[1])
+                    if facing <= 0.15:
                         continue
                     out.append(f)
                 return out

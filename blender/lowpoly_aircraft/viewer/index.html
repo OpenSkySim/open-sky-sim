@@ -377,7 +377,7 @@ button.ok { color: var(--ok); }
         <label><input type="checkbox" id="paintShow" checked> show the outlines</label></div>
       <div class="xs-list" id="paintList" aria-label="Painted shapes"></div>
       <div class="row"><button type="button" id="paintFinish" disabled>Finish shape</button><button type="button" id="paintDel" class="danger" disabled>Delete shape</button><button type="button" id="paintExport">Copy paint.json</button></div>
-      <p class="note" id="paintNote">Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b> or <b>Bottom</b> view. Click to place points, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). Side shapes paint the skin facing sideways, top and bottom shapes the skin facing up or down.</p>
+      <p class="note" id="paintNote">Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b> or <b>Bottom</b> view. Click to place points, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). Side shapes paint all skin inside the outline that is turned towards that side, top and bottom shapes the skin turned up or down.</p>
       <p class="note" id="paintState"></p>
       <textarea id="paintExportText" readonly aria-label="paint.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
     </div>
@@ -3472,7 +3472,7 @@ function paintSurf(view, u, v, xs = 1, mirror = false) {
   for (const hit of new THREE.Raycaster(o, d).intersectObjects(paintObjs(), false)) {
     if (!hit.face) continue;
     const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
-    if (paintViewOfNormal(n) !== view || n.dot(d) > 0) continue;
+    if (n.dot(d) > -0.15) continue;   // faces turned towards the view (as lpa/paint.py: more than ~9 deg)
     return hit.point.clone().addScaledVector(d, -0.015);
   }
   return null;
@@ -3581,7 +3581,7 @@ function paintDrawFree() {
           const a = at(i, j), b = at(i + 1, j), c2 = at(i + 1, j + 1), d = at(i, j + 1);
           if (!a || !b || !c2 || !d) continue;
           // Skip cells that jump between surfaces (an edge of the hull seen along the view).
-          if (Math.max(a.distanceTo(c2), b.distanceTo(d)) > st * 4) continue;
+          if (Math.max(a.distanceTo(c2), b.distanceTo(d)) > st * 8) continue;
           tri.push(a, b, c2, a, c2, d);
         }
         if (tri.length) {
