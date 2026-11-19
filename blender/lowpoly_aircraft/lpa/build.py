@@ -842,8 +842,9 @@ def build_parts(spec: dict) -> None:
     if spec.get('decals'):
         paint.add_decals(hull, spec['decals'])
     if spec.get('camo'):
+        # Body only: moving parts and gear legs must stay one material each.
         paint.apply_camo([o for o in bpy.data.objects if o.type == 'MESH'
-                          and o.users_collection[0].name != 'Construction' or o is hull], spec['camo'])
+                          and o.users_collection[0].name == 'Body' or o is hull], spec['camo'])
     hull.name = hull.data.name = '0_Body'
     bpy.data.collections['Construction'].objects.unlink(hull)
     geo._link(hull, 'Body')
