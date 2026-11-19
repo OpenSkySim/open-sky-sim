@@ -44,7 +44,7 @@
     4,
     -4.38
    ],
-   "deg": 25
+   "deg": 10
   }
  ],
  "sections": [
@@ -4899,8 +4899,8 @@
    "name": "Fin",
    "type": "panel",
    "mirror": true,
-   "chord_points": 3,
-   "resample": 4,
+   "chord_points": 4,
+   "resample": 5,
    "normal": [
     0.99,
     0,

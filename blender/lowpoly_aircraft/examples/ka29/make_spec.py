@@ -393,7 +393,7 @@ def main():
         # the boom to the top of each fin's leading edge (top view x 450 -> 520, side 702 -> 790).
         {'name': 'Stabiliser', 'type': 'panel', 'mirror': True, 'chord_points': 3,
          'stations': panel_rows([(0.0, 1.62, d_(780), 1.27, 0.11), (1.52, 1.62, d_(780), 1.27, 0.11)])},
-        {'name': 'Fin', 'type': 'panel', 'mirror': True, 'chord_points': 3, 'resample': 4,
+        {'name': 'Fin', 'type': 'panel', 'mirror': True, 'chord_points': 4, 'resample': 5,
          'normal': [0.99, 0, 0.14], 'chord_dir': [0.14, 0, -0.99],
          # second sheet: rounded bottom at 0.66 m, top 2.65 m, LE d 9.47-9.7, TE d 11.17
          'stations': panel_rows([(1.52, 0.66, 9.85, 0.95, 0.09), (1.52, 0.8, 9.56, 1.5, 0.09),
@@ -437,7 +437,7 @@ def main():
         # Nose front under the windscreen: fewer, larger faces (owner: halve the triangles there).
         'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 25},
                          {'min': [-1.3, 1.96, z_(2.3)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 70},   # 2nd: cockpit roof
-                         {'min': [-1.3, -1, z_(11.5)], 'max': [1.3, 4, z_(8.6)], 'deg': 25}],   # 3rd: tail boom
+                         {'min': [-1.3, -1, z_(11.5)], 'max': [1.3, 4, z_(8.6)], 'deg': 10}],   # 3rd: tail boom
         'sections': fuse_secs,
         'parts': parts,
         'regions': windows_and_doors(),
