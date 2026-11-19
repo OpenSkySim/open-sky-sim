@@ -7048,7 +7048,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 10,
+   "sides": 8,
    "material": "VEHICLE_PLANE_ENGINE",
    "a": [
     0.43,
@@ -7070,7 +7070,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 10,
+   "sides": 8,
    "material": "VEHICLE_PLANE_ENGINE",
    "a": [
     0.43,
@@ -7104,7 +7104,7 @@
     2.12
    ],
    "radius": 0.235,
-   "sides": 10
+   "sides": 8
   },
   {
    "name": "IntakeCone",
@@ -7124,14 +7124,14 @@
    ],
    "radius": 0.02,
    "radius_b": 0.09,
-   "sides": 10
+   "sides": 8
   },
   {
    "name": "ExhaustPipe",
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 10,
+   "sides": 8,
    "a": [
     0.45,
     2.56,
@@ -7152,7 +7152,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 10,
+   "sides": 8,
    "a": [
     0.98,
     2.501,
@@ -7173,7 +7173,7 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 8,
+   "sides": 6,
    "material": "VEHICLE_PLANE_ENGINE",
    "a": [
     0.6,
@@ -7207,7 +7207,7 @@
     0.381
    ],
    "radius": 0.205,
-   "sides": 10
+   "sides": 8
   },
   {
    "name": "MastFairing",
@@ -7224,7 +7224,7 @@
    ],
    "radius": 0.42,
    "radius_b": 0.24,
-   "sides": 12,
+   "sides": 10,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7243,7 +7243,7 @@
    ],
    "radius": 0.1,
    "radius_b": 0.09,
-   "sides": 10,
+   "sides": 8,
    "join": "separate",
    "material": "#8a8f94"
   },
@@ -7261,7 +7261,7 @@
     -0.001
    ],
    "radius": 0.38,
-   "sides": 12,
+   "sides": 10,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7280,7 +7280,7 @@
    ],
    "radius": 0.14,
    "radius_b": 0.12,
-   "sides": 10,
+   "sides": 8,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7407,7 +7407,7 @@
    ],
    "radius": 0.08,
    "radius_b": 0.075,
-   "sides": 10,
+   "sides": 8,
    "join": "separate",
    "material": "#8a8f94"
   },
@@ -7426,7 +7426,7 @@
    ],
    "radius": 0.13,
    "radius_b": 0.12,
-   "sides": 10,
+   "sides": 8,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7444,7 +7444,7 @@
     -0.001
    ],
    "radius": 0.15,
-   "sides": 12,
+   "sides": 10,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7462,7 +7462,7 @@
     -0.001
    ],
    "radius": 0.32,
-   "sides": 12,
+   "sides": 10,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7481,7 +7481,7 @@
    ],
    "radius": 0.11,
    "radius_b": 0.095,
-   "sides": 10,
+   "sides": 8,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7554,7 +7554,7 @@
    ],
    "radius": 0.065,
    "radius_b": 0.06,
-   "sides": 10,
+   "sides": 8,
    "join": "separate",
    "material": "#8a8f94"
   },
@@ -7573,7 +7573,7 @@
    ],
    "radius": 0.05,
    "radius_b": 0.035,
-   "sides": 8,
+   "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
   },
@@ -7604,6 +7604,7 @@
    "hub_r": 0.22,
    "hub_h": 0.22,
    "spin_deg_s": 1600,
+   "hub_sides": 6,
    "head": {
     "link": 0.32,
     "ring_r": 0.34,
@@ -7645,6 +7646,7 @@
    "hub_r": 0.2,
    "hub_h": 0.22,
    "spin_deg_s": 1600,
+   "hub_sides": 6,
    "head": {
     "link": 0.3,
     "ring_r": 0.3,
@@ -7715,7 +7717,7 @@
    "name": "WeaponBeamInner",
    "type": "loft",
    "mirror": true,
-   "segments": 8,
+   "segments": 6,
    "join": "separate",
    "stations": [
     [
@@ -7942,7 +7944,7 @@
    "name": "Stabiliser",
    "type": "panel",
    "mirror": true,
-   "chord_points": 6,
+   "chord_points": 5,
    "stations": [
     [
      0.0,
@@ -7964,7 +7966,7 @@
    "name": "Fin",
    "type": "panel",
    "mirror": true,
-   "chord_points": 6,
+   "chord_points": 5,
    "resample": 6,
    "normal": [
     0.99,
@@ -8902,7 +8904,7 @@
   }
  ],
  "gear": {
-  "wheel_sides": 12,
+  "wheel_sides": 10,
   "legs": [
    {
     "name": "Nose",

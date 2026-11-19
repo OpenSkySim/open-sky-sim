@@ -275,65 +275,65 @@ def main():
         # Engine intakes (second sheet front view, owner's photos): black hollow rings standing
         # 0.15 m proud of the deck's front face (d 1.95; centres x +-0.43, y 2.52): a thick lip, an
         # open duct, the engine face at its back and a centre bullet.
-        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': DARK,
+        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 8, 'material': DARK,
          'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.85), 'radius': 0.29, 'radius_b': 0.305,
          'inner': 0.215, 'inner_b': 0.23},
-        {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': DARK,
+        {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 8, 'material': DARK,
          'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
          'inner': 0.23, 'inner_b': 0.23},
         {'name': 'IntakeFace', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.235, 'sides': 10},
+         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.235, 'sides': 8},
         {'name': 'IntakeCone', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.02, 'radius_b': 0.09, 'sides': 10},
+         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.02, 'radius_b': 0.09, 'sides': 8},
         # Engine exhausts (second sheet side view d 3.54-4.15, owner's photos): a hollow round pipe
         # standing out of the deck side, angled a little aft and down, with a thick lip; dark inside.
-        {'name': 'ExhaustPipe', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10,
+        {'name': 'ExhaustPipe', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 8,
          'a': P(0.45, 2.56, 3.76), 'b': P(0.99, 2.5, 3.93), 'radius': 0.26, 'radius_b': 0.27,
          'inner': 0.2, 'inner_b': 0.215},
-        {'name': 'ExhaustLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10,
+        {'name': 'ExhaustLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 8,
          'a': P(0.98, 2.501, 3.927), 'b': P(1.04, 2.494, 3.946), 'radius': 0.285, 'radius_b': 0.29,
          'inner': 0.215, 'inner_b': 0.225},
-        {'name': 'ExhaustLiner', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 8, 'material': DARK,
+        {'name': 'ExhaustLiner', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6, 'material': DARK,
          'a': P(0.6, 2.543, 3.807), 'b': P(1.02, 2.496, 3.94), 'radius': 0.197, 'radius_b': 0.21,
          'inner': 0.185, 'inner_b': 0.198},
         {'name': 'ExhaustInside', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.45, 2.56, 3.76), 'b': P(0.7, 2.532, 3.839), 'radius': 0.205, 'sides': 10},
+         'a': P(0.45, 2.56, 3.76), 'b': P(0.7, 2.532, 3.839), 'radius': 0.205, 'sides': 8},
         # Rotor mast, rebuilt after the owner's photo (bottom to top): a conical fairing on the deck,
         # the fixed lower swashplate (ring on three arms, three control rods from the deck), the
         # stepped lower mast into the lower hub, the gearbox drum and collar between the rotors, the
         # fixed upper swashplate (ring on three arms) under the upper head, and a slim upper mast
         # with a nut through the upper hub. The rotating parts are in the rotors' 'head'.
-        {'name': 'MastFairing', 'type': 'strut', 'a': P(0.0, 2.7, mast_d - (0.0)), 'b': P(0.0, 2.86, mast_d - (0.0)), 'radius': 0.42, 'radius_b': 0.24, 'sides': 12, 'join': 'separate', 'material': DARK},
-        {'name': 'MastLower', 'type': 'strut', 'a': P(0.0, 2.86, mast_d - (0.0)), 'b': P(0.0, y_low - 0.1, mast_d - (0.0)), 'radius': 0.1, 'radius_b': 0.09, 'sides': 10, 'join': 'separate', 'material': '#8a8f94'},
-        {'name': 'SwashLowerRing', 'type': 'strut', 'a': P(0.0, 2.935, mast_d - (0.0)), 'b': P(0.0, 2.97, mast_d - (0.0)), 'radius': 0.38, 'sides': 12, 'join': 'separate', 'material': DARK},
-        {'name': 'SwashLowerHub', 'type': 'strut', 'a': P(0.0, 2.86, mast_d - (0.0)), 'b': P(0.0, 3.0, mast_d - (0.0)), 'radius': 0.14, 'radius_b': 0.12, 'sides': 10, 'join': 'separate', 'material': DARK},
+        {'name': 'MastFairing', 'type': 'strut', 'a': P(0.0, 2.7, mast_d - (0.0)), 'b': P(0.0, 2.86, mast_d - (0.0)), 'radius': 0.42, 'radius_b': 0.24, 'sides': 10, 'join': 'separate', 'material': DARK},
+        {'name': 'MastLower', 'type': 'strut', 'a': P(0.0, 2.86, mast_d - (0.0)), 'b': P(0.0, y_low - 0.1, mast_d - (0.0)), 'radius': 0.1, 'radius_b': 0.09, 'sides': 8, 'join': 'separate', 'material': '#8a8f94'},
+        {'name': 'SwashLowerRing', 'type': 'strut', 'a': P(0.0, 2.935, mast_d - (0.0)), 'b': P(0.0, 2.97, mast_d - (0.0)), 'radius': 0.38, 'sides': 10, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashLowerHub', 'type': 'strut', 'a': P(0.0, 2.86, mast_d - (0.0)), 'b': P(0.0, 3.0, mast_d - (0.0)), 'radius': 0.14, 'radius_b': 0.12, 'sides': 8, 'join': 'separate', 'material': DARK},
         {'name': 'SwashLowerArm1', 'type': 'strut', 'a': P(0.11, 2.945, mast_d - (0.191)), 'b': P(0.18, 2.945, mast_d - (0.312)), 'radius': 0.022, 'sides': 6, 'join': 'separate', 'material': DARK},
         {'name': 'ControlRod1', 'type': 'strut', 'a': P(0.18, 2.62, mast_d - (0.312)), 'b': P(0.18, 2.93, mast_d - (0.312)), 'radius': 0.016, 'sides': 6, 'join': 'separate', 'material': DARK},
         {'name': 'SwashLowerArm2', 'type': 'strut', 'a': P(0.11, 2.945, mast_d - (-0.191)), 'b': P(0.18, 2.945, mast_d - (-0.312)), 'radius': 0.022, 'sides': 6, 'join': 'separate', 'material': DARK},
         {'name': 'ControlRod2', 'type': 'strut', 'a': P(0.18, 2.62, mast_d - (-0.312)), 'b': P(0.18, 2.93, mast_d - (-0.312)), 'radius': 0.016, 'sides': 6, 'join': 'separate', 'material': DARK},
         {'name': 'SwashLowerArm3', 'type': 'strut', 'a': P(-0.22, 2.945, mast_d - (-0.0)), 'b': P(-0.36, 2.945, mast_d - (-0.0)), 'radius': 0.022, 'sides': 6, 'join': 'separate', 'material': DARK},
         {'name': 'ControlRod3', 'type': 'strut', 'a': P(-0.36, 2.62, mast_d - (-0.0)), 'b': P(-0.36, 2.93, mast_d - (-0.0)), 'radius': 0.016, 'sides': 6, 'join': 'separate', 'material': DARK},
-        {'name': 'MastMid', 'type': 'strut', 'a': P(0.0, y_low + 0.15, mast_d - (0.0)), 'b': P(0.0, y_up - 0.4, mast_d - (0.0)), 'radius': 0.08, 'radius_b': 0.075, 'sides': 10, 'join': 'separate', 'material': '#8a8f94'},
-        {'name': 'MastGearbox', 'type': 'strut', 'a': P(0.0, y_low + 0.3, mast_d - (0.0)), 'b': P(0.0, y_low + 0.62, mast_d - (0.0)), 'radius': 0.13, 'radius_b': 0.12, 'sides': 10, 'join': 'separate', 'material': DARK},
-        {'name': 'MastCollar', 'type': 'strut', 'a': P(0.0, y_low + 0.62, mast_d - (0.0)), 'b': P(0.0, y_low + 0.7, mast_d - (0.0)), 'radius': 0.15, 'sides': 12, 'join': 'separate', 'material': DARK},
-        {'name': 'SwashUpperRing', 'type': 'strut', 'a': P(0.0, y_up - 0.455, mast_d - (0.0)), 'b': P(0.0, y_up - 0.42, mast_d - (0.0)), 'radius': 0.32, 'sides': 12, 'join': 'separate', 'material': DARK},
-        {'name': 'SwashUpperHub', 'type': 'strut', 'a': P(0.0, y_up - 0.52, mast_d - (0.0)), 'b': P(0.0, y_up - 0.38, mast_d - (0.0)), 'radius': 0.11, 'radius_b': 0.095, 'sides': 10, 'join': 'separate', 'material': DARK},
+        {'name': 'MastMid', 'type': 'strut', 'a': P(0.0, y_low + 0.15, mast_d - (0.0)), 'b': P(0.0, y_up - 0.4, mast_d - (0.0)), 'radius': 0.08, 'radius_b': 0.075, 'sides': 8, 'join': 'separate', 'material': '#8a8f94'},
+        {'name': 'MastGearbox', 'type': 'strut', 'a': P(0.0, y_low + 0.3, mast_d - (0.0)), 'b': P(0.0, y_low + 0.62, mast_d - (0.0)), 'radius': 0.13, 'radius_b': 0.12, 'sides': 8, 'join': 'separate', 'material': DARK},
+        {'name': 'MastCollar', 'type': 'strut', 'a': P(0.0, y_low + 0.62, mast_d - (0.0)), 'b': P(0.0, y_low + 0.7, mast_d - (0.0)), 'radius': 0.15, 'sides': 10, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashUpperRing', 'type': 'strut', 'a': P(0.0, y_up - 0.455, mast_d - (0.0)), 'b': P(0.0, y_up - 0.42, mast_d - (0.0)), 'radius': 0.32, 'sides': 10, 'join': 'separate', 'material': DARK},
+        {'name': 'SwashUpperHub', 'type': 'strut', 'a': P(0.0, y_up - 0.52, mast_d - (0.0)), 'b': P(0.0, y_up - 0.38, mast_d - (0.0)), 'radius': 0.11, 'radius_b': 0.095, 'sides': 8, 'join': 'separate', 'material': DARK},
         {'name': 'SwashUpperArm1', 'type': 'strut', 'a': P(0.18, y_up - 0.445, mast_d - (0.0)), 'b': P(0.3, y_up - 0.445, mast_d - (0.0)), 'radius': 0.02, 'sides': 6, 'join': 'separate', 'material': DARK},
         {'name': 'SwashUpperArm2', 'type': 'strut', 'a': P(-0.09, y_up - 0.445, mast_d - (-0.156)), 'b': P(-0.15, y_up - 0.445, mast_d - (-0.26)), 'radius': 0.02, 'sides': 6, 'join': 'separate', 'material': DARK},
         {'name': 'SwashUpperArm3', 'type': 'strut', 'a': P(-0.09, y_up - 0.445, mast_d - (0.156)), 'b': P(-0.15, y_up - 0.445, mast_d - (0.26)), 'radius': 0.02, 'sides': 6, 'join': 'separate', 'material': DARK},
-        {'name': 'MastUpper', 'type': 'strut', 'a': P(0.0, y_up - 0.38, mast_d - (0.0)), 'b': P(0.0, y_up + 0.3, mast_d - (0.0)), 'radius': 0.065, 'radius_b': 0.06, 'sides': 10, 'join': 'separate', 'material': '#8a8f94'},
-        {'name': 'MastNut', 'type': 'strut', 'a': P(0.0, y_up + 0.3, mast_d - (0.0)), 'b': P(0.0, y_up + 0.38, mast_d - (0.0)), 'radius': 0.05, 'radius_b': 0.035, 'sides': 8, 'join': 'separate', 'material': DARK},
+        {'name': 'MastUpper', 'type': 'strut', 'a': P(0.0, y_up - 0.38, mast_d - (0.0)), 'b': P(0.0, y_up + 0.3, mast_d - (0.0)), 'radius': 0.065, 'radius_b': 0.06, 'sides': 8, 'join': 'separate', 'material': '#8a8f94'},
+        {'name': 'MastNut', 'type': 'strut', 'a': P(0.0, y_up + 0.3, mast_d - (0.0)), 'b': P(0.0, y_up + 0.38, mast_d - (0.0)), 'radius': 0.05, 'radius_b': 0.035, 'sides': 6, 'join': 'separate', 'material': DARK},
         # Coaxial rotors, 3 blades each, 15.9 m across, 1.47 m apart (drawing: hubs at y 90 and 22).
         # Contra-rotating: lower anticlockwise seen from above (hand +1), upper clockwise (hand -1).
         {'name': 'RotorLower', 'type': 'rotor', 'join': 'spin', 'spin_axis': [0, 1, 0], 'material': DARK,
          'center': P(0, y_low, mast_d), 'radius': 7.95, 'blades': 3, 'root_r': 0.75, 'chord': 0.52,
          'tc': 0.1, 'pitch_deg': 6, 'droop_deg': 3, 'hand': 1, 'phase_deg': 180, 'hub_r': 0.22, 'hub_h': 0.22,
-         'spin_deg_s': 1600, 'head': {'link': 0.32, 'ring_r': 0.34, 'tie_rods': [0.15, 1.0, 0.24]},
+         'spin_deg_s': 1600, 'hub_sides': 6, 'head': {'link': 0.32, 'ring_r': 0.34, 'tie_rods': [0.15, 1.0, 0.24]},
          'fold_blades': {'aft_deg': 180, 'spread_deg': 7}},
         {'name': 'RotorUpper', 'type': 'rotor', 'join': 'spin', 'spin_axis': [0, 1, 0], 'material': DARK,
          'center': P(0, y_up, mast_d), 'radius': 7.95, 'blades': 3, 'root_r': 0.75, 'chord': 0.52,
          'tc': 0.1, 'pitch_deg': 6, 'droop_deg': 2.5, 'hand': -1, 'phase_deg': 60, 'hub_r': 0.2,
-         'hub_h': 0.22, 'spin_deg_s': 1600,
+         'hub_h': 0.22, 'spin_deg_s': 1600, 'hub_sides': 6,
          'head': {'link': 0.3, 'ring_r': 0.3, 'cap': True},
          'fold_blades': {'aft_deg': 180, 'spread_deg': 5}},
         # Stub wings (second sheet top/side views, owner's photos): a flat wing only between the
@@ -346,7 +346,7 @@ def main():
          'a': P(0.85, 0.8, 3.45), 'b': P(1.97, 0.8, 3.45), 'radius': 0.05},
         {'name': 'WingPipeRear', 'type': 'strut', 'mirror': True, 'join': 'separate',
          'a': P(0.85, 0.8, 4.35), 'b': P(1.97, 0.8, 4.35), 'radius': 0.05},
-        {'name': 'WeaponBeamInner', 'type': 'loft', 'mirror': True, 'segments': 8, 'join': 'separate', 'stations':
+        {'name': 'WeaponBeamInner', 'type': 'loft', 'mirror': True, 'segments': 6, 'join': 'separate', 'stations':
          loft_m([(3.07, 0.05, 0.6, 0.68, 2), (3.21, 0.09, 0.5, 0.8, 2.5), (3.46, 0.09, 0.47, 0.8, 3),
                  (4.60, 0.09, 0.47, 0.8, 3), (4.67, 0.07, 0.5, 0.78, 3)], 1.97)},
         {'name': 'WeaponBeamOuter', 'type': 'loft', 'mirror': True, 'segments': 8, 'stations':
@@ -374,9 +374,9 @@ def main():
          'a': P(0.82, 0.12, 5.74), 'b': P(main_x - 0.1, main_knee, main_d), 'radius': 0.045},
         # Tail: stabiliser through the boom, toed-in end-plate fins, and a brace each side from
         # the boom to the top of each fin's leading edge (top view x 450 -> 520, side 702 -> 790).
-        {'name': 'Stabiliser', 'type': 'panel', 'mirror': True, 'chord_points': 6,
+        {'name': 'Stabiliser', 'type': 'panel', 'mirror': True, 'chord_points': 5,
          'stations': panel_rows([(0.0, 1.62, d_(780), 1.27, 0.11), (1.52, 1.62, d_(780), 1.27, 0.11)])},
-        {'name': 'Fin', 'type': 'panel', 'mirror': True, 'chord_points': 6, 'resample': 6,
+        {'name': 'Fin', 'type': 'panel', 'mirror': True, 'chord_points': 5, 'resample': 6,
          'normal': [0.99, 0, 0.14], 'chord_dir': [0.14, 0, -0.99],
          # second sheet: rounded bottom at 0.66 m, top 2.65 m, LE d 9.47-9.7, TE d 11.17
          'stations': panel_rows([(1.52, 0.66, 9.85, 0.95, 0.09), (1.52, 0.8, 9.56, 1.5, 0.09),
@@ -433,7 +433,7 @@ def main():
              'polygons_m': [[[z_(10.35), 2.7], [z_(10.35), 1.67], [z_(11.4), 1.67], [z_(11.4), 2.7]],
                             [[z_(10.35), 1.57], [z_(10.35), 0.6], [z_(11.4), 0.6], [z_(11.4), 1.57]]]},
         ],
-        'gear': {'wheel_sides': 12, 'legs': [
+        'gear': {'wheel_sides': 10, 'legs': [
             # Fixed gear (retract_deg 0). The drawing's nose wheels stand 0.24 m lower than the mains
             # (the Ka-29 sits nose-up on deck); the sim stands every wheel on one ground plane, so the
             # nose legs are shortened and the fuselage stays level, as the second sheet draws it.
