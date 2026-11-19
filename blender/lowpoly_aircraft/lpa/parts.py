@@ -258,38 +258,38 @@ def rotor(name: str, center, radius: float, blades: int = 3, root_r: float = 0.5
             rows.append([*le, ch, tc])
         _panel_into(bm, np.array(rows), chord_points, normal=nrm, chord_dir=cd)
         # Spar tube from the hub out to the blade root.
-        _tube_into(bm, c + span * (0.6 * hub_r), c + span * (root_r + 0.05), 0.07, 0.06, 6)
+        _tube_into(bm, c + span * (0.6 * hub_r), c + span * (root_r + 0.05), 0.05, 0.045, 6)
         if head:
             lead = travel / max(np.linalg.norm(travel), 1e-9)
             # Grip sleeve over the spar, a vertical hinge knuckle at the hub and a damper beside it.
-            _tube_into(bm, c + span * (hub_r + 0.12), c + span * (root_r - 0.05), 0.1, 0.085, 8)
+            _tube_into(bm, c + span * (hub_r + 0.12), c + span * (root_r - 0.05), 0.065, 0.055, 8)
             k0 = c + span * (hub_r + 0.05)
-            _tube_into(bm, k0 - up * 0.13, k0 + up * 0.13, 0.075, 0.075, 8)
+            _tube_into(bm, k0 - up * 0.1, k0 + up * 0.1, 0.045, 0.045, 8)
             _tube_into(bm, c + span * (hub_r * 0.5) - lead * 0.16 + up * 0.08,
-                       c + span * (hub_r + 0.3) - lead * 0.12 + up * 0.08, 0.035, 0.035, 6)
+                       c + span * (hub_r + 0.3) - lead * 0.12 + up * 0.08, 0.02, 0.02, 6)
             # Pitch horn to the leading side, pitch link down to the rotating swashplate ring.
             g = c + span * (hub_r + 0.22)
             horn = g + lead * 0.26 - up * 0.04
-            _tube_into(bm, g, horn, 0.045, 0.035, 6)
+            _tube_into(bm, g, horn, 0.028, 0.022, 6)
             foot = c - up * head.get('link', 0.3)
             ring_r = head.get('ring_r', 0.34)
             rh = horn - up * float(np.dot(horn - c, up))
             rdir = (rh - c) / max(np.linalg.norm(rh - c), 1e-9)
             link_foot = foot + rdir * ring_r
-            _tube_into(bm, horn, link_foot, 0.025, 0.025, 6)
+            _tube_into(bm, horn, link_foot, 0.015, 0.015, 6)
             if head.get('tie_rods'):
                 dy0, dy1, tr = head['tie_rods']
                 th2 = th + math.pi / blades
                 rd = np.array([math.sin(th2), 0.0, math.cos(th2)])
-                _tube_into(bm, c + rd * tr + up * dy0, c + rd * tr + up * dy1, 0.03, 0.03, 6)
+                _tube_into(bm, c + rd * tr + up * dy0, c + rd * tr + up * dy1, 0.018, 0.018, 6)
     # Hub: a short drum on the axis.
     _tube_into(bm, c - up * 0.5 * hub_h, c + up * 0.5 * hub_h, hub_r, hub_r, hub_sides)
     if head:
         foot = c - up * head.get('link', 0.3)
         ring_r = head.get('ring_r', 0.34)
         # Rotating swashplate ring and its hub on the mast.
-        _tube_into(bm, foot - up * 0.03, foot + up * 0.03, ring_r + 0.04, ring_r + 0.04, 16)
-        _tube_into(bm, foot, c - up * 0.5 * hub_h, 0.16, 0.2, 10)
+        _tube_into(bm, foot - up * 0.018, foot + up * 0.018, ring_r + 0.025, ring_r + 0.025, 16)
+        _tube_into(bm, foot, c - up * 0.5 * hub_h, 0.1, 0.12, 10)
         if head.get('cap'):
             _tube_into(bm, c + up * 0.5 * hub_h, c + up * (0.5 * hub_h + 0.12), hub_r * 0.8, hub_r * 0.35, hub_sides)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)

@@ -6755,7 +6755,7 @@
    "type": "strut",
    "a": [
     0.0,
-    2.92,
+    2.935,
     -0.001
    ],
    "b": [
@@ -6763,7 +6763,7 @@
     2.97,
     -0.001
    ],
-   "radius": 0.42,
+   "radius": 0.38,
    "sides": 20,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6781,8 +6781,8 @@
     3.0,
     -0.001
    ],
-   "radius": 0.24,
-   "radius_b": 0.2,
+   "radius": 0.19,
+   "radius_b": 0.16,
    "sides": 12,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6800,7 +6800,7 @@
     2.945,
     0.311
    ],
-   "radius": 0.035,
+   "radius": 0.022,
    "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6818,7 +6818,7 @@
     2.93,
     0.311
    ],
-   "radius": 0.03,
+   "radius": 0.016,
    "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6836,7 +6836,7 @@
     2.945,
     -0.313
    ],
-   "radius": 0.035,
+   "radius": 0.022,
    "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6854,7 +6854,7 @@
     2.93,
     -0.313
    ],
-   "radius": 0.03,
+   "radius": 0.016,
    "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6872,7 +6872,7 @@
     2.945,
     -0.001
    ],
-   "radius": 0.035,
+   "radius": 0.022,
    "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6890,7 +6890,7 @@
     2.93,
     -0.001
    ],
-   "radius": 0.03,
+   "radius": 0.016,
    "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6927,8 +6927,8 @@
     3.932,
     -0.001
    ],
-   "radius": 0.21,
-   "radius_b": 0.19,
+   "radius": 0.17,
+   "radius_b": 0.155,
    "sides": 12,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6946,7 +6946,7 @@
     4.012,
     -0.001
    ],
-   "radius": 0.24,
+   "radius": 0.19,
    "sides": 14,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6956,7 +6956,7 @@
    "type": "strut",
    "a": [
     0.0,
-    4.314,
+    4.329,
     -0.001
    ],
    "b": [
@@ -6964,7 +6964,7 @@
     4.364,
     -0.001
    ],
-   "radius": 0.34,
+   "radius": 0.32,
    "sides": 20,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -6982,8 +6982,8 @@
     4.404,
     -0.001
    ],
-   "radius": 0.19,
-   "radius_b": 0.17,
+   "radius": 0.15,
+   "radius_b": 0.13,
    "sides": 12,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -7001,7 +7001,7 @@
     4.339,
     -0.001
    ],
-   "radius": 0.03,
+   "radius": 0.02,
    "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -7019,7 +7019,7 @@
     4.339,
     -0.261
    ],
-   "radius": 0.03,
+   "radius": 0.02,
    "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -7037,7 +7037,7 @@
     4.339,
     0.259
    ],
-   "radius": 0.03,
+   "radius": 0.02,
    "sides": 6,
    "join": "separate",
    "material": "VEHICLE_PLANE_ENGINE"
@@ -7103,8 +7103,8 @@
    "pitch_deg": 6,
    "droop_deg": 3,
    "hand": 1,
-   "hub_r": 0.32,
-   "hub_h": 0.3,
+   "hub_r": 0.22,
+   "hub_h": 0.22,
    "spin_deg_s": 1600,
    "head": {
     "link": 0.32,
@@ -7140,8 +7140,8 @@
    "droop_deg": 2.5,
    "hand": -1,
    "phase_deg": 60,
-   "hub_r": 0.3,
-   "hub_h": 0.3,
+   "hub_r": 0.2,
+   "hub_h": 0.22,
    "spin_deg_s": 1600,
    "head": {
     "link": 0.3,
