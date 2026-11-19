@@ -13,6 +13,7 @@ import math
 import os
 
 LENGTH, SPAN = 20.39, 25.7
+FIN_AFT = 0.4          # fins with rudders moved aft of the drawing (user)
 Z0 = 0.6 * LENGTH             # body z = 0 this far aft of the nose; body y as measured on the drawing
 
 
@@ -231,8 +232,10 @@ def main():
     # Fins lean inward (front view: x 5.6 at the root, 5.3 at the tip).
     # Side view (user: match the drawing): leading edge kinked forward at y 1.09 (d 17.31), straight
     # trailing edge at d 20.31, the bottom edge rising aft from d 18.33/y -0.96 to y -0.5 at the TE.
-    fin = [(5.62, -0.96, 18.33, 1.2, 0.08), (5.59, -0.6, 18.15, 2.16, 0.08),
-           (5.46, 1.09, 17.31, 3.0, 0.08), (5.32, 2.95, 18.33, 1.98, 0.08)]
+    # User (2026-11-19): fins and rudders 0.4 m further aft than drawn (FIN_AFT).
+    fin = [(x, y, d + FIN_AFT, c, tc) for x, y, d, c, tc in
+           [(5.62, -0.96, 18.33, 1.2, 0.08), (5.59, -0.6, 18.15, 2.16, 0.08),
+            (5.46, 1.09, 17.31, 3.0, 0.08), (5.32, 2.95, 18.33, 1.98, 0.08)]]
     # Telescopic rotodome mast: the upper part slides down into the lower one when parked (drawing:
     # rotodome lowered 1.5 m, dash-dot).
     pylon = [(0.0, 0.6, 12.6, 2.3, 0.32), (0.0, 2.4, 12.656, 2.26, 0.32)]
@@ -392,8 +395,10 @@ def main():
             # Upper and lower rudder as drawn: hinged at d 19.31, full height of the fin, split at y 1.09
             # where the tailplane's trailing edge passes through (y 0.92..1.1).
             {'type': 'rudder', 'view': 'side', 'mirror': True, 'depth_m': [5.0, 6.0],
-             'polygons_m': [side_m([(19.31, 3.2), (19.31, 1.1), (20.5, 1.1), (20.5, 3.2)]),
-                            side_m([(19.31, 0.92), (19.31, -1.1), (20.5, -1.1), (20.5, 0.92)])]},
+             'polygons_m': [side_m([(19.31 + FIN_AFT, 3.2), (19.31 + FIN_AFT, 1.1), (20.5 + FIN_AFT, 1.1),
+                                    (20.5 + FIN_AFT, 3.2)]),
+                            side_m([(19.31 + FIN_AFT, 0.92), (19.31 + FIN_AFT, -1.1), (20.5 + FIN_AFT, -1.1),
+                                    (20.5 + FIN_AFT, 0.92)])]},
         ],
         'gear': {'wheel_sides': 10, 'legs': [
             {'name': 'Nose', 'pos_m': P(0.0, -2.85, 1.17), 'retract': 'aft', 'retract_deg': 90, 'strut_top_y_m': -1.53, 'wheel_radius_m': 0.29, 'twin': True},
