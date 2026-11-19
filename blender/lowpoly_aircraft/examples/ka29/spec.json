@@ -7,6 +7,40 @@
  "smooth_deg": 0,
  "symmetrize": true,
  "planar_deg_final": 2.5,
+ "camo": {
+  "colors": [
+   "#aeb2b4",
+   "#7f888f",
+   "#c9cccd"
+  ],
+  "scale_m": 2.2,
+  "seed": 3
+ },
+ "decals": [
+  {
+   "shape": "star",
+   "side": "both",
+   "at": [
+    1.5,
+    -5.7
+   ],
+   "size": 0.66,
+   "color": "#c3202b",
+   "border": "#eeeeee",
+   "border_m": 0.05
+  },
+  {
+   "shape": "text",
+   "text": "21",
+   "side": "both",
+   "at": [
+    2.5,
+    1.17
+   ],
+   "size": 0.42,
+   "color": "#e3b923"
+  }
+ ],
  "planar_zones": [
   {
    "min": [

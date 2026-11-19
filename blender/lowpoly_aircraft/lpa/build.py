@@ -10,6 +10,7 @@ import numpy as np
 from mathutils import Quaternion  # type: ignore
 
 from . import geometry as geo
+from . import paint
 from .tailhook import build_tailhook
 from .views import View, build_views
 
@@ -838,6 +839,11 @@ def build_parts(spec: dict) -> None:
         # vertex moves (wells, doors and panes still fit).
         geo.decimate(hull, planar_deg=float(spec['planar_deg_final']))
     geo.tidy(hull, spec.get('material', 'VEHICLE_PLANE_GREY'), smooth)
+    if spec.get('decals'):
+        paint.add_decals(hull, spec['decals'])
+    if spec.get('camo'):
+        paint.apply_camo([o for o in bpy.data.objects if o.type == 'MESH'
+                          and o.users_collection[0].name != 'Construction' or o is hull], spec['camo'])
     hull.name = hull.data.name = '0_Body'
     bpy.data.collections['Construction'].objects.unlink(hull)
     geo._link(hull, 'Body')

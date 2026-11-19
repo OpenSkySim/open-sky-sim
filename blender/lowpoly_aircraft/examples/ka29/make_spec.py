@@ -443,6 +443,15 @@ def main():
         'symmetrize': True,
         # Nose front under the windscreen: fewer, larger faces (owner: halve the triangles there).
         'planar_deg_final': 2.5,
+        # Navy scheme from the owner's deck photo: light grey with blue-grey and pale blotches,
+        # red stars with a white rim on the outer fins, yellow side number 21 on the engine cowling.
+        'camo': {'colors': ['#aeb2b4', '#7f888f', '#c9cccd'], 'scale_m': 2.2, 'seed': 3},
+        'decals': [
+            {'shape': 'star', 'side': 'both', 'at': [1.5, z_(9.92)], 'size': 0.66,
+             'color': '#c3202b', 'border': '#eeeeee', 'border_m': 0.05},
+            {'shape': 'text', 'text': '21', 'side': 'both', 'at': [2.5, z_(3.05)], 'size': 0.42,
+             'color': '#e3b923'},
+        ],
         'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 25},
                          {'min': [-1.3, 1.96, z_(2.3)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 70},   # 2nd: cockpit roof
                          {'min': [-1.3, -1, z_(7.9)], 'max': [1.3, 4, z_(2.6)], 'deg': 3, 'relax': 2}],   # 4th: cabin (owner: smoothen)
