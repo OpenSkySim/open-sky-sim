@@ -3583,36 +3583,42 @@ function paintOverlay() {
   const tex = {};
   for (const k of keys) {
     const t = new THREE.CanvasTexture(cv[k].c);
-    t.flipY = false; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+    t.flipY = false; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.colorSpace = THREE.SRGBColorSpace;
     tex[k] = t; PT.overlayTex.push(t);
   }
-  const mat = new THREE.ShaderMaterial({
-    uniforms: { tSP: { value: tex['side+'] }, tSN: { value: tex['side-'] }, tTop: { value: tex.top }, tBot: { value: tex.bottom },
-                uS: { value: new THREE.Vector3(...s) }, uR: { value: R }, uOp: { value: 0.93 } },
-    vertexShader: `varying vec3 vW; varying vec3 vN;
-      void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = mat3(modelMatrix) * normal;
-                    gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: `uniform sampler2D tSP, tSN, tTop, tBot; uniform vec3 uS; uniform float uR, uOp;
-      varying vec3 vW; varying vec3 vN;
-      vec4 at(sampler2D t, vec2 uv) { vec2 c = uv / (2.0 * uR) + 0.5;
-        if (c.x < 0.0 || c.y < 0.0 || c.x > 1.0 || c.y > 1.0) return vec4(0.0); return texture2D(t, c); }
-      void main() {
-        vec3 n = normalize(vN); vec4 col = vec4(0.0), c;
-        vec2 side = vec2(vW.z - uS.z, vW.y - uS.y), top = vec2(vW.z - uS.z, vW.x - uS.x);
-        // same rule as lpa/paint.py: a face takes a view's shapes when it is turned towards it
-        if (n.x > 0.02) { c = at(tSP, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-        if (n.x < -0.02) { c = at(tSN, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-        if (n.y < -0.02) { c = at(tBot, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-        if (n.y > 0.02) { c = at(tTop, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-        if (col.a < 0.02) discard;
-        gl_FragColor = vec4(col.rgb, col.a * uOp);
-      }`,
-    transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-  });
-  objs.forEach((o, i) => {
+  // The hull's own lit material (same light and flat facets), its colour taken from the shapes.
+  const uniforms = { tSP: { value: tex['side+'] }, tSN: { value: tex['side-'] }, tTop: { value: tex.top }, tBot: { value: tex.bottom },
+                     uS: { value: new THREE.Vector3(...s) }, uR: { value: R } };
+  const makeMat = () => {
+    const mat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1, depthWrite: false,
+                                                 polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    mat.customProgramCacheKey = () => 'paintOverlay';
+    mat.onBeforeCompile = sh => {
+      Object.assign(sh.uniforms, uniforms);
+      sh.vertexShader = 'varying vec3 vPW; varying vec3 vPN;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+        '#include <begin_vertex>\n  vPW = (modelMatrix * vec4(transformed, 1.0)).xyz; vPN = mat3(modelMatrix) * objectNormal;');
+      sh.fragmentShader = `uniform sampler2D tSP, tSN, tTop, tBot; uniform vec3 uS; uniform float uR;
+        varying vec3 vPW; varying vec3 vPN;
+        vec4 paintAt(sampler2D t, vec2 uv) { vec2 c = uv / (2.0 * uR) + 0.5;
+          if (c.x < 0.0 || c.y < 0.0 || c.x > 1.0 || c.y > 1.0) return vec4(0.0); return texture2D(t, c); }
+        ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        {
+          vec3 pn = normalize(vPN); vec4 col = vec4(0.0), c;
+          vec2 side = vec2(vPW.z - uS.z, vPW.y - uS.y), top = vec2(vPW.z - uS.z, vPW.x - uS.x);
+          // same rule as lpa/paint.py: a face takes a view's shapes when it is turned towards it
+          if (pn.x > 0.02) { c = paintAt(tSP, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+          if (pn.x < -0.02) { c = paintAt(tSN, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+          if (pn.y < -0.02) { c = paintAt(tBot, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+          if (pn.y > 0.02) { c = paintAt(tTop, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+          if (col.a < 0.5) discard;
+          diffuseColor.rgb = col.rgb;
+        }`);
+    };
+    return mat;
+  };
+  objs.forEach(o => {
     if (!o.geometry || !o.geometry.attributes.normal) return;
-    const ov = new THREE.Mesh(o.geometry, i ? mat.clone() : mat);
-    if (i) for (const k in mat.uniforms) ov.material.uniforms[k] = mat.uniforms[k];
+    const ov = new THREE.Mesh(o.geometry, makeMat());
     ov.name = 'paint_overlay'; ov.renderOrder = 18; ov.raycast = () => {};
     ov.userData.reference = true;
     o.add(ov); PT.overlays.push(ov);
