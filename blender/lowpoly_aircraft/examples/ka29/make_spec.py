@@ -43,10 +43,14 @@ def z_(d):
 # Cockpit (owner 2026-11-19): seats 20 cm out from the first 0.52 m, then 10 cm back in.
 SEAT_X = 0.62
 COCKPIT_DY = 0.15    # owner: cockpit 30 cm up, then 15 cm back down
-PANEL_UP = ('InstrumentPanel', 'PanelCentre', 'GlareShield', 'Gauges', 'GaugesCentre', 'Pedestal', 'PedestalTop',
-            'SideConsole', 'SideConsoleTop')
-COCKPIT_PARTS = ('InstrumentPanel', 'PanelCentre', 'GlareShield', 'Gauges', 'GaugesCentre', 'Pedestal', 'PedestalTop',
-                 'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack')
+PANEL_UP = ('Pedestal', 'PedestalTop')   # owner: centre console 20 cm higher
+COCKPIT_PARTS = ('FrontShelf', 'PanelCentre', 'GlareShield', 'Gauges', 'GaugesCentre', 'Pedestal', 'PedestalTop',
+                 'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack', 'SeatBeltIn', 'SeatBeltOut')
+BULK_D = 1.78          # bulkhead right behind the seat backs (second photo)
+WALL = '#a3abb2'       # light grey walls, floor, console sides (second photo)
+TURQ_LIGHT = '#2f8f8b' # console tops
+SEAT = '#4a2c20'       # dark brown seat cushions
+BELT = '#8c949a'       # grey belts
 TURQ = '#1f5c5a'      # cockpit: dark turquoise (owner)
 TURQ_DARK = '#163f3e' # floor, coaming, sticks
 GAUGE = '#14171a'     # instrument faces
@@ -415,54 +419,61 @@ def main():
         # trailing edge at d 9.1, 0.3 m deep).
         {'name': 'TailBumper', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 4,
          'stations': panel_rows([(0.0, 1.0, 8.2, 0.92, 0.1), (0.0, 0.78, 8.8, 0.3, 0.1)])},
-        # Cockpit behind the glazing, after the owner's photo of a Ka-27/29 cockpit kit, all dark
-        # turquoise (owner 2026-11-19), laid out round the game's pilot figures (eye at SEAT_X,
-        # y 1.7, d 1.3): boots rest on the raised floor at y 0.62 down to d 0.45, shins climb to the
-        # knees at d 0.95 (y 1.1), so the panel sits ahead of the shins (bottom 0.9 at d 0.52-0.6)
-        # and only the centre section between the pilots reaches the floor.
-        # Owner (2026-11-19): half the cockpit triangles -> plain boxes (12 triangles each) and
-        # single faces for the instrument faces and console tops; side consoles run forward to
-        # the panel.
-        {'name': 'InstrumentPanel', 'type': 'loft', 'box': True, 'join': 'separate', 'clip_hull': True, 'material': TURQ,
-         'stations': loft_m([(0.5, 0.95, 0.9, 1.22, 8), (0.6, 0.95, 0.9, 1.18, 8)])},
+        # Cockpit after the owner's two photos of a Ka-27/29 cockpit kit (2026-11-19), laid out
+        # round the game's pilot figures (eye at SEAT_X, y 1.7 + COCKPIT_DY, d 1.3): boots on the
+        # floor down to d 0.45, shins climbing to the knees at d 0.95 (y 1.1). Second photo: a low
+        # shelf round the nose with one tall instrument block in the middle, low side consoles
+        # (grey, turquoise tops), brown seats with grey belts against the bulkhead, which has a
+        # doorway to the cabin; walls and floor light grey. Plain boxes (12 triangles each) keep
+        # it cheap (owner: half the cockpit triangles).
+        {'name': 'FrontShelf', 'type': 'loft', 'box': True, 'join': 'separate', 'clip_hull': True, 'material': TURQ,
+         'stations': loft_m([(0.32, 1.0, 1.08, 1.18, 8), (0.66, 1.0, 1.08, 1.18, 8)])},
         {'name': 'PanelCentre', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
-         'stations': loft_m([(0.48, 0.3, 0.6, 1.28, 8), (0.66, 0.3, 0.6, 1.24, 8)])},
+         'stations': loft_m([(0.45, 0.3, 0.62, 1.45, 8), (0.68, 0.3, 0.62, 1.42, 8)])},
         # Owner: the top of the front panel is black.
-        {'name': 'GlareShield', 'type': 'loft', 'box': True, 'join': 'separate', 'clip_hull': True, 'material': '#101113',
-         'stations': loft_m([(0.42, 0.95, 1.2, 1.25, 8), (0.66, 0.95, 1.18, 1.23, 8)])},
-        {'name': 'Gauges', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': GAUGE,
-         'stations': loft_m([(0.6, 0.18, 0.96, 1.15, 8), (0.615, 0.18, 0.96, 1.15, 8)], SEAT_X - 0.05)},
+        {'name': 'GlareShield', 'type': 'loft', 'box': True, 'join': 'separate', 'material': '#101113',
+         'stations': loft_m([(0.42, 0.33, 1.45, 1.5, 8), (0.71, 0.33, 1.42, 1.47, 8)])},
         {'name': 'GaugesCentre', 'type': 'loft', 'box': True, 'join': 'separate', 'material': GAUGE,
-         'stations': loft_m([(0.66, 0.22, 0.75, 1.19, 8), (0.675, 0.22, 0.75, 1.19, 8)])},
+         'stations': loft_m([(0.68, 0.24, 0.8, 1.38, 8), (0.695, 0.24, 0.8, 1.36, 8)])},
+        {'name': 'Gauges', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': GAUGE,
+         'stations': loft_m([(0.45, 0.15, 1.18, 1.36, 8), (0.56, 0.15, 1.18, 1.32, 8)], SEAT_X - 0.05)},
         {'name': 'Pedestal', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
-         'stations': loft_m([(0.66, 0.18, 0.6, 0.98, 8), (1.75, 0.14, 0.6, 0.8, 8)])},
+         'stations': loft_m([(0.68, 0.18, 0.6, 0.98, 8), (1.75, 0.14, 0.6, 0.8, 8)])},
         {'name': 'PedestalTop', 'type': 'quad', 'join': 'separate', 'material': GAUGE,
          'points': [P(0.12, 0.985, 0.75), P(-0.12, 0.985, 0.75), P(-0.1, 0.815, 1.6), P(0.1, 0.815, 1.6)]},
-        # Kept inside the walls (no hull clip, 12 triangles): narrower and further in at the nose.
-        {'name': 'SideConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': TURQ,
-         'stations': [[z_(0.6), 0.9, 0.775, 0.04, 0.145, 0.145, 8], [z_(2.2), 1.0, 0.775, 0.07, 0.145, 0.145, 8]]},
-        {'name': 'SideConsoleTop', 'type': 'quad', 'join': 'separate', 'mirror': True, 'material': GAUGE,
-         'points': [P(0.87, 0.925, 0.7), P(0.94, 0.925, 2.0), P(1.06, 0.925, 2.0), P(0.94, 0.925, 0.7)]},
+        # Low, inside the walls (no hull clip): narrower and further in at the nose.
+        {'name': 'SideConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': WALL,
+         'stations': [[z_(0.6), 0.9, 0.775, 0.04, 0.145, 0.145, 8], [z_(BULK_D), 1.0, 0.775, 0.07, 0.145, 0.145, 8]]},
+        {'name': 'SideConsoleTop', 'type': 'quad', 'join': 'separate', 'mirror': True, 'material': TURQ_LIGHT,
+         'points': [P(0.87, 0.925, 0.65), P(0.93, 0.925, BULK_D - 0.02), P(1.06, 0.925, BULK_D - 0.02), P(0.94, 0.925, 0.65)]},
         {'name': 'Cyclic', 'type': 'strut', 'mirror': True, 'a': P(SEAT_X, 0.62, 0.92), 'b': P(SEAT_X, 1.05, 0.87),
          'radius': 0.025, 'sides': 3, 'join': 'separate', 'material': GAUGE},
-        {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'fill_inset': 0.95, 'material': TURQ_DARK,
-         'segments': 6, 'stations': loft_m([(0.42, 2.0, 0.605, 0.62, 8), (2.45, 2.0, 0.605, 0.62, 8)])},
-        {'name': 'Seat', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': '#2a2d31',
+        {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'fill_inset': 0.95, 'material': WALL,
+         'segments': 6, 'stations': loft_m([(0.42, 2.0, 0.605, 0.62, 8), (BULK_D, 2.0, 0.605, 0.62, 8)])},
+        {'name': 'Seat', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': SEAT,
          'stations': loft_m([(1.2, 0.22, 0.77, 1.15, 6), (1.6, 0.22, 0.77, 1.15, 6)], SEAT_X)},
-        {'name': 'SeatBack', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': '#2a2d31',
+        {'name': 'SeatBack', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': SEAT,
          'stations': loft_m([(1.6, 0.22, 0.77, 1.85, 6), (1.75, 0.22, 0.77, 1.85, 6)], SEAT_X)},
-        {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#101113',
-         'segments': 6, 'stations': loft_m([(2.42, 2.5, -1.0, 2.6, 8), (2.48, 2.5, -1.0, 2.6, 8)])},
+        {'name': 'SeatBeltIn', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': BELT,
+         'stations': loft_m([(1.585, 0.025, 1.15, 1.8, 6), (1.6, 0.025, 1.15, 1.8, 6)], SEAT_X - 0.08)},
+        {'name': 'SeatBeltOut', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': BELT,
+         'stations': loft_m([(1.585, 0.025, 1.15, 1.8, 6), (1.6, 0.025, 1.15, 1.8, 6)], SEAT_X + 0.08)},
+        # Bulkhead right behind the seats, light grey, with a doorway (0.7 m wide) to the cabin:
+        # two side pieces and a lintel, each cut to the fuselage section.
+        {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'mirror': True, 'fill_hull': 'section', 'material': WALL,
+         'segments': 6, 'stations': loft_m([(BULK_D, 1.075, -1.0, 2.6, 8), (BULK_D + 0.06, 1.075, -1.0, 2.6, 8)], 1.425)},
+        {'name': 'BulkheadLintel', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': WALL,
+         'segments': 6, 'stations': loft_m([(BULK_D, 0.4, 1.95 + COCKPIT_DY, 2.6, 8), (BULK_D + 0.06, 0.4, 1.95 + COCKPIT_DY, 2.6, 8)])},
     ]
     # Owner (2026-11-19): the whole cockpit (floor, panel, consoles, seats, sticks) COCKPIT_DY higher;
     # the pilots' eye points go up with it below.
-    # Owner (2026-11-19): the four consoles (front panel with its top and instruments, centre
-    # console, both side consoles) 20 cm higher; the ones standing on the floor grow up from it.
+    # Owner (2026-11-19): the centre console 20 cm higher, growing up from the floor (the front
+    # panel and side consoles were raised too, then redone low after the second photo).
     for part in parts:
         if part['name'] in PANEL_UP:
             if part['type'] == 'quad':
                 part['points'] = [[q[0], round(q[1] + 0.2, 3), q[2]] for q in part['points']]
-            elif part['name'] in ('Pedestal', 'SideConsole', 'PanelCentre'):
+            elif part['name'] == 'Pedestal':
                 # cy up by 0.1, height (above and below) by 0.1 each: the bottom stays put
                 part['stations'] = [r[:2] + [round(r[2] + 0.1, 3), r[3], round(r[4] + 0.1, 3), round(r[5] + 0.1, 3)] + r[6:]
                                     for r in part['stations']]
@@ -499,7 +510,7 @@ def main():
         # Nose front under the windscreen: fewer, larger faces (owner: halve the triangles there).
         'planar_deg_final': 2.5,
         # Dark inside skin: no look through the windows or intakes out the far side of the hull.
-        'lining': '#1d2024',
+        'lining': WALL,   # owner: light grey walls (dark #1d2024 before)
         # Navy scheme from the owner's deck photo: light grey with blue-grey and pale blotches (paint.json),
         # red stars with a white rim on the outer fins, yellow side number 21 on the engine cowling.
         # Camo outlines: paint.json next to the spec (cut into the skin by the builder).
