@@ -3441,6 +3441,9 @@ function paintRay(e) {
   ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam);
   return ray;
 }
+// The side of a mirrored side shape that faces the camera (handles and point picking there).
+const paintCamXs = () => (cam.position.x >= 0 ? 1 : -1);
+const paintRegionXs = r => (r.view === 'side' && r.mirror !== false ? paintCamXs() : (r.x_side || 1));
 const paintViewOfNormal = n => Math.abs(n.x) >= Math.abs(n.y) ? 'side' : n.y > 0 ? 'top' : 'bottom';
 // { uv, view, xs } under the pointer; *want* forces the drawing view (a shape being drawn or dragged).
 function paintPick(e, want = null) {
@@ -3504,7 +3507,7 @@ function paintDraw() {
         const tri = THREE.ShapeUtils.triangulateShape(pts.map(([u, v]) => new THREE.Vector2(u, v)), []);
         const geo = new THREE.BufferGeometry().setFromPoints(P3);
         geo.setIndex(tri.flat());
-        const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: sel ? 0.8 : 0.6, depthTest: false, side: THREE.DoubleSide }));
+        const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: sel ? 0.9 : 0.85, depthTest: false, side: THREE.DoubleSide }));
         fill.renderOrder = 18;
         g.add(fill);
       }
@@ -3529,7 +3532,7 @@ function paintDraw() {
 // selected shape and the shape being drawn as handles.
 function paintDrawFree() {
   const g = new THREE.Group();
-  const outline = (view, pts, xs, mirror, color, sel, closed) => {
+  const outline = (view, pts, xs, mirror, color, sel, closed, fillColor = color) => {
     const sides = view === 'side' ? (mirror ? [false, true] : [false]) : (mirror ? [false, true] : [false]);
     for (const m of sides) {
       const seg = [];
@@ -3553,6 +3556,32 @@ function paintDrawFree() {
       };
       for (const p of seg) { if (p) run.push(p); else flush(); }
       flush();
+      if (closed && pts.length >= 3) {
+        // Filled: a grid over the shape (cells whose centre lies inside), laid on the model.
+        const us = pts.map(p => p[0]), vs = pts.map(p => p[1]);
+        const u0 = Math.min(...us), u1 = Math.max(...us), v0 = Math.min(...vs), v1 = Math.max(...vs);
+        const st = Math.max(0.06, Math.max(u1 - u0, v1 - v0) / 40);
+        const nu = Math.ceil((u1 - u0) / st), nv = Math.ceil((v1 - v0) / st);
+        const cache = new Map();
+        const at = (i, j) => {
+          const k = i * (nv + 1) + j;
+          if (!cache.has(k)) cache.set(k, paintSurf(view, u0 + i * st, v0 + j * st, xs, m));
+          return cache.get(k);
+        };
+        const tri = [];
+        for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+          if (!paintInside([u0 + (i + 0.5) * st, v0 + (j + 0.5) * st], pts)) continue;
+          const a = at(i, j), b = at(i + 1, j), c2 = at(i + 1, j + 1), d = at(i, j + 1);
+          if (!a || !b || !c2 || !d) continue;
+          tri.push(a, b, c2, a, c2, d);
+        }
+        if (tri.length) {
+          const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints(tri),
+            new THREE.MeshBasicMaterial({ color: new THREE.Color(fillColor), transparent: true, opacity: sel ? 0.85 : 0.75, side: THREE.DoubleSide, depthWrite: false,
+                                          polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+          fill.renderOrder = 18; g.add(fill);
+        }
+      }
       if (sel && !m) {
         const hp = pts.map(([u, v]) => paintSurf(view, u, v, xs, false)).filter(Boolean);
         if (hp.length) {
@@ -3562,7 +3591,7 @@ function paintDrawFree() {
       }
     }
   };
-  for (const r of paintRegions()) outline(r.view, r.pts, r.x_side || 1, r.mirror !== false, new THREE.Color(r.color).multiplyScalar(0.6), PT.sel === r.id, true);
+  for (const r of paintRegions()) outline(r.view, r.pts, paintRegionXs(r), r.mirror !== false, new THREE.Color(r.color).multiplyScalar(0.6), PT.sel === r.id, true, r.color);
   if (PT.draft) outline(PT.draft.view, PT.draft.pts, PT.draft.xs || 1, false, 0xff8a00, true, false);
   g.traverse(o => { o.userData.reference = true; });
   scene.add(g);
@@ -3678,7 +3707,7 @@ stage.addEventListener('pointerdown', e => {
   const selR = paintRegions().find(x => x.id === PT.sel && (paintFree() || x.view === paintView()));
   // A point of the selected shape to drag?
   if (selR && !PT.draft) {
-    const k = selR.pts.findIndex(p => near(selR.view, p, selR.x_side || (paintFree() ? 1 : -1)));
+    const k = selR.pts.findIndex(p => near(selR.view, p, paintFree() ? paintRegionXs(selR) : -1));
     if (k >= 0) {
       e.stopPropagation();
       if (!PT.docs[selR.id]) { const { id, ...x } = selR; PT.docs[selR.id] = x; }
