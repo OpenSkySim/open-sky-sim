@@ -503,6 +503,7 @@ function restyle(obj) {
       o.add(lines);
       return;
     }
+    o.userData.mat = o.material?.name || '';   // as built (the Paint card's Base recolours the base skin)
     o.material = materialFor(o.material?.name || '');
     if (wire) {
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 20), new THREE.LineBasicMaterial({ color: 0x1b232c, transparent: true, opacity: 0.5 }));
@@ -3503,6 +3504,7 @@ function paintDraw() {
                                                            : 'Paint on: click on the model to place points, drag beside it to rotate, scroll to zoom';
   }
   if (!current) return;
+  paintBaseApply();
   // "Show the outlines" off: the fill stays, only the lines and point handles go.
   const lines = $('paintShow').checked;
   const view = paintView();
@@ -3542,13 +3544,24 @@ function paintDraw() {
 // build paints it: every hull face turned towards a shape's view (normal along that axis) takes
 // the colour where it lies inside the outline. The outlines are rasterised per view into a
 // texture (u, v as stored), so the fill covers the whole polygon to the pixel, with no gaps.
+// The base colour the model was built with (its skin's material name), and the one chosen now.
+const paintBuiltBase = () => ((PT.built && PT.built.base) || '#aeb2b4').toLowerCase();
+function paintBaseApply() {
+  if (!current || meshOnly) return;
+  const from = paintBuiltBase(), to = paintBase();
+  current.root.traverse(o => {
+    if (o.isMesh && (o.userData.mat || '').toLowerCase() === from && o.material && o.material.isMeshStandardMaterial) o.material.color.set(to);
+  });
+}
 function paintOverlayClear() {
   for (const o of PT.overlays || []) { o.removeFromParent(); o.material.dispose(); }
   for (const t of PT.overlayTex || []) t.dispose();
   PT.overlays = []; PT.overlayTex = [];
 }
 function paintOverlay() {
-  const regs = paintRegions(), objs = paintObjs();
+  // Only the base skin takes shapes, as in the build (glass, markings and dark parts keep theirs).
+  const from = paintBuiltBase();
+  const regs = paintRegions(), objs = paintObjs().filter(o => (o.userData.mat || '').toLowerCase() === from);
   if (!regs.length || !objs.length) return;
   const box = new THREE.Box3();
   for (const o of objs) box.expandByObject(o);
@@ -3770,7 +3783,8 @@ $('paintColor').addEventListener('input', () => {
   if (PT.sel) paintSet(PT.sel, { color: $('paintColor').value });
   else paintDraw();
 });
-$('paintBase').addEventListener('change', () => { PT.docs.base = { base: $('paintBase').value, t: new Date().toISOString() }; paintSave('base'); });
+$('paintBase').addEventListener('input', () => { PT.docs.base = { base: $('paintBase').value, t: new Date().toISOString() }; paintBaseApply(); });
+$('paintBase').addEventListener('change', () => { PT.docs.base = { base: $('paintBase').value, t: new Date().toISOString() }; paintSave('base'); paintDraw(); });
 stage.addEventListener('pointerdown', e => {
   if (!PT.on || e.button !== 0 || e.target !== renderer.domElement) return;
   const r = renderer.domElement.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
