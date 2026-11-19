@@ -162,9 +162,9 @@ def windows_and_doors():
         {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'depth_m': [-1.3, 1.3],
          'polygon_m': [[z_(0.2), 1.28], [z_(0.71), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.28]],
          'clip': {'view': 'top', 'polygons_m': [
-             [[-0.27, z_(0.2)], [0.27, z_(0.2)], [0.27, z_(0.66)], [-0.27, z_(0.66)]],
-             [[0.31, z_(0.25)], [0.92, z_(0.465)], [0.875, z_(0.76)], [0.31, z_(0.66)]],
-             [[-0.31, z_(0.25)], [-0.31, z_(0.66)], [-0.875, z_(0.76)], [-0.92, z_(0.465)]]]}},
+             [[-0.38, z_(0.2)], [0.38, z_(0.2)], [0.38, z_(0.66)], [-0.38, z_(0.66)]],
+             [[0.42, z_(0.25)], [0.92, z_(0.465)], [0.875, z_(0.76)], [0.42, z_(0.66)]],
+             [[-0.42, z_(0.25)], [-0.42, z_(0.66)], [-0.875, z_(0.76)], [-0.92, z_(0.465)]]]}},
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
         {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'depth_m': [0.8, 1.3],
