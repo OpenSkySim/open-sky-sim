@@ -426,22 +426,13 @@ def main():
     for part in parts:
         if part.get('type') == 'strut' and 'sides' not in part:
             part['sides'] = 3
-    # Owner (2026-11-19): whole model at about 2,000 triangles. Drop the small rotor-head
-    # linkage and tubes are 4-sided at most.
-    drop = ('SwashLowerArm', 'SwashUpperArm', 'ControlRod', 'ExhaustLiner', 'ExhaustInside', 'IntakeCone', 'ExhaustLip', 'IntakeLip', 'Screens', 'Pedestal', 'GlareShield',
-            'SwashLowerHub', 'SwashUpperHub', 'SwashLowerRing', 'SwashUpperRing', 'MastNut', 'MastCollar')
-    parts[:] = [p for p in parts if not p['name'].startswith(drop)]
+    # Owner (2026-11-19): 500 fewer triangles without losing shape: hidden inner duct parts go,
+    # rotor blades get 3 chord points and the heads lose the tie rods.
+    parts[:] = [p for p in parts if p['name'] not in ('ExhaustLiner', 'ExhaustInside', 'IntakeCone')]
     for part in parts:
-        if part.get('type') in ('strut', 'duct') and part.get('sides', 6) > 4:
-            part['sides'] = 4
         if part.get('type') == 'rotor':
-            part['hub_sides'] = 4
-            part.pop('head', None)
             part['chord_points'] = 3
-        if part.get('type') == 'loft' and part['name'] != 'Fuselage' and part.get('segments', 0) > 4:
-            part['segments'] = max(4, part['segments'] // 2)
-        if part.get('type') == 'panel':
-            part['chord_points'] = 3
+            part['head'] = {k: v for k, v in part.get('head', {}).items() if k != 'tie_rods'}
     spec = {
         'id': 'lp_ka29',
         'name': 'Ka-29 (Lowpoly)',
@@ -451,7 +442,7 @@ def main():
         'smooth_deg': 0,
         'symmetrize': True,
         # Nose front under the windscreen: fewer, larger faces (owner: halve the triangles there).
-        'planar_deg_final': 22,
+        'planar_deg_final': 2.5,
         'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 25},
                          {'min': [-1.3, 1.96, z_(2.3)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 70},   # 2nd: cockpit roof
                          {'min': [-1.3, -1, z_(11.5)], 'max': [1.3, 4, z_(8.6)], 'deg': 14, 'relax': 3}],   # 3rd: tail boom
@@ -474,7 +465,7 @@ def main():
              'polygons_m': [[[z_(10.35), 2.7], [z_(10.35), 1.67], [z_(11.4), 1.67], [z_(11.4), 2.7]],
                             [[z_(10.35), 1.57], [z_(10.35), 0.6], [z_(11.4), 0.6], [z_(11.4), 1.57]]]},
         ],
-        'gear': {'wheel_sides': 6, 'legs': [
+        'gear': {'wheel_sides': 8, 'legs': [
             # Fixed gear (retract_deg 0). The drawing's nose wheels stand 0.24 m lower than the mains
             # (the Ka-29 sits nose-up on deck); the sim stands every wheel on one ground plane, so the
             # nose legs are shortened and the fuselage stays level, as the second sheet draws it.

@@ -15,7 +15,7 @@ import os
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SEGMENTS = 16            # ring vertices; 19 on the +x half from top to bottom centre
+SEGMENTS = 28            # ring vertices; 19 on the +x half from top to bottom centre
 HALF_N = SEGMENTS // 2   # intervals on one half
 
 
