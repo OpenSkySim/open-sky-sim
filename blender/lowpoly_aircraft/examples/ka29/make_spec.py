@@ -437,7 +437,7 @@ def main():
         # Nose front under the windscreen: fewer, larger faces (owner: halve the triangles there).
         'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 25},
                          {'min': [-1.3, 1.96, z_(2.3)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 70},   # 2nd: cockpit roof
-                         {'min': [-1.3, -1, z_(11.5)], 'max': [1.3, 4, z_(8.6)], 'deg': 10}],   # 3rd: tail boom
+                         {'min': [-1.3, -1, z_(11.5)], 'max': [1.3, 4, z_(8.6)], 'deg': 14, 'relax': 3}],   # 3rd: tail boom
         'sections': fuse_secs,
         'parts': parts,
         'regions': windows_and_doors(),
