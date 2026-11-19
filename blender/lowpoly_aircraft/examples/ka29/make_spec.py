@@ -40,8 +40,8 @@ def z_(d):
     return round(Z0 - d, 3)
 
 
-# Cockpit (owner 2026-11-19): seats 20 cm further out than first built (0.52 m).
-SEAT_X = 0.72
+# Cockpit (owner 2026-11-19): seats 20 cm out from the first 0.52 m, then 10 cm back in.
+SEAT_X = 0.62
 TURQ = '#1f5c5a'      # cockpit: dark turquoise (owner)
 TURQ_DARK = '#163f3e' # floor, coaming, sticks
 GAUGE = '#14171a'     # instrument faces
