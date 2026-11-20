@@ -98,7 +98,8 @@ def _project(bvh, y: float, z: float, sx: float):
     return hit + nrm * 0.01
 
 
-def add_decals(hull: bpy.types.Object, decals: list) -> None:
+def add_decals(hull: bpy.types.Object, decals: list, override: dict | None = None) -> None:
+    """*override*: a skin's own side number / colour (wins over --number / --number-color)."""
     bvh = BVHTree.FromObject(hull, bpy.context.evaluated_depsgraph_get())
     me = hull.data
     bm = bmesh.new()
@@ -113,7 +114,7 @@ def add_decals(hull: bpy.types.Object, decals: list) -> None:
 
     for dec in decals:
         if dec['shape'] == 'text':
-            dec = {**dec, **TEXT_OVERRIDE}
+            dec = {**dec, **TEXT_OVERRIDE, **(override or {})}
         y0, z0 = dec['at']
         size = float(dec['size'])
         sides = {'left': [1.0], 'right': [-1.0], 'both': [1.0, -1.0]}[dec.get('side', 'both')]

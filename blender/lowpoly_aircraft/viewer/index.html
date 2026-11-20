@@ -158,6 +158,12 @@ button.ok { color: var(--ok); }
 .xs-list { display: grid; gap: 2px; margin-top: 8px; max-height: 160px; overflow: auto; }
 .xs-list button { text-align: left; background: transparent; border: 1px solid transparent; color: var(--ink); border-radius: 4px; padding: 3px 6px; font: 12px var(--font-mono); cursor: pointer; }
 .xs-list button[aria-pressed="true"] { border-color: var(--xs); }
+.skin-bar { display: grid; gap: 6px; margin: 0 0 10px; padding: 0 0 10px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.skin-bar > label { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 6px; }
+.skin-bar select, .skin-bar input[type="text"] { font: 12px var(--font-ui); color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; min-width: 0; width: 100%; box-sizing: border-box; }
+.skin-bar .row { margin: 0; }
+.skin-num { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.skin-num input[type="color"] { width: 32px; height: 24px; padding: 0; border: 1px solid var(--line); background: none; flex: none; }
 .paint-col { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-size: 12px; }
 .paint-col input { width: 32px; height: 22px; padding: 0; border: 1px solid var(--line, #ccc); background: none; }
 .xs-win { position: fixed; z-index: 50; right: 24px; top: 24px; width: min(620px, calc(100vw - 32px)); height: min(600px, calc(100vh - 48px));
@@ -336,6 +342,12 @@ button.ok { color: var(--ok); }
     </div>
     <div class="card" id="paintCard">
       <h2>Paint</h2>
+      <div class="skin-bar">
+        <label>Skin <select id="skinSel" aria-label="Skin (livery) being edited"></select></label>
+        <div class="row"><button type="button" id="skinNew">New skin</button><button type="button" id="skinDup">Duplicate</button><button type="button" id="skinDel" class="danger">Remove skin</button></div>
+        <label>Name <input type="text" id="skinName" maxlength="40" aria-label="Name of this skin"></label>
+        <label>Side number <span class="skin-num"><input type="text" id="skinNumber" maxlength="6" placeholder="as built" aria-label="Side number of this skin (digits)"><input type="color" id="skinNumberColor" value="#e3b923" aria-label="Colour of the side number"></span></label>
+      </div>
       <div class="row" style="margin: 0 0 8px"><button type="button" id="paintOn" aria-pressed="false">Paint off</button>
         <label class="paint-col">Colour <input type="color" id="paintColor" value="#7f888f"></label>
         <label class="paint-col">Base <input type="color" id="paintBase" value="#aeb2b4"></label></div>
@@ -343,7 +355,7 @@ button.ok { color: var(--ok); }
         <label><input type="checkbox" id="paintShow" checked> show the outlines</label></div>
       <div class="xs-list" id="paintList" aria-label="Painted shapes"></div>
       <div class="row"><button type="button" id="paintFinish" disabled>Finish shape</button><button type="button" id="paintDel" class="danger" disabled>Delete shape</button><button type="button" id="paintExport">Copy paint.json</button></div>
-      <p class="note" id="paintNote">Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b> or <b>Bottom</b> view. Click to place points, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). Side shapes paint all skin inside the outline that is turned towards that side, top and bottom shapes the skin turned up or down.</p>
+      <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b> or <b>Bottom</b> view. Click to place points, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). Side shapes paint all skin inside the outline that is turned towards that side, top and bottom shapes the skin turned up or down.</p>
       <p class="note" id="paintState"></p>
       <textarea id="paintExportText" readonly aria-label="paint.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
     </div>
@@ -2912,7 +2924,29 @@ new ResizeObserver(() => xsDraw()).observe($('xsCanvas'));
 // top / bottom [z, x]. Built-in shapes come from models/<id>/paint.json (ids r0, r1 …); edits
 // live in the db at aircraft/<id>/paint/<shape id> (a removed built-in shape keeps {removed: true}).
 var PT_READY = true;
-const PT = { entry: null, built: null, docs: {}, shift: [0, 0, 0], on: false, draft: null, sel: null, drag: null, group: null };
+const PT = { entry: null, built: null, docs: {}, shift: [0, 0, 0], on: false, draft: null, sel: null, drag: null, group: null,
+             file: null, skins: [], skinDocs: {}, skin: 'default', allDocs: {}, bodyFile: null };
+// Skins (liveries): models/<id>/paint.json holds one scheme (the old format: the default skin) or
+// { skins: [{ id, name, base, regions, number, number_color }] }, the first one the default. In the
+// db, aircraft/<id>/skins/<skin id> holds a skin's name, side number and {removed}; its shapes and
+// 'base' doc live in aircraft/<id>/paint (the default skin) or aircraft/<id>/paint_<skin id>.
+const SKIN0 = 'default';
+const skinCol = sid => sid === SKIN0 ? 'paint' : 'paint_' + sid;
+function skinsBuilt(file) {
+  if (!file) return [];
+  if (!Array.isArray(file.skins)) return [{ ...file, id: SKIN0, name: file.name || 'Default' }];
+  const shared = Object.fromEntries(Object.entries(file).filter(([k]) => !['skins', 'about', 'aircraft'].includes(k)));
+  return file.skins.filter(s => !s.removed).map((s, i) => ({ ...shared, ...s, id: i ? s.id : SKIN0, name: s.name || (i ? s.id : 'Default'), regions: s.regions || [] }));
+}
+// Every skin: built ones in their order, then the ones added here (oldest first); removed ones left out.
+function skinList() {
+  const out = PT.skins.map(s => ({ ...s, ...(PT.skinDocs[s.id] || {}), id: s.id, built: true }));
+  if (!out.length) out.push({ id: SKIN0, name: 'Default', ...(PT.skinDocs[SKIN0] || {}), built: true });
+  const extra = Object.entries(PT.skinDocs).filter(([id]) => !out.some(s => s.id === id))
+    .sort((a, b) => String(a[1].t || '').localeCompare(String(b[1].t || ''))).map(([id, d]) => ({ ...d, id, built: false }));
+  return out.concat(extra).filter(s => s.id === SKIN0 || !s.removed);
+}
+const skinCur = () => skinList().find(s => s.id === PT.skin) || skinList()[0];
 const PAINT_VIEWS = ['side', 'top', 'bottom'];
 const paintView = () => PAINT_VIEWS.includes(viewName) ? viewName : null;
 const paintRound = v => Math.round(v * 1000) / 1000;
@@ -2922,7 +2956,7 @@ function paintRegions() {
   for (const [id, d] of Object.entries(PT.docs)) if (id !== 'base') out.set(id, { ...(out.get(id) || {}), ...d, id });
   return [...out.values()].filter(r => !r.removed && Array.isArray(r.pts) && r.pts.length >= 3);
 }
-const paintBase = () => (PT.docs.base && PT.docs.base.base) || (PT.built && PT.built.base) || '#aeb2b4';
+const paintBase = () => (PT.docs.base && PT.docs.base.base) || (PT.built && PT.built.base) || (skinsBuilt(PT.file)[0] || {}).base || '#aeb2b4';
 // Drawing coordinates <-> the shown (pack) frame, on the plane the outlines are drawn on.
 function paintPlane(view) {
   const b = current.box;
@@ -3055,12 +3089,22 @@ function paintDraw() {
 // the colour where it lies inside the outline. The outlines are rasterised per view into a
 // texture (u, v as stored), so the fill covers the whole polygon to the pixel, with no gaps.
 // The base colour the model was built with (its skin's material name), and the one chosen now.
-const paintBuiltBase = () => ((PT.built && PT.built.base) || '#aeb2b4').toLowerCase();
+// A skin built into the pack has its own body model (its shapes already cut in); a skin added
+// here is shown on the default skin's body, whose base and shape colours then take its base.
+function paintFromSet() {
+  const lc = c => String(c || '#aeb2b4').toLowerCase();
+  const all = skinsBuilt(PT.file), def = all[0];
+  const own = all.find(s => s.id === PT.skin && PT.bodyFile && PT.bodyFile === skinBodyFile(s.id));
+  if (own) return new Set([lc(own.base)]);
+  const set = new Set([lc(def && def.base)]);
+  if (PT.skin !== SKIN0 && def) for (const r of def.regions || []) set.add(lc(r.color));
+  return set;
+}
 function paintBaseApply() {
   if (!current || meshOnly) return;
-  const from = paintBuiltBase(), to = paintBase();
-  current.root.traverse(o => {
-    if (o.isMesh && (o.userData.mat || '').toLowerCase() === from && o.material && o.material.isMeshStandardMaterial) o.material.color.set(to);
+  const from = paintFromSet(), to = paintBase();
+  current.root.children[0].traverse(o => {
+    if (o.isMesh && from.has((o.userData.mat || '').toLowerCase()) && o.material && o.material.isMeshStandardMaterial) o.material.color.set(to);
   });
 }
 function paintOverlayClear() {
@@ -3070,8 +3114,8 @@ function paintOverlayClear() {
 }
 function paintOverlay() {
   // Only the base skin takes shapes, as in the build (glass, markings and dark parts keep theirs).
-  const from = paintBuiltBase();
-  const regs = paintRegions(), objs = paintObjs().filter(o => (o.userData.mat || '').toLowerCase() === from);
+  const from = paintFromSet();
+  const regs = paintRegions(), objs = paintObjs().filter(o => from.has((o.userData.mat || '').toLowerCase()));
   if (!regs.length || !objs.length) return;
   const box = new THREE.Box3();
   for (const o of objs) box.expandByObject(o);
@@ -3205,28 +3249,96 @@ function paintUi() {
   $('paintFinish').disabled = !(PT.draft && PT.draft.pts.length >= 3);
   $('paintDel').disabled = !PT.sel;
   $('paintBase').value = paintBase();
-  const n = Object.keys(PT.docs).length;
-  $('paintState').textContent = `${regs.length} shape${regs.length === 1 ? '' : 's'}` +
-    (n ? (cap.db ? ', changes saved for Claude to pick up (paint.json for the build).' : ', changes kept in this tab only: use Copy paint.json.') : (regs.length ? ' as built.' : '.'));
+  skinUi();
+  const n = Object.keys(PT.docs).length + Object.keys(PT.skinDocs).length;
+  const sk = skinCur();
+  $('paintState').textContent = `${sk ? sk.name + ': ' : ''}${regs.length} shape${regs.length === 1 ? '' : 's'}` +
+    (n ? (cap.db ? ', changes saved for Claude to pick up (paint.json for the build).' : ', changes kept in this tab only: use Copy paint.json.') : (regs.length ? ' as built.' : '.')) +
+    (sk && !sk.built ? ' New skin: shown on the default body until the next build.' : '');
+}
+function skinUi() {
+  const list = skinList(), sel = $('skinSel'), sk = skinCur();
+  sel.textContent = '';
+  for (const s of list) {
+    const o = document.createElement('option');
+    o.value = s.id;
+    o.textContent = s.name + (s.id === SKIN0 ? ' (default)' : s.built ? '' : ' (new)');
+    sel.appendChild(o);
+  }
+  sel.value = sk ? sk.id : SKIN0;
+  // Fields being typed in keep their text, unless another skin is shown now.
+  const fresh = PT.uiSkin !== (sk && sk.id);
+  PT.uiSkin = sk && sk.id;
+  if (fresh || document.activeElement !== $('skinName')) $('skinName').value = sk ? sk.name : '';
+  if (fresh || document.activeElement !== $('skinNumber')) $('skinNumber').value = (sk && sk.number) || '';
+  $('skinNumberColor').value = (sk && sk.number_color) || '#e3b923';
+  $('skinDel').disabled = !sk || sk.id === SKIN0;
+  $('skinDel').title = sk && sk.id === SKIN0 ? 'The default skin stays: rename or repaint it instead' : '';
+}
+function skinBodyFile(sid) {
+  const liv = current && (current.manifest.liveries || []).find(l => l.id === sid);
+  return sid === SKIN0 || !liv || !liv.body ? (current ? current.manifest.body : null) : liv.body;
+}
+// The body model of the skin shown: its own one when the build made it, else the default body.
+async function skinShowBody() {
+  if (!current || !PT.entry) return;
+  const want = skinBodyFile(PT.skin);
+  if (!want || want === PT.bodyFile) return;
+  const at = current;
+  const g = await load(`models/${PT.entry.id}/` + want.replace(/\.glb$/, '.gltf.json'));
+  if (current !== at) return;
+  restyle(g.scene);
+  const old = current.root.children[0];
+  current.root.remove(old);
+  current.root.add(g.scene);
+  current.root.children.unshift(current.root.children.pop());
+  PT.bodyFile = want;
+}
+async function skinSelect(sid) {
+  PT.skin = sid; PT.sel = null; PT.draft = null;
+  const sk = skinCur();
+  PT.built = skinsBuilt(PT.file).find(s => s.id === PT.skin) || null;
+  PT.docs = PT.allDocs[skinCol(PT.skin)] || (PT.allDocs[skinCol(PT.skin)] = {});
+  try { localStorage.setItem('hangar.skin.' + (PT.entry && PT.entry.id), sk ? sk.id : SKIN0); } catch (e) {}
+  try { await skinShowBody(); } catch (e) { $('paintState').textContent = 'Skin body failed to load: ' + e.message; }
+  paintUi(); paintDraw();
 }
 async function paintModelChanged(entry, stale) {
-  PT.entry = entry; PT.built = null; PT.docs = {}; PT.sel = null; PT.draft = null; PT.shift = [0, 0, 0];
-  try { const r = await fetch(`models/${entry.id}/paint.json`); if (r.ok) PT.built = await r.json(); } catch (e) { /* none built in */ }
+  // The body shown is the default one after every (re)load; the skin picked stays.
+  PT.bodyFile = current ? current.manifest.body : null;
+  PT.entry = entry; PT.file = null; PT.built = null; PT.docs = {}; PT.allDocs = {}; PT.skinDocs = {}; PT.skins = [];
+  PT.sel = null; PT.draft = null; PT.shift = [0, 0, 0];
+  try { const r = await fetch(`models/${entry.id}/paint.json`); if (r.ok) PT.file = await r.json(); } catch (e) { /* none built in */ }
   try { const r = await fetch(`models/${entry.id}/lofts.json`); if (r.ok) PT.shift = (await r.json()).shift || [0, 0, 0]; } catch (e) { /* pack frame */ }
   if (stale()) return;
+  PT.skins = skinsBuilt(PT.file);
   if (cap.db) {
+    const read = async col => {
+      const out = {};
+      const snap = await cap.db.collection(`aircraft/${entry.id}/${col}`).get();
+      for (const d of snap.docs) out[d.id] = JSON.parse(JSON.stringify(d.data() || {}));
+      return out;
+    };
     try {
-      const snap = await cap.db.collection(`aircraft/${entry.id}/paint`).get();
-      for (const d of snap.docs) PT.docs[d.id] = JSON.parse(JSON.stringify(d.data() || {}));
+      PT.skinDocs = await read('skins');
+      PT.allDocs.paint = await read('paint');
+      for (const s of skinList()) if (s.id !== SKIN0) PT.allDocs[skinCol(s.id)] = await read(skinCol(s.id));
     } catch (e) { $('paintState').textContent = 'Could not read saved shapes: ' + (e.message || e.code); }
   }
   if (stale()) return;
-  paintUi(); paintDraw();
+  let want = SKIN0;
+  try { want = localStorage.getItem('hangar.skin.' + entry.id) || SKIN0; } catch (e) {}
+  await skinSelect(skinList().some(s => s.id === want) ? want : SKIN0);
 }
-function paintSave(id) {
+function paintSave(id, sid = PT.skin) {
   paintUi(); paintDraw();
+  paintWrite(skinCol(sid), id, (PT.allDocs[skinCol(sid)] || {})[id]);
+}
+// One db doc (null deletes it); one write at a time per doc, the last state wins.
+function paintWrite(col, id, _doc) {
   if (!cap.db || !PT.entry) return;
-  const path = `aircraft/${PT.entry.id}/paint`, key = path + '/' + id;
+  const store = col === 'skins' ? PT.skinDocs : (PT.allDocs[col] || (PT.allDocs[col] = {}));
+  const path = `aircraft/${PT.entry.id}/${col}`, key = path + '/' + id;
   const st = saving.get(key) || { busy: false, again: false };
   saving.set(key, st);
   if (st.busy) { st.again = true; return; }
@@ -3235,7 +3347,7 @@ function paintSave(id) {
     try {
       do {
         st.again = false;
-        const cur = PT.docs[id];
+        const cur = store[id];
         if (cur) await cap.db.collection(path).doc(id).set(JSON.parse(JSON.stringify(cur)));
         else await cap.db.collection(path).doc(id).delete();
       } while (st.again);
@@ -3284,6 +3396,85 @@ function paintSetOn(on) {
                                                                 : 'Paint on: click on the model to place points, drag beside it to rotate, scroll to zoom')
                                                 : 'Drag to rotate, scroll to zoom, right-drag to pan';
   paintUi(); paintDraw();
+}
+$('skinSel').addEventListener('change', e => { skinSelect(e.target.value); });
+function skinMeta(sid, patch) {
+  PT.skinDocs[sid] = { ...(PT.skinDocs[sid] || {}), ...patch, t: (PT.skinDocs[sid] && PT.skinDocs[sid].t) || new Date().toISOString(), updated: new Date().toISOString() };
+  paintWrite('skins', sid, PT.skinDocs[sid]);
+  paintUi();
+}
+// An edit belongs to the skin shown when the field was entered (a change fires on leaving it).
+for (const id of ['skinName', 'skinNumber']) $(id).addEventListener('focus', e => { e.target.dataset.skin = PT.skin; });
+const skinOf = el => el.dataset.skin || PT.skin;
+$('skinName').addEventListener('change', e => {
+  const name = e.target.value.trim(), sid = skinOf(e.target);
+  delete e.target.dataset.skin;
+  if (!name || sid !== PT.skin) { if (name && skinList().some(s => s.id === sid)) skinMeta(sid, { name }); skinUi(); return; }
+  skinMeta(sid, { name });
+});
+$('skinNumber').addEventListener('change', e => {
+  const v = e.target.value.replace(/[^0-9]/g, ''), sid = skinOf(e.target);
+  delete e.target.dataset.skin;
+  if (sid !== PT.skin) { if (skinList().some(s => s.id === sid)) skinMeta(sid, { number: v || null }); skinUi(); return; }
+  e.target.value = v;
+  skinMeta(sid, { number: v || null });
+});
+$('skinNumberColor').addEventListener('change', e => skinMeta(PT.skin, { number_color: e.target.value }));
+function skinNewId() { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+function skinUniqueName(base) {
+  const names = new Set(skinList().map(s => s.name));
+  if (!names.has(base)) return base;
+  for (let n = 2; ; n++) if (!names.has(`${base} ${n}`)) return `${base} ${n}`;
+}
+// New skin: blank (base colour of the default skin, no shapes). Duplicate: a copy of the one shown.
+function skinCreate(copy) {
+  if (!PT.entry) return;
+  const from = skinCur(), sid = skinNewId(), now = new Date().toISOString();
+  const col = skinCol(sid);
+  PT.allDocs[col] = {};
+  const meta = { name: skinUniqueName(copy ? `${from.name} copy` : 'New skin'), t: now };
+  if (copy && from.number) meta.number = from.number;
+  if (copy && from.number_color) meta.number_color = from.number_color;
+  PT.skinDocs[sid] = meta;
+  paintWrite('skins', sid, meta);
+  const base = copy ? paintBase() : ((skinsBuilt(PT.file)[0] || {}).base || paintBase());
+  PT.allDocs[col].base = { base, t: now };
+  paintWrite(col, 'base', PT.allDocs[col].base);
+  if (copy) {
+    paintRegions().forEach((r, i) => {
+      const { id, ...x } = r;
+      const nid = 'p-' + Date.now().toString(36) + i.toString(36) + Math.random().toString(36).slice(2, 4);
+      PT.allDocs[col][nid] = { ...x, t: new Date(Date.now() + i).toISOString() };
+      paintWrite(col, nid, PT.allDocs[col][nid]);
+    });
+  }
+  skinSelect(sid);
+  $('skinName').focus(); $('skinName').select();
+}
+$('skinNew').addEventListener('click', () => skinCreate(false));
+$('skinDup').addEventListener('click', () => skinCreate(true));
+// Remove skin: two clicks (no browser dialogs in the Hangar frame). A built skin stays as {removed: true}.
+{
+  const btn = $('skinDel');
+  let armed = null;
+  btn.addEventListener('click', () => {
+    const sk = skinCur();
+    if (!sk || sk.id === SKIN0) return;
+    if (armed !== sk.id) {
+      armed = sk.id; btn.textContent = 'Click again to remove';
+      setTimeout(() => { if (armed === sk.id) { armed = null; btn.textContent = 'Remove skin'; } }, 3000);
+      return;
+    }
+    armed = null; btn.textContent = 'Remove skin';
+    if (sk.built) skinMeta(sk.id, { removed: true });
+    else {
+      delete PT.skinDocs[sk.id];
+      paintWrite('skins', sk.id, null);
+      const col = skinCol(sk.id), docs = PT.allDocs[col] || {};
+      for (const id of Object.keys(docs)) { delete docs[id]; paintWrite(col, id, null); }
+    }
+    skinSelect(SKIN0);
+  });
 }
 $('paintOn').addEventListener('click', () => paintSetOn(!PT.on));
 $('paintFinish').addEventListener('click', paintFinish);
@@ -3347,15 +3538,45 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape' && PT.draft) { PT.draft = null; paintUi(); paintDraw(); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && PT.sel && !PT.draft) { e.preventDefault(); paintDelete(); }
 });
+// The shapes and base colour of any skin (the same merge as paint_tool.py from-hangar).
+function skinScheme(sid) {
+  const built = skinsBuilt(PT.file).find(s => s.id === sid) || null;
+  const docs = PT.allDocs[skinCol(sid)] || {};
+  const out = new Map();
+  ((built && built.regions) || []).forEach((r, i) => out.set(r.id || 'r' + i, { ...r }));
+  for (const [id, d] of Object.entries(docs).sort((a, b) => String(a[1].t || '').localeCompare(String(b[1].t || ''))))
+    if (id !== 'base') out.set(id, { ...(out.get(id) || {}), ...d });
+  const regions = [...out.values()].filter(r => !r.removed && Array.isArray(r.pts) && r.pts.length >= 3)
+    .map(({ view, color, mirror, pts, x_side }) => ({ view, color, mirror: mirror !== false, pts, ...(x_side ? { x_side } : {}) }));
+  return { base: (docs.base && docs.base.base) || (built && built.base) || (skinsBuilt(PT.file)[0] || {}).base || '#aeb2b4', regions };
+}
 $('paintExport').addEventListener('click', async () => {
-  const regions = paintRegions().map(({ view, color, mirror, pts, x_side }) => ({ view, color, mirror: mirror !== false, pts, ...(x_side ? { x_side } : {}) }));
-  const text = JSON.stringify({ aircraft: PT.entry && PT.entry.id, base: paintBase(), regions }, null, 1);
+  const list = skinList();
+  const one = s => ({ id: s.id, name: s.name, ...skinScheme(s.id), ...(s.number ? { number: s.number } : {}), ...(s.number_color && s.number ? { number_color: s.number_color } : {}) });
+  const text = JSON.stringify(list.length > 1 || (PT.file && PT.file.skins)
+    ? { aircraft: PT.entry && PT.entry.id, skins: list.map(one) }
+    : { aircraft: PT.entry && PT.entry.id, ...skinScheme(SKIN0) }, null, 1);
   const ta = $('paintExportText');
   ta.value = text; ta.hidden = false;
   try { await navigator.clipboard.writeText(text); $('paintExport').textContent = 'Copied'; }
   catch (e) { ta.select(); }
   setTimeout(() => { $('paintExport').textContent = 'Copy paint.json'; }, 2000);
 });
+
+// Storage lights up once the viewer answers (null when served without it, e.g. locally).
+if (window.claude && window.claude.use) {
+  Promise.all([window.claude.use('db'), window.claude.use('assets')]).then(([db, assets]) => {
+    cap.db = db; cap.assets = assets;
+    $('addLabel').hidden = !assets;
+    $('dropHint').hidden = !assets;
+    if (db && active) {
+      loadRefs(active, () => false, true);
+      xsLoadDocs().then(() => { if (current) { xsPick(true); xsDraw3d(); xsList(); } });
+      if (current) paintModelChanged(active, () => false).catch(err => { $('paintState').textContent = 'Paint shapes failed to load: ' + err.message; });
+    }
+    else renderThumbs();
+  }).catch(() => {});
+}
 
 let active = null;
 const list = await (await fetch('models/index.json')).json();
