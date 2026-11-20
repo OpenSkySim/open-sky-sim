@@ -355,7 +355,7 @@ button.ok { color: var(--ok); }
         <label><input type="checkbox" id="paintShow" checked> show the outlines</label></div>
       <div class="xs-list" id="paintList" aria-label="Painted shapes"></div>
       <div class="row"><button type="button" id="paintFinish" disabled>Finish shape</button><button type="button" id="paintDel" class="danger" disabled>Delete shape</button><button type="button" id="paintExport">Copy paint.json</button></div>
-      <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b> or <b>Bottom</b> view. Click to place points, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). Side shapes paint all skin inside the outline that is turned towards that side, top and bottom shapes the skin turned up or down.</p>
+      <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b> or <b>Bottom</b> view. Hold the mouse button and drag to draw an outline freehand, like a brush: letting go closes it. Or click to place points one by one, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). Side shapes paint all skin inside the outline that is turned towards that side, top and bottom shapes the skin turned up or down.</p>
       <p class="note" id="paintState"></p>
       <textarea id="paintExportText" readonly aria-label="paint.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
     </div>
@@ -3044,8 +3044,8 @@ function paintDraw() {
   }
   if (PT.on) {
     controls.enableRotate = !paintView();
-    stage.querySelector('.hint').textContent = paintView() ? 'Paint on: click to place points, scroll to zoom, right-drag to pan'
-                                                           : 'Paint on: click on the model to place points, drag beside it to rotate, scroll to zoom';
+    stage.querySelector('.hint').textContent = paintView() ? 'Paint on: drag to draw freehand or click to place points, scroll to zoom, right-drag to pan'
+                                                           : 'Paint on: drag on the model to draw, click to place points, drag beside it to rotate, scroll to zoom';
   }
   if (!current) return;
   paintBaseApply();
@@ -3392,8 +3392,8 @@ function paintSetOn(on) {
   else PT.draft = null;
   controls.enableRotate = !on || !paintView();
   renderer.domElement.style.cursor = on ? 'crosshair' : '';
-  stage.querySelector('.hint').textContent = on ? (paintView() ? 'Paint on: click to place points, scroll to zoom, right-drag to pan'
-                                                                : 'Paint on: click on the model to place points, drag beside it to rotate, scroll to zoom')
+  stage.querySelector('.hint').textContent = on ? (paintView() ? 'Paint on: drag to draw freehand or click to place points, scroll to zoom, right-drag to pan'
+                                                                : 'Paint on: drag on the model to draw, click to place points, drag beside it to rotate, scroll to zoom')
                                                 : 'Drag to rotate, scroll to zoom, right-drag to pan';
   paintUi(); paintDraw();
 }
@@ -3505,17 +3505,65 @@ stage.addEventListener('pointerdown', e => {
   const pk = paintPick(e, PT.draft ? PT.draft.view : null);
   if (!pk) return;   // beside the model (free view): the view turns
   e.stopPropagation();
+  // Holding the button down and dragging draws freehand (a point every few pixels), like a brush.
+  const stroke = started => {
+    PT.stroke = { started, x: mx, y: my, moved: false, n0: PT.draft.pts.length };
+    renderer.domElement.setPointerCapture(e.pointerId);
+  };
   if (PT.draft) {
     if (PT.draft.pts.length >= 3 && near(PT.draft.view, PT.draft.pts[0], PT.draft.xs)) paintFinish();
-    else { PT.draft.pts.push(pk.uv); paintUi(); paintDraw(); }
+    else { PT.draft.pts.push(pk.uv); stroke(false); paintUi(); paintDraw(); }
     return;
   }
   const hit = e.shiftKey && paintRegions().filter(x => x.view === pk.view && paintInside(pk.uv, x.pts)).pop();
   if (hit) { PT.sel = hit.id; $('paintColor').value = hit.color; paintUi(); paintDraw(); return; }
   PT.sel = null;
   PT.draft = { view: pk.view, mirror: $('paintMirror').checked, xs: pk.xs, pts: [pk.uv] };
+  stroke(true);
   paintUi(); paintDraw();
 }, true);
+const PAINT_STROKE_PX = 8;      // freehand: a new point after this many screen pixels
+const PAINT_STROKE_TOL = 0.02;  // freehand: points closer than this (m) to the line through their neighbours go
+// Douglas-Peucker on the drawing's [u, v] points: the freehand line's shape with far fewer points.
+function paintSimplify(pts, tol) {
+  if (pts.length < 4) return pts;
+  const keep = new Array(pts.length).fill(false);
+  keep[0] = keep[pts.length - 1] = true;
+  const st = [[0, pts.length - 1]];
+  while (st.length) {
+    const [a, b] = st.pop();
+    const [ax, ay] = pts[a], [bx, by] = pts[b], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1e-9;
+    let worst = -1, k = -1;
+    for (let i = a + 1; i < b; i++) {
+      const d = Math.abs((pts[i][0] - ax) * dy - (pts[i][1] - ay) * dx) / L;
+      if (d > worst) { worst = d; k = i; }
+    }
+    if (worst > tol) { keep[k] = true; st.push([a, k], [k, b]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+renderer.domElement.addEventListener('pointermove', e => {
+  const S = PT.stroke;
+  if (!PT.on || !S || !PT.draft || !(e.buttons & 1)) return;
+  const r = renderer.domElement.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  if (Math.hypot(mx - S.x, my - S.y) < PAINT_STROKE_PX) return;
+  const pk = paintPick(e, PT.draft.view);
+  if (!pk) return;   // off the model (free view): skip until the pointer is back on it
+  S.x = mx; S.y = my; S.moved = true;
+  PT.draft.pts.push(pk.uv);
+  paintUi(); paintDraw();
+});
+renderer.domElement.addEventListener('pointerup', () => {
+  const S = PT.stroke;
+  PT.stroke = null;
+  if (!S || !S.moved || !PT.draft) return;
+  // The stroke's own points, thinned; the points placed before it stay as they are.
+  const D = PT.draft, head = D.pts.slice(0, S.n0 - 1), line = D.pts.slice(S.n0 - 1);
+  D.pts = head.concat(paintSimplify(line, PAINT_STROKE_TOL));
+  // A stroke that started the shape closes it on release; one added to clicked points carries on.
+  if (S.started && D.pts.length >= 3) paintFinish();
+  else { paintUi(); paintDraw(); }
+});
 renderer.domElement.addEventListener('pointermove', e => {
   if (!PT.on || !PT.drag) return;
   const pk = paintPick(e, PT.drag.view);
