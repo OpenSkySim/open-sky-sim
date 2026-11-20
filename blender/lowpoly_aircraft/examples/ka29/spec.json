@@ -4605,7 +4605,7 @@
   },
   {
    "name": "ExhaustPipe",
-   "type": "duct",
+   "type": "strut",
    "mirror": true,
    "join": "separate",
    "sides": 10,
@@ -4614,57 +4614,14 @@
     0.45,
     2.56,
     0.46
-   ],
-   "b": [
-    0.99,
-    2.5,
-    0.29
-   ],
-   "radius": 0.26,
-   "radius_b": 0.27,
-   "inner": 0.259,
-   "inner_b": 0.269
-  },
-  {
-   "name": "ExhaustLip",
-   "type": "duct",
-   "mirror": true,
-   "join": "separate",
-   "sides": 10,
-   "material": "#0a0b0c",
-   "a": [
-    0.98,
-    2.501,
-    0.293
    ],
    "b": [
     1.04,
     2.494,
     0.274
    ],
-   "radius": 0.27,
-   "radius_b": 0.29,
-   "inner": 0.269,
-   "inner_b": 0.289
-  },
-  {
-   "name": "ExhaustInside",
-   "type": "strut",
-   "mirror": true,
-   "join": "separate",
-   "material": "#0a0b0c",
-   "a": [
-    0.45,
-    2.56,
-    0.46
-   ],
-   "b": [
-    0.93,
-    2.507,
-    0.309
-   ],
-   "radius": 0.255,
-   "sides": 10
+   "radius": 0.26,
+   "radius_b": 0.27
   },
   {
    "name": "MastFairing",

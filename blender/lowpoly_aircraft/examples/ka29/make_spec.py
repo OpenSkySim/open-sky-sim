@@ -359,19 +359,10 @@ def main():
          'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.235, 'sides': 6},
         {'name': 'IntakeCone', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
          'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.02, 'radius_b': 0.09, 'sides': 8},
-        # Engine exhausts (second sheet side view d 3.54-4.15, owner's photos): a hollow round pipe
-        # standing out of the deck side, angled a little aft and down, with a thick lip; dark inside.
-        {'name': 'ExhaustPipe', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
-         'a': P(0.45, 2.56, 3.76), 'b': P(0.99, 2.5, 3.93), 'radius': 0.26, 'radius_b': 0.27,
-         'inner': 0.259, 'inner_b': 0.269},   # owner: wall thickness zero (1 mm skin, inside visible)
-        {'name': 'ExhaustLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
-         'a': P(0.98, 2.501, 3.927), 'b': P(1.04, 2.494, 3.946), 'radius': 0.27, 'radius_b': 0.29,
-         'inner': 0.269, 'inner_b': 0.289},   # thin flared lip
-        {'name': 'ExhaustLiner', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6, 'material': DARK,
-         'a': P(0.6, 2.543, 3.807), 'b': P(1.02, 2.496, 3.94), 'radius': 0.197, 'radius_b': 0.21,
-         'inner': 0.185, 'inner_b': 0.198},
-        {'name': 'ExhaustInside', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': EXHAUST_BLACK,
-         'a': P(0.45, 2.56, 3.76), 'b': P(0.93, 2.507, 3.911), 'radius': 0.255, 'sides': 10},   # black plug: no skin seen through the pipe
+        # Engine exhausts (second sheet side view d 3.54-4.15): owner 2026-11-20, a plain solid black
+        # 10-sided pipe standing out of the deck side, angled a little aft and down.
+        {'name': 'ExhaustPipe', 'type': 'strut', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
+         'a': P(0.45, 2.56, 3.76), 'b': P(1.04, 2.494, 3.946), 'radius': 0.26, 'radius_b': 0.27},   # owner: a plain 10-sided pipe, no walls
         # Rotor mast, rebuilt after the owner's photo (bottom to top): a conical fairing on the deck,
         # the fixed lower swashplate (ring on three arms, three control rods from the deck), the
         # stepped lower mast into the lower hub, the gearbox drum and collar between the rotors, the
