@@ -5,6 +5,7 @@ hand in Blender) and writes what the sim loads:
 
     <id>.glb            body (collection "Body")
     <id>_skin_<s>.glb   body in another skin (paint.json "skins"; manifest "liveries")
+    <id>_skin_<s>_<role>.glb, <id>_skin_<s>_gear.glb   its painted surfaces and gear
     <id>_shadow.glb     flat ground silhouette (collection "Shadow")
     <id>_gear.glb       animated landing gear (collection "Gear")
     <id>_<role>.glb     one hinge-pivoted model per control surface ("Surfaces")
@@ -82,12 +83,19 @@ def _export_skins(out_dir: str, aid: str, body: list, files: list) -> list[dict]
     for v in variants:
         me = bpy.data.meshes[v['mesh']]
         fname = f'{aid}_skin_{v["id"]}.glb'
-        swapped = []
+        swapped, datas = [], []
         orig_name, me_name = orig.name, me.name
+        livery = {'id': v['id'], 'name': v['name'], 'body': fname}
         try:
             orig.name = '0_Body~default'
             me.name = '0_Body'
             hull.data = me
+            # The parts painted in this skin (build.py: '<object>~<skin id>' meshes).
+            for oname, mname in (v.get('parts') or {}).items():
+                o = bpy.data.objects.get(oname)
+                if o is not None and mname in bpy.data.meshes:
+                    datas.append((o, o.data))
+                    o.data = bpy.data.meshes[mname]
             for o in body:
                 if o is hull:
                     continue
@@ -97,16 +105,47 @@ def _export_skins(out_dir: str, aid: str, body: list, files: list) -> list[dict]
                         o.data.materials[i] = get_material(v['base'])
             bpy.context.view_layer.update()
             _export_glb(os.path.join(out_dir, fname), body, False)
+            painted = {o.name for o, _ in datas}
+            surfs = {}
+            for obj in _objects('Surfaces'):
+                if obj.name in painted:
+                    role = obj.get('lpa_role') or obj.name
+                    sname = f'{aid}_skin_{v["id"]}_{role}.glb'
+                    _export_surface(os.path.join(out_dir, sname), obj)
+                    files.append(sname)
+                    surfs[role] = sname
+            if surfs:
+                livery['surfaces'] = surfs
+            gear = _objects('Gear')
+            if any(o.name in painted for o in gear):
+                gname = f'{aid}_skin_{v["id"]}_gear.glb'
+                _export_glb(os.path.join(out_dir, gname), gear, True)
+                files.append(gname)
+                livery['gear'] = gname
         finally:
             for o, i, m in swapped:
                 o.data.materials[i] = m
+            for o, d in datas:
+                o.data = d
             hull.data = orig
             me.name = me_name
             orig.name = orig_name
             bpy.context.view_layer.update()
         files.append(fname)
-        liveries.append({'id': v['id'], 'name': v['name'], 'body': fname})
+        liveries.append(livery)
     return liveries
+
+
+def _export_surface(path: str, obj) -> None:
+    """A surface model is drawn about its pivot: export it at the origin."""
+    loc = obj.location.copy()
+    obj.location = (0, 0, 0)
+    bpy.context.view_layer.update()
+    try:
+        _export_glb(path, [obj], False)
+    finally:
+        obj.location = loc
+        bpy.context.view_layer.update()
 
 
 def _vec(v) -> list[float]:
@@ -143,15 +182,7 @@ def export_pack(out_dir: str, pack: bool = True) -> dict:
     for obj in _objects('Surfaces'):
         role = obj.get('lpa_role') or obj.name
         fname = f'{aid}_{role}.glb'
-        # A surface model is drawn about its pivot: export it at the origin.
-        loc = obj.location.copy()
-        obj.location = (0, 0, 0)
-        bpy.context.view_layer.update()
-        try:
-            _export_glb(os.path.join(out_dir, fname), [obj], False)
-        finally:
-            obj.location = loc
-            bpy.context.view_layer.update()
+        _export_surface(os.path.join(out_dir, fname), obj)
         files.append(fname)
         surface = {
             'role': role,

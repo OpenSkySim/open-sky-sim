@@ -691,17 +691,60 @@ def _stand_on_wheels(ground_y: float | None, dz: float = 0.0) -> None:
     print(f'[lpa] moved the aircraft by y {dy:+.3f} m (wheels at y {ground_y}), z {dz:+.3f} m')
 
 
-def _paint_hull(hull, skin: dict | None, spec: dict, others: list) -> None:
+def _inset(poly, w: float) -> np.ndarray:
+    """The polygon moved inwards by w (mitred corners; for the convex outlines of doors and hatches)."""
+    pts = np.asarray(poly, dtype=np.float64)
+    x, y = pts[:, 0], pts[:, 1]
+    sgn = 1.0 if float(np.dot(x, np.roll(y, -1)) - np.dot(np.roll(x, -1), y)) > 0 else -1.0
+    out = []
+    for k in range(len(pts)):
+        prev, cur, nxt = pts[k - 1], pts[k], pts[(k + 1) % len(pts)]
+        normals = []
+        for a, b in ((prev, cur), (cur, nxt)):
+            d = b - a
+            ln = float(np.linalg.norm(d)) or 1.0
+            normals.append(sgn * np.array([-d[1], d[0]]) / ln)
+        m = normals[0] + normals[1]
+        den = 1.0 + float(np.dot(normals[0], normals[1]))
+        out.append(cur + (m * w / den if den > 1e-3 else normals[1] * w))
+    return np.asarray(out)
+
+
+def _paint_parts(hull, base_mat: str) -> list:
+    """Every other part in the skin's base material: body panels (doors, hatches, fairings), the
+    moving surfaces and folding panels (not propellers or rotors) and the gear doors. Each gets
+    its own mesh, so painting one never paints a linked copy elsewhere."""
+    out = []
+    for o in bpy.data.objects:
+        if o.type != 'MESH' or o is hull or not o.users_collection:
+            continue
+        coll = o.users_collection[0].name
+        if coll not in ('Body', 'Surfaces', 'Gear'):
+            continue
+        if coll == 'Surfaces' and o.get('lpa_control') == 'spin':
+            continue
+        if base_mat not in [m.name for m in o.data.materials if m is not None]:
+            continue
+        if o.data.users > 1:
+            o.data = o.data.copy()
+        out.append(o)
+    return out
+
+
+def _paint_part(obj, skin: dict | None, occ=None) -> None:
+    """The skin's shapes on one part where it sits at rest (gear up and doors shut, surfaces
+    centred: the build frame), as on the hull; *occ*: what can hide it from a view."""
+    if skin:
+        paint.apply_pattern(obj, skin, occluder=occ)
+
+
+def _paint_hull(hull, skin: dict | None, spec: dict, others: list, occ=None) -> None:
     """One skin on the hull's mesh: paint outlines (paint.json), decals with the skin's side
     number, camo, then the dark inside skin. *others*: separate body meshes (base colour, camo)."""
     from . import skins
     if skin:
         # Real camo outlines cut into the skin (paint.json next to the spec, or spec "paint").
-        paint.apply_pattern(hull, skin, others)
-        # Separate panels named in spec "paint_parts" (e.g. a cabin door) take the outlines too.
-        for obj in others:
-            if any(p in obj.name for p in spec.get('paint_parts', [])):
-                paint.apply_pattern(obj, skin)
+        paint.apply_pattern(hull, skin, others, occluder=occ)
     if spec.get('decals'):
         paint.add_decals(hull, spec['decals'], skins.text_override(skin or {}))
     if spec.get('camo'):
@@ -828,7 +871,17 @@ def build_parts(spec: dict) -> None:
                 if suffix == 'R' and item['clip'].get('view', 'top') != 'side':
                     cl = [_mirror_x(item['clip'].get('view', 'top'), lp) for lp in cl]
                 clip = (item['clip'].get('view', 'top'), cl)
-            part = geo.cut_part(hull, f"{i + 1}_{item.get('name', 'Region')}{suffix}", view, p,
+            source, line, p_in = hull, None, p
+            if item.get('outline'):
+                # A door or hatch drawn as a thin line round its edge (its panel keeps the skin's
+                # material, so it takes the paint): the whole region is cut in the line's colour,
+                # then the panel (the outline inset by the line's width) is cut out of that.
+                line = geo.cut_part(hull, f"{i + 1}_{item.get('name', 'Region')}Outline{suffix}", view, p,
+                                    item['outline'], 'Body', depth=dep, smooth_deg=smooth,
+                                    cutters=[] if skin is not None else None, clip=clip)
+                if line is not None:
+                    source, p_in = line, [_inset(lp, float(item.get('outline_m', 0.03))) for lp in p]
+            part = geo.cut_part(source, f"{i + 1}_{item.get('name', 'Region')}{suffix}", view, p_in,
                                 item.get('material', 'GLASS'), 'Body', depth=dep, smooth_deg=smooth,
                                 cutters=cutters, clip=clip)
             if part is not None:
@@ -841,6 +894,10 @@ def build_parts(spec: dict) -> None:
                 if skin is not None:
                     geo.keep_skin(part, skin)
                     see_through.append((skin, cutters[-1]))
+            if line is not None:
+                geo.tidy(line, item['outline'], smooth)   # one material again after the panel cut
+                if skin is not None:
+                    geo.keep_skin(line, skin)
                 if item.get('flat_panes') and item.get('panes'):
                     # Once only the skin is left: N largest panes, 4 corners each.
                     geo.flatten_panes(part, float(item.get('flat_deg', 1.0)), int(item['panes']))
@@ -873,24 +930,47 @@ def build_parts(spec: dict) -> None:
         bpy.context.scene['lpa_paint'] = json.dumps({**pattern, **({'decals': texts} if texts else {})}, indent=1)
     skin_list = spec.get('_skins') or [None]
     body_objs = [o for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name == 'Body']
+    # The other parts in the base material take the shapes too, painted where they sit with the
+    # gear up and its doors shut (the gear is built with the legs down).
+    scene = bpy.context.scene
+    frame0 = scene.frame_current
+    scene.frame_set(GEAR_FRAMES[0])
+    parts_ = _paint_parts(hull, (skin_list[0] or {}).get('material', 'VEHICLE_PLANE_GREY')) if skin_list[0] else []
+    # A shape paints only what is seen from its view: every painted part can hide another.
+    occ = paint.occluder_tree([hull] + parts_) if skin_list[0] else None
     variants = []
     if len(skin_list) > 1:
         # Every skin after the first (the default) is painted on its own copy of the finished,
-        # unpainted hull; export_pack writes each as a second body model (manifest 'liveries').
+        # unpainted hull and parts; export_pack writes each as a second body model, with its
+        # own surface and gear models (manifest 'liveries').
         orig, raw = hull.data, hull.data.copy()
+        raws = [(o, o.data, o.data.copy()) for o in parts_]
         for skin in skin_list[1:]:
             hull.data = raw.copy()
-            _paint_hull(hull, skin, spec, [])
+            meshes = {}
+            for o, _, r in raws:
+                o.data = r.copy()
+                _paint_part(o, skin, occ)
+                o.data.name = f'{o.name}~{skin["id"]}'
+                o.data.use_fake_user = True
+                meshes[o.name] = o.data.name
+            _paint_hull(hull, skin, spec, [], occ)
             hull.data.name = f'0_Body~{skin["id"]}'
             hull.data.use_fake_user = True
             variants.append({'id': skin['id'], 'name': skin.get('name') or skin['id'],
-                             'mesh': hull.data.name, 'base': skin.get('base', '#aeb2b4')})
+                             'mesh': hull.data.name, 'base': skin.get('base', '#aeb2b4'), 'parts': meshes})
         hull.data = orig
         bpy.data.meshes.remove(raw)
+        for o, d, r in raws:
+            o.data = d
+            bpy.data.meshes.remove(r)
         bpy.context.scene['lpa_skins'] = json.dumps(variants)
         bpy.context.scene['lpa_skin_default'] = json.dumps(
             {'name': skin_list[0].get('name') or 'Default', 'base': skin_list[0].get('base', '#aeb2b4')})
-    _paint_hull(hull, skin_list[0], spec, body_objs)
+    for o in parts_:
+        _paint_part(o, skin_list[0], occ)
+    scene.frame_set(frame0)
+    _paint_hull(hull, skin_list[0], spec, body_objs, occ)
     hull.name = hull.data.name = '0_Body'
     bpy.data.collections['Construction'].objects.unlink(hull)
     geo._link(hull, 'Body')

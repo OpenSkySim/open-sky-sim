@@ -191,6 +191,8 @@ button.ok { color: var(--ok); }
 .xs-legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
 @media (max-width: 640px) { .xs-win { left: 16px; right: 16px; top: 16px; width: auto; } }
 .row button:disabled { opacity: 0.45; cursor: default; }
+#paintCard .row button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.xs-ctl[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -351,11 +353,14 @@ button.ok { color: var(--ok); }
       <div class="row" style="margin: 0 0 8px"><button type="button" id="paintOn" aria-pressed="false">Paint off</button>
         <label class="paint-col">Colour <input type="color" id="paintColor" value="#7f888f"></label>
         <label class="paint-col">Base <input type="color" id="paintBase" value="#aeb2b4"></label></div>
+      <div class="row" role="group" aria-label="Paint tool" style="margin: 0 0 8px"><button type="button" data-ptool="outline" aria-pressed="true">Outline</button><button type="button" data-ptool="brush" aria-pressed="false">Brush</button><button type="button" data-ptool="erase" aria-pressed="false">Eraser</button><button type="button" id="brushUndo" disabled title="Undo the last brush or eraser stroke (Ctrl+Z)">Undo stroke</button></div>
+      <div class="xs-ctl" id="brushRow" hidden><label for="brushSize">Size</label><input id="brushSize" type="range" min="0.05" max="4" step="0.01" value="0.6" aria-label="Brush size (diameter, metres)"><input id="brushSizeNum" type="number" min="0.02" max="10" step="0.01" value="0.60" aria-label="Brush size in metres (diameter)"></div>
       <div class="xs-opts"><label><input type="checkbox" id="paintMirror" checked> mirror left / right</label>
-        <label><input type="checkbox" id="paintShow" checked> show the selected shape's outline</label></div>
+        <label><input type="checkbox" id="paintShow" checked> show the selected shape's outline</label>
+        <label title="In the 3-D view, paint exactly the surface under the brush as you see it. Off: project from the side, top or front view the surface faces most."><input type="checkbox" id="paintExact" checked> 3-D view: paint exactly what is under the brush</label></div>
       <div class="xs-list" id="paintList" aria-label="Painted shapes"></div>
       <div class="row"><button type="button" id="paintFinish" disabled>Finish shape</button><button type="button" id="paintDel" class="danger" disabled>Delete shape</button><button type="button" id="paintExport">Copy paint.json</button></div>
-      <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b>, <b>Bottom</b> or <b>Front</b> view. Hold the mouse button and drag to draw an outline freehand, like a brush: letting go closes it. Or click to place points one by one, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). A shape belongs to the view its first point faces (side, top, bottom, front or rear) and paints the skin inside the outline that is turned towards that view.</p>
+      <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b>, <b>Bottom</b> or <b>Front</b> view. Hold the mouse button and drag to draw an outline freehand, like a brush: letting go closes it. Or click to place points one by one, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). A shape belongs to the view its first point faces (side, top, bottom, front or rear) and paints the skin inside the outline that is turned towards that view. In the 3/4 view with <b>paint exactly what is under the brush</b> ticked, a shape is seen along your line of sight instead: it paints exactly the surface you see inside it (and the same on the other side when mirrored), where nothing lies in front of it. <b>Brush</b> paints with a round brush of the size set (metres across; [ and ] change it): each stroke becomes an outline shape, joined with the shapes of the same colour it touches. <b>Eraser</b> cuts the stroke out of the shapes it touches; in the 3/4 view it takes out whatever paint is under it, whichever view the shape was drawn in. Ctrl+Z undoes the last brush or eraser stroke.</p>
       <p class="note" id="paintState"></p>
       <textarea id="paintExportText" readonly aria-label="paint.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
     </div>
@@ -420,7 +425,8 @@ const ROLL_VIS_TAILERON = 0.5;
 const stage = document.getElementById('stage');
 const statusEl = document.getElementById('status');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const PR_FULL = Math.min(devicePixelRatio, 2);
+renderer.setPixelRatio(PR_FULL);
 stage.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1.6, 0.1, 2000);
@@ -643,7 +649,7 @@ async function showModel(entry, keep = null) {
     g.scene.position.fromArray(seat);
     root.add(g.scene);
   }
-  current = { root, surfaces, mixers, actions, duration, size, center: box.getCenter(new THREE.Vector3()), manifest, hook,
+  current = { root, surfaces, mixers, actions, duration, size, center: box.getCenter(new THREE.Vector3()), manifest, hook, gearScene,
               nose: noseTip(body.scene), groundY: ground.position.y + 0.02, box, photo };
   drawLandmark3d();
   if (R.mode === 'photo' && R.sel) { renderPhoto(); drawMarks(); }
@@ -870,10 +876,17 @@ function resize() {
   camera.updateProjectionMatrix();
   fitOrtho();
 }
-new ResizeObserver(resize).observe(stage);
+new ResizeObserver(() => { resize(); wake(); }).observe(stage);
 resize();
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// The 3D view is drawn when something can have changed: while the camera moves, an animation
+// runs, or for a moment after any input; otherwise 4 times a second (for changes that arrive
+// later, such as a model or paint loading). A still Hangar then costs almost nothing.
+let lastWake = 0, lastRender = 0, lastMove = -1e9;
+function wake() { lastWake = performance.now(); }
+for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'keyup', 'input', 'change', 'click', 'focus'])
+  addEventListener(ev, wake, { capture: true, passive: true });
 function tick(now) {
   if (demo && current) {
     const t = (now - t0) / 1000;
@@ -901,8 +914,19 @@ function tick(now) {
     }
     poseSurfaces(true);
   }
-  controls.update();
-  renderer.render(scene, cam);
+  const moved = controls.update();
+  paintObjsMemo = null;
+  // While the camera turns, a high-density screen draws at 1 pixel per CSS pixel (a quarter of the
+  // work); sharp again as soon as it stops.
+  if (PR_FULL > 1) {
+    if (moved) lastMove = now;
+    const pr = now - lastMove < 150 ? 1 : PR_FULL;
+    if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
+  }
+  if (moved || demo || !spinManual || now - lastWake < 700 || now - lastRender > 250) {
+    renderer.render(scene, cam);
+    lastRender = now;
+  }
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
@@ -2965,6 +2989,33 @@ const skinCur = () => skinList().find(s => s.id === PT.skin) || skinList()[0];
 const PAINT_VIEWS = ['side', 'top', 'bottom', 'front'];
 const paintView = () => PAINT_VIEWS.includes(viewName) ? viewName : null;
 const paintRound = v => Math.round(v * 1000) / 1000;
+// Camera shapes ("paint what the brush covers" in the 3-D view): drawn along the line of sight they
+// were painted from. view = 'dir:x,y,z', the look direction (pack axes); [u, v] lie on the plane
+// across it (the same basis as lpa/paint.py _dir_basis). The mirror of one is a camera view too.
+const paintIsDir = v => typeof v === 'string' && v.startsWith('dir:');
+const paintDirKey = d => 'dir:' + d.map(c => { const r = Math.round(c * 1000) / 1000; return r === 0 ? 0 : r; }).join(',');
+const PAINT_BASIS = new Map();
+function paintBasis(view) {
+  let b = PAINT_BASIS.get(view);
+  if (!b) {
+    const raw = view.slice(4).split(',').map(Number), d = new THREE.Vector3(...raw).normalize();
+    const a = Math.abs(d.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+    const U = new THREE.Vector3().crossVectors(a, d).normalize(), V = new THREE.Vector3().crossVectors(d, U);
+    b = { d, U, V, mirror: paintDirKey([-raw[0], raw[1], raw[2]]) };
+    PAINT_BASIS.set(view, b);
+  }
+  return b;
+}
+const paintDirViews = () => [...new Set(paintRegions().filter(r => paintIsDir(r.view)).flatMap(r => [r.view, paintBasis(r.view).mirror]))];
+// The view a camera stroke paints in: one already used within 10 degrees of the line of sight (or
+// its mirror), so strokes from about the same angle join and the model keeps few paint layers.
+function paintDirView(dir) {
+  const d = dir.clone().normalize();
+  let best = null, bc = Math.cos(10 * Math.PI / 180);
+  for (const v of paintDirViews()) { const c = paintBasis(v).d.dot(d); if (c > bc) { bc = c; best = v; } }
+  return best || paintDirKey(d.toArray());
+}
+const paintExact = () => paintFree() && $('paintExact').checked;
 function paintRegions() {
   const out = new Map();
   ((PT.built && PT.built.regions) || []).forEach((r, i) => out.set(r.id || 'r' + i, { ...r, id: r.id || 'r' + i }));
@@ -2979,6 +3030,11 @@ function paintPlane(view) {
 }
 function paintToWorld(view, u, v, plane, mirror = false) {
   const s = PT.shift;
+  if (paintIsDir(view)) {
+    if (mirror) { view = paintBasis(view).mirror; u = -u; }
+    const b = paintBasis(view);
+    return new THREE.Vector3(...s).addScaledVector(b.U, u).addScaledVector(b.V, v).addScaledVector(b.d, plane);
+  }
   if (view === 'side') return new THREE.Vector3(mirror ? -plane : plane, v + s[1], u + s[2]);
   // Front / rear: [x, y] seen along the length, mirrored across x = 0.
   if (view === 'front' || view === 'rear') return new THREE.Vector3((mirror ? -u : u) + s[0], v + s[1], plane);
@@ -2986,6 +3042,10 @@ function paintToWorld(view, u, v, plane, mirror = false) {
 }
 function paintFromWorld(view, p) {
   const s = PT.shift;
+  if (paintIsDir(view)) {
+    const b = paintBasis(view), q = p.clone().sub(new THREE.Vector3(...s));
+    return [paintRound(q.dot(b.U)), paintRound(q.dot(b.V))];
+  }
   if (view === 'front' || view === 'rear') return [paintRound(p.x - s[0]), paintRound(p.y - s[1])];
   return view === 'side' ? [paintRound(p.z - s[2]), paintRound(p.y - s[1])] : [paintRound(p.z - s[2]), paintRound(p.x - s[0])];
 }
@@ -2994,11 +3054,43 @@ function paintFromWorld(view, p) {
 const paintFree = () => !!current && !paintView();
 // The hull takes paint (the build cuts the outlines into the body mesh, 0_Body), and so do
 // panels the spec lists in "paint_parts" (the Ka-29's sliding cabin door).
+// Every part in the skin's base colour takes the shapes, as in the build: the hull, doors and
+// hatches, the wings' moving parts and folding panels, gear doors, the hook. Propellers and
+// rotors ('spin') keep their own colours. part: the moving parts (always the default skin's files).
+// Kept for the rest of the animation frame (a brush stroke asks for it many times per pointer move).
+let paintObjsMemo = null;
 function paintObjs() {
   if (!current) return [];
-  const out = [];
-  current.root.children[0].traverse(o => { if (o.isMesh && !o.userData.edge && /^0_Body|_CabinDoor/.test(o.name || (o.parent && o.parent.name) || '')) out.push(o); });
+  const key = [current.root, current.root.children[0], PT.skin, PT.bodyFile, PT.file], M = paintObjsMemo;
+  if (M && M.key.every((k, i) => k === key[i])) return M.out;
+  const from = paintFromSet(), fromS = paintFromSet(true), out = [];
+  const add = (node, set, part) => node && node.traverse(o => {
+    if (o.isMesh && !o.userData.edge && !o.userData.inside && !o.userData.reference && o.geometry
+        && set.has((o.userData.mat || '').toLowerCase())) { o.userData.paintPart = part; out.push(o); }
+  });
+  add(current.root.children[0], from, false);
+  for (const s of current.surfaces) if (s.cfg.control !== 'spin') add(s.node, fromS, true);
+  add(current.gearScene, fromS, true);
+  add(current.hook && current.hook.node, fromS, true);
+  paintObjsMemo = { key, out };
   return out;
+}
+// Where each part sits at rest (surfaces centred, gear up with its doors shut, hook stowed): the
+// build paints it there, so a moving part keeps its paint. Matrices relative to the model root.
+function paintRestPose(objs) {
+  const c = current, saved = c.surfaces.map(s => [s.node.position.clone(), s.node.quaternion.clone()]);
+  const hookQ = c.hook && c.hook.node.quaternion.clone(), times = c.actions.map(a => a.time);
+  for (const s of c.surfaces) { s.node.position.copy(s.pivot); s.node.quaternion.identity(); }
+  if (c.hook) c.hook.node.quaternion.copy(c.hook.qUp);
+  c.actions.forEach((a, i) => { a.time = 0; c.mixers[i].update(0); });
+  c.root.updateMatrixWorld(true);
+  const inv = c.root.matrixWorld.clone().invert();
+  const rest = objs.map(o => inv.clone().multiply(o.matrixWorld));
+  c.surfaces.forEach((s, i) => { s.node.position.copy(saved[i][0]); s.node.quaternion.copy(saved[i][1]); });
+  if (c.hook) c.hook.node.quaternion.copy(hookQ);
+  c.actions.forEach((a, i) => { a.time = times[i]; c.mixers[i].update(0); });
+  c.root.updateMatrixWorld(true);
+  return rest;
 }
 function paintRay(e) {
   const r = renderer.domElement.getBoundingClientRect(), ray = new THREE.Raycaster();
@@ -3019,19 +3111,51 @@ function paintPick(e, want = null) {
     const n = view === 'side' ? new THREE.Vector3(1, 0, 0) : view === 'front' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
     const w = new THREE.Vector3();
     if (!ray.ray.intersectPlane(new THREE.Plane(n, 0), w)) return null;
-    return { uv: paintFromWorld(view, w), view, xs: -1 };
+    return { uv: paintFromWorld(view, w), view, xs: -1, p: w };
   }
   const hit = ray.intersectObjects(paintObjs(), false).find(h => { for (let a = h.object; a; a = a.parent) if (!a.visible) return false; return true; });
   if (!hit) return null;
   const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
-  const v = want || paintViewOfNormal(n);
-  return { uv: paintFromWorld(v, hit.point), view: v, xs: hit.point.x >= 0 ? 1 : -1 };
+  // 3-D view, "paint what the brush covers": along this line of sight, not a side / top / front view.
+  const v = want || (paintExact() ? paintDirView(ray.ray.direction) : paintViewOfNormal(n));
+  return { uv: paintFromWorld(v, hit.point), view: v, xs: hit.point.x >= 0 ? 1 : -1, p: hit.point, n };
+}
+// The eraser in the free view: a face shows the shapes of every view it is turned towards (as
+// lpa/paint.py paints it), not only the view it faces most. Erase in the one whose shape is
+// under the pointer, e.g. a top-view shape seen on the slanted side of a nacelle.
+function paintPickErase(e) {
+  const pk = paintPick(e);
+  if (!pk || !pk.n || paintView()) return pk;
+  const n = pk.n, lim = 0.02;
+  const dirs = paintDirViews().map(v => [v, -n.dot(paintBasis(v).d)]).filter(([, f]) => f > lim).sort((a, b) => b[1] - a[1]);
+  for (const [v] of dirs) {
+    const uv = paintFromWorld(v, pk.p), mv = paintBasis(v).mirror;
+    const hit = paintRegions().some(x => (x.view === v && paintInside(uv, x.pts))
+      || (x.view === mv && x.mirror !== false && paintInside([-uv[0], uv[1]], x.pts)));
+    if (hit) return v === pk.view ? pk : paintPick(e, v);
+  }
+  const facing = [['side', Math.abs(n.x)], ['top', n.y], ['bottom', -n.y], ['front', n.z], ['rear', -n.z]]
+    .filter(([, f]) => f > lim).sort((a, b) => b[1] - a[1]);
+  for (const [v] of facing) {
+    const uv = paintFromWorld(v, pk.p);
+    const flip = v === 'side' ? uv : v === 'front' || v === 'rear' ? [-uv[0], uv[1]] : [uv[0], -uv[1]];
+    const xs = pk.p.x >= 0 ? 1 : -1;
+    const hit = paintRegions().some(x => x.view === v && x.pts.length >= 3
+      && (v !== 'side' || x.mirror !== false || (x.x_side || 1) === xs)
+      && (paintInside(uv, x.pts) || (x.mirror !== false && v !== 'side' && paintInside(flip, x.pts))));
+    if (hit) return v === pk.view ? pk : paintPick(e, v);
+  }
+  return pk;
 }
 // A drawing point laid on the model (free view): cast along the view axis from outside.
 function paintSurf(view, u, v, xs = 1, mirror = false) {
   const s = PT.shift, far = 60;
   let o, d;
-  if (view === 'side') { const sx = mirror ? -xs : xs; o = new THREE.Vector3(sx * far, v + s[1], u + s[2]); d = new THREE.Vector3(-sx, 0, 0); }
+  if (paintIsDir(view)) {
+    if (mirror) { view = paintBasis(view).mirror; u = -u; }
+    const b = paintBasis(view);
+    o = new THREE.Vector3(...s).addScaledVector(b.U, u).addScaledVector(b.V, v).addScaledVector(b.d, -far); d = b.d.clone();
+  } else if (view === 'side') { const sx = mirror ? -xs : xs; o = new THREE.Vector3(sx * far, v + s[1], u + s[2]); d = new THREE.Vector3(-sx, 0, 0); }
   else if (view === 'front' || view === 'rear') { const sz = view === 'front' ? 1 : -1; o = new THREE.Vector3((mirror ? -u : u) + s[0], v + s[1], sz * far); d = new THREE.Vector3(0, 0, -sz); }
   else { const x = (mirror ? -v : v) + s[0], sy = view === 'top' ? 1 : -1; o = new THREE.Vector3(x, sy * far, u + s[2]); d = new THREE.Vector3(0, -sy, 0); }
   // The first face the build would paint for this view (facing it, like lpa/paint.py), so a
@@ -3057,27 +3181,38 @@ function paintInside(pt, poly) {
   }
   return c;
 }
+// Drawing a frame of the Paint card is kept cheap, as it runs on every pointer move while painting:
+// the free view's colour overlay is only re-rasterised for the views whose shapes changed, the shape
+// fills of the flat views only when a shape changed, outlines on the hull reuse their ray casts, and
+// pointer moves draw at most once per animation frame (paintDrawSoon).
+function paintGroupDrop(key) {
+  const g = PT[key];
+  if (!g) return;
+  g.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  g.removeFromParent();
+  PT[key] = null;
+}
+function paintDrawSoon() {
+  if (PT.drawRaf) return;
+  PT.drawRaf = requestAnimationFrame(() => { PT.drawRaf = 0; paintDraw(); });
+}
+const paintRegSig = r => JSON.stringify([r.id, r.view, r.color, r.mirror !== false, r.x_side || 0, r.pts]);
 function paintDraw() {
-  paintOverlayClear();
-  if (PT.group) {
-    PT.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
-    PT.group.removeFromParent();
-    PT.group = null;
-  }
+  if (PT.drawRaf) { cancelAnimationFrame(PT.drawRaf); PT.drawRaf = 0; }
   if (PT.on) {
     controls.enableRotate = !paintView();
-    stage.querySelector('.hint').textContent = paintView() ? 'Paint on: drag to draw freehand or click to place points, scroll to zoom, right-drag to pan'
-                                                           : 'Paint on: drag on the model to draw, click to place points, drag beside it to rotate, scroll to zoom';
+    stage.querySelector('.hint').textContent = paintHint();
   }
-  if (!current) return;
+  if (!current) { paintOverlayClear(); paintGroupDrop('group'); paintGroupDrop('draftGroup'); PT.groupKey = null; return; }
   paintBaseApply();
   paintNumber();
   // Lines and point handles only while Paint is on (and "show the outlines" is ticked); the fill stays.
   const lines = PT.on && $('paintShow').checked;
   const view = paintView();
-  if (!view) { if (lines) paintDrawFree(); else paintOverlay(); return; }
-  const g = new THREE.Group(), plane = paintPlane(view);
-  const shape = (pts, color, mirror, sel, closed) => {
+  if (!view) { paintOverlay(); paintDrawFree(lines); return; }
+  paintOverlay(true);   // camera shapes have no flat outline: they stay painted on the model
+  const plane = paintPlane(view);
+  const shape = (g, pts, color, mirror, sel, closed) => {
     const sides = view === 'side' ? [false] : mirror ? [false, true] : [false];
     for (const m of sides) {
       const P3 = pts.map(([u, v]) => paintToWorld(view, u, v, plane, m));
@@ -3102,11 +3237,26 @@ function paintDraw() {
       }
     }
   };
-  for (const r of paintRegions()) if (r.view === view) shape(r.pts, r.color, r.mirror !== false, PT.sel === r.id, true);
-  if (PT.draft && PT.draft.view === view) shape(PT.draft.pts, $('paintColor').value, PT.draft.mirror, true, false);
-  g.traverse(o => { o.userData.reference = true; });
-  scene.add(g);
-  PT.group = g;
+  // The shapes: rebuilt only when one of them (or the view, selection or plane) changed.
+  const regs = paintShown().filter(r => r.view === view);
+  const key = JSON.stringify([view, plane, lines, PT.sel, PT.shift]) + regs.map(paintRegSig).join();
+  if (key !== PT.groupKey || !PT.group) {
+    paintGroupDrop('group');
+    const g = new THREE.Group();
+    for (const r of regs) shape(g, r.pts, r.color, r.mirror !== false, PT.sel === r.id, true);
+    g.traverse(o => { o.userData.reference = true; });
+    scene.add(g);
+    PT.group = g; PT.groupKey = key;
+  }
+  // The shape being drawn: small, drawn every time.
+  paintGroupDrop('draftGroup');
+  if (PT.draft && PT.draft.view === view) {
+    const g = new THREE.Group();
+    shape(g, PT.draft.pts, $('paintColor').value, PT.draft.mirror, true, false);
+    g.traverse(o => { o.userData.reference = true; });
+    scene.add(g);
+    PT.draftGroup = g;
+  }
 }
 // Free view fill: the hull itself is drawn again with the shapes projected onto it, like the
 // build paints it: every hull face turned towards a shape's view (normal along that axis) takes
@@ -3115,129 +3265,393 @@ function paintDraw() {
 // The base colour the model was built with (its skin's material name), and the one chosen now.
 // A skin built into the pack has its own body model (its shapes already cut in); a skin added
 // here is shown on the default skin's body, whose base and shape colours then take its base.
-function paintFromSet() {
+// part: for the moving parts, which the Hangar always shows from the default skin's files.
+function paintFromSet(part = false) {
   const lc = c => String(c || '#aeb2b4').toLowerCase();
   const all = skinsBuilt(PT.file), def = all[0];
-  const own = all.find(s => s.id === PT.skin && PT.bodyFile && PT.bodyFile === skinBodyFile(s.id));
+  const own = !part && all.find(s => s.id === PT.skin && PT.bodyFile && PT.bodyFile === skinBodyFile(s.id));
   if (own) return new Set([lc(own.base)]);
   const set = new Set([lc(def && def.base)]);
+  // Built without a paint scheme (no paint.json base, e.g. the Yak-44E): the hull keeps the
+  // builder's palette material, which is what the base colour and the shapes go on.
+  if (!def || !def.base) set.add('vehicle_plane_grey');
   if (PT.skin !== SKIN0 && def) for (const r of def.regions || []) set.add(lc(r.color));
   return set;
 }
 function paintBaseApply() {
   if (!current || meshOnly) return;
-  const from = paintFromSet(), to = paintBase();
-  current.root.children[0].traverse(o => {
-    if (o.isMesh && from.has((o.userData.mat || '').toLowerCase()) && o.material && o.material.isMeshStandardMaterial) o.material.color.set(to);
-  });
+  const to = paintBase();
+  for (const o of paintObjs()) if (o.material && o.material.isMeshStandardMaterial) o.material.color.set(to);
 }
 function paintOverlayClear() {
-  for (const o of PT.overlays || []) { o.removeFromParent(); o.material.dispose(); }
-  for (const t of PT.overlayTex || []) t.dispose();
-  PT.overlays = []; PT.overlayTex = [];
+  const O = PT.ov;
+  if (!O) return;
+  for (const o of O.meshes) { o.removeFromParent(); o.material.dispose(); }
+  for (const t of Object.values(O.tex)) t.dispose();
+  if (O.depth) O.depth.targets.forEach(t => t.dispose());
+  for (const L of O.dir.values()) paintDirLayerDrop(L);
+  PT.ov = null;
 }
-function paintOverlay() {
+// For each view (side+, side-, top, bottom, front, rear): the nearest part's coordinate along the
+// view axis per texel, so the paint goes only on what is seen from that view, like lpa/paint.py.
+function paintDepthMaps(parts, s, R, n = 1024) {
+  const type = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float')
+    ? THREE.HalfFloatType : THREE.UnsignedByteType;
+  const uView = { value: 0 };
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.DoubleSide,
+    uniforms: { uView, uS: { value: new THREE.Vector3(...s) }, uR: { value: R } },
+    vertexShader: `uniform int uView; uniform vec3 uS; uniform float uR; varying float vA;
+      void main() {
+        vec3 w = (modelMatrix * vec4(position, 1.0)).xyz; vec2 uv; float a;
+        if (uView < 2) { uv = vec2(w.z - uS.z, w.y - uS.y); a = uView == 0 ? w.x : -w.x; }
+        else if (uView < 4) { uv = vec2(w.z - uS.z, w.x - uS.x); a = uView == 2 ? w.y : -w.y; }
+        else { uv = vec2(w.x - uS.x, w.y - uS.y); a = uView == 4 ? w.z : -w.z; }
+        vA = a;
+        gl_Position = vec4(uv / uR, -a / 200.0, 1.0);
+      }`,
+    fragmentShader: `varying float vA; void main() { gl_FragColor = vec4(vA, 0.0, 0.0, 1.0); }`,
+  });
+  const sc = new THREE.Scene();
+  sc.matrixWorldAutoUpdate = false;
+  for (const [geo, m] of parts) {
+    const p = new THREE.Mesh(geo, mat);
+    p.matrixAutoUpdate = false; p.matrix.copy(m); p.matrixWorld.copy(m); p.frustumCulled = false;
+    sc.add(p);
+  }
+  const prevT = renderer.getRenderTarget(), prevC = renderer.getClearColor(new THREE.Color()), prevA = renderer.getClearAlpha();
+  const camD = new THREE.Camera(), targets = [];
+  for (let v = 0; v < 6; v++) {
+    const t = new THREE.WebGLRenderTarget(n, n, { type, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+                                                  depthBuffer: true, generateMipmaps: false });
+    uView.value = v;
+    renderer.setRenderTarget(t);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear(true, true, false);
+    if (type !== THREE.UnsignedByteType) renderer.render(sc, camD);   // no float targets: everything counts as seen
+    targets.push(t);
+  }
+  renderer.setRenderTarget(prevT);
+  renderer.setClearColor(prevC, prevA);
+  mat.dispose();
+  return { targets, maps: targets.map(t => t.texture), n };
+}
+// A camera view's nearest-part map, over its square box [u0, v0, size] on the view's plane.
+function paintDepthDir(parts, s, b, box, n = 1024) {
+  const type = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float')
+    ? THREE.HalfFloatType : THREE.UnsignedByteType;
+  const t = new THREE.WebGLRenderTarget(n, n, { type, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+                                                depthBuffer: true, generateMipmaps: false });
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.DoubleSide,
+    uniforms: { uS: { value: new THREE.Vector3(...s) }, uU: { value: b.U }, uV: { value: b.V }, uDir: { value: b.d },
+                uBox: { value: new THREE.Vector3(...box) } },
+    vertexShader: `uniform vec3 uS, uU, uV, uDir, uBox; varying float vA;
+      void main() {
+        vec3 q = (modelMatrix * vec4(position, 1.0)).xyz - uS;
+        vec2 c = (vec2(dot(q, uU), dot(q, uV)) - uBox.xy) / uBox.z;
+        vA = -dot(q, uDir);
+        gl_Position = vec4(c * 2.0 - 1.0, -vA / 200.0, 1.0);
+      }`,
+    fragmentShader: `varying float vA; void main() { gl_FragColor = vec4(vA, 0.0, 0.0, 1.0); }`,
+  });
+  const sc = new THREE.Scene();
+  sc.matrixWorldAutoUpdate = false;
+  for (const [geo, m] of parts) {
+    const p = new THREE.Mesh(geo, mat);
+    p.matrixAutoUpdate = false; p.matrix.copy(m); p.matrixWorld.copy(m); p.frustumCulled = false;
+    sc.add(p);
+  }
+  const prevT = renderer.getRenderTarget(), prevC = renderer.getClearColor(new THREE.Color()), prevA = renderer.getClearAlpha();
+  renderer.setRenderTarget(t);
+  renderer.setClearColor(0x000000, 0);
+  renderer.clear(true, true, false);
+  if (type !== THREE.UnsignedByteType) renderer.render(sc, new THREE.Camera());
+  renderer.setRenderTarget(prevT);
+  renderer.setClearColor(prevC, prevA);
+  mat.dispose();
+  return t;
+}
+function paintDirLayerDrop(L) {
+  for (const o of L.meshes) { o.removeFromParent(); o.material.dispose(); }
+  L.tex.dispose(); L.depth.dispose();
+}
+// The camera views' paint: one layer per view (a texture of its shapes on the view's plane, its
+// nearest-part map and the parts drawn again with them), over the side / top / front paint.
+function paintOverlayDir(dops) {
+  const O = PT.ov, root = current.root;
+  for (const [k, L] of O.dir) if (!dops[k]) { paintDirLayerDrop(L); O.dir.delete(k); }
+  let order = 0;
+  for (const [k, ops] of Object.entries(dops)) {
+    order++;
+    const b = paintBasis(k);
+    let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
+    for (const [, pts, flip] of ops) for (const [u, v] of pts) {
+      const x = flip ? -u : u;
+      u0 = Math.min(u0, x); u1 = Math.max(u1, x); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    }
+    // Whole metres with a margin, so a stroke growing a little does not rebuild the layer.
+    const bu = 2 * Math.floor((u0 - 1) / 2), bv = 2 * Math.floor((v0 - 1) / 2), size = 2 * Math.ceil(Math.max(u1 + 1 - bu, v1 + 1 - bv) / 2);
+    const box = [bu, bv, size];
+    let L = O.dir.get(k);
+    if (L && L.box.join() !== box.join()) { paintDirLayerDrop(L); O.dir.delete(k); L = null; }
+    if (!L) {
+      // About a centimetre per texel: a small patch uploads a small texture on every brush move.
+      const N = Math.min(2048, Math.max(256, 2 ** Math.ceil(Math.log2(size * 100)))), c = document.createElement('canvas');
+      c.width = c.height = N;
+      const tex = new THREE.CanvasTexture(c);
+      tex.flipY = false; tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter; tex.colorSpace = THREE.SRGBColorSpace;
+      const nd = Math.min(N, 1024), depth = paintDepthDir(O.parts, PT.shift, b, box, nd);
+      const uniforms = { tD: { value: tex }, dD: { value: depth.texture }, uS: { value: new THREE.Vector3(...PT.shift) },
+                         uU: { value: b.U }, uV: { value: b.V }, uDir: { value: b.d }, uBox: { value: new THREE.Vector3(...box) },
+                         uTexel: { value: size / nd } };
+      // Only the parts whose box reaches the layer's square on the view plane.
+      const reach = i => {
+        const { min: a, max: c } = O.pbox[i];
+        let p0 = Infinity, q0 = Infinity, p1 = -Infinity, q1 = -Infinity;
+        for (let m = 0; m < 8; m++) {
+          const w = new THREE.Vector3(m & 1 ? c.x : a.x, m & 2 ? c.y : a.y, m & 4 ? c.z : a.z);
+          const u = w.dot(b.U), v = w.dot(b.V);
+          p0 = Math.min(p0, u); p1 = Math.max(p1, u); q0 = Math.min(q0, v); q1 = Math.max(q1, v);
+        }
+        return p1 >= bu && p0 <= bu + size && q1 >= bv && q0 <= bv + size;
+      };
+      const meshes = O.objs.map((o, i) => {
+        if (!reach(i)) return null;
+        const uRest = { value: new THREE.Matrix4() };
+        const mat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1, depthWrite: false,
+                                                     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+        mat.customProgramCacheKey = () => 'paintOverlayDir';
+        mat.onBeforeCompile = sh => {
+          Object.assign(sh.uniforms, uniforms, { uRest });
+          sh.vertexShader = 'uniform mat4 uRest; varying vec3 vPW; varying vec3 vPN;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+            '#include <begin_vertex>\n  vPW = (uRest * vec4(transformed, 1.0)).xyz; vPN = mat3(uRest) * objectNormal;');
+          sh.fragmentShader = `uniform sampler2D tD, dD; uniform vec3 uS, uU, uV, uDir, uBox; uniform float uTexel;
+            varying vec3 vPW; varying vec3 vPN;
+            ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+            {
+              // Faces turned towards the line of sight, where nothing lies in front of them along it.
+              vec3 pn = normalize(vPN), q = vPW - uS;
+              float along = -dot(pn, uDir);
+              if (along <= 0.02) discard;
+              vec2 c = (vec2(dot(q, uU), dot(q, uV)) - uBox.xy) / uBox.z;
+              if (c.x < 0.0 || c.y < 0.0 || c.x > 1.0 || c.y > 1.0) discard;
+              vec4 t = texture2D(tD, c);
+              if (t.a < 0.5) discard;
+              vec4 s = texture2D(dD, c);
+              float slope = min(sqrt(max(1.0 - along * along, 0.0)) / max(along, 0.02), 20.0);
+              if (s.a > 0.5 && -dot(q, uDir) < s.r - (0.04 + 1.5 * uTexel * slope)) discard;
+              diffuseColor.rgb = t.rgb;
+            }`);
+        };
+        const ov = new THREE.Mesh(o.geometry, mat);
+        ov.onBeforeRender = () => { uRest.value.multiplyMatrices(root.matrixWorld, O.rest[i]); };
+        ov.name = 'paint_overlay'; ov.raycast = () => {};
+        ov.userData.reference = true;
+        o.add(ov);
+        return ov;
+      }).filter(Boolean);
+      L = { box, N, cv: c.getContext('2d'), tex, depth, meshes, sig: null };
+      O.dir.set(k, L);
+    }
+    for (const m of L.meshes) m.renderOrder = 18 + order * 0.01;   // later views paint over earlier ones
+    const sig = JSON.stringify(ops);
+    if (L.sig === sig) continue;
+    L.sig = sig;
+    const ctx = L.cv, f = L.N / size;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, L.N, L.N);
+    ctx.setTransform(f, 0, 0, f, -bu * f, -bv * f);
+    for (const [color, pts, flip] of ops) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      pts.forEach(([u, v], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, flip ? -u : u, v));
+      ctx.closePath(); ctx.fill('evenodd');
+    }
+    L.tex.needsUpdate = true;
+  }
+}
+const PAINT_OV_KEYS = ['side+', 'side-', 'top', 'bottom', 'front', 'rear'];
+// dirOnly: the flat views, where the side / top / front shapes are drawn flat and only the camera
+// shapes are painted on the model.
+function paintOverlay(dirOnly = false) {
   // Only the base skin takes shapes, as in the build (glass, markings and dark parts keep theirs).
-  const from = paintFromSet();
-  const regs = paintRegions(), objs = paintObjs().filter(o => from.has((o.userData.mat || '').toLowerCase()));
-  if (!regs.length || !objs.length) return;
+  const regs = paintShown().filter(r => !dirOnly || paintIsDir(r.view)), objs = paintObjs().filter(o => o.geometry.attributes.normal);
+  if (!regs.length || !objs.length) { paintOverlayClear(); return; }
   const box = new THREE.Box3();
   for (const o of objs) box.expandByObject(o);
   const s = PT.shift, N = 2048;
-  const R = Math.max(...box.min.toArray().map(Math.abs), ...box.max.toArray().map(Math.abs)) + Math.max(...s.map(Math.abs)) + 1;
-  const keys = ['side+', 'side-', 'top', 'bottom', 'front', 'rear'], cv = {};
-  for (const k of keys) {
-    const c = document.createElement('canvas'); c.width = c.height = N;
-    const ctx = c.getContext('2d');
-    ctx.setTransform(N / (2 * R), 0, 0, N / (2 * R), N / 2, N / 2);
-    cv[k] = { c, ctx, used: false };
+  // Whole metres: a part moving a little does not resize (and redraw) the textures.
+  const R = Math.ceil(Math.max(...box.min.toArray().map(Math.abs), ...box.max.toArray().map(Math.abs)) + Math.max(...s.map(Math.abs))) + 1;
+  // The canvases, textures and overlay meshes stay while the model (and its frame) stays.
+  const objKey = objs.map(o => o.uuid).join() + '|' + R.toFixed(3) + '|' + s.join();
+  if (PT.ov && PT.ov.objKey !== objKey) paintOverlayClear();
+  if (!PT.ov) {
+    const cv = {}, tex = {};
+    for (const k of PAINT_OV_KEYS) {
+      const c = document.createElement('canvas'); c.width = c.height = N;
+      cv[k] = c.getContext('2d');
+      const t = new THREE.CanvasTexture(c);
+      t.flipY = false; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.colorSpace = THREE.SRGBColorSpace;
+      tex[k] = t;
+    }
+    // The hull's own lit material (same light and flat facets), its colour taken from the shapes.
+    const uniforms = { tSP: { value: tex['side+'] }, tSN: { value: tex['side-'] }, tTop: { value: tex.top }, tBot: { value: tex.bottom },
+                       tFr: { value: tex.front }, tRe: { value: tex.rear },
+                       uS: { value: new THREE.Vector3(...s) }, uR: { value: R },
+                       uHasA: { value: new THREE.Vector3() }, uHasB: { value: new THREE.Vector3() } };
+    const makeMat = uRest => {
+      const mat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1, depthWrite: false,
+                                                   polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      mat.customProgramCacheKey = () => 'paintOverlay';
+      mat.onBeforeCompile = sh => {
+        Object.assign(sh.uniforms, uniforms, { uRest });
+        // The shapes are looked up where the face is at rest (a deflected surface keeps its paint).
+        sh.vertexShader = 'uniform mat4 uRest; varying vec3 vPW; varying vec3 vPN;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+          '#include <begin_vertex>\n  vPW = (uRest * vec4(transformed, 1.0)).xyz; vPN = mat3(uRest) * objectNormal;');
+        sh.fragmentShader = `uniform sampler2D tSP, tSN, tTop, tBot, tFr, tRe; uniform vec3 uS; uniform float uR;
+          varying vec3 vPW; varying vec3 vPN;
+          vec4 paintAt(sampler2D t, vec2 uv) { vec2 c = uv / (2.0 * uR) + 0.5;
+            if (c.x < 0.0 || c.y < 0.0 || c.x > 1.0 || c.y > 1.0) return vec4(0.0); return texture2D(t, c); }
+          uniform sampler2D dSP, dSN, dTop, dBot, dFr, dRe; uniform float uTexel; uniform vec3 uHasA, uHasB;
+          // Seen from the view? The nearest part along the view axis is stored per texel (a); a face
+          // further back (a nacelle side under the wing, seen from above) does not take the shape.
+          bool seen(sampler2D d, vec2 uv, float a, float along, vec3 pn) {
+            vec2 c = uv / (2.0 * uR) + 0.5;
+            if (c.x < 0.0 || c.y < 0.0 || c.x > 1.0 || c.y > 1.0) return true;
+            vec4 s = texture2D(d, c);
+            if (s.a < 0.5) return true;
+            float slope = min(sqrt(max(1.0 - along * along, 0.0)) / max(along, 0.02), 20.0);
+            return a >= s.r - (0.04 + 1.5 * uTexel * slope);
+          }
+          ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+          {
+            vec3 pn = normalize(vPN); vec4 col = vec4(0.0), c;
+            vec2 side = vec2(vPW.z - uS.z, vPW.y - uS.y), top = vec2(vPW.z - uS.z, vPW.x - uS.x), fr = vec2(vPW.x - uS.x, vPW.y - uS.y);
+            // same rule as lpa/paint.py: a face takes a view's shapes when it is turned towards it
+            if (uHasA.x > 0.5 && pn.x > 0.02 && seen(dSP, side, vPW.x, pn.x, pn)) { c = paintAt(tSP, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasA.y > 0.5 && pn.x < -0.02 && seen(dSN, side, -vPW.x, -pn.x, pn)) { c = paintAt(tSN, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasB.x > 0.5 && pn.y < -0.02 && seen(dBot, top, -vPW.y, -pn.y, pn)) { c = paintAt(tBot, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasA.z > 0.5 && pn.y > 0.02 && seen(dTop, top, vPW.y, pn.y, pn)) { c = paintAt(tTop, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasB.y > 0.5 && pn.z > 0.02 && seen(dFr, fr, vPW.z, pn.z, pn)) { c = paintAt(tFr, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasB.z > 0.5 && pn.z < -0.02 && seen(dRe, fr, -vPW.z, -pn.z, pn)) { c = paintAt(tRe, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (col.a < 0.5) discard;
+            diffuseColor.rgb = col.rgb;
+          }`);
+      };
+      return mat;
+    };
+    const rest = paintRestPose(objs), root = current.root;
+    // Nearest-part maps, one per view, of the parts at rest (same frame as the shapes).
+    const depth = paintDepthMaps(objs.map((o, i) => [o.geometry, new THREE.Matrix4().multiplyMatrices(root.matrixWorld, rest[i])]), s, R);
+    Object.assign(uniforms, { dSP: { value: depth.maps[0] }, dSN: { value: depth.maps[1] }, dTop: { value: depth.maps[2] },
+                              dBot: { value: depth.maps[3] }, dFr: { value: depth.maps[4] }, dRe: { value: depth.maps[5] },
+                              uTexel: { value: 2 * R / depth.n } });
+    const meshes = objs.map((o, i) => {
+      const uRest = { value: new THREE.Matrix4() };
+      const ov = new THREE.Mesh(o.geometry, makeMat(uRest));
+      ov.onBeforeRender = () => { uRest.value.multiplyMatrices(root.matrixWorld, rest[i]); };
+      ov.name = 'paint_overlay'; ov.renderOrder = 18; ov.raycast = () => {};
+      ov.userData.reference = true;
+      o.add(ov);
+      return ov;
+    });
+    const parts = objs.map((o, i) => [o.geometry, new THREE.Matrix4().multiplyMatrices(root.matrixWorld, rest[i])]);
+    // Each part's box at rest, in the shapes' frame: which parts a shape can reach.
+    const sv = new THREE.Vector3(...s).negate();
+    const pbox = parts.map(([g, m]) => { if (!g.boundingBox) g.computeBoundingBox(); return g.boundingBox.clone().applyMatrix4(m).translate(sv).expandByScalar(0.05); });
+    PT.ov = { objKey, cv, tex, meshes, sig: {}, N, R, uniforms, depth, objs, rest, parts, pbox, dir: new Map() };
   }
-  const poly = (k, pts, flip, flipU = false) => {
-    const { ctx } = cv[k];
-    ctx.beginPath();
-    pts.forEach(([u, v], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, flipU ? -u : u, flip ? -v : v));
-    ctx.closePath(); ctx.fill();
-    cv[k].used = true;
-  };
+  // What each view's texture holds; a texture is drawn and uploaded again only when that changed.
+  const ops = Object.fromEntries(PAINT_OV_KEYS.map(k => [k, []])), dops = {};
   for (const r of regs) {
     if (r.pts.length < 3) continue;
     const mir = r.mirror !== false;
-    for (const k of keys) cv[k].ctx.fillStyle = r.color;
+    if (paintIsDir(r.view)) {
+      (dops[r.view] || (dops[r.view] = [])).push([r.color, r.pts, 0]);
+      if (mir) { const m = paintBasis(r.view).mirror; (dops[m] || (dops[m] = [])).push([r.color, r.pts, 1]); }
+      continue;
+    }
     if (r.view === 'side') {
-      if (mir) { poly('side+', r.pts, false); poly('side-', r.pts, false); }
-      else poly((r.x_side || 1) > 0 ? 'side+' : 'side-', r.pts, false);
+      if (mir) { ops['side+'].push([r.color, r.pts, 0]); ops['side-'].push([r.color, r.pts, 0]); }
+      else ops[(r.x_side || 1) > 0 ? 'side+' : 'side-'].push([r.color, r.pts, 0]);
     } else if (r.view === 'front' || r.view === 'rear') {
-      poly(r.view, r.pts, false);
-      if (mir) poly(r.view, r.pts, false, true);
-    } else {
-      poly(r.view, r.pts, false);
-      if (mir) poly(r.view, r.pts, true);
+      ops[r.view].push([r.color, r.pts, 0]);
+      if (mir) ops[r.view].push([r.color, r.pts, 2]);
+    } else if (ops[r.view]) {
+      ops[r.view].push([r.color, r.pts, 0]);
+      if (mir) ops[r.view].push([r.color, r.pts, 1]);
     }
   }
-  const tex = {};
-  for (const k of keys) {
-    const t = new THREE.CanvasTexture(cv[k].c);
-    t.flipY = false; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.colorSpace = THREE.SRGBColorSpace;
-    tex[k] = t; PT.overlayTex.push(t);
+  const O = PT.ov;
+  // Mirrored side shapes only (the usual case): the far side reads the near side's texture, so a
+  // stroke there uploads one texture, not two.
+  const sideSame = JSON.stringify(ops['side+']) === JSON.stringify(ops['side-']);
+  O.uniforms.tSN.value = sideSame ? O.tex['side+'] : O.tex['side-'];
+  for (const k of PAINT_OV_KEYS) {
+    if (k === 'side-' && sideSame) continue;
+    const sig = JSON.stringify(ops[k]);
+    if (O.sig[k] === sig) continue;
+    O.sig[k] = sig;
+    const ctx = O.cv[k];
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, O.N, O.N);
+    ctx.setTransform(O.N / (2 * O.R), 0, 0, O.N / (2 * O.R), O.N / 2, O.N / 2);
+    for (const [color, pts, flip] of ops[k]) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      pts.forEach(([u, v], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, flip === 2 ? -u : u, flip === 1 ? -v : v));
+      ctx.closePath(); ctx.fill('evenodd');
+    }
+    O.tex[k].needsUpdate = true;
   }
-  // The hull's own lit material (same light and flat facets), its colour taken from the shapes.
-  const uniforms = { tSP: { value: tex['side+'] }, tSN: { value: tex['side-'] }, tTop: { value: tex.top }, tBot: { value: tex.bottom },
-                     tFr: { value: tex.front }, tRe: { value: tex.rear },
-                     uS: { value: new THREE.Vector3(...s) }, uR: { value: R } };
-  const makeMat = () => {
-    const mat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1, depthWrite: false,
-                                                 polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    mat.customProgramCacheKey = () => 'paintOverlay';
-    mat.onBeforeCompile = sh => {
-      Object.assign(sh.uniforms, uniforms);
-      sh.vertexShader = 'varying vec3 vPW; varying vec3 vPN;\n' + sh.vertexShader.replace('#include <begin_vertex>',
-        '#include <begin_vertex>\n  vPW = (modelMatrix * vec4(transformed, 1.0)).xyz; vPN = mat3(modelMatrix) * objectNormal;');
-      sh.fragmentShader = `uniform sampler2D tSP, tSN, tTop, tBot, tFr, tRe; uniform vec3 uS; uniform float uR;
-        varying vec3 vPW; varying vec3 vPN;
-        vec4 paintAt(sampler2D t, vec2 uv) { vec2 c = uv / (2.0 * uR) + 0.5;
-          if (c.x < 0.0 || c.y < 0.0 || c.x > 1.0 || c.y > 1.0) return vec4(0.0); return texture2D(t, c); }
-        ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
-        {
-          vec3 pn = normalize(vPN); vec4 col = vec4(0.0), c;
-          vec2 side = vec2(vPW.z - uS.z, vPW.y - uS.y), top = vec2(vPW.z - uS.z, vPW.x - uS.x), fr = vec2(vPW.x - uS.x, vPW.y - uS.y);
-          // same rule as lpa/paint.py: a face takes a view's shapes when it is turned towards it
-          if (pn.x > 0.02) { c = paintAt(tSP, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (pn.x < -0.02) { c = paintAt(tSN, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (pn.y < -0.02) { c = paintAt(tBot, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (pn.y > 0.02) { c = paintAt(tTop, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (pn.z > 0.02) { c = paintAt(tFr, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (pn.z < -0.02) { c = paintAt(tRe, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (col.a < 0.5) discard;
-          diffuseColor.rgb = col.rgb;
-        }`);
-    };
-    return mat;
-  };
-  objs.forEach(o => {
-    if (!o.geometry || !o.geometry.attributes.normal) return;
-    const ov = new THREE.Mesh(o.geometry, makeMat());
-    ov.name = 'paint_overlay'; ov.renderOrder = 18; ov.raycast = () => {};
-    ov.userData.reference = true;
-    o.add(ov); PT.overlays.push(ov);
+  // Views without shapes are skipped in the shader, and parts no shape reaches are not drawn again.
+  const has = k => ops[k].length ? 1 : 0;
+  O.uniforms.uHasA.value.set(has('side+'), has('side-'), has('top'));
+  O.uniforms.uHasB.value.set(has('bottom'), has('front'), has('rear'));
+  const kb = {};
+  for (const k of PAINT_OV_KEYS) for (const [, pts, flip] of ops[k]) {
+    const b = kb[k] || (kb[k] = [Infinity, Infinity, -Infinity, -Infinity]);
+    for (const [u, v] of pts) {
+      const x = flip === 2 ? -u : u, y = flip === 1 ? -v : v;
+      b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y);
+    }
+  }
+  O.meshes.forEach((m, i) => {
+    const { min: a, max: c } = O.pbox[i];
+    const rng = { 'side+': [a.z, a.y, c.z, c.y], 'side-': [a.z, a.y, c.z, c.y], top: [a.z, a.x, c.z, c.x], bottom: [a.z, a.x, c.z, c.x],
+                  front: [a.x, a.y, c.x, c.y], rear: [a.x, a.y, c.x, c.y] };
+    m.visible = Object.entries(kb).some(([k, b]) => { const q = rng[k]; return b[0] <= q[2] && q[0] <= b[2] && b[1] <= q[3] && q[1] <= b[3]; });
   });
+  paintOverlayDir(dops);
 }
 // Free view: the selected shape's outline laid on the model (both sides when mirrored), points of the
 // selected shape and the shape being drawn as handles.
-function paintDrawFree() {
-  const g = new THREE.Group();
-  const outline = (view, pts, xs, mirror, color, sel, closed, fillColor = color) => {
-    const sides = view === 'side' ? (mirror ? [false, true] : [false]) : (mirror ? [false, true] : [false]);
+// Points on the hull along a segment of a drawing-view line: ray casts kept per segment, so a line
+// being drawn only casts for its new segment (the cache is dropped when another body is shown).
+function paintSurfSeg(view, a, b, xs, m) {
+  const owner = current && current.root.children[0] ? current.root.children[0].uuid + PT.shift.join() : '';
+  if (PT.segOwner !== owner || !PT.segCache || PT.segCache.size > 20000) { PT.segCache = new Map(); PT.segOwner = owner; }
+  const key = `${view}|${xs}|${m ? 1 : 0}|${a[0]},${a[1]}|${b[0]},${b[1]}`;
+  let seg = PT.segCache.get(key);
+  if (!seg) {
+    seg = [];
+    const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.12));
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      seg.push(paintSurf(view, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, xs, m));
+    }
+    PT.segCache.set(key, seg);
+  }
+  return seg;
+}
+function paintDrawFree(lines) {
+  const outline = (g, view, pts, xs, mirror, color, sel, closed) => {
+    const sides = mirror ? [false, true] : [false];
     for (const m of sides) {
       const seg = [];
       const n = closed ? pts.length : pts.length - 1;
-      for (let i = 0; i < n; i++) {
-        const a = pts[i], b = pts[(i + 1) % pts.length];
-        const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.12));
-        for (let k = 0; k <= steps; k++) {
-          const t = k / steps, p = paintSurf(view, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, xs, m);
-          seg.push(p);
-        }
-      }
+      for (let i = 0; i < n; i++) seg.push(...paintSurfSeg(view, pts[i], pts[(i + 1) % pts.length], xs, m));
       // Break the line where it leaves the model.
       let run = [];
       const flush = () => {
@@ -3250,7 +3664,7 @@ function paintDrawFree() {
       for (const p of seg) { if (p) run.push(p); else flush(); }
       flush();
       if (sel && !m) {
-        const hp = pts.map(([u, v]) => paintSurf(view, u, v, xs, false)).filter(Boolean);
+        const hp = pts.map(p => paintSurfSeg(view, p, p, xs, false)[0]).filter(Boolean);
         if (hp.length) {
           const pts3 = new THREE.Points(new THREE.BufferGeometry().setFromPoints(hp), new THREE.PointsMaterial({ color: 0xff8a00, size: 8, sizeAttenuation: false, depthTest: false, transparent: true }));
           pts3.renderOrder = 20; g.add(pts3);
@@ -3258,12 +3672,16 @@ function paintDrawFree() {
       }
     }
   };
-  for (const r of paintRegions()) if (PT.sel === r.id) outline(r.view, r.pts, paintRegionXs(r), r.mirror !== false, new THREE.Color(r.color).multiplyScalar(0.6), PT.sel === r.id, true, r.color);
-  if (PT.draft) outline(PT.draft.view, PT.draft.pts, PT.draft.xs || 1, false, 0xff8a00, true, false);
-  paintOverlay();
-  g.traverse(o => { o.userData.reference = true; });
-  scene.add(g);
-  PT.group = g;
+  const done = (key, g) => { g.traverse(o => { o.userData.reference = true; }); scene.add(g); PT[key] = g; };
+  // The selected shape's outline: rebuilt only when it (or the body) changed.
+  const selR = lines && paintRegions().find(r => PT.sel === r.id);
+  const key = selR ? 'free' + paintRegSig(selR) + PT.segOwner : null;
+  if (key !== PT.groupKey || (key && !PT.group)) {
+    paintGroupDrop('group'); PT.groupKey = key;
+    if (selR) { const g = new THREE.Group(); outline(g, selR.view, selR.pts, paintRegionXs(selR), selR.mirror !== false, 0, true, true); done('group', g); }
+  }
+  paintGroupDrop('draftGroup');
+  if (lines && PT.draft) { const g = new THREE.Group(); outline(g, PT.draft.view, PT.draft.pts, PT.draft.xs || 1, false, 0xff8a00, true, false); done('draftGroup', g); }
 }
 function paintUi() {
   const regs = paintRegions(), list = $('paintList');
@@ -3272,8 +3690,8 @@ function paintUi() {
     const b = document.createElement('button');
     b.type = 'button';
     b.setAttribute('aria-pressed', PT.sel === r.id);
-    b.innerHTML = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:${r.color}"></span>${r.view} · ${r.pts.length} points${r.mirror === false ? '' : ' · mirrored'}`;
-    b.addEventListener('click', () => { PT.sel = r.id; $('paintColor').value = r.color; if (viewName !== r.view) setView(r.view); paintUi(); paintDraw(); });
+    b.innerHTML = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:${r.color}"></span>${paintIsDir(r.view) ? '3D view' : r.view} · ${r.pts.length} points${r.mirror === false ? '' : ' · mirrored'}`;
+    b.addEventListener('click', () => { PT.sel = r.id; $('paintColor').value = r.color; if (paintIsDir(r.view) ? viewName !== 'persp' : viewName !== r.view) setView(paintIsDir(r.view) ? 'persp' : r.view); paintUi(); paintDraw(); });
     list.appendChild(b);
   }
   $('paintFinish').disabled = !(PT.draft && PT.draft.pts.length >= 3);
@@ -3343,6 +3761,12 @@ function numPolys(text, h) {
   return out;
 }
 function paintNumber() {
+  // Unchanged number, colour and body: nothing to do (this runs on every drawn frame).
+  const nk = current && PT.file ? JSON.stringify([current.root.children[0] && current.root.children[0].uuid, PT.bodyFile, PT.skin, PT.file.decals,
+    document.activeElement === $('skinNumber') ? $('skinNumber').value : null, PT.numColLive ? $('skinNumberColor').value : null,
+    (skinCur() || {}).number, (skinCur() || {}).number_color, meshOnly]) : null;
+  if (nk && nk === PT.numKey) return;
+  PT.numKey = nk;
   if (PT.numGroup) {
     PT.numGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
     PT.numGroup.removeFromParent(); PT.numGroup = null;
@@ -3399,6 +3823,7 @@ async function paintModelChanged(entry, stale) {
   PT.bodyFile = current ? current.manifest.body : null;
   PT.entry = entry; PT.file = null; PT.built = null; PT.docs = {}; PT.allDocs = {}; PT.skinDocs = {}; PT.skins = [];
   PT.sel = null; PT.draft = null; PT.shift = [0, 0, 0];
+  PB.undo = []; PB.stroke = null; PB.live = []; PB.hide = new Set(); $('brushUndo').disabled = true;
   try { const r = await fetch(`models/${entry.id}/paint.json`); if (r.ok) PT.file = await r.json(); } catch (e) { /* none built in */ }
   try { const r = await fetch(`models/${entry.id}/lofts.json`); if (r.ok) PT.shift = (await r.json()).shift || [0, 0, 0]; } catch (e) { /* pack frame */ }
   if (stale()) return;
@@ -3483,9 +3908,8 @@ function paintSetOn(on) {
   else PT.draft = null;
   controls.enableRotate = !on || !paintView();
   renderer.domElement.style.cursor = on ? 'crosshair' : '';
-  stage.querySelector('.hint').textContent = on ? (paintView() ? 'Paint on: drag to draw freehand or click to place points, scroll to zoom, right-drag to pan'
-                                                                : 'Paint on: drag on the model to draw, click to place points, drag beside it to rotate, scroll to zoom')
-                                                : 'Drag to rotate, scroll to zoom, right-drag to pan';
+  stage.querySelector('.hint').textContent = on ? paintHint() : 'Drag to rotate, scroll to zoom, right-drag to pan';
+  if (!on) brushCursor(null);
   paintUi(); paintDraw();
 }
 $('skinSel').addEventListener('change', e => { skinSelect(e.target.value); });
@@ -3585,6 +4009,19 @@ stage.addEventListener('pointerdown', e => {
   if (!PT.on || e.button !== 0 || e.target !== renderer.domElement) return;
   const r = renderer.domElement.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
   const near = (view, p, xs, px = 9) => { const s = paintScreen(view, p, xs); return Math.hypot(s[0] - mx, s[1] - my) < px; };
+  if (PB.tool !== 'outline' && !e.shiftKey) {
+    const pk = PB.tool === 'erase' ? paintPickErase(e) : paintPick(e);
+    if (!pk) return;   // beside the model (free view): the view turns
+    e.stopPropagation();
+    PT.draft = null; PT.sel = null;
+    PB.stroke = { view: pk.view, xs: pk.xs, mirror: $('paintMirror').checked, erase: PB.tool === 'erase', color: $('paintColor').value,
+                  r: brushR(), segs: [[pk.uv]], x: mx, y: my };
+    // The eraser in the 3-D view: the points themselves (see brushResult3d).
+    if (PB.tool === 'erase' && paintFree()) { PB.stroke.pts3 = [[]]; brushErasePoint(PB.stroke, pk); }
+    renderer.domElement.setPointerCapture(e.pointerId);
+    paintUi(); brushPreview();
+    return;
+  }
   const selR = paintRegions().find(x => x.id === PT.sel && (paintFree() || x.view === paintView()));
   // A point of the selected shape to drag?
   if (selR && !PT.draft) {
@@ -3646,7 +4083,7 @@ renderer.domElement.addEventListener('pointermove', e => {
   if (!pk) return;   // off the model (free view): skip until the pointer is back on it
   S.x = mx; S.y = my; S.moved = true;
   PT.draft.pts.push(pk.uv);
-  paintUi(); paintDraw();
+  paintDrawSoon();   // the list (paintUi) is brought up to date on release
 });
 renderer.domElement.addEventListener('pointerup', () => {
   const S = PT.stroke;
@@ -3665,7 +4102,7 @@ renderer.domElement.addEventListener('pointermove', e => {
   if (!pk) return;
   PT.drag.pts[PT.drag.k] = pk.uv;
   PT.docs[PT.drag.id].pts = PT.drag.pts.map(p => p.slice());
-  paintDraw();
+  paintDrawSoon();
 });
 renderer.domElement.addEventListener('pointerup', () => {
   if (!PT.drag) return;
@@ -3677,10 +4114,339 @@ document.addEventListener('keydown', e => {
   if (!PT.on) return;
   const t = e.target;
   if (t && (t.tagName === 'INPUT' && t.type !== 'checkbox' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) { if (PB.undo.length) { e.preventDefault(); brushUndo(); } return; }
+  if ((e.key === '[' || e.key === ']') && PB.tool !== 'outline') { e.preventDefault(); brushSetSize(brushR() * 2 * (e.key === ']' ? 1.25 : 0.8)); return; }
   if (e.key === 'Enter' && PT.draft) { e.preventDefault(); paintFinish(); }
   else if (e.key === 'Escape' && PT.draft) { PT.draft = null; paintUi(); paintDraw(); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && PT.sel && !PT.draft) { e.preventDefault(); paintDelete(); }
 });
+// ---- Paint brush and eraser: a round brush of a set size (metres across). A stroke is the area its
+// circle sweeps in the drawing view it started in (the plane of a Side/Top/Bottom/Front view, or the
+// view the model's face under the first point looks along, as for outlines). The area is rasterised,
+// its outline traced (marching squares) and thinned, and it is saved as ordinary outline shapes, so
+// the build cuts it into the hull like any other. A brush stroke joins the shapes of its colour it
+// touches; the eraser cuts the stroke out of every shape it touches in that view. A hole is kept
+// by going round it and back along a zero-width cut (the build's inside test is even-odd).
+const PB = { tool: 'outline', stroke: null, live: [], hide: new Set(), raf: 0, cursor: null, lastPk: null, undo: [] };
+const brushR = () => Math.max(0.01, (parseFloat($('brushSize').value) || 0.6) / 2);
+function paintShown() { return paintRegions().filter(r => !PB.hide.has(r.id)).concat(PB.live); }
+function paintHint() {
+  if (PB.tool !== 'outline') {
+    const what = PB.tool === 'erase' ? 'erase' : 'paint';
+    return paintView() ? `${PB.tool === 'erase' ? 'Eraser' : 'Brush'}: drag to ${what}, [ ] size, scroll to zoom, right-drag to pan`
+                       : `${PB.tool === 'erase' ? 'Eraser' : 'Brush'}: drag on the model to ${what}, [ ] size, drag beside it to rotate, scroll to zoom`;
+  }
+  return paintView() ? 'Paint on: drag to draw freehand or click to place points, scroll to zoom, right-drag to pan'
+                     : 'Paint on: drag on the model to draw, click to place points, drag beside it to rotate, scroll to zoom';
+}
+// Marching squares on a W x H field A (0..1), iso 0.5: closed loops in grid units, the filled side on
+// the left of each (so outlines and holes run opposite ways). The field's border must be empty.
+function brushLoops(A, W, H) {
+  const ins = (i, j) => A[j * W + i] >= 0.5;
+  const segs = new Map();
+  const edge = (i, j, e) => {
+    // 0 top (i,j)-(i+1,j), 1 right (i+1,j)-(i+1,j+1), 2 bottom (i,j+1)-(i+1,j+1), 3 left (i,j)-(i,j+1)
+    const p = e === 0 ? [i, j] : e === 1 ? [i + 1, j] : e === 2 ? [i, j + 1] : [i, j];
+    const q = e === 0 ? [i + 1, j] : e === 1 ? [i + 1, j + 1] : e === 2 ? [i + 1, j + 1] : [i, j + 1];
+    const a = A[p[1] * W + p[0]], b = A[q[1] * W + q[0]], t = (0.5 - a) / (b - a);
+    const key = e === 0 ? 2 * (j * W + i) : e === 1 ? 2 * (j * W + i + 1) + 1 : e === 2 ? 2 * ((j + 1) * W + i) : 2 * (j * W + i) + 1;
+    return { key, pt: [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t] };
+  };
+  const cornerOf = { '0,3': [0, 0], '0,1': [1, 0], '1,2': [1, 1], '2,3': [0, 1], '0,2': [0, 0], '1,3': [0, 0] };
+  for (let j = 0; j < H - 1; j++) for (let i = 0; i < W - 1; i++) {
+    const tl = ins(i, j), tr = ins(i + 1, j), br = ins(i + 1, j + 1), bl = ins(i, j + 1);
+    if (tl === tr && tr === br && br === bl) continue;
+    const cross = [tl !== tr, tr !== br, br !== bl, bl !== tl].map((c, k) => c ? k : -1).filter(k => k >= 0);
+    let pairs;
+    if (cross.length === 2) pairs = [cross];
+    else {
+      const mid = (A[j * W + i] + A[j * W + i + 1] + A[(j + 1) * W + i + 1] + A[(j + 1) * W + i]) / 4 >= 0.5;
+      pairs = (mid ? !tl : tl) ? [[0, 3], [1, 2]] : [[0, 1], [2, 3]];
+    }
+    for (const [e1, e2] of pairs) {
+      let s = edge(i, j, e1), t = edge(i, j, e2);
+      const c = cornerOf[`${e1},${e2}`], cx = i + c[0], cy = j + c[1];
+      const cr = (t.pt[0] - s.pt[0]) * (cy - s.pt[1]) - (t.pt[1] - s.pt[1]) * (cx - s.pt[0]);
+      if ((cr > 0) !== ins(cx, cy)) [s, t] = [t, s];
+      segs.set(s.key, { pt: s.pt, next: t.key });
+    }
+  }
+  const loops = [];
+  for (const k0 of [...segs.keys()]) {
+    if (!segs.has(k0)) continue;
+    const loop = [];
+    for (let k = k0; segs.has(k);) { const s = segs.get(k); segs.delete(k); loop.push(s.pt); k = s.next; }
+    if (loop.length >= 3) loops.push(loop);
+  }
+  return loops;
+}
+const brushArea = L => L.reduce((s, p, i) => { const q = L[(i + 1) % L.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0) / 2;
+function brushSimplifyLoop(L, tol) {
+  if (L.length < 6) return L;
+  let far = 0, fd = -1;
+  L.forEach((p, i) => { const d = Math.hypot(p[0] - L[0][0], p[1] - L[0][1]); if (d > fd) { fd = d; far = i; } });
+  const a = paintSimplify(L.slice(0, far + 1), tol), b = paintSimplify(L.slice(far).concat([L[0]]), tol);
+  return a.concat(b.slice(1, -1));
+}
+// Loops (drawing [u, v]) -> polygons: each outline with the holes inside it joined in.
+function brushPolys(loops, minArea) {
+  const L = loops.map(pts => ({ pts, a: brushArea(pts) })).filter(l => Math.abs(l.a) >= minArea);
+  if (!L.length) return [];
+  const big = L.reduce((m, l) => Math.abs(l.a) > Math.abs(m.a) ? l : m);
+  const outer = L.filter(l => Math.sign(l.a) === Math.sign(big.a)), holes = L.filter(l => Math.sign(l.a) !== Math.sign(big.a));
+  for (const h of holes) {
+    const home = outer.filter(o => paintInside(h.pts[0], o.pts)).sort((x, y) => Math.abs(x.a) - Math.abs(y.a))[0];
+    if (!home) continue;
+    let bi = 0, bj = 0, bd = Infinity;
+    home.pts.forEach((p, i) => h.pts.forEach((q, j) => { const d = (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2; if (d < bd) { bd = d; bi = i; bj = j; } }));
+    const ring = h.pts.slice(bj).concat(h.pts.slice(0, bj + 1));
+    home.pts = home.pts.slice(0, bi + 1).concat(ring, home.pts.slice(bi));
+  }
+  return outer.map(o => o.pts);
+}
+// What a stroke does: { remove: [shapes], add: [shape docs] }. maxCells: the grid's size cap (coarse
+// while dragging, fine on release).
+// The 3-D view's eraser: every view a point under it is seen from (its face turned towards the
+// view, nothing in front along it), as 'view|x side'. A stroke there erases in all of them, so it
+// takes out whatever paint is under the brush, whichever view a shape was drawn in.
+function brushSeenViews(p, n) {
+  const V = (x, y, z) => new THREE.Vector3(x, y, z), objs = paintObjs(), ray = new THREE.Raycaster(), out = [];
+  const cand = [['side', 1, V(1, 0, 0)], ['side', -1, V(-1, 0, 0)], ['top', 0, V(0, 1, 0)], ['bottom', 0, V(0, -1, 0)],
+                ['front', 0, V(0, 0, 1)], ['rear', 0, V(0, 0, -1)]]
+    .concat(paintDirViews().map(v => [v, 0, paintBasis(v).d.clone().negate()]));
+  const shown = o => { for (let a = o; a; a = a.parent) if (!a.visible) return false; return true; };
+  for (const [v, xs, t] of cand) {
+    if (n.dot(t) <= 0.02) continue;
+    ray.set(p.clone().addScaledVector(t, 0.03), t);
+    if (ray.intersectObjects(objs, false).some(h => shown(h.object))) continue;
+    out.push(v + '|' + xs);
+  }
+  return out;
+}
+function brushErasePoint(S, pk) {
+  const seg = S.pts3[S.pts3.length - 1];
+  seg.push({ p: pk.p.clone(), views: pk.n ? brushSeenViews(pk.p, pk.n) : [] });
+}
+// An eraser stroke of the 3-D view: erased in each view its points are seen from, one after the
+// other (a shape cut in one view is the one the next view cuts again).
+function brushResult3d(S, maxCells) {
+  const orig = paintRegions();
+  let regs = orig.slice();
+  const keys = [...new Set(S.pts3.flat().flatMap(q => q.views))];
+  for (const key of keys) {
+    const i = key.lastIndexOf('|'), v = key.slice(0, i), xs = +key.slice(i + 1);
+    const segs = [];
+    for (const seg of S.pts3) {
+      let cur = [];
+      for (const q of seg) {
+        if (q.views.includes(key)) cur.push(paintFromWorld(v, q.p));
+        else if (cur.length) { segs.push(cur); cur = []; }
+      }
+      if (cur.length) segs.push(cur);
+    }
+    if (!segs.length) continue;
+    const res = brushResult({ ...S, pts3: null, view: v, xs: xs || S.xs, segs }, maxCells, regs);
+    if (!res || !res.remove.length) continue;
+    regs = regs.filter(x => !res.remove.includes(x)).concat(res.add);
+  }
+  return { remove: orig.filter(x => !regs.includes(x)), add: regs.filter(x => !orig.includes(x)) };
+}
+function brushResult(S, maxCells, regsIn = null) {
+  if (S.pts3) return brushResult3d(S, maxCells);
+  const r = S.r, segs = S.segs.filter(s => s.length), view = S.view;
+  if (!segs.length) return null;
+  // A camera view's mirror is another camera view, whose [u, v] are this one's with u negated.
+  const isDir = paintIsDir(view), mview = isDir ? paintBasis(view).mirror : null;
+  const flipP = p => view === 'side' ? p : isDir || view === 'front' || view === 'rear' ? [-p[0], p[1]] : [p[0], -p[1]];
+  const bbox = pts => pts.reduce((b, p) => [Math.min(b[0], p[0]), Math.min(b[1], p[1]), Math.max(b[2], p[0]), Math.max(b[3], p[1])], [Infinity, Infinity, -Infinity, -Infinity]);
+  const grow = (b, d) => [b[0] - d, b[1] - d, b[2] + d, b[3] + d];
+  const meets = (a, b) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+  const lc = c => String(c || '').toLowerCase(), mir = x => x.mirror !== false;
+  const SB = grow(bbox(segs.flat()), r), SBf = grow(bbox(segs.flat().map(flipP)), r);
+  const flipErase = x => S.erase && mir(x) && view !== 'side' && (!isDir || x.view === mview);
+  const direct = x => x.view === view;
+  const cands = (regsIn || paintRegions()).filter(x => {
+    if (x.view !== view && !(isDir && S.erase && mir(x) && x.view === mview)) return false;
+    if (view === 'side' && !mir(x) && (x.x_side || 1) !== S.xs) return false;   // the other side
+    if (!S.erase && (lc(x.color) !== lc(S.color) || mir(x) !== S.mirror)) return false;
+    const b = bbox(x.pts);
+    return (direct(x) && meets(b, SB)) || (flipErase(x) && meets(b, SBf));
+  });
+  let B = SB.slice();
+  const add = b => { B = [Math.min(B[0], b[0]), Math.min(B[1], b[1]), Math.max(B[2], b[2]), Math.max(B[3], b[3])]; };
+  if (cands.some(flipErase)) add(SBf);
+  for (const x of cands) add(bbox(x.pts));
+  const span = Math.max(B[2] - B[0], B[3] - B[1]);
+  const h = Math.max(Math.min(r / 6, 0.02), span / maxCells, 0.003), pad = 2;
+  const W = Math.ceil((B[2] - B[0]) / h) + 2 * pad + 1, H = Math.ceil((B[3] - B[1]) / h) + 2 * pad + 1;
+  const canvas = () => {
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.setTransform(1 / h, 0, 0, 1 / h, pad - B[0] / h, pad - B[1] / h);
+    ctx.fillStyle = ctx.strokeStyle = '#000';
+    return ctx;
+  };
+  const drawStroke = (ctx, flip) => {
+    ctx.lineWidth = 2 * r; ctx.lineCap = ctx.lineJoin = 'round';
+    for (const s of segs) {
+      const P = flip ? s.map(flipP) : s;
+      ctx.beginPath();
+      if (P.length === 1) { ctx.arc(P[0][0], P[0][1], r, 0, TWO_PI); ctx.fill(); continue; }
+      P.forEach((p, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, p[0], p[1]));
+      ctx.stroke();
+    }
+  };
+  const fillPoly = (ctx, pts) => { ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, p[0], p[1])); ctx.closePath(); ctx.fill('evenodd'); };
+  const alpha = ctx => { const d = ctx.getImageData(0, 0, W, H).data, A = new Float32Array(W * H); for (let k = 0; k < A.length; k++) A[k] = d[4 * k + 3] / 255; return A; };
+  const tol = Math.max(h * 0.5, Math.min(0.02, r * 0.08)), minArea = Math.max(4 * h * h, 0.0004);
+  const trace = A => brushPolys(brushLoops(A, W, H).map(L => brushSimplifyLoop(L.map(([x, y]) => [B[0] + (x + 0.5 - pad) * h, B[1] + (y + 0.5 - pad) * h]), tol)), minArea)
+    .map(P => P.map(([u, v]) => [paintRound(u), paintRound(v)])).filter(P => P.length >= 3);
+  const out = { remove: [], add: [] };
+  if (!S.erase) {
+    const As = alpha((() => { const c = canvas(); drawStroke(c, false); return c; })());
+    for (const x of cands) {
+      const k = canvas(); fillPoly(k, x.pts);
+      const Ak = alpha(k);
+      let hit = false;
+      for (let i = 0; i < As.length && !hit; i++) hit = As[i] >= 0.5 && Ak[i] >= 0.5;
+      if (!hit) continue;
+      out.remove.push(x);
+      for (let i = 0; i < As.length; i++) if (Ak[i] > As[i]) As[i] = Ak[i];
+    }
+    const side = view === 'side' && !S.mirror ? { x_side: S.xs || -1 } : {};
+    for (const pts of trace(As)) out.add.push({ view, color: S.color, mirror: S.mirror, pts, ...side });
+  } else {
+    for (const x of cands) {
+      const k = canvas(); fillPoly(k, x.pts);
+      const before = alpha(k);
+      k.globalCompositeOperation = 'destination-out';
+      if (direct(x)) drawStroke(k, false);
+      if (flipErase(x)) drawStroke(k, true);
+      const A = alpha(k);
+      let hit = false;
+      for (let i = 0; i < A.length && !hit; i++) hit = before[i] >= 0.5 && A[i] < 0.5;
+      if (!hit) continue;
+      out.remove.push(x);
+      for (const pts of trace(A)) out.add.push({ view: x.view, color: x.color, mirror: mir(x), pts, ...(x.x_side ? { x_side: x.x_side } : {}) });
+    }
+  }
+  return out;
+}
+function brushPreview() {
+  if (PB.raf) return;
+  PB.raf = requestAnimationFrame(() => {
+    PB.raf = 0;
+    const S = PB.stroke;
+    if (!S) return;
+    const res = brushResult(S, 320);
+    PB.hide = new Set(((res && res.remove) || []).map(x => x.id));
+    PB.live = (res && res.add) || [];
+    paintDraw();
+  });
+}
+// Saves a stroke's result (one doc per shape, as outlines are saved) and keeps what it replaced for undo.
+function brushCommit(res) {
+  if (!res || (!res.remove.length && !res.add.length)) return false;
+  const col = skinCol(PT.skin), u = { entry: PT.entry && PT.entry.id, col, prev: {} };
+  const keep = id => { if (!(id in u.prev)) u.prev[id] = PT.docs[id] ? JSON.parse(JSON.stringify(PT.docs[id])) : null; };
+  const now = Date.now();
+  for (const x of res.remove) {
+    keep(x.id);
+    if (paintIsBuilt(x.id)) PT.docs[x.id] = { removed: true, t: new Date(now).toISOString() };
+    else delete PT.docs[x.id];
+  }
+  res.add.forEach((s, i) => {
+    const id = 'p-' + now.toString(36) + i.toString(36) + Math.random().toString(36).slice(2, 5);
+    keep(id);
+    PT.docs[id] = { ...s, t: new Date(now + i).toISOString() };
+  });
+  PB.undo.push(u);
+  if (PB.undo.length > 50) PB.undo.shift();
+  $('brushUndo').disabled = false;
+  PT.sel = null;
+  paintUi(); paintDraw();
+  for (const id of Object.keys(u.prev)) paintWrite(col, id);
+  return true;
+}
+function brushUndo() {
+  const u = PB.undo.pop();
+  $('brushUndo').disabled = !PB.undo.length;
+  if (!u || !PT.entry || u.entry !== PT.entry.id) return;
+  const store = PT.allDocs[u.col] || (PT.allDocs[u.col] = {});
+  for (const [id, d] of Object.entries(u.prev)) { if (d) store[id] = d; else delete store[id]; paintWrite(u.col, id); }
+  PT.sel = null;
+  paintUi(); paintDraw();
+}
+// The brush's circle under the pointer, in the drawing view it paints in.
+function brushCursor(pk) {
+  if (PB.cursor) { PB.cursor.removeFromParent(); PB.cursor.geometry.dispose(); PB.cursor.material.dispose(); PB.cursor = null; }
+  PB.lastPk = pk;
+  if (!pk || !pk.p || !PT.on || PB.tool === 'outline' || !current) return;
+  const r = brushR(), view = pk.view, p = pk.p;
+  const depth = paintIsDir(view) ? p.clone().sub(new THREE.Vector3(...PT.shift)).dot(paintBasis(view).d)
+    : paintFree() ? (view === 'side' ? p.x : view === 'front' || view === 'rear' ? p.z : p.y) : paintPlane(view);
+  const pts = [];
+  for (let k = 0; k < 48; k++) {
+    const a = k / 48 * TWO_PI;
+    pts.push(view === 'side' ? new THREE.Vector3(depth, pk.uv[1] + r * Math.sin(a) + PT.shift[1], pk.uv[0] + r * Math.cos(a) + PT.shift[2])
+                             : paintToWorld(view, pk.uv[0] + r * Math.cos(a), pk.uv[1] + r * Math.sin(a), depth));
+  }
+  const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
+                                  new THREE.LineBasicMaterial({ color: PB.tool === 'erase' ? 0xd0342c : 0xff8a00, depthTest: false, transparent: true }));
+  line.renderOrder = 21; line.raycast = () => {}; line.userData.reference = true;
+  scene.add(line);
+  PB.cursor = line;
+}
+function brushSetSize(d) {
+  d = Math.min(Math.max(Number.isFinite(d) ? d : 0.6, 0.02), 10);
+  $('brushSize').value = d; $('brushSizeNum').value = d.toFixed(2);
+  try { localStorage.setItem('hangar.brushSize', String(d)); } catch (e) {}
+  brushCursor(PB.lastPk);
+}
+function brushTool(t) {
+  PB.tool = t;
+  document.querySelectorAll('[data-ptool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.ptool === t));
+  $('brushRow').hidden = t === 'outline';
+  PT.draft = null;
+  brushCursor(null);
+  if (t !== 'outline' && !PT.on) paintSetOn(true);
+  else { if (PT.on) stage.querySelector('.hint').textContent = paintHint(); paintUi(); paintDraw(); }
+}
+document.querySelectorAll('[data-ptool]').forEach(b => b.addEventListener('click', () => brushTool(b.dataset.ptool)));
+$('brushSize').addEventListener('input', e => brushSetSize(parseFloat(e.target.value)));
+$('brushSizeNum').addEventListener('change', e => brushSetSize(parseFloat(e.target.value)));
+$('brushUndo').addEventListener('click', brushUndo);
+try { const d = parseFloat(localStorage.getItem('hangar.brushSize')); if (d > 0) brushSetSize(d); } catch (e) {}
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!PT.on || PB.tool === 'outline') { if (PB.cursor) brushCursor(null); return; }
+  const S = PB.stroke;
+  const pk = paintPick(e, S ? S.view : null);
+  brushCursor(pk);
+  if (!S || !(e.buttons & 1)) return;
+  const segs = S.segs;
+  if (!pk) {   // off the model: the stroke breaks
+    if (segs[segs.length - 1].length) segs.push([]);
+    if (S.pts3 && S.pts3[S.pts3.length - 1].length) S.pts3.push([]);
+    return;
+  }
+  const r = renderer.domElement.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  if (Math.hypot(mx - S.x, my - S.y) < 3) return;
+  S.x = mx; S.y = my;
+  segs[segs.length - 1].push(pk.uv);
+  if (S.pts3) brushErasePoint(S, pk);
+  brushPreview();
+});
+renderer.domElement.addEventListener('pointerleave', () => { if (!PB.stroke) brushCursor(null); });
+const brushEnd = () => {
+  const S = PB.stroke;
+  if (!S) return;
+  PB.stroke = null;
+  if (PB.raf) { cancelAnimationFrame(PB.raf); PB.raf = 0; }
+  PB.live = []; PB.hide = new Set();
+  if (!brushCommit(brushResult(S, 1500))) { paintUi(); paintDraw(); }
+};
+renderer.domElement.addEventListener('pointerup', brushEnd);
+renderer.domElement.addEventListener('pointercancel', brushEnd);
 // The shapes and base colour of any skin (the same merge as paint_tool.py from-hangar).
 function skinScheme(sid) {
   const built = skinsBuilt(PT.file).find(s => s.id === sid) || null;
