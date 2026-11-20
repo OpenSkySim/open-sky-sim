@@ -5005,6 +5005,122 @@
    ]
   },
   {
+   "name": "PanelSideFront",
+   "type": "quad",
+   "join": "separate",
+   "mirror": true,
+   "material": "#101113",
+   "points": [
+    [
+     0.27,
+     1.42,
+     3.52
+    ],
+    [
+     0.99,
+     1.42,
+     3.52
+    ],
+    [
+     0.99,
+     1.17,
+     3.52
+    ],
+    [
+     0.27,
+     1.17,
+     3.52
+    ]
+   ]
+  },
+  {
+   "name": "PanelSideEnd",
+   "type": "quad",
+   "join": "separate",
+   "mirror": true,
+   "material": "#101113",
+   "points": [
+    [
+     0.99,
+     1.42,
+     3.52
+    ],
+    [
+     1.04,
+     1.42,
+     3.38
+    ],
+    [
+     1.04,
+     1.05,
+     3.38
+    ],
+    [
+     0.99,
+     1.05,
+     3.52
+    ]
+   ]
+  },
+  {
+   "name": "PanelSideUnder",
+   "type": "quad",
+   "join": "separate",
+   "mirror": true,
+   "material": "#101113",
+   "points": [
+    [
+     0.27,
+     1.17,
+     3.52
+    ],
+    [
+     0.99,
+     1.17,
+     3.52
+    ],
+    [
+     1.04,
+     1.17,
+     3.38
+    ],
+    [
+     0.27,
+     1.17,
+     3.38
+    ]
+   ]
+  },
+  {
+   "name": "PanelCentreFront",
+   "type": "quad",
+   "join": "separate",
+   "mirror": false,
+   "material": "#101113",
+   "points": [
+    [
+     -0.27,
+     1.5,
+     3.52
+    ],
+    [
+     0.27,
+     1.5,
+     3.52
+    ],
+    [
+     0.27,
+     1.35,
+     3.52
+    ],
+    [
+     -0.27,
+     1.35,
+     3.52
+    ]
+   ]
+  },
+  {
    "name": "PanelCentre",
    "type": "quad",
    "join": "separate",

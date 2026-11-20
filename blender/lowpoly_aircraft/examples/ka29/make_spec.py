@@ -44,7 +44,7 @@ def z_(d):
 SEAT_X = 0.62
 COCKPIT_DY = 0.05    # owner: cockpit 30 cm up, 15 cm back down, then 10 cm more
 PANEL_UP = ()   # (centre console 20 cm higher: now built in at y 1.0)
-COCKPIT_PARTS = ('PanelSide', 'PanelSideTop', 'PanelCentre', 'PanelCentreTop', 'PanelCentreSide', 'Coaming', 'CoamingRear',
+COCKPIT_PARTS = ('PanelSide', 'PanelSideTop', 'PanelSideFront', 'PanelSideEnd', 'PanelSideUnder', 'PanelCentreFront', 'PanelCentre', 'PanelCentreTop', 'PanelCentreSide', 'Coaming', 'CoamingRear',
                  'CoamingCheek', 'Pedestal', 'PedestalSide', 'SideConsoleTop', 'Cyclic', 'Seat', 'SeatSide', 'SeatBack',
                  'SeatBackSide', 'SeatBeltIn', 'SeatBeltOut')
 BULK_D = 1.78          # bulkhead right behind the seat backs (second photo)
@@ -455,6 +455,12 @@ def main():
         # Front panel (d 0.70-0.84): turquoise faces towards the pilots, black flat top.
         Q('PanelSide', TURQ, (0, 0, -1), True, P(0.27, 1.12, 0.84), P(1.04, 1.12, 0.84), P(1.04, 1.37, 0.84), P(0.27, 1.37, 0.84)),
         Q('PanelSideTop', PANEL_BACK, (0, 1, 0), True, P(0.27, 1.37, 0.70), P(0.99, 1.37, 0.70), P(1.04, 1.37, 0.84), P(0.27, 1.37, 0.84)),
+        # Owner (2026-11-20): panel closed on every side seen from outside: black front (towards the
+        # nose), outer end and underside of the side blocks, and the centre block's front above the deck.
+        Q('PanelSideFront', PANEL_BACK, (0, 0, 1), True, P(0.27, 1.12, 0.70), P(0.99, 1.12, 0.70), P(0.99, 1.37, 0.70), P(0.27, 1.37, 0.70)),
+        Q('PanelSideEnd', PANEL_BACK, (1, 0, 0), True, P(0.99, 1.0, 0.70), P(1.04, 1.0, 0.84), P(1.04, 1.37, 0.84), P(0.99, 1.37, 0.70)),
+        Q('PanelSideUnder', PANEL_BACK, (0, -1, 0), True, P(0.27, 1.12, 0.70), P(0.99, 1.12, 0.70), P(1.04, 1.12, 0.84), P(0.27, 1.12, 0.84)),
+        Q('PanelCentreFront', PANEL_BACK, (0, 0, 1), False, P(-0.27, 1.30, 0.70), P(0.27, 1.30, 0.70), P(0.27, 1.45, 0.70), P(-0.27, 1.45, 0.70)),
         Q('PanelCentre', TURQ, (0, 0, -1), False, P(-0.27, 0.62, 0.84), P(0.27, 0.62, 0.84), P(0.27, 1.45, 0.84), P(-0.27, 1.45, 0.84)),
         Q('PanelCentreTop', PANEL_BACK, (0, 1, 0), False, P(-0.27, 1.45, 0.70), P(0.27, 1.45, 0.70), P(0.27, 1.45, 0.84), P(-0.27, 1.45, 0.84)),
         Q('PanelCentreSide', PANEL_BACK, (1, 0, 0), True, P(0.27, 0.62, 0.70), P(0.27, 0.62, 0.84), P(0.27, 1.45, 0.84), P(0.27, 1.45, 0.70)),
