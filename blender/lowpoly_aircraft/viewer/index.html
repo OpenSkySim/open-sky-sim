@@ -470,7 +470,7 @@ function materialFor(name) {
 
 function restyle(obj) {
   obj.traverse(o => {
-    if (!o.isMesh) return;
+    if (!o.isMesh || o.userData.inside) return;
     if (meshOnly) {
       // Faces drawn in the stage colour, pushed back a little, so they hide the lines behind them.
       o.material = new THREE.MeshBasicMaterial({ color: scene.background, side: THREE.DoubleSide,
@@ -483,9 +483,14 @@ function restyle(obj) {
     }
     o.userData.mat = o.material?.name || '';   // as built (the Paint card's Base recolours the base skin)
     o.material = materialFor(o.material?.name || '');
-    // The hull is drawn from both sides, as the game does for painted (#rrggbb) hulls: seen through
-    // the glazing its inside is the hull's own back faces (no separate lining).
-    if (/^0_Body|_CabinDoor/.test(o.name || (o.parent && o.parent.name) || '')) o.material.side = THREE.DoubleSide;
+    // The hull has no inner skin: as in the game, its inside (seen through the glazing) is the same
+    // faces drawn from behind in a dark interior colour.
+    if (/^0_Body|_CabinDoor/.test(o.name || (o.parent && o.parent.name) || '') && !o.children.some(c => c.userData.inside)) {
+      const inside = new THREE.Mesh(o.geometry, new THREE.MeshBasicMaterial({ color: 0x262626, side: THREE.BackSide }));
+      inside.name = 'HullInside';
+      inside.userData.inside = true;
+      o.add(inside);
+    }
     if (wire) {
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 20), new THREE.LineBasicMaterial({ color: 0x1b232c, transparent: true, opacity: 0.5 }));
       edges.userData.edge = true;
