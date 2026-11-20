@@ -230,7 +230,7 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
     base_mat = cfg.get('material', 'VEHICLE_PLANE_GREY')
     base = cfg.get('base', '#aeb2b4')
     for obj in list(others) + [hull]:
-        mats = [m.name for m in obj.data.materials]
+        mats = [m.name if m is not None else None for m in obj.data.materials]
         if base_mat in mats:
             obj.data.materials[mats.index(base_mat)] = geo.get_material(base)
     me = hull.data
@@ -246,6 +246,8 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
     bm = bmesh.new()
     bm.from_mesh(me)
     mw = hull.matrix_world
+    mwi = mw.inverted()
+    mwi_n = mw.to_3x3().inverted().transposed()
     xax = geo.to_bl((1, 0, 0)) - geo.to_bl((0, 0, 0))
     yax = geo.to_bl((0, 1, 0)) - geo.to_bl((0, 0, 0))
     painted = 0
@@ -301,7 +303,9 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
                 if nrm.length < 1e-9:
                     continue
                 geom = list(cand) + list({ed for f in cand for ed in f.edges}) + list({v for f in cand for v in f.verts})
-                bmesh.ops.bisect_plane(bm, geom=geom, plane_co=p0, plane_no=nrm.normalized(), dist=1e-4)
+                # The mesh is cut in its own frame (a surface or door sits at its hinge, not the origin).
+                bmesh.ops.bisect_plane(bm, geom=geom, plane_co=mwi @ p0,
+                                       plane_no=(mwi_n @ nrm).normalized(), dist=1e-4)
             for f in faces_here():
                 c = f.calc_center_median()
                 if _inside(_uv(geo.from_bl(mw @ c), view), pts):

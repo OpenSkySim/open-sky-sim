@@ -2501,7 +2501,8 @@
     0.76,
     1.6
    ],
-   "material": "#7b828a",
+   "material": "VEHICLE_PLANE_GREY",
+   "outline": "#4a5057",
    "polygon_m": [
     [
      7.834,
@@ -2618,7 +2619,8 @@
     0.76,
     1.6
    ],
-   "material": "#7b828a",
+   "material": "VEHICLE_PLANE_GREY",
+   "outline": "#4a5057",
    "polygon_m": [
     [
      -1.816,
@@ -2844,7 +2846,8 @@
     0.3,
     1.6
    ],
-   "material": "#7b828a",
+   "material": "VEHICLE_PLANE_GREY",
+   "outline": "#4a5057",
    "polygon_m": [
     [
      -0.4,

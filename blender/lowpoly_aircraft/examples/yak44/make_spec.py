@@ -64,7 +64,8 @@ def fus_rows(rows, n_of=lambda d: 2.8, n_top_of=lambda d: 2.8):
 
 
 
-DOOR = '#7b828a'      # door and hatch panels: a shade darker than the skin so their outlines read
+DOOR = 'VEHICLE_PLANE_GREY'   # door and hatch panels take the skin's paint (owner, 2026-11-20) ...
+DOOR_LINE = '#4a5057'         # ... and show as a thin dark line round their edge
 # Propfan colours from the owner's photo of the real contra-rotating propfan (D-27 type):
 # blue blades, yellow tips, brown leading-edge strips, white spinner and hub.
 BLADE_BLUE = '#2f6db3'
@@ -137,10 +138,10 @@ def windows_and_doors():
          'polygon_m': side_m([(2.12, -0.2), (2.27, 0.37), (2.98, 0.37), (3.03, 0.3), (3.03, -0.15), (2.98, -0.2)]),
          'clip': {'view': 'top', 'polygons_m': [glazing_top]}},
         {'name': 'DoorPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(3.97, -0.02, 0.15))},
-        {'name': 'CrewDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,
+        {'name': 'CrewDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR, 'outline': DOOR_LINE,
          'polygon_m': side_m(rounded_rect(3.55, 4.4, -1.35, 0.4))},
         {'name': 'RearPorthole', 'view': 'side', 'depth_m': side_skin, 'polygon_m': side_m(circle(13.61, -0.05, 0.15))},
-        {'name': 'RearDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR,
+        {'name': 'RearDoor', 'view': 'side', 'depth_m': side_skin, 'material': DOOR, 'outline': DOOR_LINE,
          'polygon_m': side_m(rounded_rect(13.17, 14.05, -1.35, 0.36))},
         # Black radome cap on the nose tip and a dark band under the windscreen (reference renders).
         {'name': 'NoseCap', 'view': 'side', 'material': '#1d2024',
@@ -151,7 +152,7 @@ def windows_and_doors():
         {'name': 'BellyPorts', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
          'polygons_m': [side_m(circle(8.38, -1.21, 0.09, 6)), side_m(circle(8.75, -1.2, 0.15)),
                         side_m(circle(9.16, -1.2, 0.15))]},
-        {'name': 'RoofHatch', 'view': 'top', 'depth_m': [0.3, 1.6], 'material': DOOR,
+        {'name': 'RoofHatch', 'view': 'top', 'depth_m': [0.3, 1.6], 'material': DOOR, 'outline': DOOR_LINE,
          'polygon_m': top_m([(-0.4, 2.62), (0.4, 2.62), (0.4, 3.2), (-0.4, 3.2)])},
     ]
 

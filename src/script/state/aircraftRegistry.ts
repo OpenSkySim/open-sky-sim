@@ -242,7 +242,13 @@ interface AircraftManifest {
      * Skins of a lowpoly-builder pack: the first is the pack's own body, every
      * other one names a body model of its own (same airframe, other paint).
      */
-    liveries?: { id: string; name: string; body?: string }[] | null;
+    liveries?: {
+        id: string; name: string; body?: string;
+        /** Surface models painted in this livery, by role (the pack's own ones otherwise). */
+        surfaces?: Record<string, string>;
+        /** Gear model painted in this livery (its gear doors). */
+        gear?: string;
+    }[] | null;
 }
 
 /** Spawn-menu id of a pack's extra livery (the first livery keeps the pack id). */
@@ -275,6 +281,9 @@ export function expandLiveries(id: string, manifest: AircraftManifest): { id: st
                 name: `${base} (${livery.name})`,
                 sourceMaterial: livery.name,
                 body: i === 0 ? manifest.body : livery.body!,
+                surfaces: i === 0 || !livery.surfaces ? manifest.surfaces
+                    : manifest.surfaces.map(s => (livery.surfaces![s.role] ? { ...s, path: livery.surfaces![s.role] } : s)),
+                gear: i > 0 && livery.gear ? livery.gear : manifest.gear,
             },
         }));
 }

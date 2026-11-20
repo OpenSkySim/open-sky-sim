@@ -647,7 +647,7 @@ async function showModel(entry, keep = null) {
     g.scene.position.fromArray(seat);
     root.add(g.scene);
   }
-  current = { root, surfaces, mixers, actions, duration, size, center: box.getCenter(new THREE.Vector3()), manifest, hook,
+  current = { root, surfaces, mixers, actions, duration, size, center: box.getCenter(new THREE.Vector3()), manifest, hook, gearScene,
               nose: noseTip(body.scene), groundY: ground.position.y + 0.02, box, photo };
   drawLandmark3d();
   if (R.mode === 'photo' && R.sel) { renderPhoto(); drawMarks(); }
@@ -2998,11 +2998,38 @@ function paintFromWorld(view, p) {
 const paintFree = () => !!current && !paintView();
 // The hull takes paint (the build cuts the outlines into the body mesh, 0_Body), and so do
 // panels the spec lists in "paint_parts" (the Ka-29's sliding cabin door).
+// Every part in the skin's base colour takes the shapes, as in the build: the hull, doors and
+// hatches, the wings' moving parts and folding panels, gear doors, the hook. Propellers and
+// rotors ('spin') keep their own colours. part: the moving parts (always the default skin's files).
 function paintObjs() {
   if (!current) return [];
-  const out = [];
-  current.root.children[0].traverse(o => { if (o.isMesh && !o.userData.edge && !o.userData.inside && /^0_Body|_CabinDoor/.test(o.name || (o.parent && o.parent.name) || '')) out.push(o); });
+  const from = paintFromSet(), fromS = paintFromSet(true), out = [];
+  const add = (node, set, part) => node && node.traverse(o => {
+    if (o.isMesh && !o.userData.edge && !o.userData.inside && !o.userData.reference && o.geometry
+        && set.has((o.userData.mat || '').toLowerCase())) { o.userData.paintPart = part; out.push(o); }
+  });
+  add(current.root.children[0], from, false);
+  for (const s of current.surfaces) if (s.cfg.control !== 'spin') add(s.node, fromS, true);
+  add(current.gearScene, fromS, true);
+  add(current.hook && current.hook.node, fromS, true);
   return out;
+}
+// Where each part sits at rest (surfaces centred, gear up with its doors shut, hook stowed): the
+// build paints it there, so a moving part keeps its paint. Matrices relative to the model root.
+function paintRestPose(objs) {
+  const c = current, saved = c.surfaces.map(s => [s.node.position.clone(), s.node.quaternion.clone()]);
+  const hookQ = c.hook && c.hook.node.quaternion.clone(), times = c.actions.map(a => a.time);
+  for (const s of c.surfaces) { s.node.position.copy(s.pivot); s.node.quaternion.identity(); }
+  if (c.hook) c.hook.node.quaternion.copy(c.hook.qUp);
+  c.actions.forEach((a, i) => { a.time = 0; c.mixers[i].update(0); });
+  c.root.updateMatrixWorld(true);
+  const inv = c.root.matrixWorld.clone().invert();
+  const rest = objs.map(o => inv.clone().multiply(o.matrixWorld));
+  c.surfaces.forEach((s, i) => { s.node.position.copy(saved[i][0]); s.node.quaternion.copy(saved[i][1]); });
+  if (c.hook) c.hook.node.quaternion.copy(hookQ);
+  c.actions.forEach((a, i) => { a.time = times[i]; c.mixers[i].update(0); });
+  c.root.updateMatrixWorld(true);
+  return rest;
 }
 function paintRay(e) {
   const r = renderer.domElement.getBoundingClientRect(), ray = new THREE.Raycaster();
@@ -3145,10 +3172,11 @@ function paintDraw() {
 // The base colour the model was built with (its skin's material name), and the one chosen now.
 // A skin built into the pack has its own body model (its shapes already cut in); a skin added
 // here is shown on the default skin's body, whose base and shape colours then take its base.
-function paintFromSet() {
+// part: for the moving parts, which the Hangar always shows from the default skin's files.
+function paintFromSet(part = false) {
   const lc = c => String(c || '#aeb2b4').toLowerCase();
   const all = skinsBuilt(PT.file), def = all[0];
-  const own = all.find(s => s.id === PT.skin && PT.bodyFile && PT.bodyFile === skinBodyFile(s.id));
+  const own = !part && all.find(s => s.id === PT.skin && PT.bodyFile && PT.bodyFile === skinBodyFile(s.id));
   if (own) return new Set([lc(own.base)]);
   const set = new Set([lc(def && def.base)]);
   // Built without a paint scheme (no paint.json base, e.g. the Yak-44E): the hull keeps the
@@ -3159,10 +3187,8 @@ function paintFromSet() {
 }
 function paintBaseApply() {
   if (!current || meshOnly) return;
-  const from = paintFromSet(), to = paintBase();
-  current.root.children[0].traverse(o => {
-    if (o.isMesh && from.has((o.userData.mat || '').toLowerCase()) && o.material && o.material.isMeshStandardMaterial) o.material.color.set(to);
-  });
+  const to = paintBase();
+  for (const o of paintObjs()) if (o.material && o.material.isMeshStandardMaterial) o.material.color.set(to);
 }
 function paintOverlayClear() {
   const O = PT.ov;
@@ -3174,13 +3200,13 @@ function paintOverlayClear() {
 const PAINT_OV_KEYS = ['side+', 'side-', 'top', 'bottom', 'front', 'rear'];
 function paintOverlay() {
   // Only the base skin takes shapes, as in the build (glass, markings and dark parts keep theirs).
-  const from = paintFromSet();
-  const regs = paintShown(), objs = paintObjs().filter(o => from.has((o.userData.mat || '').toLowerCase()) && o.geometry && o.geometry.attributes.normal);
+  const regs = paintShown(), objs = paintObjs().filter(o => o.geometry.attributes.normal);
   if (!regs.length || !objs.length) { paintOverlayClear(); return; }
   const box = new THREE.Box3();
   for (const o of objs) box.expandByObject(o);
   const s = PT.shift, N = 2048;
-  const R = Math.max(...box.min.toArray().map(Math.abs), ...box.max.toArray().map(Math.abs)) + Math.max(...s.map(Math.abs)) + 1;
+  // Whole metres: a part moving a little does not resize (and redraw) the textures.
+  const R = Math.ceil(Math.max(...box.min.toArray().map(Math.abs), ...box.max.toArray().map(Math.abs)) + Math.max(...s.map(Math.abs))) + 1;
   // The canvases, textures and overlay meshes stay while the model (and its frame) stays.
   const objKey = objs.map(o => o.uuid).join() + '|' + R.toFixed(3) + '|' + s.join();
   if (PT.ov && PT.ov.objKey !== objKey) paintOverlayClear();
@@ -3197,14 +3223,15 @@ function paintOverlay() {
     const uniforms = { tSP: { value: tex['side+'] }, tSN: { value: tex['side-'] }, tTop: { value: tex.top }, tBot: { value: tex.bottom },
                        tFr: { value: tex.front }, tRe: { value: tex.rear },
                        uS: { value: new THREE.Vector3(...s) }, uR: { value: R } };
-    const makeMat = () => {
+    const makeMat = uRest => {
       const mat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1, depthWrite: false,
                                                    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       mat.customProgramCacheKey = () => 'paintOverlay';
       mat.onBeforeCompile = sh => {
-        Object.assign(sh.uniforms, uniforms);
-        sh.vertexShader = 'varying vec3 vPW; varying vec3 vPN;\n' + sh.vertexShader.replace('#include <begin_vertex>',
-          '#include <begin_vertex>\n  vPW = (modelMatrix * vec4(transformed, 1.0)).xyz; vPN = mat3(modelMatrix) * objectNormal;');
+        Object.assign(sh.uniforms, uniforms, { uRest });
+        // The shapes are looked up where the face is at rest (a deflected surface keeps its paint).
+        sh.vertexShader = 'uniform mat4 uRest; varying vec3 vPW; varying vec3 vPN;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+          '#include <begin_vertex>\n  vPW = (uRest * vec4(transformed, 1.0)).xyz; vPN = mat3(uRest) * objectNormal;');
         sh.fragmentShader = `uniform sampler2D tSP, tSN, tTop, tBot, tFr, tRe; uniform vec3 uS; uniform float uR;
           varying vec3 vPW; varying vec3 vPN;
           vec4 paintAt(sampler2D t, vec2 uv) { vec2 c = uv / (2.0 * uR) + 0.5;
@@ -3226,8 +3253,11 @@ function paintOverlay() {
       };
       return mat;
     };
-    const meshes = objs.map(o => {
-      const ov = new THREE.Mesh(o.geometry, makeMat());
+    const rest = paintRestPose(objs), root = current.root;
+    const meshes = objs.map((o, i) => {
+      const uRest = { value: new THREE.Matrix4() };
+      const ov = new THREE.Mesh(o.geometry, makeMat(uRest));
+      ov.onBeforeRender = () => { uRest.value.multiplyMatrices(root.matrixWorld, rest[i]); };
       ov.name = 'paint_overlay'; ov.renderOrder = 18; ov.raycast = () => {};
       ov.userData.reference = true;
       o.add(ov);

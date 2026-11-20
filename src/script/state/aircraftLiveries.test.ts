@@ -29,6 +29,24 @@ describe('expandLiveries', () => {
         assert.ok(out.every(e => e.manifest.canonicalName === 'Ka-29 (Lowpoly)'));
     });
 
+    it('gives a livery its own painted surfaces and gear where it has them', () => {
+        const surf = { pivot: [0, 0, 0] as [number, number, number], axis: [1, 0, 0] as [number, number, number], control: 'yaw', sign: 1, rangeRad: 0.4 };
+        const out = expandLiveries('lp_ka29', {
+            ...manifest,
+            gear: 'lp_ka29_gear.glb',
+            surfaces: [{ ...surf, role: 'rudderLeft', path: 'lp_ka29_rudderLeft.glb' }, { ...surf, role: 'rotor', path: 'lp_ka29_rotor.glb' }],
+            liveries: [
+                { id: 'default', name: 'Blue' },
+                { id: 'red', name: 'Red', body: 'b.glb', gear: 'lp_ka29_skin_red_gear.glb',
+                  surfaces: { rudderLeft: 'lp_ka29_skin_red_rudderLeft.glb' } },
+            ],
+        });
+        assert.deepEqual(out[0].manifest.surfaces.map(s => s.path), ['lp_ka29_rudderLeft.glb', 'lp_ka29_rotor.glb']);
+        assert.deepEqual(out[1].manifest.surfaces.map(s => s.path), ['lp_ka29_skin_red_rudderLeft.glb', 'lp_ka29_rotor.glb']);
+        assert.equal(out[0].manifest.gear, 'lp_ka29_gear.glb');
+        assert.equal(out[1].manifest.gear, 'lp_ka29_skin_red_gear.glb');
+    });
+
     it('groups the liveries under one aircraft in the spawn menu', () => {
         const defs = expandLiveries('lp_ka29', {
             ...manifest,
