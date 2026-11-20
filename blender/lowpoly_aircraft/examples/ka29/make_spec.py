@@ -133,7 +133,7 @@ def circle_px(x, y, r, n=10):
 
 DARK = 'VEHICLE_PLANE_ENGINE'
 EXHAUST_BLACK = '#0a0b0c'   # owner: exhaust pipes dark black
-DOOR = '#7b828a'
+DOOR = 'VEHICLE_PLANE_GREY'   # owner: the door takes the paint like the skin around it (outline still cut)
 
 
 def fuselage():
@@ -561,6 +561,7 @@ def main():
         # А-Г must keep their shape; the old 25/70 deg zones flattened the roof's centre strip).
         # Owner (2026-11-20): the lower nose and cockpit sides keep the loft's even quads ('rects')
         # instead of merged n-gons cut into long triangles.
+        'paint_parts': ['CabinDoor'],   # owner: the door takes the camo like the skin around it
         'planar_keep': [{'min': [-1.4, -5, z_(2.0)], 'max': [1.4, 1.3, z_(-0.1)]},
                         {'min': [-0.62, 0.85, z_(11.3)], 'max': [0.62, 2.15, z_(7.95)]}],   # tail boom: keep its quads (owner)
         'planar_zones': [{'min': [0.3, 1.0, z_(0.5)], 'max': [1.2, 1.26, z_(-0.05)], 'deg': 20, 'relax': 1},   # owner: smooth the nose's

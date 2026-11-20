@@ -2989,11 +2989,12 @@ function paintFromWorld(view, p) {
 // Free view: shapes are drawn on the model itself. A shape still belongs to one drawing view
 // (side, top or bottom, from where the first point was set) and is stored like one drawn there.
 const paintFree = () => !!current && !paintView();
-// Only the hull takes paint (the build cuts the outlines into the body mesh, 0_Body).
+// The hull takes paint (the build cuts the outlines into the body mesh, 0_Body), and so do
+// panels the spec lists in "paint_parts" (the Ka-29's sliding cabin door).
 function paintObjs() {
   if (!current) return [];
   const out = [];
-  current.root.children[0].traverse(o => { if (o.isMesh && !o.userData.edge && /^0_Body/.test(o.name || (o.parent && o.parent.name) || '')) out.push(o); });
+  current.root.children[0].traverse(o => { if (o.isMesh && !o.userData.edge && /^0_Body|_CabinDoor/.test(o.name || (o.parent && o.parent.name) || '')) out.push(o); });
   return out;
 }
 function paintRay(e) {

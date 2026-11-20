@@ -33,6 +33,9 @@
    "color": "#e3b923"
   }
  ],
+ "paint_parts": [
+  "CabinDoor"
+ ],
  "planar_keep": [
   {
    "min": [
@@ -6411,7 +6414,7 @@
     0.6,
     1.3
    ],
-   "material": "#7b828a",
+   "material": "VEHICLE_PLANE_GREY",
    "polygon_m": [
     [
      -2.728,

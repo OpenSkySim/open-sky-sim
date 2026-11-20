@@ -698,6 +698,10 @@ def _paint_hull(hull, skin: dict | None, spec: dict, others: list) -> None:
     if skin:
         # Real camo outlines cut into the skin (paint.json next to the spec, or spec "paint").
         paint.apply_pattern(hull, skin, others)
+        # Separate panels named in spec "paint_parts" (e.g. a cabin door) take the outlines too.
+        for obj in others:
+            if any(p in obj.name for p in spec.get('paint_parts', [])):
+                paint.apply_pattern(obj, skin)
     if spec.get('decals'):
         paint.add_decals(hull, spec['decals'], skins.text_override(skin or {}))
     if spec.get('camo'):
