@@ -34,17 +34,22 @@ catmull_rom = sections.catmull_rom   # kept here for older imports
 
 
 def loft(name: str, stations, segments: int = 24, resample: int = 0, material: str = 'VEHICLE_PLANE_GREY',
-         collection: str = 'Construction', refined=(), log: dict | None = None) -> bpy.types.Object:
+         collection: str = 'Construction', refined=(), log: dict | None = None,
+         coarse_z: float | None = None, coarse_step: int = 1) -> bpy.types.Object:
     """Closed tube through superellipse sections.
 
     stations: rows of (z, cx, cy, half_width, above, below, n[, n_top]), nose first. The optional n_top
     gives the upper half its own squareness (lower = sides leaning in more towards the top).
     A station with half_width or height ~0 closes the tube to a point. ``refined``: cross-sections
     drawn in the Hangar (see sections.py) that replace the ring at their station.
+    ``coarse_z``/``coarse_step``: rings aft of z (smaller z) keep only every coarse_step-th point, so a
+    thin tail boom gets fewer, larger quads; the first coarse ring joins the full one with a zigzag.
     """
     rings, ts, _ = sections.loft_rings(stations, segments, resample, refined, name)
     if log is not None:
         sections.log_loft(log['part'], log['instance'], log['mirrored'], rings, ts)
+    if coarse_z is not None and coarse_step > 1 and segments % coarse_step == 0:
+        rings = [(z, pts[::coarse_step] if (z < coarse_z and len(pts) > 1) else pts) for z, pts in rings]
     bm = bmesh.new()
     verts = []
     for z, pts in rings:
@@ -66,6 +71,17 @@ def _skin(bm, rings) -> None:
             m = len(r0)
             for k in range(m):
                 bm.faces.new((r0[k], r0[(k + 1) % m], r1[0]))
+        elif len(r0) != len(r1) and max(len(r0), len(r1)) % min(len(r0), len(r1)) == 0:
+            # Full ring to a coarse ring (every s-th point kept): a fan from each coarse point.
+            flip = len(r0) < len(r1)
+            full, coarse = (r1, r0) if flip else (r0, r1)
+            m, s = len(coarse), len(full) // len(coarse)
+            for k in range(m):
+                c0, c1 = coarse[k], coarse[(k + 1) % m]
+                f = [full[(k * s + i) % len(full)] for i in range(s + 1)]
+                faces = [(f[i], f[i + 1], c0) for i in range(s)] + [(f[s], c1, c0)]
+                for fc in faces:
+                    bm.faces.new(tuple(reversed(fc)) if flip else fc)
         else:
             m = len(r0)
             for k in range(m):
@@ -435,7 +451,8 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
             refined = [sections.mirror_section(s) for s in refined]
         side = '' if not spec_part.get('mirror') else ('Right' if mirrored else 'Left')
         return loft(name, rows, int(spec_part.get('segments', 24)), int(spec_part.get('resample', 0)), material,
-                    refined=refined, log={'part': spec_part, 'instance': name + side, 'mirrored': mirrored})
+                    refined=refined, log={'part': spec_part, 'instance': name + side, 'mirrored': mirrored},
+                    coarse_z=spec_part.get('coarse_z'), coarse_step=int(spec_part.get('coarse_step', 1)))
     if kind == 'panel':
         normal = spec_part.get('normal')
         if normal is not None and mirrored:

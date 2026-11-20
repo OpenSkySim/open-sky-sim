@@ -336,7 +336,8 @@ def main():
     nose_d = d_(436)
     main_knee = 0.17
     parts = [
-        {'name': 'Fuselage', 'type': 'loft', 'segments': body.SEGMENTS, 'stations': fuse_rows},
+        {'name': 'Fuselage', 'type': 'loft', 'segments': body.SEGMENTS, 'stations': fuse_rows,
+         'coarse_z': z_(8.0), 'coarse_step': 2},   # owner: tail boom in fewer, rectangular faces
         {'name': 'EngineDeck', 'type': 'loft', 'segments': 16, 'resample': 4, 'stations': loft_px(deck_front)},
         # Sensor fairing under the nose (side x 375..410).
         {'name': 'ChinPod', 'type': 'loft', 'segments': 10, 'stations': loft_px(
@@ -568,7 +569,8 @@ def main():
         # А-Г must keep their shape; the old 25/70 deg zones flattened the roof's centre strip).
         # Owner (2026-11-20): the lower nose and cockpit sides keep the loft's even quads ('rects')
         # instead of merged n-gons cut into long triangles.
-        'planar_keep': [{'min': [-1.4, -5, z_(2.0)], 'max': [1.4, 1.3, z_(-0.1)]}],
+        'planar_keep': [{'min': [-1.4, -5, z_(2.0)], 'max': [1.4, 1.3, z_(-0.1)]},
+                        {'min': [-0.62, 0.85, z_(11.3)], 'max': [0.62, 2.15, z_(7.95)]}],   # tail boom: keep its quads (owner)
         'planar_zones': [{'min': [0.3, 1.0, z_(0.5)], 'max': [1.2, 1.26, z_(-0.05)], 'deg': 20, 'relax': 1},   # owner: smooth the nose's
                          {'min': [-1.2, 1.0, z_(0.5)], 'max': [-0.3, 1.26, z_(-0.05)], 'deg': 20, 'relax': 1},  # upper corners (sill stays)
                          {'min': [-1.3, -1, z_(0.9)], 'max': [1.3, NOSE_ZONE_TOP, z_(body.NOSE_BASE - 0.005)], 'deg': 25},   # nose front: fewer triangles (owner)
