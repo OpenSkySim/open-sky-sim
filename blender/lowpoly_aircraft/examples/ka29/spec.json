@@ -5585,6 +5585,7 @@
    "see_through": true,
    "flat_panes": true,
    "flat_deg": 8,
+   "panes": 3,
    "depth_m": [
     -1.3,
     1.3
@@ -5674,6 +5675,7 @@
    "see_through": true,
    "flat_panes": true,
    "flat_deg": 8,
+   "panes": 1,
    "depth_m": [
     0.8,
     1.3

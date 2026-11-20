@@ -190,11 +190,12 @@ def fuselage():
 
 def windows_and_doors():
     side_skin = [0.6, 1.3]       # depth reaching only the left cabin wall
+    # Owner (2026-11-20): every windscreen and quarter pane exactly 2 triangles ('panes').
     return [
         # Three flat front panes (owner's photo): the hull itself is cut flat there (body.windscreen),
         # and the glass is the side-view band clipped to three top-view strips, so the frames between
         # them (x +-0.29, 6 cm) and the corner frames stay hull skin.
-        {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'depth_m': [-1.3, 1.3],
+        {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'panes': 3, 'depth_m': [-1.3, 1.3],
          'polygon_m': [[z_(0.2), 1.28], [z_(0.71), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.28]],
          'clip': {'view': 'top', 'polygons_m': [
              [[-0.38, z_(0.2)], [0.38, z_(0.2)], [0.38, z_(0.66)], [-0.38, z_(0.66)]],
@@ -202,7 +203,7 @@ def windows_and_doors():
              [[-0.42, z_(0.25)], [-0.42, z_(0.66)], [-0.875, z_(0.76)], [-0.92, z_(0.465)]]]}},
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
-        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'depth_m': [0.8, 1.3],
+        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'panes': 1, 'depth_m': [0.8, 1.3],
          'polygon_m': [[z_(0.5), 1.29], [z_(0.81), 2.0], [z_(1.03), 2.0], [z_(0.84), 1.29]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
