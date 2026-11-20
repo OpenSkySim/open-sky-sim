@@ -40,8 +40,43 @@ def z_(d):
     return round(Z0 - d, 3)
 
 
+# Cockpit (owner 2026-11-19): seats 20 cm out from the first 0.52 m, then 10 cm back in.
+SEAT_X = 0.62
+COCKPIT_DY = 0.05    # owner: cockpit 30 cm up, 15 cm back down, then 10 cm more
+PANEL_UP = ()   # (centre console 20 cm higher: now built in at y 1.0)
+COCKPIT_PARTS = ('PanelSide', 'PanelSideTop', 'PanelSideFront', 'PanelSideEnd', 'PanelSideUnder', 'PanelCentreFront', 'PanelCentre', 'PanelCentreTop', 'PanelCentreSide', 'Coaming', 'CoamingRear',
+                 'CoamingCheek', 'Pedestal', 'PedestalSide', 'SideConsoleTop', 'Cyclic', 'Seat', 'SeatSide', 'SeatBack',
+                 'SeatBackSide', 'SeatBeltIn', 'SeatBeltOut')
+BULK_D = 1.78          # bulkhead right behind the seat backs (second photo)
+WALL = '#121314'       # owner (2026-11-20): black interior walls, floor, bulkhead, console sides (light grey #a3abb2 before)
+TURQ_LIGHT = '#2f8f8b' # console tops
+SEAT = '#4a2c20'       # dark brown seat cushions
+BELT = '#8c949a'       # grey belts
+TURQ = '#1f5c5a'      # cockpit: dark turquoise (owner)
+TURQ_DARK = '#163f3e' # floor, coaming, sticks
+GAUGE = '#14171a'     # instrument faces
+PANEL_BACK = '#101113'  # front panel back + hood (owner: black)
+
+
 def P(x, y, d):
     return [round(x, 3), round(y, 3), z_(d)]
+
+
+def Q(name, material, face, mirror, *pts):
+    """One single-sided pane (2 triangles) of the cockpit, its corners ordered so it faces `face`
+    (x out to the left, y up, z forward to the nose). The builder's quad faces along minus the
+    cross product of its first two edges in this frame."""
+    a, b, c = (np.array(q, float) for q in pts[:3])
+    if -np.dot(np.cross(b - a, c - b), face) < 0:
+        pts = pts[::-1]
+    part = {'name': name, 'type': 'quad', 'join': 'separate', 'mirror': mirror, 'material': material,
+            'points': [list(q) for q in pts]}
+    # The builder's tidy() re-orients a lone face (recalc_face_normals); for these quads it
+    # always ends up facing up / forward / outboard, so panes meant to face down or aft are
+    # flipped back afterwards (checked on the exported normals).
+    if face[1] < 0 or face[2] < 0:
+        part['inside_out'] = True
+    return part
 
 
 def side_m(pts):
@@ -403,25 +438,80 @@ def main():
         # trailing edge at d 9.1, 0.3 m deep).
         {'name': 'TailBumper', 'type': 'panel', 'normal': [1, 0, 0], 'chord_points': 4,
          'stations': panel_rows([(0.0, 1.0, 8.2, 0.92, 0.1), (0.0, 0.78, 8.8, 0.3, 0.1)])},
-        # Cockpit behind the glazing: one open space, two seats side by side, instrument panel,
-        # dark floor, black bulkhead behind the seats.
-        {'name': 'InstrumentPanel', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#1d2024',
-         'segments': 6, 'stations': loft_m([(0.78, 0.95, 0.55, 1.12, 6), (0.9, 0.95, 0.55, 1.12, 6)])},
-        {'name': 'GlareShield', 'type': 'loft', 'join': 'separate', 'clip_hull': True, 'material': '#16181b',
-         'segments': 6, 'stations': loft_m([(0.7, 0.95, 1.1, 1.16, 6), (0.98, 0.95, 1.1, 1.16, 6)])},
-        {'name': 'Screens', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#2f5263',
-         'segments': 6, 'stations': loft_m([(0.9, 0.16, 0.75, 1.0, 8), (0.92, 0.16, 0.75, 1.0, 8)], 0.42)},
-        {'name': 'Pedestal', 'type': 'loft', 'join': 'separate', 'material': '#2e3236', 'segments': 6,
-         'stations': loft_m([(0.9, 0.12, 0.35, 0.95, 6), (1.6, 0.12, 0.35, 0.75, 6)])},
-        {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'material': '#2a2d31',
-         'segments': 6, 'stations': loft_m([(0.3, 2.0, 0.33, 0.37, 8), (2.45, 2.0, 0.33, 0.37, 8)])},
-        {'name': 'Seat', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 6,
-         'stations': loft_m([(1.2, 0.24, 0.77, 1.15, 6), (1.6, 0.24, 0.77, 1.15, 6)], 0.52)},
-        {'name': 'SeatBack', 'type': 'loft', 'join': 'separate', 'mirror': True, 'material': '#3a3e44', 'segments': 6,
-         'stations': loft_m([(1.6, 0.24, 0.77, 1.85, 6), (1.75, 0.24, 0.77, 1.85, 6)], 0.52)},
-        {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': '#121314',
-         'segments': 6, 'stations': loft_m([(2.42, 2.5, -1.0, 2.6, 8), (2.48, 2.5, -1.0, 2.6, 8)])},
+        # Cockpit after the owner's two photos of a Ka-27/29 cockpit kit (2026-11-19), laid out
+        # round the game's pilot figures (eye at SEAT_X, y 1.7 + COCKPIT_DY, d 1.3): boots on the
+        # floor down to d 0.45, shins climbing to the knees at d 0.95 (y 1.1). Second photo: a low
+        # shelf round the nose with one tall instrument block in the middle, low side consoles
+        # (grey, turquoise tops), brown seats with grey belts against the bulkhead, which has a
+        # doorway to the cabin; walls and floor light grey. Plain boxes (12 triangles each) keep
+        # it cheap (owner: half the cockpit triangles).
+        # Front panel after the first photo (owner: the shelf looked off): a wide panel tilted
+        # back towards the pilots (its sloping upper face carries the instruments), clear of the
+        # shins (lower edge 0.95 at d 0.64), a taller centre section running down to the centre
+        # console, a black hood on top, and a sloping console against each nose wall.
+        # Owner (2026-11-20): front panel 5 cm lower with a black back, then 20 cm further back
+        # (d 0.70-0.84) and flat on top: upright blocks with a level black top, the pilots' face a
+        # thin (3 cm) turquoise layer; the side blocks end above the shins (1.07 at d 0.85), the
+        # taller centre block stands on the floor. The separate hood went with the flat top.
+        # Owner (2026-11-20): cockpit triangles cut by 70%+: single panes instead of boxes, and only
+        # the faces that can be seen from outside through the glazing (everything is single-sided,
+        # facing the windows). Floor, bulkhead, side console sides, nose consoles and the footwell
+        # block went: they were black against the black inside skin anyway.
+        # Owner (2026-11-20): every pane facing outward (to the sides) is black.
+        # Front panel (d 0.70-0.84): turquoise faces towards the pilots, black flat top.
+        Q('PanelSide', TURQ, (0, 0, -1), True, P(0.27, 1.12, 0.84), P(1.04, 1.12, 0.84), P(1.04, 1.37, 0.84), P(0.27, 1.37, 0.84)),
+        Q('PanelSideTop', PANEL_BACK, (0, 1, 0), True, P(0.27, 1.37, 0.70), P(0.99, 1.37, 0.70), P(1.04, 1.37, 0.84), P(0.27, 1.37, 0.84)),
+        # Owner (2026-11-20): panel closed on every side seen from outside: black front (towards the
+        # nose), outer end and underside of the side blocks, and the centre block's front above the deck.
+        Q('PanelSideFront', PANEL_BACK, (0, 0, 1), True, P(0.27, 1.12, 0.70), P(0.99, 1.12, 0.70), P(0.99, 1.37, 0.70), P(0.27, 1.37, 0.70)),
+        Q('PanelSideEnd', PANEL_BACK, (1, 0, 0), True, P(0.99, 1.0, 0.70), P(1.04, 1.0, 0.84), P(1.04, 1.37, 0.84), P(0.99, 1.37, 0.70)),
+        Q('PanelSideUnder', PANEL_BACK, (0, -1, 0), True, P(0.27, 1.12, 0.70), P(0.99, 1.12, 0.70), P(1.04, 1.12, 0.84), P(0.27, 1.12, 0.84)),
+        Q('PanelCentreFront', PANEL_BACK, (0, 0, 1), False, P(-0.27, 1.30, 0.70), P(0.27, 1.30, 0.70), P(0.27, 1.45, 0.70), P(-0.27, 1.45, 0.70)),
+        Q('PanelCentre', TURQ, (0, 0, -1), False, P(-0.27, 0.62, 0.84), P(0.27, 0.62, 0.84), P(0.27, 1.45, 0.84), P(-0.27, 1.45, 0.84)),
+        Q('PanelCentreTop', PANEL_BACK, (0, 1, 0), False, P(-0.27, 1.45, 0.70), P(0.27, 1.45, 0.70), P(0.27, 1.45, 0.84), P(-0.27, 1.45, 0.84)),
+        Q('PanelCentreSide', PANEL_BACK, (1, 0, 0), True, P(0.27, 0.62, 0.70), P(0.27, 0.62, 0.84), P(0.27, 1.45, 0.84), P(0.27, 1.45, 0.70)),
+        # Black deck from the panel top down to the windscreen sill (two panes following the side
+        # panes' sill), and a cheek under its edge on each side so nothing shows below it.
+        Q('Coaming', PANEL_BACK, (0, 1, 0), False, P(-0.36, 1.17, 0.27), P(0.36, 1.17, 0.27), P(0.85, 1.22, 0.45), P(-0.85, 1.22, 0.45)),
+        Q('CoamingRear', PANEL_BACK, (0, 1, 0), False, P(-0.85, 1.22, 0.45), P(0.85, 1.22, 0.45), P(0.99, 1.37, 0.70), P(-0.99, 1.37, 0.70)),
+        Q('CoamingCheek', PANEL_BACK, (1, 0, 0), True, P(0.85, 1.0, 0.45), P(0.98, 1.0, 0.70), P(0.99, 1.37, 0.70), P(0.85, 1.22, 0.45)),
+        # Centre console between the seats: top and sides.
+        Q('Pedestal', TURQ, (0, 1, 0), False, P(-0.18, 1.0, 0.84), P(0.18, 1.0, 0.84), P(0.14, 1.0, 1.75), P(-0.14, 1.0, 1.75)),
+        Q('PedestalSide', PANEL_BACK, (1, 0, 0), True, P(0.18, 0.6, 0.84), P(0.14, 0.6, 1.75), P(0.14, 1.0, 1.75), P(0.18, 1.0, 0.84)),
+        Q('SideConsoleTop', TURQ_LIGHT, (0, 1, 0), True, P(0.87, 0.925, 0.65), P(0.93, 0.925, BULK_D - 0.02), P(1.06, 0.925, BULK_D - 0.02), P(0.94, 0.925, 0.65)),
+        {'name': 'Cyclic', 'type': 'strut', 'mirror': True, 'a': P(SEAT_X, 0.62, 0.92), 'b': P(SEAT_X, 1.05, 0.87),
+         'radius': 0.025, 'sides': 3, 'join': 'separate', 'material': GAUGE},
+        # Seats: cushion front and outer side, back front and outer side; belts as flat strips.
+        Q('Seat', SEAT, (0, 0, 1), True, P(SEAT_X - 0.22, 0.77, 1.2), P(SEAT_X + 0.22, 0.77, 1.2), P(SEAT_X + 0.22, 1.15, 1.2), P(SEAT_X - 0.22, 1.15, 1.2)),
+        Q('SeatSide', PANEL_BACK, (1, 0, 0), True, P(SEAT_X + 0.22, 0.77, 1.2), P(SEAT_X + 0.22, 0.77, 1.75), P(SEAT_X + 0.22, 1.15, 1.75), P(SEAT_X + 0.22, 1.15, 1.2)),
+        Q('SeatBack', SEAT, (0, 0, 1), True, P(SEAT_X - 0.22, 1.15, 1.6), P(SEAT_X + 0.22, 1.15, 1.6), P(SEAT_X + 0.22, 1.85, 1.6), P(SEAT_X - 0.22, 1.85, 1.6)),
+        Q('SeatBackSide', PANEL_BACK, (1, 0, 0), True, P(SEAT_X + 0.22, 1.15, 1.6), P(SEAT_X + 0.22, 1.15, 1.75), P(SEAT_X + 0.22, 1.85, 1.75), P(SEAT_X + 0.22, 1.85, 1.6)),
+        Q('SeatBeltIn', BELT, (0, 0, 1), True, P(SEAT_X - 0.105, 1.15, 1.59), P(SEAT_X - 0.055, 1.15, 1.59), P(SEAT_X - 0.055, 1.8, 1.59), P(SEAT_X - 0.105, 1.8, 1.59)),
+        Q('SeatBeltOut', BELT, (0, 0, 1), True, P(SEAT_X + 0.055, 1.15, 1.59), P(SEAT_X + 0.105, 1.15, 1.59), P(SEAT_X + 0.105, 1.8, 1.59), P(SEAT_X + 0.055, 1.8, 1.59)),
     ]
+    # Owner (2026-11-19): the whole cockpit (floor, panel, consoles, seats, sticks) COCKPIT_DY higher;
+    # the pilots' eye points go up with it below.
+    # Owner (2026-11-19): the centre console 20 cm higher, growing up from the floor (the front
+    # panel and side consoles were raised too, then redone low after the second photo).
+    for part in parts:
+        if part['name'] in PANEL_UP:
+            if part['type'] == 'quad':
+                part['points'] = [[q[0], round(q[1] + 0.2, 3), q[2]] for q in part['points']]
+            elif part['name'] == 'Pedestal':
+                # cy up by 0.1, height (above and below) by 0.1 each: the bottom stays put
+                part['stations'] = [r[:2] + [round(r[2] + 0.1, 3), r[3], round(r[4] + 0.1, 3), round(r[5] + 0.1, 3)] + r[6:]
+                                    for r in part['stations']]
+            else:
+                part['stations'] = [r[:2] + [round(r[2] + 0.2, 3)] + r[3:] for r in part['stations']]
+    for part in parts:
+        if part['name'] in COCKPIT_PARTS:
+            if part['type'] == 'loft':
+                part['stations'] = [r[:2] + [round(r[2] + COCKPIT_DY, 3)] + r[3:] for r in part['stations']]
+            elif part['type'] == 'quad':
+                part['points'] = [[q[0], round(q[1] + COCKPIT_DY, 3), q[2]] for q in part['points']]
+            elif part['type'] == 'strut':
+                for k in ('a', 'b'):
+                    part[k] = [part[k][0], round(part[k][1] + COCKPIT_DY, 3), part[k][2]]
     # Owner: plain bracing and gear rods are triangular tubes (3 sides).
     for part in parts:
         if part.get('type') == 'strut' and 'sides' not in part:
@@ -443,6 +533,17 @@ def main():
         'symmetrize': True,
         # Nose front under the windscreen: fewer, larger faces (owner: halve the triangles there).
         'planar_deg_final': 2.5,
+        # Dark inside skin: no look through the windows or intakes out the far side of the hull.
+        'lining': WALL,   # owner: black interior (light grey, dark #1d2024 before)
+        # Navy scheme from the owner's deck photo: light grey with blue-grey and pale blotches (paint.json),
+        # red stars with a white rim on the outer fins, yellow side number 21 on the engine cowling.
+        # Camo outlines: paint.json next to the spec (cut into the skin by the builder).
+        'decals': [
+            {'shape': 'star', 'side': 'both', 'at': [1.5, z_(9.92)], 'size': 0.66,
+             'color': '#c3202b', 'border': '#eeeeee', 'border_m': 0.05},
+            {'shape': 'text', 'text': '21', 'side': 'both', 'at': [2.5, z_(3.05)], 'size': 0.42,
+             'color': '#e3b923'},
+        ],
         'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 25},
                          {'min': [-1.3, 1.96, z_(2.3)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 70},   # 2nd: cockpit roof
                          {'min': [-1.3, -1, z_(7.9)], 'max': [1.3, 4, z_(2.6)], 'deg': 3, 'relax': 2}],   # 4th: cabin (owner: smoothen)
@@ -477,9 +578,9 @@ def main():
         ]},
         'open_cabin': {'lo': P(-1.2, 0.3, 2.42), 'hi': P(1.2, 2.05, 0.0)},
         'ground_y': -2.0,
-        'cockpit_m': P(0.42, 1.35, 1.7),
+        'cockpit_m': P(SEAT_X - 0.1, 1.35 + COCKPIT_DY, 1.7),
         # Pilot (left) and navigator side by side: eye points over the seats.
-        'pilot_seats_m': [P(0.52, 1.7, 1.3), P(-0.52, 1.7, 1.3)],
+        'pilot_seats_m': [P(SEAT_X, 1.7 + COCKPIT_DY, 1.3), P(-SEAT_X, 1.7 + COCKPIT_DY, 1.3)],
     }
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spec.json'), 'w') as f:
         json.dump(spec, f, indent=1)

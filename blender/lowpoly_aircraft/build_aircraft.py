@@ -105,7 +105,11 @@ def main() -> None:
     ap.add_argument('--out', help='output folder (default: build/<id> next to the spec)')
     ap.add_argument('--no-pack', action='store_true', help='skip the .aircraft.pack zip')
     ap.add_argument('--no-blend', action='store_true', help='skip saving the .blend')
+    ap.add_argument('--number', help='side number for the spec\'s text decals (digits), e.g. 21')
+    ap.add_argument('--number-color', help='colour of the side number, #rrggbb')
     args = ap.parse_args(argv)
+    from lpa import paint
+    paint.TEXT_OVERRIDE.update({k: v for k, v in (('text', args.number), ('color', args.number_color)) if v})
 
     build(args.spec)
     aid = bpy.context.scene['lpa_id']
@@ -119,6 +123,11 @@ def main() -> None:
     print(f'[lpa] wrote {out}: {len(manifest["surfaces"])} surfaces, gear={"yes" if manifest["gear"] else "no"}')
     if sections.LOG:
         sections.write_log(os.path.join(out, f'{aid}_lofts.json'), aid, bpy.context.scene.get('lpa_shift', [0.0, 0.0, 0.0]))
+    pattern = bpy.context.scene.get('lpa_paint')
+    if pattern:
+        # The camo outlines built in, for the Hangar's Paint card.
+        with open(os.path.join(out, f'{aid}_paint.json'), 'w') as f:
+            f.write(pattern)
     refs_check(args.spec, out, aid)
 
 

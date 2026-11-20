@@ -1,0 +1,5 @@
+{
+ "about": "Ka-29 camo outlines (draw them in the Hangar's Paint card). Body frame (z nose, y up, x left), side outlines [z, y], top outlines [z, x]; mirrored.",
+ "base": "#aeb2b4",
+ "regions": []
+}

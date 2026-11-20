@@ -182,5 +182,19 @@ def windscreen(d, H, y0):
     below = [i for i in range(1, m) if P[i, 1] <= foot[1] - 0.04]
     k = next((i for i in below if P[i, 0] >= foot[0] - 0.02), m)
     upper = resample(np.vstack([[foot], P[k:m + 1]]), m + 1 - len(fixed))
+    if d <= QUARTER_1[2] + 1e-6:
+        # Under the front and quarter pane sills (owner: 'close the holes' below the corner post):
+        # keep the outline's own points by index (like to like from ring to ring). Points that lie
+        # under the glazing collapse onto the sill foot (2 mm apart) instead of sliding down the side
+        # wall, so the nose deck ahead of the side pane is not twisted into long slivers.
+        n_after = len(upper) - 1
+        idx = list(range(m - n_after + 1, m + 1))
+        ok = [P[i, 1] <= foot[1] - 0.04 and P[i, 0] >= foot[0] - 0.02 for i in idx]
+        if ok[-1]:
+            first = next(j for j, o in enumerate(ok) if o)
+            tgt = P[idx[first]]
+            step = (tgt - np.array(foot)) / np.linalg.norm(tgt - np.array(foot))
+            pts = [np.array(foot) + step * 0.002 * (j + 1) if j < first else P[i] for j, i in enumerate(idx)]
+            upper = np.vstack([[foot], pts])
     out = np.vstack([fixed[:-1], upper, P[m + 1:]])
     return out - np.array([0.0, y0])
