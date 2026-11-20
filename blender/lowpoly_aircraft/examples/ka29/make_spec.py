@@ -436,18 +436,19 @@ def main():
         # thin (3 cm) turquoise layer; the side blocks end above the shins (1.07 at d 0.85), the
         # taller centre block stands on the floor. The separate hood went with the flat top.
         {'name': 'PanelSideBack', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': PANEL_BACK,
-         'stations': loft_m([(0.70, 0.33, 1.12, 1.37, 8), (0.81, 0.33, 1.12, 1.37, 8)], 0.6)},
+         'stations': [r[:1] + [c] + r[2:] for r, c in zip(loft_m([(0.70, 0.36, 1.12, 1.37, 8), (0.81, 0.38, 1.12, 1.37, 8)]), (0.63, 0.65))]},
         {'name': 'PanelSide', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
-         'stations': loft_m([(0.81, 0.33, 1.12, 1.365, 8), (0.84, 0.33, 1.12, 1.365, 8)], 0.6)},
+         'stations': [r[:1] + [c] + r[2:] for r, c in zip(loft_m([(0.81, 0.38, 1.12, 1.365, 8), (0.84, 0.385, 1.12, 1.365, 8)]), (0.65, 0.655))]},
         {'name': 'PanelCentreBack', 'type': 'loft', 'box': True, 'join': 'separate', 'material': PANEL_BACK,
          'stations': loft_m([(0.70, 0.27, 0.62, 1.45, 8), (0.81, 0.27, 0.62, 1.45, 8)])},
         {'name': 'PanelCentre', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
          'stations': loft_m([(0.81, 0.27, 0.62, 1.445, 8), (0.84, 0.27, 0.62, 1.445, 8)])},
         # Owner (2026-11-20): the panel top joined to the hull in front of it: a black deck
         # sloping from the panel's top edge (d 0.70) down to just under the windscreen sill,
-        # trimmed to the nose skin.
+        # trimmed to the nose skin. Panel ends run out to the side wall / quarter pane
+        # (x 0.99 at d 0.70 to 1.04 at d 0.84; owner: no gaps at the panel sides), the deck to x 0.98.
         {'name': 'Coaming', 'type': 'loft', 'box': True, 'join': 'separate', 'clip_hull': True, 'material': PANEL_BACK,
-         'stations': loft_m([(0.18, 0.95, 1.19, 1.22, 8), (0.70, 0.95, 1.34, 1.37, 8)])},
+         'stations': loft_m([(0.18, 0.98, 1.19, 1.22, 8), (0.70, 0.98, 1.34, 1.37, 8)])},
         {'name': 'NoseConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
          'stations': loft_m([(0.48, 0.05, 0.62, 1.1, 8), (0.66, 0.05, 0.62, 0.95, 8)], 0.88)},
         {'name': 'Pedestal', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
