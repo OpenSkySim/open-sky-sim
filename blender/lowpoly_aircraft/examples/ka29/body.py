@@ -102,15 +102,22 @@ def build(keys, stations, bottom):
 # instead of the round outline.
 PANE_A = (0.40, 1.24, 0.23)
 PANE_B = (0.95, 1.24, 0.45)
-PANE_D = (0.40, 2.04, 0.70)
-PANE_C = (0.90, 2.04, 0.80)
+# Owner (2026-11-20): the nose must match the sheet's sections А-Г. Section Б (d 0.636) cuts the
+# windscreen at its top (centre 2.04-2.055, side pane edge ~(0.92, 1.82), sill 1.07 wide), so the
+# centre pane reaches its top at Б and the side pane's rear corner C sits at d 0.71.
+PANE_D = (0.40, 2.04, 0.636)
+PANE_C = (0.90, 2.04, 0.71)
+QUARTER_0 = (1.07, 1.24, 0.636)   # quarter pane sill at section Б (its width there)
 QUARTER_1 = (1.10, 1.24, 0.85)
 QUARTER_2 = (0.95, 2.03, 1.042)
 ROOF_BLEND_END = 1.75
 # Deck fairing roof profile (x, height) at the first roof ring behind the glazing (d ROOF_RING_D).
-ROOF_PROFILE = ((0.0, 2.29), (0.22, 2.29), (0.38, 2.09), (0.81, 2.09))   # raised centre strip, sides 0.20 m lower
+# Section В's top (sheet, on the side view's bottom 0.289): raised centre strip, rounded shoulders.
+ROOF_PROFILE = ((0.0, 2.289), (0.281, 2.271), (0.333, 2.234), (0.361, 2.197), (0.379, 2.161),
+                (0.783, 2.124), (0.865, 2.087), (0.914, 2.05), (0.969, 1.977), (1.028, 1.904))
+ROOF_X = (0.0, 0.30, 0.42)        # roof points of the glazing rings behind the side panes
 ROOF_RING_D = 1.141
-PANE_STATIONS = (0.235, 0.45, 0.70, 0.80, 0.85, 1.042)   # pane corners (+ one between A and B)
+PANE_STATIONS = (0.235, 0.45, 0.636, 0.71, 0.85, 1.042)   # pane corners (+ one between A and B)
 
 
 def _lerp(p, q, d):
@@ -122,7 +129,7 @@ def _pane_points(d, roof=0.0):
     """Frame points of the glazing at station d, top centre outwards: centre-line top, the centre /
     side pane frame, the side pane's outer edge and the quarter pane's foot on the cabin wall
     (None ahead of B, where the side pane sits straight on the nose box, and at the pillar top)."""
-    A, B, D, C, Q1, Q2 = PANE_A, PANE_B, PANE_D, PANE_C, QUARTER_1, QUARTER_2
+    A, B, D, C, Q0, Q1, Q2 = PANE_A, PANE_B, PANE_D, PANE_C, QUARTER_0, QUARTER_1, QUARTER_2
     top = A[1] + (min(d, D[2]) - A[2]) * (D[1] - A[1]) / (D[2] - A[2])
     if d > D[2]:
         top = max(top, roof)      # behind the panes the roof rises with the outline to the fairing
@@ -139,7 +146,7 @@ def _pane_points(d, roof=0.0):
         # same point layout as the ones with a quarter pane foot (no crease where it starts).
         j3 = (j2[0] + 0.04, j2[1] - 0.02)
     elif d < Q2[2] - 1e-6:
-        j3 = _lerp(B, Q1, d) if d <= Q1[2] else _lerp(Q1, Q2, d)
+        j3 = _lerp(B, Q0, d) if d <= Q0[2] else _lerp(Q0, Q1, d) if d <= Q1[2] else _lerp(Q1, Q2, d)
     return (0.0, top), j1, j2, j3
 
 
@@ -147,15 +154,7 @@ def windscreen(d, H, y0):
     """Replace the top of a nose station's half outline (relative heights) by the glazing's frame."""
     P = H + np.array([0.0, y0])
     if PANE_STATIONS[-1] + 1e-6 < d <= ROOF_BLEND_END:
-        # The next rings behind the glazing get the same roof point layout (shoulder at index 3),
-        # so the loft does not twist where the glazing rings end.
-        P = P.copy()
-        sh = P[4].copy()
-        # Simple smooth crown over the cockpit (no raised strip): the profile's heights.
-        top = [P[0], P[1], P[2], sh]
-        top = [(q[0], float(np.interp(abs(q[0]), *zip(*ROOF_PROFILE)))) for q in top]
-        out = np.vstack([top, resample(P[4:HALF_N // 2 + 1], HALF_N // 2 - 3)[1:], P[HALF_N // 2 + 1:]])
-        return out - np.array([0.0, y0])
+        return H      # behind the glazing: the section itself (В and its blend to the deck front)
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
         return H
     j0, j1, j2, j3 = _pane_points(d, P[0, 1])
@@ -172,7 +171,7 @@ def windscreen(d, H, y0):
         # roof ring behind the glazing), with the same point layout, so it stays smooth.
         t = min(1.0, max(0.0, (d - PANE_C[2]) / (ROOF_RING_D - PANE_C[2])))
         roof = lambda x: max(PANE_C[1] + t * (float(np.interp(x, *zip(*ROOF_PROFILE))) - PANE_C[1]), j2[1])
-        fixed = [(x, roof(x)) for x in (0.0, ROOF_PROFILE[1][0], ROOF_PROFILE[2][0])] + [j2] + ([j3] if j3 else [])
+        fixed = [(x, roof(x)) for x in ROOF_X] + [j2] + ([j3] if j3 else [])
     foot = fixed[-1]
     # The outline continues below the last frame point on the outside: skip outline points that
     # lie inboard of it (the roof or nose top dipping under it), or the ring folds back. From the

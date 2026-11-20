@@ -196,15 +196,15 @@ def windows_and_doors():
         # and the glass is the side-view band clipped to three top-view strips, so the frames between
         # them (x +-0.29, 6 cm) and the corner frames stay hull skin.
         {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'panes': 3, 'depth_m': [-1.3, 1.3],
-         'polygon_m': [[z_(0.2), 1.28], [z_(0.71), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.28]],
+         'polygon_m': [[z_(0.2), 1.28], [z_(0.62), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.28]],
          'clip': {'view': 'top', 'polygons_m': [
-             [[-0.38, z_(0.2)], [0.38, z_(0.2)], [0.38, z_(0.66)], [-0.38, z_(0.66)]],
-             [[0.42, z_(0.25)], [0.92, z_(0.465)], [0.875, z_(0.76)], [0.42, z_(0.66)]],
-             [[-0.42, z_(0.25)], [-0.42, z_(0.66)], [-0.875, z_(0.76)], [-0.92, z_(0.465)]]]}},
+             [[-0.38, z_(0.2)], [0.38, z_(0.2)], [0.38, z_(0.60)], [-0.38, z_(0.60)]],
+             [[0.42, z_(0.25)], [0.92, z_(0.465)], [0.875, z_(0.68)], [0.42, z_(0.60)]],
+             [[-0.42, z_(0.25)], [-0.42, z_(0.60)], [-0.875, z_(0.68)], [-0.92, z_(0.465)]]]}},
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
         {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'panes': 1, 'depth_m': [0.8, 1.3],
-         'polygon_m': [[z_(0.5), 1.29], [z_(0.81), 2.0], [z_(1.03), 2.0], [z_(0.84), 1.29]]},
+         'polygon_m': [[z_(0.5), 1.29], [z_(0.75), 2.0], [z_(1.03), 2.0], [z_(0.84), 1.29]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          # Owner's marked form: front edge parallel to the quarter pane's rear edge (4 cm post),
@@ -229,9 +229,21 @@ def fuselage_sections(cabin, deck):
     cd = [d_(r[0]) for r in cabin]
     dd = [d_(r[0]) for r in deck]
 
+    def side_bottom(d):
+        return float(np.interp(d, cd, [y_(r[2]) for r in cabin]))
+
+    # Nose bottom (owner 2026-11-20: match the sections): section А stands with its top on the
+    # windscreen sill at its own height (0.606 m), i.e. 0.10 m higher than the first sheet's line
+    # (the second sheet's side view agrees: 0.66 at А); back to the side line at Б.
+    secs0 = body.load_sections()
+    dA, dB = secs0['A']['d'], secs0['B']['d']
+    yA = body.PANE_A[1] - max(p[1] for p in secs0['A']['half'])
+    nose_line = ([cd[0], dA, 0.45, dB], [side_bottom(cd[0]), yA, 0.54, side_bottom(dB)])
+
     def bottom(d):
-        b = float(np.interp(d, cd, [y_(r[2]) for r in cabin]))
-        return b
+        if d < dB:
+            return float(np.interp(d, *nose_line))
+        return side_bottom(d)
 
     def cab_top(d):
         return float(np.interp(d, cd, [y_(r[3]) for r in cabin]))
@@ -545,8 +557,10 @@ def main():
             {'shape': 'text', 'text': '21', 'side': 'both', 'at': [2.5, z_(3.05)], 'size': 0.42,
              'color': '#e3b923'},
         ],
-        'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 25},
-                         {'min': [-1.3, 1.96, z_(2.3)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 70},   # 2nd: cockpit roof
+        # Nose and cockpit roof zones only merge near-flat faces (owner 2026-11-20: the sections
+        # А-Г must keep their shape; the old 25/70 deg zones flattened the roof's centre strip).
+        'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 6},
+                         {'min': [-1.3, 1.96, z_(2.3)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 6},   # 2nd: cockpit roof
                          {'min': [-1.3, -1, z_(7.9)], 'max': [1.3, 4, z_(2.6)], 'deg': 3, 'relax': 2}],   # 4th: cabin (owner: smoothen)
         'sections': fuse_secs,
         'parts': parts,
