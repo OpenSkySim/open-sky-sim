@@ -668,11 +668,29 @@ async function showModel(entry, keep = null) {
   xsModelChanged(entry, stale).catch(err => { $('xsNote').textContent = 'Cross-section failed: ' + err.message; });
   paintModelChanged(entry, stale).catch(err => { $('paintState').textContent = 'Paint shapes failed to load: ' + err.message; });
   statusEl.textContent = manifest.id;
+  // The ground shadow, as in the game: the model's flat shadow silhouette, dark and see-through, on the ground.
+  if (manifest.shadow) {
+    load(asJson(manifest.shadow)).then(g => {
+      if (stale() || !current || current.root !== root) return;
+      g.scene.traverse(o => {
+        if (!o.isMesh) return;
+        o.material = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide });
+        o.userData.shadow = true;
+        o.renderOrder = 1;
+      });
+      g.scene.userData.shadow = true;
+      root.add(g.scene);
+      g.scene.updateMatrixWorld(true);
+      const b = new THREE.Box3().setFromObject(g.scene);
+      g.scene.position.y += ground.position.y + 0.012 - b.min.y;
+    }).catch(() => {});
+  }
 }
 
 function countTris(obj) {
   let n = 0;
-  obj.traverse(o => { if (o.isMesh && !o.userData.edge) n += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+  // Model triangles only: not the edge overlays, the hull's inside (its own faces drawn again) or the ground shadow.
+  obj.traverse(o => { if (o.isMesh && !o.userData.edge && !o.userData.inside && !o.userData.shadow) n += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
   return Math.round(n);
 }
 
