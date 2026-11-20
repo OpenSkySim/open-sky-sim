@@ -565,7 +565,7 @@ def main():
         # Owner (2026-11-20): the lower nose and cockpit sides keep the loft's even quads ('rects')
         # instead of merged n-gons cut into long triangles.
         'planar_keep': [{'min': [-1.4, -5, z_(2.0)], 'max': [1.4, 1.3, z_(-0.1)]}],
-        'planar_zones': [{'min': [-1.3, -1, z_(0.9)], 'max': [1.3, 1.25, z_(-0.02)], 'deg': 25},   # nose front: fewer triangles (owner)
+        'planar_zones': [{'min': [-1.3, -1, z_(0.9)], 'max': [1.3, 1.25, z_(body.NOSE_BASE - 0.005)], 'deg': 25},   # nose front: fewer triangles (owner)
                          # Cockpit roof (owner 2026-11-20: smooth, flat beside the bulge, fewer polygons): one zone, so
                          # the flat roof merges into one panel per side; the bulge sides and bevels are steeper.
                          {'min': [0.38, 1.98, z_(1.9)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 30},
