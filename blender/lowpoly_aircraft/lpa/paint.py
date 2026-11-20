@@ -16,6 +16,7 @@ Spec keys (all optional):
 """
 from __future__ import annotations
 
+import functools
 import math
 
 import bmesh
@@ -158,6 +159,9 @@ def add_decals(hull: bpy.types.Object, decals: list, override: dict | None = Non
 # {"base": "#aeb2b4", "material": "VEHICLE_PLANE_GREY",
 #  "regions": [{"view": "side" | "top" | "bottom" | "front" | "rear", "color": "#7f888f", "mirror": true,
 #               "x_side": 1, "pts": [[z, h], ...]}]}
+# A camera view ("dir:x,y,z", painted in the Hangar's 3-D view) is seen along the unit look
+# direction (x, y, z) and paints the skin turned towards it where nothing lies in front; its
+# [u, v] lie on the plane across it (_dir_basis); its mirror is the view mirrored across x = 0.
 # Body frame (x left wing, y up, z nose), before the shift onto the wheels. A side outline is
 # [z, y] seen along x and paints the skin facing sideways (both sides when mirrored, else +x);
 # a top/bottom outline is [z, x] seen along y and paints the skin turned up/down (mirrored
@@ -200,8 +204,31 @@ def _view_of(n) -> str:
     return 'side' if a[0] >= a[1] else ('top' if n[1] > 0 else 'bottom')
 
 
+def _is_dir(view) -> bool:
+    return isinstance(view, str) and view.startswith('dir:')
+
+
+@functools.lru_cache(maxsize=64)
+def _dir_basis(view):
+    """A camera view 'dir:x,y,z' (the Hangar's 3-D view brush): the unit look direction d (body
+    frame) and the axes U, V of its drawing plane (the same basis as the Hangar's paintBasis)."""
+    d = Vector(tuple(float(c) for c in view[4:].split(','))).normalized()
+    a = Vector((0.0, 1.0, 0.0)) if abs(d.y) < 0.9 else Vector((0.0, 0.0, 1.0))
+    u = a.cross(d).normalized()
+    return d, u, d.cross(u)
+
+
+def _dir_mirror(view) -> str:
+    x, y, z = view[4:].split(',')
+    return f'dir:{-float(x)},{y},{z}'
+
+
 def _uv(p, view):
-    """2-D drawing coordinates of a body-frame point: side [z, y], top/bottom [z, x], front/rear [x, y]."""
+    """2-D drawing coordinates of a body-frame point: side [z, y], top/bottom [z, x], front/rear [x, y];
+    a camera view: along its plane's axes."""
+    if _is_dir(view):
+        _, u, v = _dir_basis(view)
+        return (p[0] * u.x + p[1] * u.y + p[2] * u.z, p[0] * v.x + p[1] * v.y + p[2] * v.z)
     if view in ('front', 'rear'):
         return (p[0], p[1])
     return (p[2], p[1]) if view == 'side' else (p[2], p[0])
@@ -217,6 +244,9 @@ def _variants(region):
         side = int(region.get('x_side', 1))   # one-sided: +1 the left-wing side, -1 the right
         return [('side', side, pts)] + ([('side', -side, pts)] if mirror else [])
     out = [(view, 0, pts)]
+    if _is_dir(view):
+        # The mirror of a camera view is the view mirrored across x = 0, its drawing's u negated.
+        return out + ([(_dir_mirror(view), 0, [(-u, v) for u, v in pts])] if mirror else [])
     if mirror and view in ('front', 'rear'):
         out.append((view, 0, [(-x, y) for x, y in pts]))
     elif mirror:
@@ -284,6 +314,8 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=(), occluder: BVHTre
             if len(pts) < 3:
                 continue
 
+            dirb = _dir_basis(view) if _is_dir(view) else None
+
             def faces_here():
                 out = []
                 for f in bm.faces:
@@ -293,8 +325,11 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=(), occluder: BVHTre
                     n = geo.from_bl(mw.to_3x3() @ f.normal)
                     # Every face turned towards the view at all, so a shape across a
                     # rounded nose fills completely, not only the faces facing mostly sideways.
-                    facing = {'side': n[0] * sign, 'top': n[1], 'bottom': -n[1],
-                              'front': n[2], 'rear': -n[2]}[view]
+                    if dirb:
+                        facing = -Vector(n).dot(dirb[0])
+                    else:
+                        facing = {'side': n[0] * sign, 'top': n[1], 'bottom': -n[1],
+                                  'front': n[2], 'rear': -n[2]}[view]
                     if facing <= 0.02:
                         continue
                     out.append(f)
@@ -315,7 +350,12 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=(), occluder: BVHTre
                     cand.append(f)
                 if not cand:
                     continue
-                if view == 'side':
+                if dirb:
+                    d, du, dv = dirb
+                    pa, pb = du * a0 + dv * a1, du * b0 + dv * b1
+                    p0 = geo.to_bl(pa)
+                    nrm = geo.to_bl((pb - pa).cross(d))
+                elif view == 'side':
                     p0 = geo.to_bl((0.0, a1, a0))
                     e = geo.to_bl((0.0, b1, b0)) - p0
                     nrm = e.cross(xax)
@@ -333,8 +373,9 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=(), occluder: BVHTre
                 # The mesh is cut in its own frame (a surface or door sits at its hinge, not the origin).
                 bmesh.ops.bisect_plane(bm, geom=geom, plane_co=mwi @ p0,
                                        plane_no=(mwi_n @ nrm).normalized(), dist=1e-4)
-            toward = {'side': (sign, 0.0, 0.0), 'top': (0.0, 1.0, 0.0), 'bottom': (0.0, -1.0, 0.0),
-                      'front': (0.0, 0.0, 1.0), 'rear': (0.0, 0.0, -1.0)}[view]
+            toward = tuple(-dirb[0]) if dirb else {
+                'side': (sign, 0.0, 0.0), 'top': (0.0, 1.0, 0.0), 'bottom': (0.0, -1.0, 0.0),
+                'front': (0.0, 0.0, 1.0), 'rear': (0.0, 0.0, -1.0)}[view]
             look = (geo.to_bl(toward) - geo.to_bl((0.0, 0.0, 0.0))).normalized()
             for f in faces_here():
                 c = f.calc_center_median()
