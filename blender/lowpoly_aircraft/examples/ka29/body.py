@@ -113,7 +113,7 @@ QUARTER_2 = (0.95, 2.04, 1.042)
 ROOF_BLEND_END = 1.9
 NOSE_ARC_DEPTH = 0.15   # how far the rounded nose face bulges ahead of the tip ring
 NOSE_ARC_CY, NOSE_ARC_HALF = 0.955, 0.265   # side view: the arc is symmetric about the middle of the nose face (owner's red arc)
-NOSE_ARC_TOP_P = 8.0   # owner: flat top, steep front on the arc's upper half (2 = round)
+NOSE_ARC_P = 1.5   # superellipse exponent of the side-view arc (2 = ellipse), fitted to the owner's red line
 NOSE_ARC_START = -0.022 + NOSE_ARC_DEPTH   # owner: shorter nose: the arc ends where the flat face was (sheet tip -0.022)
 NOSE_BASE = 0.078   # last ring behind the arc rings (further aft it leaves a hole at the windscreen sill corner)
 NOSE_ARC_D = tuple(round(NOSE_ARC_START - NOSE_ARC_DEPTH * math.sin(math.radians(a)), 4) for a in (42, 62, 78))
@@ -213,13 +213,10 @@ def windscreen(d, H, y0):
         if d < NOSE_BASE + 1e-6:   # base ring too: its top meets the hood (no step at the hood)
             # Owner (2026-11-20, red arc on the side view): the nose face is one round arc. The rings
             # ahead of the tip shrink about its middle as a quarter ellipse: depth NOSE_ARC_DEPTH.
-            f = math.sqrt(max(0.0, 1.0 - ((NOSE_ARC_START - d) / NOSE_ARC_DEPTH) ** 2))
+            f = max(0.0, 1.0 - ((NOSE_ARC_START - d) / NOSE_ARC_DEPTH) ** NOSE_ARC_P) ** (1.0 / NOSE_ARC_P)
             lo, hi = Q[:, 1].min(), Q[:, 1].max()
             u = (Q[:, 1] - 0.5 * (lo + hi)) / (0.5 * (hi - lo))
-            # Owner: upper half flatter on top and steeper in front (a squarer superellipse).
-            t = (NOSE_ARC_START - d) / NOSE_ARC_DEPTH
-            f_top = (max(0.0, 1.0 - t ** NOSE_ARC_TOP_P)) ** (1.0 / NOSE_ARC_TOP_P)
-            ys = NOSE_ARC_CY + u * NOSE_ARC_HALF * np.where(u > 0, f_top, f)
+            ys = NOSE_ARC_CY + u * NOSE_ARC_HALF * f
             Q = np.stack([Q[:, 0] * (0.8 + 0.2 * f), ys], axis=1)
         return Q - np.array([0.0, y0])   # nose cap: same lower shape as the rings behind
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
