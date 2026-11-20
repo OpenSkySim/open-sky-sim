@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 
 DEFAULT_ID = 'default'
-_SHARED_SKIP = {'skins', 'about', 'aircraft'}
+_SHARED_SKIP = {'skins', 'about', 'aircraft', 'decals'}
 
 
 def slug(text: str) -> str:

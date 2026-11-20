@@ -859,7 +859,9 @@ def build_parts(spec: dict) -> None:
     geo.tidy(hull, spec.get('material', 'VEHICLE_PLANE_GREY'), smooth)
     pattern = spec.get('_paint')
     if pattern:
-        bpy.context.scene['lpa_paint'] = json.dumps(pattern, indent=1)
+        # The side-number decals ride along, so the Hangar can redraw a number while it is typed.
+        texts = [d for d in spec.get('decals') or [] if d.get('shape') == 'text']
+        bpy.context.scene['lpa_paint'] = json.dumps({**pattern, **({'decals': texts} if texts else {})}, indent=1)
     skin_list = spec.get('_skins') or [None]
     body_objs = [o for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name == 'Body']
     variants = []

@@ -2947,7 +2947,7 @@ const skinCol = sid => sid === SKIN0 ? 'paint' : 'paint_' + sid;
 function skinsBuilt(file) {
   if (!file) return [];
   if (!Array.isArray(file.skins)) return [{ ...file, id: SKIN0, name: file.name || 'Default' }];
-  const shared = Object.fromEntries(Object.entries(file).filter(([k]) => !['skins', 'about', 'aircraft'].includes(k)));
+  const shared = Object.fromEntries(Object.entries(file).filter(([k]) => !['skins', 'about', 'aircraft', 'decals'].includes(k)));
   return file.skins.filter(s => !s.removed).map((s, i) => ({ ...shared, ...s, id: i ? s.id : SKIN0, name: s.name || (i ? s.id : 'Default'), regions: s.regions || [] }));
 }
 // Every skin: built ones in their order, then the ones added here (oldest first); removed ones left out.
@@ -3067,6 +3067,7 @@ function paintDraw() {
   }
   if (!current) return;
   paintBaseApply();
+  paintNumber();
   // Lines and point handles only while Paint is on (and "show the outlines" is ticked); the fill stays.
   const lines = PT.on && $('paintShow').checked;
   const view = paintView();
@@ -3319,6 +3320,67 @@ async function skinShowBody() {
   current.root.children.unshift(current.root.children.pop());
   PT.bodyFile = want;
 }
+// Side number, live: paint.json "decals" (the build's text decals, body frame [y, z], digit height
+// "size") are drawn again on the body while the number or its colour differs from the built one;
+// the built digits (their own material) are hidden meanwhile. Same block digits as lpa/paint.py.
+const NUM_W = 0.56, NUM_S = 0.14;
+const NUM_SEG = { a: [0, 1 - NUM_S, NUM_W, 1], g: [0, 0.5 - NUM_S / 2, NUM_W, 0.5 + NUM_S / 2], d: [0, 0, NUM_W, NUM_S],
+                  f: [0, 0.5, NUM_S, 1], b: [NUM_W - NUM_S, 0.5, NUM_W, 1], e: [0, 0, NUM_S, 0.5], c: [NUM_W - NUM_S, 0, NUM_W, 0.5] };
+const NUM_DIGITS = { 0: 'abcdef', 1: 'bc', 2: 'abged', 3: 'abgcd', 4: 'fgbc', 5: 'afgcd', 6: 'afgedc', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg' };
+function numPolys(text, h) {
+  const adv = (NUM_W + 0.22) * h, total = adv * text.length - 0.22 * h, out = [];
+  [...text].forEach((ch, i) => {
+    const x0 = -total / 2 + i * adv;
+    for (const sg of NUM_DIGITS[ch] || '') {
+      const [a, b, c, d] = NUM_SEG[sg];
+      out.push([[x0 + a * h, b * h - h / 2], [x0 + c * h, b * h - h / 2], [x0 + c * h, d * h - h / 2], [x0 + a * h, d * h - h / 2]]);
+    }
+  });
+  return out;
+}
+function paintNumber() {
+  if (PT.numGroup) {
+    PT.numGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    PT.numGroup.removeFromParent(); PT.numGroup = null;
+  }
+  for (const o of PT.numHidden || []) o.visible = true;
+  PT.numHidden = [];
+  const decals = (PT.file && PT.file.decals) || [];
+  if (!current || meshOnly || !decals.length) return;
+  const lc = c => String(c || '').toLowerCase();
+  const all = skinsBuilt(PT.file), sk = skinCur();
+  const shown = all.find(s => s.id !== SKIN0 && PT.bodyFile && PT.bodyFile === skinBodyFile(s.id)) || all[0] || {};
+  const typing = document.activeElement === $('skinNumber') && ($('skinNumber').dataset.skin || PT.skin) === PT.skin;
+  const want = typing ? $('skinNumber').value.replace(/[^0-9]/g, '') : String((sk && sk.number) || '');
+  const wantCol = PT.numColLive ? lc($('skinNumberColor').value) : lc(sk && sk.number_color);
+  const g = new THREE.Group();
+  let differs = false;
+  for (const dec of decals) {
+    const builtText = String(shown.number || dec.text || ''), builtCol = lc(shown.number_color || dec.color);
+    const text = want || builtText, col = wantCol || builtCol;
+    if (text === builtText && col === builtCol) continue;
+    differs = true;
+    current.root.children[0].traverse(o => { if (o.isMesh && lc(o.userData.mat) === builtCol && o.visible) { o.visible = false; PT.numHidden.push(o); } });
+    const [y0, z0] = dec.at, size = +dec.size;
+    const sides = { left: [1], right: [-1], both: [1, -1] }[dec.side || 'both'];
+    for (const sx of sides) {
+      const P = [], idx = [];
+      for (const poly of numPolys(text, size)) {
+        const vs = poly.map(([u, v]) => paintSurf('side', z0 - sx * u, y0 + v, sx));
+        if (vs.some(v => !v)) continue;
+        const k = P.length; P.push(...vs); idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
+      }
+      if (!P.length) continue;
+      const geo = new THREE.BufferGeometry().setFromPoints(P); geo.setIndex(idx);
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
+      m.raycast = () => {}; g.add(m);
+    }
+  }
+  if (!differs) return;
+  g.traverse(o => { o.userData.reference = true; });
+  scene.add(g);
+  PT.numGroup = g;
+}
 async function skinSelect(sid) {
   PT.skin = sid; PT.sel = null; PT.draft = null;
   const sk = skinCur();
@@ -3427,6 +3489,7 @@ function skinMeta(sid, patch) {
   PT.skinDocs[sid] = { ...(PT.skinDocs[sid] || {}), ...patch, t: (PT.skinDocs[sid] && PT.skinDocs[sid].t) || new Date().toISOString(), updated: new Date().toISOString() };
   paintWrite('skins', sid, PT.skinDocs[sid]);
   paintUi();
+  paintNumber();
 }
 // An edit belongs to the skin shown when the field was entered (a change fires on leaving it).
 for (const id of ['skinName', 'skinNumber']) $(id).addEventListener('focus', e => { e.target.dataset.skin = PT.skin; });
@@ -3444,7 +3507,10 @@ $('skinNumber').addEventListener('change', e => {
   e.target.value = v;
   skinMeta(sid, { number: v || null });
 });
-$('skinNumberColor').addEventListener('change', e => skinMeta(PT.skin, { number_color: e.target.value }));
+$('skinNumberColor').addEventListener('change', e => { PT.numColLive = false; skinMeta(PT.skin, { number_color: e.target.value }); });
+// Live while typing or picking the colour (saved on leaving the field / closing the picker, as before).
+$('skinNumber').addEventListener('input', paintNumber);
+$('skinNumberColor').addEventListener('input', () => { PT.numColLive = true; paintNumber(); });
 function skinNewId() { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 function skinUniqueName(base) {
   const names = new Set(skinList().map(s => s.name));
