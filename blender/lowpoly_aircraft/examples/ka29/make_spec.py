@@ -356,6 +356,11 @@ def main():
         {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
          'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.85), 'radius': 0.293, 'radius_b': 0.305,
          'inner': 0.222, 'inner_b': 0.23},
+        # Owner: the hull runs smoothly into the intake: a skin-coloured collar from behind the lip,
+        # flaring back into the deck's front face.
+        {'name': 'IntakeFairing', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10,
+         'material': 'VEHICLE_PLANE_GREY', 'a': P(0.43, 2.52, 1.84), 'b': P(0.43, 2.52, 2.12),
+         'radius': 0.302, 'radius_b': 0.42, 'inner': 0.24, 'inner_b': 0.24},
         {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
          'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
          'inner': 0.23, 'inner_b': 0.23},

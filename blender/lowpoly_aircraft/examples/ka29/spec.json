@@ -4588,6 +4588,28 @@
    "inner_b": 0.23
   },
   {
+   "name": "IntakeFairing",
+   "type": "duct",
+   "mirror": true,
+   "join": "separate",
+   "sides": 10,
+   "material": "VEHICLE_PLANE_GREY",
+   "a": [
+    0.43,
+    2.52,
+    2.38
+   ],
+   "b": [
+    0.43,
+    2.52,
+    2.1
+   ],
+   "radius": 0.302,
+   "radius_b": 0.42,
+   "inner": 0.24,
+   "inner_b": 0.24
+  },
+  {
    "name": "IntakeDuct",
    "type": "duct",
    "mirror": true,
