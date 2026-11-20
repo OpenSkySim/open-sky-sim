@@ -425,7 +425,8 @@ const ROLL_VIS_TAILERON = 0.5;
 const stage = document.getElementById('stage');
 const statusEl = document.getElementById('status');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const PR_FULL = Math.min(devicePixelRatio, 2);
+renderer.setPixelRatio(PR_FULL);
 stage.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1.6, 0.1, 2000);
@@ -882,7 +883,7 @@ const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 // The 3D view is drawn when something can have changed: while the camera moves, an animation
 // runs, or for a moment after any input; otherwise 4 times a second (for changes that arrive
 // later, such as a model or paint loading). A still Hangar then costs almost nothing.
-let lastWake = 0, lastRender = 0;
+let lastWake = 0, lastRender = 0, lastMove = -1e9;
 function wake() { lastWake = performance.now(); }
 for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'keyup', 'input', 'change', 'click', 'focus'])
   addEventListener(ev, wake, { capture: true, passive: true });
@@ -914,6 +915,14 @@ function tick(now) {
     poseSurfaces(true);
   }
   const moved = controls.update();
+  paintObjsMemo = null;
+  // While the camera turns, a high-density screen draws at 1 pixel per CSS pixel (a quarter of the
+  // work); sharp again as soon as it stops.
+  if (PR_FULL > 1) {
+    if (moved) lastMove = now;
+    const pr = now - lastMove < 150 ? 1 : PR_FULL;
+    if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
+  }
   if (moved || demo || !spinManual || now - lastWake < 700 || now - lastRender > 250) {
     renderer.render(scene, cam);
     lastRender = now;
@@ -3048,8 +3057,12 @@ const paintFree = () => !!current && !paintView();
 // Every part in the skin's base colour takes the shapes, as in the build: the hull, doors and
 // hatches, the wings' moving parts and folding panels, gear doors, the hook. Propellers and
 // rotors ('spin') keep their own colours. part: the moving parts (always the default skin's files).
+// Kept for the rest of the animation frame (a brush stroke asks for it many times per pointer move).
+let paintObjsMemo = null;
 function paintObjs() {
   if (!current) return [];
+  const key = [current.root, current.root.children[0], PT.skin, PT.bodyFile, PT.file], M = paintObjsMemo;
+  if (M && M.key.every((k, i) => k === key[i])) return M.out;
   const from = paintFromSet(), fromS = paintFromSet(true), out = [];
   const add = (node, set, part) => node && node.traverse(o => {
     if (o.isMesh && !o.userData.edge && !o.userData.inside && !o.userData.reference && o.geometry
@@ -3059,6 +3072,7 @@ function paintObjs() {
   for (const s of current.surfaces) if (s.cfg.control !== 'spin') add(s.node, fromS, true);
   add(current.gearScene, fromS, true);
   add(current.hook && current.hook.node, fromS, true);
+  paintObjsMemo = { key, out };
   return out;
 }
 // Where each part sits at rest (surfaces centred, gear up with its doors shut, hook stowed): the
@@ -3377,19 +3391,20 @@ function paintOverlayDir(dops) {
       u0 = Math.min(u0, x); u1 = Math.max(u1, x); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
     }
     // Whole metres with a margin, so a stroke growing a little does not rebuild the layer.
-    const bu = Math.floor(u0 - 1), bv = Math.floor(v0 - 1), size = Math.ceil(Math.max(u1 + 1 - bu, v1 + 1 - bv));
+    const bu = 2 * Math.floor((u0 - 1) / 2), bv = 2 * Math.floor((v0 - 1) / 2), size = 2 * Math.ceil(Math.max(u1 + 1 - bu, v1 + 1 - bv) / 2);
     const box = [bu, bv, size];
     let L = O.dir.get(k);
     if (L && L.box.join() !== box.join()) { paintDirLayerDrop(L); O.dir.delete(k); L = null; }
     if (!L) {
-      const N = size <= 6 ? 1024 : 2048, c = document.createElement('canvas');
+      // About a centimetre per texel: a small patch uploads a small texture on every brush move.
+      const N = Math.min(2048, Math.max(256, 2 ** Math.ceil(Math.log2(size * 100)))), c = document.createElement('canvas');
       c.width = c.height = N;
       const tex = new THREE.CanvasTexture(c);
       tex.flipY = false; tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter; tex.colorSpace = THREE.SRGBColorSpace;
-      const depth = paintDepthDir(O.parts, PT.shift, b, box);
+      const nd = Math.min(N, 1024), depth = paintDepthDir(O.parts, PT.shift, b, box, nd);
       const uniforms = { tD: { value: tex }, dD: { value: depth.texture }, uS: { value: new THREE.Vector3(...PT.shift) },
                          uU: { value: b.U }, uV: { value: b.V }, uDir: { value: b.d }, uBox: { value: new THREE.Vector3(...box) },
-                         uTexel: { value: size / 1024 } };
+                         uTexel: { value: size / nd } };
       // Only the parts whose box reaches the layer's square on the view plane.
       const reach = i => {
         const { min: a, max: c } = O.pbox[i];
