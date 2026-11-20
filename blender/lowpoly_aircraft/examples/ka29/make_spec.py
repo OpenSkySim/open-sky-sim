@@ -451,12 +451,13 @@ def main():
         # the faces that can be seen from outside through the glazing (everything is single-sided,
         # facing the windows). Floor, bulkhead, side console sides, nose consoles and the footwell
         # block went: they were black against the black inside skin anyway.
+        # Owner (2026-11-20): every pane facing outward (to the sides) is black.
         # Front panel (d 0.70-0.84): turquoise faces towards the pilots, black flat top.
         Q('PanelSide', TURQ, (0, 0, -1), True, P(0.27, 1.12, 0.84), P(1.04, 1.12, 0.84), P(1.04, 1.37, 0.84), P(0.27, 1.37, 0.84)),
         Q('PanelSideTop', PANEL_BACK, (0, 1, 0), True, P(0.27, 1.37, 0.70), P(0.99, 1.37, 0.70), P(1.04, 1.37, 0.84), P(0.27, 1.37, 0.84)),
         Q('PanelCentre', TURQ, (0, 0, -1), False, P(-0.27, 0.62, 0.84), P(0.27, 0.62, 0.84), P(0.27, 1.45, 0.84), P(-0.27, 1.45, 0.84)),
         Q('PanelCentreTop', PANEL_BACK, (0, 1, 0), False, P(-0.27, 1.45, 0.70), P(0.27, 1.45, 0.70), P(0.27, 1.45, 0.84), P(-0.27, 1.45, 0.84)),
-        Q('PanelCentreSide', TURQ, (1, 0, 0), True, P(0.27, 0.62, 0.70), P(0.27, 0.62, 0.84), P(0.27, 1.45, 0.84), P(0.27, 1.45, 0.70)),
+        Q('PanelCentreSide', PANEL_BACK, (1, 0, 0), True, P(0.27, 0.62, 0.70), P(0.27, 0.62, 0.84), P(0.27, 1.45, 0.84), P(0.27, 1.45, 0.70)),
         # Black deck from the panel top down to the windscreen sill (two panes following the side
         # panes' sill), and a cheek under its edge on each side so nothing shows below it.
         Q('Coaming', PANEL_BACK, (0, 1, 0), False, P(-0.36, 1.17, 0.27), P(0.36, 1.17, 0.27), P(0.85, 1.22, 0.45), P(-0.85, 1.22, 0.45)),
@@ -464,15 +465,15 @@ def main():
         Q('CoamingCheek', PANEL_BACK, (1, 0, 0), True, P(0.85, 1.0, 0.45), P(0.98, 1.0, 0.70), P(0.99, 1.37, 0.70), P(0.85, 1.22, 0.45)),
         # Centre console between the seats: top and sides.
         Q('Pedestal', TURQ, (0, 1, 0), False, P(-0.18, 1.0, 0.84), P(0.18, 1.0, 0.84), P(0.14, 1.0, 1.75), P(-0.14, 1.0, 1.75)),
-        Q('PedestalSide', TURQ, (1, 0, 0), True, P(0.18, 0.6, 0.84), P(0.14, 0.6, 1.75), P(0.14, 1.0, 1.75), P(0.18, 1.0, 0.84)),
+        Q('PedestalSide', PANEL_BACK, (1, 0, 0), True, P(0.18, 0.6, 0.84), P(0.14, 0.6, 1.75), P(0.14, 1.0, 1.75), P(0.18, 1.0, 0.84)),
         Q('SideConsoleTop', TURQ_LIGHT, (0, 1, 0), True, P(0.87, 0.925, 0.65), P(0.93, 0.925, BULK_D - 0.02), P(1.06, 0.925, BULK_D - 0.02), P(0.94, 0.925, 0.65)),
         {'name': 'Cyclic', 'type': 'strut', 'mirror': True, 'a': P(SEAT_X, 0.62, 0.92), 'b': P(SEAT_X, 1.05, 0.87),
          'radius': 0.025, 'sides': 3, 'join': 'separate', 'material': GAUGE},
         # Seats: cushion front and outer side, back front and outer side; belts as flat strips.
         Q('Seat', SEAT, (0, 0, 1), True, P(SEAT_X - 0.22, 0.77, 1.2), P(SEAT_X + 0.22, 0.77, 1.2), P(SEAT_X + 0.22, 1.15, 1.2), P(SEAT_X - 0.22, 1.15, 1.2)),
-        Q('SeatSide', SEAT, (1, 0, 0), True, P(SEAT_X + 0.22, 0.77, 1.2), P(SEAT_X + 0.22, 0.77, 1.75), P(SEAT_X + 0.22, 1.15, 1.75), P(SEAT_X + 0.22, 1.15, 1.2)),
+        Q('SeatSide', PANEL_BACK, (1, 0, 0), True, P(SEAT_X + 0.22, 0.77, 1.2), P(SEAT_X + 0.22, 0.77, 1.75), P(SEAT_X + 0.22, 1.15, 1.75), P(SEAT_X + 0.22, 1.15, 1.2)),
         Q('SeatBack', SEAT, (0, 0, 1), True, P(SEAT_X - 0.22, 1.15, 1.6), P(SEAT_X + 0.22, 1.15, 1.6), P(SEAT_X + 0.22, 1.85, 1.6), P(SEAT_X - 0.22, 1.85, 1.6)),
-        Q('SeatBackSide', SEAT, (1, 0, 0), True, P(SEAT_X + 0.22, 1.15, 1.6), P(SEAT_X + 0.22, 1.15, 1.75), P(SEAT_X + 0.22, 1.85, 1.75), P(SEAT_X + 0.22, 1.85, 1.6)),
+        Q('SeatBackSide', PANEL_BACK, (1, 0, 0), True, P(SEAT_X + 0.22, 1.15, 1.6), P(SEAT_X + 0.22, 1.15, 1.75), P(SEAT_X + 0.22, 1.85, 1.75), P(SEAT_X + 0.22, 1.85, 1.6)),
         Q('SeatBeltIn', BELT, (0, 0, 1), True, P(SEAT_X - 0.105, 1.15, 1.59), P(SEAT_X - 0.055, 1.15, 1.59), P(SEAT_X - 0.055, 1.8, 1.59), P(SEAT_X - 0.105, 1.8, 1.59)),
         Q('SeatBeltOut', BELT, (0, 0, 1), True, P(SEAT_X + 0.055, 1.15, 1.59), P(SEAT_X + 0.105, 1.15, 1.59), P(SEAT_X + 0.105, 1.8, 1.59), P(SEAT_X + 0.055, 1.8, 1.59)),
     ]

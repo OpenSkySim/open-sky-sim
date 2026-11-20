@@ -5067,7 +5067,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#1f5c5a",
+   "material": "#101113",
    "points": [
     [
      0.27,
@@ -5212,7 +5212,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#1f5c5a",
+   "material": "#101113",
    "points": [
     [
      0.18,
@@ -5318,7 +5318,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#4a2c20",
+   "material": "#101113",
    "points": [
     [
      0.84,
@@ -5376,7 +5376,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#4a2c20",
+   "material": "#101113",
    "points": [
     [
      0.84,
