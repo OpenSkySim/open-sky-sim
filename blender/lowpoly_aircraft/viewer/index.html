@@ -3151,6 +3151,9 @@ function paintFromSet() {
   const own = all.find(s => s.id === PT.skin && PT.bodyFile && PT.bodyFile === skinBodyFile(s.id));
   if (own) return new Set([lc(own.base)]);
   const set = new Set([lc(def && def.base)]);
+  // Built without a paint scheme (no paint.json base, e.g. the Yak-44E): the hull keeps the
+  // builder's palette material, which is what the base colour and the shapes go on.
+  if (!def || !def.base) set.add('vehicle_plane_grey');
   if (PT.skin !== SKIN0 && def) for (const r of def.regions || []) set.add(lc(r.color));
   return set;
 }
