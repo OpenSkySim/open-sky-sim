@@ -365,8 +365,9 @@ def main():
          'material': 'VEHICLE_PLANE_GREY', 'stations': [
              [z_(1.875), 0.43, 2.52, 0.336, 0.336, 0.336, 2.0],
              [z_(1.95), 0.43, 2.52, 0.36, 0.35, 0.36, 2.2],
-             [z_(2.08), 0.43, 2.51, 0.385, 0.37, 0.38, 2.6],
-             [z_(2.3), 0.43, 2.5, 0.39, 0.37, 0.38, 2.8]]},
+             [z_(2.08), 0.43, 2.51, 0.4, 0.37, 0.38, 2.6],
+             [z_(2.25), 0.43, 2.5, 0.4, 0.365, 0.38, 2.8],
+             [z_(2.5), 0.43, 2.48, 0.35, 0.32, 0.34, 2.8]]},   # owner: smooth the side step (x 0.85 = deck side)
         {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
          'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
          'inner': 0.23, 'inner_b': 0.23},
@@ -588,6 +589,7 @@ def main():
                          {'min': [0.38, 1.98, z_(1.9)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 30},
                          {'min': [-1.3, 1.98, z_(1.9)], 'max': [-0.38, 2.4, z_(0.6)], 'deg': 30},
                          {'min': [-0.38, 1.9, z_(1.9)], 'max': [0.38, 2.4, z_(0.6)], 'deg': 20},   # bulge: as before
+                         {'min': [-1.0, 2.05, z_(2.6)], 'max': [1.0, 3.0, z_(1.9)], 'deg': 15},   # owner: intake fairing into the deck, merged polygons
                          {'min': [-1.3, -1, z_(7.9)], 'max': [1.3, 4, z_(2.6)], 'deg': 3, 'relax': 2}],   # 4th: cabin (owner: smoothen)
         'sections': fuse_secs,
         'parts': parts,
