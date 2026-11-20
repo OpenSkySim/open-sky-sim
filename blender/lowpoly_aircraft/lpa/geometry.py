@@ -215,9 +215,20 @@ def symmetrize(obj: bpy.types.Object) -> None:
     bm.free()
 
 
-def decimate(obj: bpy.types.Object, ratio: float = 1.0, planar_deg: float = 0.0) -> None:
+def decimate(obj: bpy.types.Object, ratio: float = 1.0, planar_deg: float = 0.0, keep_boxes=()) -> None:
     """Decimate a mesh in place: merge near-flat faces (within *planar_deg*), else collapse to
-    *ratio* of its faces symmetric about the body's X."""
+    *ratio* of its faces symmetric about the body's X. Edges with both ends inside one of
+    *keep_boxes* ((min, max) body-frame corners) are kept, so the loft's quads stay there."""
+    if planar_deg > 0 and keep_boxes:
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        boxes = [(np.asarray(lo, float), np.asarray(hi, float)) for lo, hi in keep_boxes]
+        inside = lambda v: any(np.all(np.asarray(from_bl(v.co)) >= lo) and np.all(np.asarray(from_bl(v.co)) <= hi)
+                               for lo, hi in boxes)
+        for e in bm.edges:
+            e.smooth = not all(inside(v) for v in e.verts)
+        bm.to_mesh(obj.data)
+        bm.free()
     if planar_deg <= 0:
         # The collapse only stays symmetric on a mesh whose two halves match vertex for vertex;
         # a boolean-joined hull does not, so mirror its left half (+X) onto the right first.
@@ -230,6 +241,8 @@ def decimate(obj: bpy.types.Object, ratio: float = 1.0, planar_deg: float = 0.0)
     if planar_deg > 0:
         mod.decimate_type = 'DISSOLVE'
         mod.angle_limit = math.radians(planar_deg)
+        if keep_boxes:
+            mod.delimit = {'SHARP'}
     else:
         mod.decimate_type = 'COLLAPSE'
         mod.ratio = ratio
@@ -578,13 +591,69 @@ def disc(name: str, center, radius: float, normal_axis: str, material: str, coll
     return _link(obj, collection)
 
 
-def flatten_panes(obj: bpy.types.Object, angle_deg: float = 1.0) -> None:
-    """Merge coplanar faces and drop vertices on straight edges, then triangulate (BEAUTY)."""
+def flatten_panes(obj: bpy.types.Object, angle_deg: float = 1.0, panes: int = 0) -> None:
+    """Merge coplanar faces and drop vertices on straight edges, then triangulate (BEAUTY).
+
+    With *panes* > 0 only that many of the largest merged faces are kept (stray bits of glass
+    on frame steps go) and each is cut back to its four sharpest corners, so every pane is
+    exactly two triangles."""
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-4)
-    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(angle_deg), use_dissolve_boundaries=True,
-                             verts=bm.verts[:], edges=bm.edges[:])
+    if panes <= 0:
+        bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(angle_deg), use_dissolve_boundaries=True,
+                                 verts=bm.verts[:], edges=bm.edges[:])
+    else:
+        # An open sheet (the skin-only pane): no boundary dissolve, faces are grouped instead.
+        # Group connected faces of one pane (normals within 30 deg; frame posts split the panes),
+        # largest groups first, and rebuild each as the quad of its four sharpest outline corners.
+        bm.normal_update()
+        cos_lim = math.cos(math.radians(max(angle_deg, 30.0)))   # panes are split by their frames
+        groups, seen = [], set()
+        for f0 in bm.faces:
+            if f0 in seen:
+                continue
+            grp, stack = [], [f0]
+            seen.add(f0)
+            while stack:
+                f = stack.pop()
+                grp.append(f)
+                for e in f.edges:
+                    for g in e.link_faces:
+                        if g not in seen and g.normal.dot(f0.normal) > cos_lim:
+                            seen.add(g)
+                            stack.append(g)
+            groups.append(grp)
+        groups.sort(key=lambda g: sum(f.calc_area() for f in g), reverse=True)
+        quads = []
+        for g in groups[:panes]:
+            gs = set(g)
+            # The group's outline: edges with one face in the group, walked into a loop.
+            nxt = {}
+            for f in g:
+                for l in f.loops:
+                    e = l.edge
+                    if sum(1 for h in e.link_faces if h in gs) == 1:
+                        nxt[l.vert] = l.link_loop_next.vert
+            if not nxt:
+                continue
+            start = next(iter(nxt))
+            loop, v = [start], nxt[start]
+            while v is not start and v in nxt and len(loop) <= len(nxt):
+                loop.append(v)
+                v = nxt[v]
+            n = sum((f.normal * f.calc_area() for f in g), Vector()).normalized()
+            pts = [w.co.copy() for w in loop]
+            turn = []
+            for k, p in enumerate(pts):
+                e1 = (p - pts[k - 1]).normalized()
+                e2 = (pts[(k + 1) % len(pts)] - p).normalized()
+                turn.append(abs(e1.cross(e2).dot(n)))
+            keep = sorted(sorted(range(len(pts)), key=lambda k: -turn[k])[:4])
+            quads.append([pts[k] for k in keep])
+        bm.clear()
+        for q in quads:
+            bm.faces.new([bm.verts.new(p) for p in q])
     bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method='BEAUTY', ngon_method='BEAUTY')
     bm.to_mesh(obj.data)
     bm.free()

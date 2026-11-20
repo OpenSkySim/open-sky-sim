@@ -691,6 +691,27 @@ def _stand_on_wheels(ground_y: float | None, dz: float = 0.0) -> None:
     print(f'[lpa] moved the aircraft by y {dy:+.3f} m (wheels at y {ground_y}), z {dz:+.3f} m')
 
 
+def _paint_hull(hull, skin: dict | None, spec: dict, others: list) -> None:
+    """One skin on the hull's mesh: paint outlines (paint.json), decals with the skin's side
+    number, camo, then the dark inside skin. *others*: separate body meshes (base colour, camo)."""
+    from . import skins
+    if skin:
+        # Real camo outlines cut into the skin (paint.json next to the spec, or spec "paint").
+        paint.apply_pattern(hull, skin, others)
+        # Separate panels named in spec "paint_parts" (e.g. a cabin door) take the outlines too.
+        for obj in others:
+            if any(p in obj.name for p in spec.get('paint_parts', [])):
+                paint.apply_pattern(obj, skin)
+    if spec.get('decals'):
+        paint.add_decals(hull, spec['decals'], skins.text_override(skin or {}))
+    if spec.get('camo'):
+        # Body only: moving parts and gear legs must stay one material each.
+        paint.apply_camo(list(others) + [hull], spec['camo'])
+    if spec.get('lining'):
+        # Dark inside skin, so no opening shows through the hull (back faces are culled).
+        paint.add_lining(hull, spec['lining'])
+
+
 def build_parts(spec: dict) -> None:
     """Realistic low-poly model from shaped parts (lofts and profiled panels).
 
@@ -814,11 +835,15 @@ def build_parts(spec: dict) -> None:
                 part['lpa_region'] = item.get('name', 'Region')
                 if item.get('flat_panes'):
                     # Flat panes as few triangles as possible: merge each flat pane into one face
-                    # (straight edges lose their in-between vertices), so a 4-cornered pane is 2 tris.
+                    # (straight edges lose their in-between vertices), so a 4-cornered pane is 2 tris;
+                    # "panes": N keeps the N largest, each cut to its 4 corners (2 tris a pane).
                     geo.flatten_panes(part, float(item.get('flat_deg', 1.0)))
                 if skin is not None:
                     geo.keep_skin(part, skin)
                     see_through.append((skin, cutters[-1]))
+                if item.get('flat_panes') and item.get('panes'):
+                    # Once only the skin is left: N largest panes, 4 corners each.
+                    geo.flatten_panes(part, float(item.get('flat_deg', 1.0)), int(item['panes']))
     _add_surfaces(None, hull, spec)
     _add_gear(None, hull, spec)
     for skin, cutter in see_through:
@@ -838,23 +863,34 @@ def build_parts(spec: dict) -> None:
         # Fewer polygons on the finished hull: near-flat neighbours merged after every cut, so
         # no boolean sees the dissolved n-gons (dissolving first can break the later cuts) and no
         # vertex moves (wells, doors and panes still fit).
-        geo.decimate(hull, planar_deg=float(spec['planar_deg_final']))
+        geo.decimate(hull, planar_deg=float(spec['planar_deg_final']),
+                     keep_boxes=[(z['min'], z['max']) for z in spec.get('planar_keep', [])])
     geo.tidy(hull, spec.get('material', 'VEHICLE_PLANE_GREY'), smooth)
     pattern = spec.get('_paint')
     if pattern:
-        bpy.context.scene['lpa_paint'] = json.dumps(pattern, indent=1)
-        # Real camo outlines cut into the skin (paint.json next to the spec, or spec "paint").
-        paint.apply_pattern(hull, pattern, [o for o in bpy.data.objects if o.type == 'MESH'
-                                            and o.users_collection[0].name == 'Body'])
-    if spec.get('decals'):
-        paint.add_decals(hull, spec['decals'])
-    if spec.get('camo'):
-        # Body only: moving parts and gear legs must stay one material each.
-        paint.apply_camo([o for o in bpy.data.objects if o.type == 'MESH'
-                          and o.users_collection[0].name == 'Body' or o is hull], spec['camo'])
-    if spec.get('lining'):
-        # Dark inside skin, so no opening shows through the hull (back faces are culled).
-        paint.add_lining(hull, spec['lining'])
+        # The side-number decals ride along, so the Hangar can redraw a number while it is typed.
+        texts = [d for d in spec.get('decals') or [] if d.get('shape') == 'text']
+        bpy.context.scene['lpa_paint'] = json.dumps({**pattern, **({'decals': texts} if texts else {})}, indent=1)
+    skin_list = spec.get('_skins') or [None]
+    body_objs = [o for o in bpy.data.objects if o.type == 'MESH' and o.users_collection[0].name == 'Body']
+    variants = []
+    if len(skin_list) > 1:
+        # Every skin after the first (the default) is painted on its own copy of the finished,
+        # unpainted hull; export_pack writes each as a second body model (manifest 'liveries').
+        orig, raw = hull.data, hull.data.copy()
+        for skin in skin_list[1:]:
+            hull.data = raw.copy()
+            _paint_hull(hull, skin, spec, [])
+            hull.data.name = f'0_Body~{skin["id"]}'
+            hull.data.use_fake_user = True
+            variants.append({'id': skin['id'], 'name': skin.get('name') or skin['id'],
+                             'mesh': hull.data.name, 'base': skin.get('base', '#aeb2b4')})
+        hull.data = orig
+        bpy.data.meshes.remove(raw)
+        bpy.context.scene['lpa_skins'] = json.dumps(variants)
+        bpy.context.scene['lpa_skin_default'] = json.dumps(
+            {'name': skin_list[0].get('name') or 'Default', 'base': skin_list[0].get('base', '#aeb2b4')})
+    _paint_hull(hull, skin_list[0], spec, body_objs)
     hull.name = hull.data.name = '0_Body'
     bpy.data.collections['Construction'].objects.unlink(hull)
     geo._link(hull, 'Body')
@@ -899,6 +935,8 @@ def build(spec_path: str) -> None:
         from . import sections
         sections.attach(spec, spec_dir)
         spec['_paint'] = paint.load_pattern(spec, spec_dir)
+        from . import skins
+        spec['_skins'] = skins.normalize(spec['_paint'])
         build_parts(spec)
         return
 

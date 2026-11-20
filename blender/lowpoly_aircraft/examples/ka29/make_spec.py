@@ -132,7 +132,9 @@ def circle_px(x, y, r, n=10):
 
 
 DARK = 'VEHICLE_PLANE_ENGINE'
-DOOR = '#7b828a'
+EXHAUST_BLACK = '#0a0b0c'   # owner: exhaust pipes dark black
+INTAKE_BLACK = '#000000'   # owner: intakes dark black
+DOOR = 'VEHICLE_PLANE_GREY'   # owner: the door takes the paint like the skin around it (outline still cut)
 
 
 def fuselage():
@@ -190,20 +192,21 @@ def fuselage():
 
 def windows_and_doors():
     side_skin = [0.6, 1.3]       # depth reaching only the left cabin wall
+    # Owner (2026-11-20): every windscreen and quarter pane exactly 2 triangles ('panes').
     return [
         # Three flat front panes (owner's photo): the hull itself is cut flat there (body.windscreen),
         # and the glass is the side-view band clipped to three top-view strips, so the frames between
         # them (x +-0.29, 6 cm) and the corner frames stay hull skin.
-        {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'depth_m': [-1.3, 1.3],
-         'polygon_m': [[z_(0.2), 1.28], [z_(0.71), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.28]],
+        {'name': 'Windscreen', 'view': 'side', 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'panes': 3, 'depth_m': [-1.3, 1.3],
+         'polygon_m': [[z_(0.2), 1.28], [z_(0.62), 2.055], [z_(1.05), 2.055], [z_(1.05), 1.28]],
          'clip': {'view': 'top', 'polygons_m': [
-             [[-0.38, z_(0.2)], [0.38, z_(0.2)], [0.38, z_(0.66)], [-0.38, z_(0.66)]],
-             [[0.42, z_(0.25)], [0.92, z_(0.465)], [0.875, z_(0.76)], [0.42, z_(0.66)]],
-             [[-0.42, z_(0.25)], [-0.42, z_(0.66)], [-0.875, z_(0.76)], [-0.92, z_(0.465)]]]}},
+             [[-0.38, z_(0.2)], [0.38, z_(0.2)], [0.38, z_(0.60)], [-0.38, z_(0.60)]],
+             [[0.42, z_(0.25)], [0.92, z_(0.465)], [0.875, z_(0.68)], [0.42, z_(0.60)]],
+             [[-0.42, z_(0.25)], [-0.42, z_(0.60)], [-0.875, z_(0.68)], [-0.92, z_(0.465)]]]}},
         # Side quarter panes (photo): the flat plane from each side pane's rear edge out to the
         # cabin wall at the sloping door pillar (body.QUARTER_1/2); frames stay hull skin.
-        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'depth_m': [0.8, 1.3],
-         'polygon_m': [[z_(0.5), 1.29], [z_(0.81), 2.0], [z_(1.03), 2.0], [z_(0.84), 1.29]]},
+        {'name': 'QuarterPane', 'view': 'side', 'mirror': True, 'see_through': True, 'flat_panes': True, 'flat_deg': 8, 'panes': 1, 'depth_m': [0.8, 1.3],
+         'polygon_m': [[z_(0.5), 1.29], [z_(0.75), 2.0], [z_(1.03), 2.0], [z_(0.84), 1.29]]},
         # Cockpit door windows, both sides: front edge parallel to the door pillar (second sheet).
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          # Owner's marked form: front edge parallel to the quarter pane's rear edge (4 cm post),
@@ -228,9 +231,21 @@ def fuselage_sections(cabin, deck):
     cd = [d_(r[0]) for r in cabin]
     dd = [d_(r[0]) for r in deck]
 
+    def side_bottom(d):
+        return float(np.interp(d, cd, [y_(r[2]) for r in cabin]))
+
+    # Nose bottom (owner 2026-11-20: match the sections): section А stands with its top on the
+    # windscreen sill at its own height (0.606 m), i.e. 0.10 m higher than the first sheet's line
+    # (the second sheet's side view agrees: 0.66 at А); back to the side line at Б.
+    secs0 = body.load_sections()
+    dA, dB = secs0['A']['d'], secs0['B']['d']
+    yA = body.PANE_A[1] - max(p[1] for p in secs0['A']['half'])
+    nose_line = ([cd[0], dA, 0.45, dB], [side_bottom(cd[0]), yA, 0.54, side_bottom(dB)])
+
     def bottom(d):
-        b = float(np.interp(d, cd, [y_(r[2]) for r in cabin]))
-        return b
+        if d < dB:
+            return float(np.interp(d, *nose_line))
+        return side_bottom(d)
 
     def cab_top(d):
         return float(np.interp(d, cd, [y_(r[3]) for r in cabin]))
@@ -248,7 +263,8 @@ def fuselage_sections(cabin, deck):
         return d_(x), body.resample(body.superellipse_half(hw / S, h / 2, h / 2, n, nt))
 
     secs = body.load_sections()
-    keys = [se_key(r) for r in cabin[:3]]
+    # Owner (2026-11-20): the nose front 30 cm wider (0.15 m each side).
+    keys = [se_key((r[0], r[1] + 0.15 * S) + tuple(r[2:])) for r in cabin[:3]]
     # The side's bend runs along one straight line (side view): fitted through the bends of the
     # cabin sections, and every ring puts a vertex on it.
     fit = [(sec['d'], bottom(sec['d']) + float(np.asarray(sec['half'])[int(np.argmax(np.asarray(sec['half'])[:, 0] >= 0.98 * np.asarray(sec['half'])[:, 0].max())), 1]))
@@ -288,9 +304,9 @@ def fuselage_sections(cabin, deck):
             keys.append((1.86, H2))
     keys += [se_key(r) for r in cabin if d_(r[0]) > 9.5 and r[1] > 0]
     keys.sort(key=lambda k: k[0])
-    stations = {round(k[0], 3) for k in keys} | {1.45, 1.7, 2.5, 7.05}   # fewer in-between rings (owner: simplify)
+    stations = {round(k[0], 3) for k in keys} | {1.45, 1.65, 2.5, 7.05}   # fewer in-between rings (owner: simplify)
     # Nose: the flat front panes need rings exactly at their corners (body.PANE_STATIONS).
-    stations = sorted({d for d in stations if not 0.0 < d < 1.1} | set(body.PANE_STATIONS))   # nose tip: cap + pane rings only
+    stations = sorted({d for d in stations if not -0.05 < d < 1.1} | set(body.PANE_STATIONS) | set(body.NOSE_ARC_D) | {body.NOSE_BASE})   # NOSE_ARC_D: rounded nose face (owner)   # nose tip: cap + pane rings only
     rows, sections = [], []
     for d, H, y0 in body.build(keys, stations, bottom):
         H = body.windscreen(d, H, y0)
@@ -303,12 +319,18 @@ def fuselage_sections(cabin, deck):
     return rows, sections
 
 
+NOSE_ZONE_TOP = 1.27   # nose zones reach the windscreen sill corner (owner: smooth the corner)
+NOSE_ARC_DEG = 16
+
+
 def main():
     cabin, deck = fuselage()
     fuse_rows, fuse_secs = fuselage_sections(cabin, deck)
     # The engine deck loft keeps only its front (cockpit fairing and the face with the intakes);
     # from section Г back the deck is part of the fuselage's sections.
-    deck_front = [r for r in deck if r[0] <= 432] + [(437, 0, 136, 136, 2.0)]
+    # The fairing strip over the cockpit roof is now part of the fuselage (section В's raised centre),
+    # so the deck loft starts just behind it, at its front face (owner: smooth roof, fewer polygons).
+    deck_front = [(423, 0, 160, 137, 4)] + [r for r in deck if 422 <= r[0] <= 432] + [(437, 0, 136, 136, 2.0)]
     mast_d = d_(532)
     y_low, y_up = y_(90), y_(22)
     wheel_ground = y_(263) - 0.11   # second sheet: the fuselage stands 0.11 m higher than on the first
@@ -316,40 +338,48 @@ def main():
     nose_d = d_(436)
     main_knee = 0.17
     parts = [
-        {'name': 'Fuselage', 'type': 'loft', 'segments': body.SEGMENTS, 'stations': fuse_rows},
+        {'name': 'Fuselage', 'type': 'loft', 'segments': body.SEGMENTS, 'stations': fuse_rows,
+         'coarse_z': z_(8.0), 'coarse_step': 2},   # owner: tail boom in fewer, rectangular faces
         {'name': 'EngineDeck', 'type': 'loft', 'segments': 16, 'resample': 4, 'stations': loft_px(deck_front)},
         # Sensor fairing under the nose (side x 375..410).
         {'name': 'ChinPod', 'type': 'loft', 'segments': 10, 'stations': loft_px(
             [(374, 0, 233, 233, 2), (380, 7, 246, 222, 2.2), (402, 8, 247, 222, 2.2), (411, 0, 232, 232, 2)])},
-        # Round dome on top of the deck, aft of the rotor (top view circle at x 400).
-        {'name': 'TopDome', 'type': 'loft', 'segments': 10, 'stations': loft_px(
-            [(640, 0, 111, 104, 2), (641, 7, 112, 102, 2), (657, 7, 112, 102, 2), (658, 0, 111, 104, 2)])},
+        # (The round TopDome aft of the rotor was removed: owner, it floated above the lowered deck.)
         # Engine intakes (second sheet front view, owner's photos): black hollow rings standing
         # 0.15 m proud of the deck's front face (d 1.95; centres x +-0.43, y 2.52): a thick lip, an
         # open duct, the engine face at its back and a centre bullet.
-        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6, 'material': DARK,
-         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.85), 'radius': 0.29, 'radius_b': 0.305,
-         'inner': 0.215, 'inner_b': 0.23},
-        {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6, 'material': DARK,
-         'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
-         'inner': 0.23, 'inner_b': 0.23},
-        {'name': 'IntakeFace', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.235, 'sides': 6},
+        # Owner (2026-11-20): 10-sided, dark black, rounded lip (a flared mouth ring + the lip).
+        {'name': 'IntakeMouth', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': INTAKE_BLACK,
+         'a': P(0.43, 2.52, 1.775), 'b': P(0.43, 2.52, 1.8), 'radius': 0.261, 'radius_b': 0.297,
+         'inner': 0.221, 'inner_b': 0.194},   # owner: wider black rim
+        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': INTAKE_BLACK,
+         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.87), 'radius': 0.297, 'radius_b': 0.306,
+         'inner': 0.194, 'inner_b': 0.207},
+        # Owner: the hull runs smoothly into the intake: a skin-coloured collar from behind the lip,
+        # flaring back into the deck's front face.
+        # Owner: connect it into the fuselage mesh: a loft from the round intake (behind the lip) to
+        # a rounded square that sits just inside the deck's section (top y 2.9, side x 0.84), so the
+        # union with the hull leaves one skin with no collar sticking out above or beside the deck.
+        {'name': 'IntakeFairing', 'type': 'loft', 'mirror': True, 'join': 'body', 'segments': 10, 'phase': 0.5,   # owner: fewer polys, vertices on the inlet ring's
+         'material': 'VEHICLE_PLANE_GREY', 'stations': [
+             [z_(1.872), 0.43, 2.52, 0.306, 0.306, 0.306, 2.0, 2.0],
+             [z_(1.95), 0.43, 2.52, 0.37, 0.31, 0.45, 2.6, 2.2],   # owner: lower side fills the flat
+             [z_(2.08), 0.43, 2.51, 0.415, 0.33, 0.5, 3.5, 2.2],   # shelf under the intake down to the deck side
+             [z_(2.5), 0.43, 2.48, 0.35, 0.32, 0.34, 2.8, 2.2]]},   # owner: smooth the side step (x 0.85 = deck side)
+        # Owner: deeper intakes, pure black: a 10-sided pocket sunk 0.65 m into the hull behind the
+        # lip (its walls and back face are the well lining), instead of a face just behind the lip.
+        {'name': 'IntakePocket', 'type': 'strut', 'mirror': True, 'join': 'cut', 'material': INTAKE_BLACK,
+         'a': P(0.43, 2.52, 1.84), 'b': P(0.43, 2.52, 2.5), 'radius': 0.207, 'sides': 10},
+        # Black throat ring over the pocket's mouth, so no skin-coloured rim shows behind the lip.
+        {'name': 'IntakeThroat', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': INTAKE_BLACK,
+         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.0), 'radius': 0.225, 'radius_b': 0.225,
+         'inner': 0.19, 'inner_b': 0.19},
         {'name': 'IntakeCone', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.02, 'radius_b': 0.09, 'sides': 8},
-        # Engine exhausts (second sheet side view d 3.54-4.15, owner's photos): a hollow round pipe
-        # standing out of the deck side, angled a little aft and down, with a thick lip; dark inside.
-        {'name': 'ExhaustPipe', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6,
-         'a': P(0.45, 2.56, 3.76), 'b': P(0.99, 2.5, 3.93), 'radius': 0.26, 'radius_b': 0.27,
-         'inner': 0.2, 'inner_b': 0.215},
-        {'name': 'ExhaustLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6,
-         'a': P(0.98, 2.501, 3.927), 'b': P(1.04, 2.494, 3.946), 'radius': 0.285, 'radius_b': 0.29,
-         'inner': 0.215, 'inner_b': 0.225},
-        {'name': 'ExhaustLiner', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6, 'material': DARK,
-         'a': P(0.6, 2.543, 3.807), 'b': P(1.02, 2.496, 3.94), 'radius': 0.197, 'radius_b': 0.21,
-         'inner': 0.185, 'inner_b': 0.198},
-        {'name': 'ExhaustInside', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.45, 2.56, 3.76), 'b': P(0.7, 2.532, 3.839), 'radius': 0.205, 'sides': 6},
+         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.018, 'radius_b': 0.081, 'sides': 8},
+        # Engine exhausts (second sheet side view d 3.54-4.15): owner 2026-11-20, a plain solid black
+        # 10-sided pipe standing out of the deck side, angled a little aft and down.
+        {'name': 'ExhaustPipe', 'type': 'strut', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
+         'a': P(0.45, 2.56, 3.76), 'b': P(1.04, 2.494, 3.946), 'radius': 0.26, 'radius_b': 0.27},   # owner: a plain 10-sided pipe, no walls
         # Rotor mast, rebuilt after the owner's photo (bottom to top): a conical fairing on the deck,
         # the fixed lower swashplate (ring on three arms, three control rods from the deck), the
         # stepped lower mast into the lower hub, the gearbox drum and collar between the rotors, the
@@ -518,7 +548,7 @@ def main():
             part['sides'] = 3
     # Owner (2026-11-19): 500 fewer triangles without losing shape: hidden inner duct parts go,
     # rotor blades get 3 chord points and the heads lose the tie rods.
-    parts[:] = [p for p in parts if p['name'] not in ('ExhaustLiner', 'ExhaustInside', 'IntakeCone')]
+    parts[:] = [p for p in parts if p['name'] not in ('ExhaustLiner', 'IntakeCone')]
     for part in parts:
         if part.get('type') == 'rotor':
             part['chord_points'] = 3
@@ -544,8 +574,23 @@ def main():
             {'shape': 'text', 'text': '21', 'side': 'both', 'at': [2.5, z_(3.05)], 'size': 0.42,
              'color': '#e3b923'},
         ],
-        'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 25},
-                         {'min': [-1.3, 1.96, z_(2.3)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 70},   # 2nd: cockpit roof
+        # Nose and cockpit roof zones only merge near-flat faces (owner 2026-11-20: the sections
+        # А-Г must keep their shape; the old 25/70 deg zones flattened the roof's centre strip).
+        # Owner (2026-11-20): the lower nose and cockpit sides keep the loft's even quads ('rects')
+        # instead of merged n-gons cut into long triangles.
+        'paint_parts': ['CabinDoor'],   # owner: the door takes the camo like the skin around it
+        'planar_keep': [{'min': [-1.4, -5, z_(2.0)], 'max': [1.4, 1.3, z_(-0.1)]},
+                        {'min': [-0.62, 0.85, z_(11.3)], 'max': [0.62, 2.15, z_(7.95)]}],   # tail boom: keep its quads (owner)
+        'planar_zones': [{'min': [0.3, 1.0, z_(0.5)], 'max': [1.2, 1.26, z_(-0.05)], 'deg': 20, 'relax': 1},   # owner: smooth the nose's
+                         {'min': [-1.2, 1.0, z_(0.5)], 'max': [-0.3, 1.26, z_(-0.05)], 'deg': 20, 'relax': 1},  # upper corners (sill stays)
+                         {'min': [-1.3, -1, z_(0.9)], 'max': [1.3, NOSE_ZONE_TOP, z_(body.NOSE_BASE - 0.005)], 'deg': 25},   # nose front: fewer triangles (owner)
+                         {'min': [-1.3, -1, z_(body.NOSE_BASE + 0.005)], 'max': [1.3, NOSE_ZONE_TOP, z_(-0.1)], 'deg': NOSE_ARC_DEG},   # owner: rounded nose face, half the triangles
+                         # Cockpit roof (owner 2026-11-20: smooth, flat beside the bulge, fewer polygons): one zone, so
+                         # the flat roof merges into one panel per side; the bulge sides and bevels are steeper.
+                         {'min': [0.38, 1.98, z_(1.9)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 30},
+                         {'min': [-1.3, 1.98, z_(1.9)], 'max': [-0.38, 2.4, z_(0.6)], 'deg': 30},
+                         {'min': [-0.38, 1.9, z_(1.9)], 'max': [0.38, 2.4, z_(0.6)], 'deg': 20},   # bulge: as before
+                         {'min': [-1.0, 2.05, z_(2.6)], 'max': [1.0, 3.0, z_(1.9)], 'deg': 30},   # owner: intake fairing into the deck, merged polygons
                          {'min': [-1.3, -1, z_(7.9)], 'max': [1.3, 4, z_(2.6)], 'deg': 3, 'relax': 2}],   # 4th: cabin (owner: smoothen)
         'sections': fuse_secs,
         'parts': parts,

@@ -102,15 +102,33 @@ def build(keys, stations, bottom):
 # instead of the round outline.
 PANE_A = (0.40, 1.24, 0.23)
 PANE_B = (0.95, 1.24, 0.45)
-PANE_D = (0.40, 2.04, 0.70)
-PANE_C = (0.90, 2.04, 0.80)
+# Owner (2026-11-20): the nose must match the sheet's sections А-Г. Section Б (d 0.636) cuts the
+# windscreen at its top (centre 2.04-2.055, side pane edge ~(0.92, 1.82), sill 1.07 wide), so the
+# centre pane reaches its top at Б and the side pane's rear corner C sits at d 0.71.
+PANE_D = (0.40, 2.04, 0.636)
+PANE_C = (0.90, 2.04, 0.71)
+QUARTER_0 = (1.07, 1.24, 0.636)   # quarter pane sill at section Б (its width there)
 QUARTER_1 = (1.10, 1.24, 0.85)
-QUARTER_2 = (0.95, 2.03, 1.042)
-ROOF_BLEND_END = 1.75
+QUARTER_2 = (0.95, 2.04, 1.042)
+ROOF_BLEND_END = 1.9
+NOSE_ARC_DEPTH = 0.15   # how far the rounded nose face bulges ahead of the tip ring
+NOSE_ARC_CY, NOSE_ARC_HALF = 0.955, 0.265   # side view: the arc is symmetric about the middle of the nose face (owner's red arc)
+NOSE_ARC_P = 1.5   # superellipse exponent of the side-view arc (2 = ellipse), fitted to the owner's red line
+NOSE_ARC_START = -0.022 + NOSE_ARC_DEPTH   # owner: shorter nose: the arc ends where the flat face was (sheet tip -0.022)
+NOSE_MAX_HW = 0.98   # nose rings ahead of the windscreen stay inside the 0.235 ring's half width (0.994)
+NOSE_BASE = 0.078   # last ring behind the arc rings (further aft it leaves a hole at the windscreen sill corner)
+NOSE_ARC_D = tuple(round(NOSE_ARC_START - NOSE_ARC_DEPTH * math.sin(math.radians(a)), 4) for a in (42, 62, 78))
+# Owner (2026-11-20): the whole roof is flat at the windscreen top, except the bulge in the middle.
+ROOF_FLAT = 2.12   # owner: a little higher than the windscreen top (section В's sides)
+ROOF_EDGE_X = 0.80   # the flat roof's outer edge: one straight line (fewer polygons)
+ROOF_CHAMFER = 0.12   # owner: edges bevelled: flat roof ends this far inboard, the bevel drops as much
 # Deck fairing roof profile (x, height) at the first roof ring behind the glazing (d ROOF_RING_D).
-ROOF_PROFILE = ((0.0, 2.29), (0.22, 2.29), (0.38, 2.09), (0.81, 2.09))   # raised centre strip, sides 0.20 m lower
+# Section В's top (sheet, on the side view's bottom 0.289): raised centre strip, rounded shoulders.
+ROOF_PROFILE = ((0.0, 2.289), (0.30, 2.289), (0.333, 2.234), (0.361, 2.197), (0.379, 2.161),
+                (0.783, 2.124), (0.865, 2.087), (0.914, 2.05), (0.969, 1.977), (1.028, 1.904))
+ROOF_X = (0.0, 0.30, 0.40)        # roof points (strip top flat to 0.30) of the glazing rings behind the side panes
 ROOF_RING_D = 1.141
-PANE_STATIONS = (0.235, 0.45, 0.70, 0.80, 0.85, 1.042)   # pane corners (+ one between A and B)
+PANE_STATIONS = (0.235, 0.45, 0.636, 0.71, 0.85, 1.042)   # pane corners (+ one between A and B)
 
 
 def _lerp(p, q, d):
@@ -122,7 +140,7 @@ def _pane_points(d, roof=0.0):
     """Frame points of the glazing at station d, top centre outwards: centre-line top, the centre /
     side pane frame, the side pane's outer edge and the quarter pane's foot on the cabin wall
     (None ahead of B, where the side pane sits straight on the nose box, and at the pillar top)."""
-    A, B, D, C, Q1, Q2 = PANE_A, PANE_B, PANE_D, PANE_C, QUARTER_1, QUARTER_2
+    A, B, D, C, Q0, Q1, Q2 = PANE_A, PANE_B, PANE_D, PANE_C, QUARTER_0, QUARTER_1, QUARTER_2
     top = A[1] + (min(d, D[2]) - A[2]) * (D[1] - A[1]) / (D[2] - A[2])
     if d > D[2]:
         top = max(top, roof)      # behind the panes the roof rises with the outline to the fairing
@@ -139,23 +157,71 @@ def _pane_points(d, roof=0.0):
         # same point layout as the ones with a quarter pane foot (no crease where it starts).
         j3 = (j2[0] + 0.04, j2[1] - 0.02)
     elif d < Q2[2] - 1e-6:
-        j3 = _lerp(B, Q1, d) if d <= Q1[2] else _lerp(Q1, Q2, d)
+        j3 = _lerp(B, Q0, d) if d <= Q0[2] else _lerp(Q0, Q1, d) if d <= Q1[2] else _lerp(Q1, Q2, d)
     return (0.0, top), j1, j2, j3
+
+
+_LOWER = None
+
+
+def _lower_template():
+    """Section В's half outline below its widest point, normalised (x / crease x, h / crease h)
+    and resampled to HALF_N // 2 + 1 points: every nose ring's lower half takes this one shape,
+    so the side and bottom panels between the rings are even, near-flat quads (owner: 'rects')."""
+    global _LOWER
+    if _LOWER is None:
+        V = np.asarray(load_sections()['V']['half'], dtype=float)
+        w = int(np.argmax(V[:, 0]))
+        low = V[w:]
+        low = np.vstack([low[:, 0] / low[0, 0], low[:, 1] / low[0, 1]]).T
+        _LOWER = resample(low, HALF_N // 2)
+    return _LOWER
+
+
+def _even_lower(out_abs, y0):
+    m = HALF_N // 2
+    xc, yc = out_abs[m]
+    T = _lower_template()
+    out_abs = out_abs.copy()
+    out_abs[m:] = np.stack([T[:, 0] * xc, y0 + T[:, 1] * (yc - y0)], axis=1)
+    return out_abs
 
 
 def windscreen(d, H, y0):
     """Replace the top of a nose station's half outline (relative heights) by the glazing's frame."""
     P = H + np.array([0.0, y0])
     if PANE_STATIONS[-1] + 1e-6 < d <= ROOF_BLEND_END:
-        # The next rings behind the glazing get the same roof point layout (shoulder at index 3),
-        # so the loft does not twist where the glazing rings end.
-        P = P.copy()
-        sh = P[4].copy()
-        # Simple smooth crown over the cockpit (no raised strip): the profile's heights.
-        top = [P[0], P[1], P[2], sh]
-        top = [(q[0], float(np.interp(abs(q[0]), *zip(*ROOF_PROFILE)))) for q in top]
-        out = np.vstack([top, resample(P[4:HALF_N // 2 + 1], HALF_N // 2 - 3)[1:], P[HALF_N // 2 + 1:]])
-        return out - np.array([0.0, y0])
+        # Behind the glazing: the section itself (В and its blend to the deck front), with its roof
+        # points at the glazing rings' x (ROOF_X), so the roof panels run straight from ring to ring
+        # (owner 2026-11-20: smooth roof, fewer polygons).
+        m = HALF_N // 2
+        up = P[:m + 1]
+        # Flat roof at ROOF_FLAT out to where the section's shoulder drops below it, the bulge's
+        # top flat across 0..0.30 at the section's centre height.
+        hc = float(up[0, 1])
+        def cross(y):   # outer outline point at height y
+            i = next(i for i in range(1, m + 1) if up[i, 1] < y and up[i, 0] > ROOF_X[2])
+            a, b = up[i - 1], up[i]
+            f = (a[1] - y) / (a[1] - b[1]) if a[1] > y else 0.0
+            return i, (float(a[0] + (b[0] - a[0]) * f), y)
+        _, sh = cross(ROOF_FLAT)
+        i, bev = cross(ROOF_FLAT - ROOF_CHAMFER)
+        top = [(0.0, hc), (ROOF_X[1], hc), (ROOF_X[2], ROOF_FLAT), (ROOF_EDGE_X, ROOF_FLAT)]
+        rest = resample(np.vstack([[bev], up[i:]]), m + 1 - len(top) - 1)
+        return _even_lower(np.vstack([top, rest, P[m + 1:]]), y0) - np.array([0.0, y0])
+    if d < PANE_STATIONS[0] - 1e-6:
+        Q = _even_lower(P, y0)
+        if d < NOSE_BASE + 1e-6:   # base ring too: its top meets the hood (no step at the hood)
+            # Owner (2026-11-20, red arc on the side view): the nose face is one round arc. The rings
+            # ahead of the tip shrink about its middle as a quarter ellipse: depth NOSE_ARC_DEPTH.
+            f = max(0.0, 1.0 - ((NOSE_ARC_START - d) / NOSE_ARC_DEPTH) ** NOSE_ARC_P) ** (1.0 / NOSE_ARC_P)
+            lo, hi = Q[:, 1].min(), Q[:, 1].max()
+            u = (Q[:, 1] - 0.5 * (lo + hi)) / (0.5 * (hi - lo))
+            ys = NOSE_ARC_CY + u * NOSE_ARC_HALF * f
+            # Owner (2026-11-20, 'entferne den Überstand'): no wider than the ring behind (top view).
+            xs = np.minimum(Q[:, 0], NOSE_MAX_HW) * (0.8 + 0.2 * f)
+            Q = np.stack([xs, ys], axis=1)
+        return Q - np.array([0.0, y0])   # nose cap: same lower shape as the rings behind
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
         return H
     j0, j1, j2, j3 = _pane_points(d, P[0, 1])
@@ -163,7 +229,11 @@ def windscreen(d, H, y0):
     # Every glazing ring has the same frame structure (top, roof points, frame points), so the
     # loft joins like points to like points and the roof behind the panes stays smooth.
     if d < PANE_C[2] - 1e-6:
-        fixed = [j0, (0.5 * j1[0], j1[1]), j1, j2] + ([j3] if j3 else [])
+        # Stands in for the roof's flat edge (ROOF_EDGE_X) of the rings behind: 2 mm off the pane
+        # corner, so the frame ahead of C stays as few triangles as before.
+        u = np.subtract(j1, j2) / max(1e-9, float(np.linalg.norm(np.subtract(j1, j2))))
+        mid = (float(j2[0] + 0.002 * u[0]), float(j2[1] + 0.002 * u[1]))
+        fixed = [j0, (ROOF_X[1], j1[1]), j1, mid, j2] + ([j3] if j3 else [])
     else:
         # Behind the side panes the roof follows the outline (no lower than the pane tops).
         k_ = max(2, int(np.argmax(P[:HALF_N // 2, 0])))
@@ -171,8 +241,14 @@ def windscreen(d, H, y0):
         # The roof eases from the flat pane tops (C) up into the deck fairing's profile (the first
         # roof ring behind the glazing), with the same point layout, so it stays smooth.
         t = min(1.0, max(0.0, (d - PANE_C[2]) / (ROOF_RING_D - PANE_C[2])))
-        roof = lambda x: max(PANE_C[1] + t * (float(np.interp(x, *zip(*ROOF_PROFILE))) - PANE_C[1]), j2[1])
-        fixed = [(x, roof(x)) for x in (0.0, ROOF_PROFILE[1][0], ROOF_PROFILE[2][0])] + [j2] + ([j3] if j3 else [])
+        # Owner (2026-11-20, -50 % roof polygons): the roof beside the bulge is flat at ROOF_FLAT
+        # from the side panes' top (C) back (one plane), bevelled down to the pane tops.
+        hc = ROOF_FLAT + t * (ROOF_PROFILE[0][1] - ROOF_FLAT)   # the bulge rises out of the flat roof
+        # The bulge's front is one straight ramp (owner: -50 % roof polygons): its top edge runs in a
+        # straight line from the flat roof's level at C (x 0.40) to section В's top (x 0.30), so its
+        # top and side faces are flat planes and the frames in between add no corners.
+        xs = ROOF_X[2] + t * (ROOF_X[1] - ROOF_X[2])
+        fixed = [(0.0, hc), (xs, hc), (ROOF_X[2], ROOF_FLAT), (ROOF_EDGE_X, ROOF_FLAT), j2] + ([j3] if j3 else [])
     foot = fixed[-1]
     # The outline continues below the last frame point on the outside: skip outline points that
     # lie inboard of it (the roof or nose top dipping under it), or the ring folds back. From the
@@ -196,5 +272,5 @@ def windscreen(d, H, y0):
             step = (tgt - np.array(foot)) / np.linalg.norm(tgt - np.array(foot))
             pts = [np.array(foot) + step * 0.002 * (j + 1) if j < first else P[i] for j, i in enumerate(idx)]
             upper = np.vstack([[foot], pts])
-    out = np.vstack([fixed[:-1], upper, P[m + 1:]])
+    out = _even_lower(np.vstack([fixed[:-1], upper, P[m + 1:]]), y0)
     return out - np.array([0.0, y0])

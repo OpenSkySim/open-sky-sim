@@ -67,6 +67,16 @@ def check(path: str) -> list[str]:
         size = [h - l for l, h in zip(lo, hi)]
         if max(size) > 3 * max(size[0], size[2]) or max(size) > 200:
             errors.append(f'body: bounding box {[round(v, 1) for v in size]} m looks wrong (leftover cutter?)')
+    ids = set()
+    for i, liv in enumerate(m.get('liveries') or []):
+        # Skins: the first is the pack's own body, every other one has a body model of its own.
+        if not liv.get('id') or liv['id'] in ids or not liv.get('name'):
+            errors.append(f'livery {i}: needs a unique id and a name')
+        ids.add(liv.get('id'))
+        if i and not liv.get('body'):
+            errors.append(f'livery {liv.get("id")}: has no body model')
+        if i and liv.get('body'):
+            glb(liv['body'], f'livery {liv.get("id")}')
     glb(m['shadow'], 'shadow')
     if not m['shadow'].endswith('_shadow.glb'):
         errors.append('shadow file name must end in _shadow.glb')
