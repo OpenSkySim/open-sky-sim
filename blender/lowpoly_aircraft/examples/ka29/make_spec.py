@@ -133,6 +133,7 @@ def circle_px(x, y, r, n=10):
 
 DARK = 'VEHICLE_PLANE_ENGINE'
 EXHAUST_BLACK = '#0a0b0c'   # owner: exhaust pipes dark black
+INTAKE_BLACK = '#000000'   # owner: intakes dark black
 DOOR = 'VEHICLE_PLANE_GREY'   # owner: the door takes the paint like the skin around it (outline still cut)
 
 
@@ -350,10 +351,10 @@ def main():
         # 0.15 m proud of the deck's front face (d 1.95; centres x +-0.43, y 2.52): a thick lip, an
         # open duct, the engine face at its back and a centre bullet.
         # Owner (2026-11-20): 10-sided, dark black, rounded lip (a flared mouth ring + the lip).
-        {'name': 'IntakeMouth', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
+        {'name': 'IntakeMouth', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': INTAKE_BLACK,
          'a': P(0.43, 2.52, 1.775), 'b': P(0.43, 2.52, 1.8), 'radius': 0.261, 'radius_b': 0.297,
          'inner': 0.221, 'inner_b': 0.194},   # owner: wider black rim
-        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
+        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': INTAKE_BLACK,
          'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.87), 'radius': 0.297, 'radius_b': 0.306,
          'inner': 0.194, 'inner_b': 0.207},
         # Owner: the hull runs smoothly into the intake: a skin-coloured collar from behind the lip,
@@ -368,11 +369,14 @@ def main():
              [z_(2.08), 0.43, 2.51, 0.415, 0.33, 0.5, 3.5, 2.2],   # shelf under the intake down to the deck side
              [z_(2.25), 0.43, 2.5, 0.405, 0.34, 0.45, 3.0, 2.2],   # owner: smaller bulge on top (round upper half)
              [z_(2.5), 0.43, 2.48, 0.35, 0.32, 0.34, 2.8, 2.2]]},   # owner: smooth the side step (x 0.85 = deck side)
-        {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
-         'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.275, 'radius_b': 0.27,
-         'inner': 0.207, 'inner_b': 0.207},
-        {'name': 'IntakeFace', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': EXHAUST_BLACK,
-         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.211, 'sides': 10},
+        # Owner: deeper intakes, pure black: a 10-sided pocket sunk 0.65 m into the hull behind the
+        # lip (its walls and back face are the well lining), instead of a face just behind the lip.
+        {'name': 'IntakePocket', 'type': 'strut', 'mirror': True, 'join': 'cut', 'material': INTAKE_BLACK,
+         'a': P(0.43, 2.52, 1.84), 'b': P(0.43, 2.52, 2.5), 'radius': 0.207, 'sides': 10},
+        # Black throat ring over the pocket's mouth, so no skin-coloured rim shows behind the lip.
+        {'name': 'IntakeThroat', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': INTAKE_BLACK,
+         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.0), 'radius': 0.225, 'radius_b': 0.225,
+         'inner': 0.19, 'inner_b': 0.19},
         {'name': 'IntakeCone', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
          'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.018, 'radius_b': 0.081, 'sides': 8},
         # Engine exhausts (second sheet side view d 3.54-4.15): owner 2026-11-20, a plain solid black

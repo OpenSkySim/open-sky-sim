@@ -4562,7 +4562,7 @@
    "mirror": true,
    "join": "separate",
    "sides": 10,
-   "material": "#0a0b0c",
+   "material": "#000000",
    "a": [
     0.43,
     2.52,
@@ -4584,7 +4584,7 @@
    "mirror": true,
    "join": "separate",
    "sides": 10,
-   "material": "#0a0b0c",
+   "material": "#000000",
    "a": [
     0.43,
     2.52,
@@ -4661,33 +4661,31 @@
    ]
   },
   {
-   "name": "IntakeDuct",
-   "type": "duct",
+   "name": "IntakePocket",
+   "type": "strut",
    "mirror": true,
-   "join": "separate",
-   "sides": 10,
-   "material": "#0a0b0c",
+   "join": "cut",
+   "material": "#000000",
    "a": [
     0.43,
     2.52,
-    2.37
+    2.38
    ],
    "b": [
     0.43,
     2.52,
-    2.07
+    1.72
    ],
-   "radius": 0.275,
-   "radius_b": 0.27,
-   "inner": 0.207,
-   "inner_b": 0.207
+   "radius": 0.207,
+   "sides": 10
   },
   {
-   "name": "IntakeFace",
-   "type": "strut",
+   "name": "IntakeThroat",
+   "type": "duct",
    "mirror": true,
    "join": "separate",
-   "material": "#0a0b0c",
+   "sides": 10,
+   "material": "#000000",
    "a": [
     0.43,
     2.52,
@@ -4696,10 +4694,12 @@
    "b": [
     0.43,
     2.52,
-    2.12
+    2.22
    ],
-   "radius": 0.211,
-   "sides": 10
+   "radius": 0.225,
+   "radius_b": 0.225,
+   "inner": 0.19,
+   "inner_b": 0.19
   },
   {
    "name": "ExhaustPipe",
