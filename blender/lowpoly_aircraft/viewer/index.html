@@ -352,7 +352,7 @@ button.ok { color: var(--ok); }
         <label class="paint-col">Colour <input type="color" id="paintColor" value="#7f888f"></label>
         <label class="paint-col">Base <input type="color" id="paintBase" value="#aeb2b4"></label></div>
       <div class="xs-opts"><label><input type="checkbox" id="paintMirror" checked> mirror left / right</label>
-        <label><input type="checkbox" id="paintShow" checked> show the outlines while painting</label></div>
+        <label><input type="checkbox" id="paintShow" checked> show the selected shape's outline</label></div>
       <div class="xs-list" id="paintList" aria-label="Painted shapes"></div>
       <div class="row"><button type="button" id="paintFinish" disabled>Finish shape</button><button type="button" id="paintDel" class="danger" disabled>Delete shape</button><button type="button" id="paintExport">Copy paint.json</button></div>
       <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b>, <b>Bottom</b> or <b>Front</b> view. Hold the mouse button and drag to draw an outline freehand, like a brush: letting go closes it. Or click to place points one by one, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). A shape belongs to the view its first point faces (side, top, bottom, front or rear) and paints the skin inside the outline that is turned towards that view.</p>
@@ -3084,7 +3084,8 @@ function paintDraw() {
         fill.renderOrder = 18;
         g.add(fill);
       }
-      if (!lines && closed) continue;
+      // Only the selected shape (and the one being drawn) shows its outline.
+      if ((!lines || !sel) && closed) continue;
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(closed ? [...P3, P3[0]] : P3),
                                   new THREE.LineBasicMaterial({ color: sel ? 0xff8a00 : 0x1d2024, depthTest: false, transparent: true }));
       line.renderOrder = 19;
@@ -3215,7 +3216,7 @@ function paintOverlay() {
     o.add(ov); PT.overlays.push(ov);
   });
 }
-// Free view: every shape's outline laid on the model (both sides when mirrored), points of the
+// Free view: the selected shape's outline laid on the model (both sides when mirrored), points of the
 // selected shape and the shape being drawn as handles.
 function paintDrawFree() {
   const g = new THREE.Group();
@@ -3252,7 +3253,7 @@ function paintDrawFree() {
       }
     }
   };
-  for (const r of paintRegions()) outline(r.view, r.pts, paintRegionXs(r), r.mirror !== false, new THREE.Color(r.color).multiplyScalar(0.6), PT.sel === r.id, true, r.color);
+  for (const r of paintRegions()) if (PT.sel === r.id) outline(r.view, r.pts, paintRegionXs(r), r.mirror !== false, new THREE.Color(r.color).multiplyScalar(0.6), PT.sel === r.id, true, r.color);
   if (PT.draft) outline(PT.draft.view, PT.draft.pts, PT.draft.xs || 1, false, 0xff8a00, true, false);
   paintOverlay();
   g.traverse(o => { o.userData.reference = true; });
