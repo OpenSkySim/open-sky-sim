@@ -189,8 +189,9 @@ def windows_and_doors():
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          # Owner's marked form: front edge parallel to the quarter pane's rear edge (4 cm post),
          # sharp top corners, rear edge straight down then slanting forward to the sill.
-         'polygon_m': [[z_(0.88), 1.36], [z_(1.07), 2.0], [z_(1.72), 2.0], [z_(1.72), 1.66],
-                       [z_(1.62), 1.36]]},
+         # Owner (2026-11-20): 5 cm lower; the front edge slides down its own line (pillar post stays 4 cm).
+         'polygon_m': [[z_(0.865), 1.31], [z_(1.055), 1.95], [z_(1.72), 1.95], [z_(1.72), 1.61],
+                       [z_(1.62), 1.31]]},
         {'name': 'CabinWindowFront', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
          'polygon_m': side_m(rounded_rect(456, 472, 160, 181, 3))},
         {'name': 'CabinWindowRear', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
