@@ -842,7 +842,8 @@ def build_parts(spec: dict) -> None:
         # Fewer polygons on the finished hull: near-flat neighbours merged after every cut, so
         # no boolean sees the dissolved n-gons (dissolving first can break the later cuts) and no
         # vertex moves (wells, doors and panes still fit).
-        geo.decimate(hull, planar_deg=float(spec['planar_deg_final']))
+        geo.decimate(hull, planar_deg=float(spec['planar_deg_final']),
+                     keep_boxes=[(z['min'], z['max']) for z in spec.get('planar_keep', [])])
     geo.tidy(hull, spec.get('material', 'VEHICLE_PLANE_GREY'), smooth)
     pattern = spec.get('_paint')
     if pattern:

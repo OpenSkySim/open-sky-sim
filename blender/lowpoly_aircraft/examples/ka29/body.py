@@ -154,6 +154,32 @@ def _pane_points(d, roof=0.0):
     return (0.0, top), j1, j2, j3
 
 
+_LOWER = None
+
+
+def _lower_template():
+    """Section В's half outline below its widest point, normalised (x / crease x, h / crease h)
+    and resampled to HALF_N // 2 + 1 points: every nose ring's lower half takes this one shape,
+    so the side and bottom panels between the rings are even, near-flat quads (owner: 'rects')."""
+    global _LOWER
+    if _LOWER is None:
+        V = np.asarray(load_sections()['V']['half'], dtype=float)
+        w = int(np.argmax(V[:, 0]))
+        low = V[w:]
+        low = np.vstack([low[:, 0] / low[0, 0], low[:, 1] / low[0, 1]]).T
+        _LOWER = resample(low, HALF_N // 2)
+    return _LOWER
+
+
+def _even_lower(out_abs, y0):
+    m = HALF_N // 2
+    xc, yc = out_abs[m]
+    T = _lower_template()
+    out_abs = out_abs.copy()
+    out_abs[m:] = np.stack([T[:, 0] * xc, y0 + T[:, 1] * (yc - y0)], axis=1)
+    return out_abs
+
+
 def windscreen(d, H, y0):
     """Replace the top of a nose station's half outline (relative heights) by the glazing's frame."""
     P = H + np.array([0.0, y0])
@@ -175,7 +201,9 @@ def windscreen(d, H, y0):
         i, bev = cross(ROOF_FLAT - ROOF_CHAMFER)
         top = [(0.0, hc), (ROOF_X[1], hc), (ROOF_X[2], ROOF_FLAT), (ROOF_EDGE_X, ROOF_FLAT)]
         rest = resample(np.vstack([[bev], up[i:]]), m + 1 - len(top) - 1)
-        return np.vstack([top, rest, P[m + 1:]]) - np.array([0.0, y0])
+        return _even_lower(np.vstack([top, rest, P[m + 1:]]), y0) - np.array([0.0, y0])
+    if d < PANE_STATIONS[0] - 1e-6:
+        return _even_lower(P, y0) - np.array([0.0, y0])   # nose cap: same lower shape as the rings behind
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
         return H
     j0, j1, j2, j3 = _pane_points(d, P[0, 1])
@@ -226,5 +254,5 @@ def windscreen(d, H, y0):
             step = (tgt - np.array(foot)) / np.linalg.norm(tgt - np.array(foot))
             pts = [np.array(foot) + step * 0.002 * (j + 1) if j < first else P[i] for j, i in enumerate(idx)]
             upper = np.vstack([[foot], pts])
-    out = np.vstack([fixed[:-1], upper, P[m + 1:]])
+    out = _even_lower(np.vstack([fixed[:-1], upper, P[m + 1:]]), y0)
     return out - np.array([0.0, y0])
