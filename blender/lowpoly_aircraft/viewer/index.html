@@ -483,6 +483,9 @@ function restyle(obj) {
     }
     o.userData.mat = o.material?.name || '';   // as built (the Paint card's Base recolours the base skin)
     o.material = materialFor(o.material?.name || '');
+    // The hull is drawn from both sides, as the game does for painted (#rrggbb) hulls: seen through
+    // the glazing its inside is the hull's own back faces (no separate lining).
+    if (/^0_Body|_CabinDoor/.test(o.name || (o.parent && o.parent.name) || '')) o.material.side = THREE.DoubleSide;
     if (wire) {
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 20), new THREE.LineBasicMaterial({ color: 0x1b232c, transparent: true, opacity: 0.5 }));
       edges.userData.edge = true;
