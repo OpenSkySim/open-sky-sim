@@ -270,7 +270,7 @@
    "regions": [
     {
      "view": "side",
-     "color": "#000000",
+     "color": "#262626",
      "mirror": true,
      "pts": [
       [
@@ -305,7 +305,7 @@
     },
     {
      "view": "bottom",
-     "color": "#000000",
+     "color": "#262626",
      "mirror": true,
      "pts": [
       [
@@ -340,7 +340,7 @@
     },
     {
      "view": "front",
-     "color": "#000000",
+     "color": "#262626",
      "mirror": true,
      "pts": [
       [
@@ -371,7 +371,7 @@
     },
     {
      "view": "top",
-     "color": "#000000",
+     "color": "#262626",
      "mirror": true,
      "pts": [
       [
@@ -423,7 +423,7 @@
    "regions": [
     {
      "view": "side",
-     "color": "#000000",
+     "color": "#262626",
      "mirror": true,
      "pts": [
       [
@@ -458,7 +458,7 @@
     },
     {
      "view": "bottom",
-     "color": "#000000",
+     "color": "#262626",
      "mirror": true,
      "pts": [
       [
@@ -962,7 +962,7 @@
     },
     {
      "view": "top",
-     "color": "#000000",
+     "color": "#262626",
      "mirror": true,
      "pts": [
       [
@@ -1005,7 +1005,7 @@
     },
     {
      "view": "bottom",
-     "color": "#000000",
+     "color": "#262626",
      "mirror": true,
      "pts": [
       [
@@ -1028,7 +1028,7 @@
     },
     {
      "view": "front",
-     "color": "#000000",
+     "color": "#262626",
      "mirror": true,
      "pts": [
       [

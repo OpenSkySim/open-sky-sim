@@ -4518,7 +4518,7 @@
    "mirror": true,
    "join": "separate",
    "sides": 10,
-   "material": "#000000",
+   "material": "#262626",
    "a": [
     0.43,
     2.52,
@@ -4540,7 +4540,7 @@
    "mirror": true,
    "join": "separate",
    "sides": 10,
-   "material": "#000000",
+   "material": "#262626",
    "a": [
     0.43,
     2.52,
@@ -4612,7 +4612,7 @@
    "type": "strut",
    "mirror": true,
    "join": "cut",
-   "material": "#000000",
+   "material": "#262626",
    "a": [
     0.43,
     2.52,
@@ -4632,7 +4632,7 @@
    "mirror": true,
    "join": "separate",
    "sides": 10,
-   "material": "#000000",
+   "material": "#262626",
    "a": [
     0.43,
     2.52,
@@ -4654,7 +4654,7 @@
    "mirror": true,
    "join": "separate",
    "sides": 10,
-   "material": "#0a0b0c",
+   "material": "#2f3030",
    "a": [
     0.45,
     2.56,
@@ -5549,7 +5549,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      0.27,
@@ -5578,7 +5578,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      0.27,
@@ -5607,7 +5607,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      0.99,
@@ -5636,7 +5636,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      0.27,
@@ -5666,7 +5666,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": false,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      -0.27,
@@ -5725,7 +5725,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": false,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      -0.27,
@@ -5754,7 +5754,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      0.27,
@@ -5783,7 +5783,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": false,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      -0.85,
@@ -5812,7 +5812,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": false,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      -0.99,
@@ -5841,7 +5841,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      0.85,
@@ -5899,7 +5899,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      0.18,
@@ -5969,7 +5969,7 @@
    "radius": 0.025,
    "sides": 3,
    "join": "separate",
-   "material": "#14171a"
+   "material": "#373a3c"
   },
   {
    "name": "Seat",
@@ -6005,7 +6005,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      0.84,
@@ -6063,7 +6063,7 @@
    "type": "quad",
    "join": "separate",
    "mirror": true,
-   "material": "#101113",
+   "material": "#343536",
    "points": [
     [
      0.84,
