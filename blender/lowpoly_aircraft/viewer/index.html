@@ -875,10 +875,17 @@ function resize() {
   camera.updateProjectionMatrix();
   fitOrtho();
 }
-new ResizeObserver(resize).observe(stage);
+new ResizeObserver(() => { resize(); wake(); }).observe(stage);
 resize();
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// The 3D view is drawn when something can have changed: while the camera moves, an animation
+// runs, or for a moment after any input; otherwise 4 times a second (for changes that arrive
+// later, such as a model or paint loading). A still Hangar then costs almost nothing.
+let lastWake = 0, lastRender = 0;
+function wake() { lastWake = performance.now(); }
+for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'keyup', 'input', 'change', 'click', 'focus'])
+  addEventListener(ev, wake, { capture: true, passive: true });
 function tick(now) {
   if (demo && current) {
     const t = (now - t0) / 1000;
@@ -906,8 +913,11 @@ function tick(now) {
     }
     poseSurfaces(true);
   }
-  controls.update();
-  renderer.render(scene, cam);
+  const moved = controls.update();
+  if (moved || demo || !spinManual || now - lastWake < 700 || now - lastRender > 250) {
+    renderer.render(scene, cam);
+    lastRender = now;
+  }
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
@@ -3380,7 +3390,19 @@ function paintOverlayDir(dops) {
       const uniforms = { tD: { value: tex }, dD: { value: depth.texture }, uS: { value: new THREE.Vector3(...PT.shift) },
                          uU: { value: b.U }, uV: { value: b.V }, uDir: { value: b.d }, uBox: { value: new THREE.Vector3(...box) },
                          uTexel: { value: size / 1024 } };
+      // Only the parts whose box reaches the layer's square on the view plane.
+      const reach = i => {
+        const { min: a, max: c } = O.pbox[i];
+        let p0 = Infinity, q0 = Infinity, p1 = -Infinity, q1 = -Infinity;
+        for (let m = 0; m < 8; m++) {
+          const w = new THREE.Vector3(m & 1 ? c.x : a.x, m & 2 ? c.y : a.y, m & 4 ? c.z : a.z);
+          const u = w.dot(b.U), v = w.dot(b.V);
+          p0 = Math.min(p0, u); p1 = Math.max(p1, u); q0 = Math.min(q0, v); q1 = Math.max(q1, v);
+        }
+        return p1 >= bu && p0 <= bu + size && q1 >= bv && q0 <= bv + size;
+      };
       const meshes = O.objs.map((o, i) => {
+        if (!reach(i)) return null;
         const uRest = { value: new THREE.Matrix4() };
         const mat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1, depthWrite: false,
                                                      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -3413,7 +3435,7 @@ function paintOverlayDir(dops) {
         ov.userData.reference = true;
         o.add(ov);
         return ov;
-      });
+      }).filter(Boolean);
       L = { box, N, cv: c.getContext('2d'), tex, depth, meshes, sig: null };
       O.dir.set(k, L);
     }
@@ -3461,7 +3483,8 @@ function paintOverlay(dirOnly = false) {
     // The hull's own lit material (same light and flat facets), its colour taken from the shapes.
     const uniforms = { tSP: { value: tex['side+'] }, tSN: { value: tex['side-'] }, tTop: { value: tex.top }, tBot: { value: tex.bottom },
                        tFr: { value: tex.front }, tRe: { value: tex.rear },
-                       uS: { value: new THREE.Vector3(...s) }, uR: { value: R } };
+                       uS: { value: new THREE.Vector3(...s) }, uR: { value: R },
+                       uHasA: { value: new THREE.Vector3() }, uHasB: { value: new THREE.Vector3() } };
     const makeMat = uRest => {
       const mat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1, depthWrite: false,
                                                    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -3475,7 +3498,7 @@ function paintOverlay(dirOnly = false) {
           varying vec3 vPW; varying vec3 vPN;
           vec4 paintAt(sampler2D t, vec2 uv) { vec2 c = uv / (2.0 * uR) + 0.5;
             if (c.x < 0.0 || c.y < 0.0 || c.x > 1.0 || c.y > 1.0) return vec4(0.0); return texture2D(t, c); }
-          uniform sampler2D dSP, dSN, dTop, dBot, dFr, dRe; uniform float uTexel;
+          uniform sampler2D dSP, dSN, dTop, dBot, dFr, dRe; uniform float uTexel; uniform vec3 uHasA, uHasB;
           // Seen from the view? The nearest part along the view axis is stored per texel (a); a face
           // further back (a nacelle side under the wing, seen from above) does not take the shape.
           bool seen(sampler2D d, vec2 uv, float a, float along, vec3 pn) {
@@ -3491,12 +3514,12 @@ function paintOverlay(dirOnly = false) {
             vec3 pn = normalize(vPN); vec4 col = vec4(0.0), c;
             vec2 side = vec2(vPW.z - uS.z, vPW.y - uS.y), top = vec2(vPW.z - uS.z, vPW.x - uS.x), fr = vec2(vPW.x - uS.x, vPW.y - uS.y);
             // same rule as lpa/paint.py: a face takes a view's shapes when it is turned towards it
-            if (pn.x > 0.02 && seen(dSP, side, vPW.x, pn.x, pn)) { c = paintAt(tSP, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-            if (pn.x < -0.02 && seen(dSN, side, -vPW.x, -pn.x, pn)) { c = paintAt(tSN, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-            if (pn.y < -0.02 && seen(dBot, top, -vPW.y, -pn.y, pn)) { c = paintAt(tBot, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-            if (pn.y > 0.02 && seen(dTop, top, vPW.y, pn.y, pn)) { c = paintAt(tTop, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-            if (pn.z > 0.02 && seen(dFr, fr, vPW.z, pn.z, pn)) { c = paintAt(tFr, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-            if (pn.z < -0.02 && seen(dRe, fr, -vPW.z, -pn.z, pn)) { c = paintAt(tRe, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasA.x > 0.5 && pn.x > 0.02 && seen(dSP, side, vPW.x, pn.x, pn)) { c = paintAt(tSP, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasA.y > 0.5 && pn.x < -0.02 && seen(dSN, side, -vPW.x, -pn.x, pn)) { c = paintAt(tSN, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasB.x > 0.5 && pn.y < -0.02 && seen(dBot, top, -vPW.y, -pn.y, pn)) { c = paintAt(tBot, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasA.z > 0.5 && pn.y > 0.02 && seen(dTop, top, vPW.y, pn.y, pn)) { c = paintAt(tTop, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasB.y > 0.5 && pn.z > 0.02 && seen(dFr, fr, vPW.z, pn.z, pn)) { c = paintAt(tFr, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (uHasB.z > 0.5 && pn.z < -0.02 && seen(dRe, fr, -vPW.z, -pn.z, pn)) { c = paintAt(tRe, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
             if (col.a < 0.5) discard;
             diffuseColor.rgb = col.rgb;
           }`);
@@ -3519,7 +3542,10 @@ function paintOverlay(dirOnly = false) {
       return ov;
     });
     const parts = objs.map((o, i) => [o.geometry, new THREE.Matrix4().multiplyMatrices(root.matrixWorld, rest[i])]);
-    PT.ov = { objKey, cv, tex, meshes, sig: {}, N, R, uniforms, depth, objs, rest, parts, dir: new Map() };
+    // Each part's box at rest, in the shapes' frame: which parts a shape can reach.
+    const sv = new THREE.Vector3(...s).negate();
+    const pbox = parts.map(([g, m]) => { if (!g.boundingBox) g.computeBoundingBox(); return g.boundingBox.clone().applyMatrix4(m).translate(sv).expandByScalar(0.05); });
+    PT.ov = { objKey, cv, tex, meshes, sig: {}, N, R, uniforms, depth, objs, rest, parts, pbox, dir: new Map() };
   }
   // What each view's texture holds; a texture is drawn and uploaded again only when that changed.
   const ops = Object.fromEntries(PAINT_OV_KEYS.map(k => [k, []])), dops = {};
@@ -3564,6 +3590,24 @@ function paintOverlay(dirOnly = false) {
     }
     O.tex[k].needsUpdate = true;
   }
+  // Views without shapes are skipped in the shader, and parts no shape reaches are not drawn again.
+  const has = k => ops[k].length ? 1 : 0;
+  O.uniforms.uHasA.value.set(has('side+'), has('side-'), has('top'));
+  O.uniforms.uHasB.value.set(has('bottom'), has('front'), has('rear'));
+  const kb = {};
+  for (const k of PAINT_OV_KEYS) for (const [, pts, flip] of ops[k]) {
+    const b = kb[k] || (kb[k] = [Infinity, Infinity, -Infinity, -Infinity]);
+    for (const [u, v] of pts) {
+      const x = flip === 2 ? -u : u, y = flip === 1 ? -v : v;
+      b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y);
+    }
+  }
+  O.meshes.forEach((m, i) => {
+    const { min: a, max: c } = O.pbox[i];
+    const rng = { 'side+': [a.z, a.y, c.z, c.y], 'side-': [a.z, a.y, c.z, c.y], top: [a.z, a.x, c.z, c.x], bottom: [a.z, a.x, c.z, c.x],
+                  front: [a.x, a.y, c.x, c.y], rear: [a.x, a.y, c.x, c.y] };
+    m.visible = Object.entries(kb).some(([k, b]) => { const q = rng[k]; return b[0] <= q[2] && q[0] <= b[2] && b[1] <= q[3] && q[1] <= b[3]; });
+  });
   paintOverlayDir(dops);
 }
 // Free view: the selected shape's outline laid on the model (both sides when mirrored), points of the
