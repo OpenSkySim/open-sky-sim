@@ -203,7 +203,13 @@ def windscreen(d, H, y0):
         rest = resample(np.vstack([[bev], up[i:]]), m + 1 - len(top) - 1)
         return _even_lower(np.vstack([top, rest, P[m + 1:]]), y0) - np.array([0.0, y0])
     if d < PANE_STATIONS[0] - 1e-6:
-        return _even_lower(P, y0) - np.array([0.0, y0])   # nose cap: same lower shape as the rings behind
+        Q = _even_lower(P, y0)
+        if d > 0.0:
+            # The rounding ring just behind the tip (owner: round the nose in side view) stays within
+            # the plan outline between the tip and section А, so it adds no bulge in top view.
+            w = 0.886 + (0.994 - 0.886) * (d + 0.022) / (PANE_STATIONS[0] + 0.022)
+            Q[:, 0] *= w / Q[:, 0].max()
+        return Q - np.array([0.0, y0])   # nose cap: same lower shape as the rings behind
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
         return H
     j0, j1, j2, j3 = _pane_points(d, P[0, 1])
