@@ -4608,7 +4608,8 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 6,
+   "sides": 10,
+   "material": "#0a0b0c",
    "a": [
     0.45,
     2.56,
@@ -4629,7 +4630,8 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 6,
+   "sides": 10,
+   "material": "#0a0b0c",
    "a": [
     0.98,
     2.501,
@@ -4644,6 +4646,25 @@
    "radius_b": 0.29,
    "inner": 0.215,
    "inner_b": 0.225
+  },
+  {
+   "name": "ExhaustInside",
+   "type": "strut",
+   "mirror": true,
+   "join": "separate",
+   "material": "#0a0b0c",
+   "a": [
+    0.45,
+    2.56,
+    0.46
+   ],
+   "b": [
+    0.93,
+    2.507,
+    0.309
+   ],
+   "radius": 0.205,
+   "sides": 10
   },
   {
    "name": "MastFairing",
