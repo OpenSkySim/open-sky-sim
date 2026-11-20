@@ -3061,26 +3061,38 @@ function paintInside(pt, poly) {
   }
   return c;
 }
+// Drawing a frame of the Paint card is kept cheap, as it runs on every pointer move while painting:
+// the free view's colour overlay is only re-rasterised for the views whose shapes changed, the shape
+// fills of the flat views only when a shape changed, outlines on the hull reuse their ray casts, and
+// pointer moves draw at most once per animation frame (paintDrawSoon).
+function paintGroupDrop(key) {
+  const g = PT[key];
+  if (!g) return;
+  g.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  g.removeFromParent();
+  PT[key] = null;
+}
+function paintDrawSoon() {
+  if (PT.drawRaf) return;
+  PT.drawRaf = requestAnimationFrame(() => { PT.drawRaf = 0; paintDraw(); });
+}
+const paintRegSig = r => JSON.stringify([r.id, r.view, r.color, r.mirror !== false, r.x_side || 0, r.pts]);
 function paintDraw() {
-  paintOverlayClear();
-  if (PT.group) {
-    PT.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
-    PT.group.removeFromParent();
-    PT.group = null;
-  }
+  if (PT.drawRaf) { cancelAnimationFrame(PT.drawRaf); PT.drawRaf = 0; }
   if (PT.on) {
     controls.enableRotate = !paintView();
     stage.querySelector('.hint').textContent = paintHint();
   }
-  if (!current) return;
+  if (!current) { paintOverlayClear(); paintGroupDrop('group'); paintGroupDrop('draftGroup'); PT.groupKey = null; return; }
   paintBaseApply();
   paintNumber();
   // Lines and point handles only while Paint is on (and "show the outlines" is ticked); the fill stays.
   const lines = PT.on && $('paintShow').checked;
   const view = paintView();
-  if (!view) { if (lines) paintDrawFree(); else paintOverlay(); return; }
-  const g = new THREE.Group(), plane = paintPlane(view);
-  const shape = (pts, color, mirror, sel, closed) => {
+  if (!view) { paintOverlay(); paintDrawFree(lines); return; }
+  paintOverlayClear();
+  const plane = paintPlane(view);
+  const shape = (g, pts, color, mirror, sel, closed) => {
     const sides = view === 'side' ? [false] : mirror ? [false, true] : [false];
     for (const m of sides) {
       const P3 = pts.map(([u, v]) => paintToWorld(view, u, v, plane, m));
@@ -3105,11 +3117,26 @@ function paintDraw() {
       }
     }
   };
-  for (const r of paintShown()) if (r.view === view) shape(r.pts, r.color, r.mirror !== false, PT.sel === r.id, true);
-  if (PT.draft && PT.draft.view === view) shape(PT.draft.pts, $('paintColor').value, PT.draft.mirror, true, false);
-  g.traverse(o => { o.userData.reference = true; });
-  scene.add(g);
-  PT.group = g;
+  // The shapes: rebuilt only when one of them (or the view, selection or plane) changed.
+  const regs = paintShown().filter(r => r.view === view);
+  const key = JSON.stringify([view, plane, lines, PT.sel, PT.shift]) + regs.map(paintRegSig).join();
+  if (key !== PT.groupKey || !PT.group) {
+    paintGroupDrop('group');
+    const g = new THREE.Group();
+    for (const r of regs) shape(g, r.pts, r.color, r.mirror !== false, PT.sel === r.id, true);
+    g.traverse(o => { o.userData.reference = true; });
+    scene.add(g);
+    PT.group = g; PT.groupKey = key;
+  }
+  // The shape being drawn: small, drawn every time.
+  paintGroupDrop('draftGroup');
+  if (PT.draft && PT.draft.view === view) {
+    const g = new THREE.Group();
+    shape(g, PT.draft.pts, $('paintColor').value, PT.draft.mirror, true, false);
+    g.traverse(o => { o.userData.reference = true; });
+    scene.add(g);
+    PT.draftGroup = g;
+  }
 }
 // Free view fill: the hull itself is drawn again with the shapes projected onto it, like the
 // build paints it: every hull face turned towards a shape's view (normal along that axis) takes
@@ -3135,112 +3162,142 @@ function paintBaseApply() {
   });
 }
 function paintOverlayClear() {
-  for (const o of PT.overlays || []) { o.removeFromParent(); o.material.dispose(); }
-  for (const t of PT.overlayTex || []) t.dispose();
-  PT.overlays = []; PT.overlayTex = [];
+  const O = PT.ov;
+  if (!O) return;
+  for (const o of O.meshes) { o.removeFromParent(); o.material.dispose(); }
+  for (const t of Object.values(O.tex)) t.dispose();
+  PT.ov = null;
 }
+const PAINT_OV_KEYS = ['side+', 'side-', 'top', 'bottom', 'front', 'rear'];
 function paintOverlay() {
   // Only the base skin takes shapes, as in the build (glass, markings and dark parts keep theirs).
   const from = paintFromSet();
-  const regs = paintShown(), objs = paintObjs().filter(o => from.has((o.userData.mat || '').toLowerCase()));
-  if (!regs.length || !objs.length) return;
+  const regs = paintShown(), objs = paintObjs().filter(o => from.has((o.userData.mat || '').toLowerCase()) && o.geometry && o.geometry.attributes.normal);
+  if (!regs.length || !objs.length) { paintOverlayClear(); return; }
   const box = new THREE.Box3();
   for (const o of objs) box.expandByObject(o);
   const s = PT.shift, N = 2048;
   const R = Math.max(...box.min.toArray().map(Math.abs), ...box.max.toArray().map(Math.abs)) + Math.max(...s.map(Math.abs)) + 1;
-  const keys = ['side+', 'side-', 'top', 'bottom', 'front', 'rear'], cv = {};
-  for (const k of keys) {
-    const c = document.createElement('canvas'); c.width = c.height = N;
-    const ctx = c.getContext('2d');
-    ctx.setTransform(N / (2 * R), 0, 0, N / (2 * R), N / 2, N / 2);
-    cv[k] = { c, ctx, used: false };
+  // The canvases, textures and overlay meshes stay while the model (and its frame) stays.
+  const objKey = objs.map(o => o.uuid).join() + '|' + R.toFixed(3) + '|' + s.join();
+  if (PT.ov && PT.ov.objKey !== objKey) paintOverlayClear();
+  if (!PT.ov) {
+    const cv = {}, tex = {};
+    for (const k of PAINT_OV_KEYS) {
+      const c = document.createElement('canvas'); c.width = c.height = N;
+      cv[k] = c.getContext('2d');
+      const t = new THREE.CanvasTexture(c);
+      t.flipY = false; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.colorSpace = THREE.SRGBColorSpace;
+      tex[k] = t;
+    }
+    // The hull's own lit material (same light and flat facets), its colour taken from the shapes.
+    const uniforms = { tSP: { value: tex['side+'] }, tSN: { value: tex['side-'] }, tTop: { value: tex.top }, tBot: { value: tex.bottom },
+                       tFr: { value: tex.front }, tRe: { value: tex.rear },
+                       uS: { value: new THREE.Vector3(...s) }, uR: { value: R } };
+    const makeMat = () => {
+      const mat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1, depthWrite: false,
+                                                   polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      mat.customProgramCacheKey = () => 'paintOverlay';
+      mat.onBeforeCompile = sh => {
+        Object.assign(sh.uniforms, uniforms);
+        sh.vertexShader = 'varying vec3 vPW; varying vec3 vPN;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+          '#include <begin_vertex>\n  vPW = (modelMatrix * vec4(transformed, 1.0)).xyz; vPN = mat3(modelMatrix) * objectNormal;');
+        sh.fragmentShader = `uniform sampler2D tSP, tSN, tTop, tBot, tFr, tRe; uniform vec3 uS; uniform float uR;
+          varying vec3 vPW; varying vec3 vPN;
+          vec4 paintAt(sampler2D t, vec2 uv) { vec2 c = uv / (2.0 * uR) + 0.5;
+            if (c.x < 0.0 || c.y < 0.0 || c.x > 1.0 || c.y > 1.0) return vec4(0.0); return texture2D(t, c); }
+          ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+          {
+            vec3 pn = normalize(vPN); vec4 col = vec4(0.0), c;
+            vec2 side = vec2(vPW.z - uS.z, vPW.y - uS.y), top = vec2(vPW.z - uS.z, vPW.x - uS.x), fr = vec2(vPW.x - uS.x, vPW.y - uS.y);
+            // same rule as lpa/paint.py: a face takes a view's shapes when it is turned towards it
+            if (pn.x > 0.02) { c = paintAt(tSP, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (pn.x < -0.02) { c = paintAt(tSN, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (pn.y < -0.02) { c = paintAt(tBot, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (pn.y > 0.02) { c = paintAt(tTop, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (pn.z > 0.02) { c = paintAt(tFr, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (pn.z < -0.02) { c = paintAt(tRe, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+            if (col.a < 0.5) discard;
+            diffuseColor.rgb = col.rgb;
+          }`);
+      };
+      return mat;
+    };
+    const meshes = objs.map(o => {
+      const ov = new THREE.Mesh(o.geometry, makeMat());
+      ov.name = 'paint_overlay'; ov.renderOrder = 18; ov.raycast = () => {};
+      ov.userData.reference = true;
+      o.add(ov);
+      return ov;
+    });
+    PT.ov = { objKey, cv, tex, meshes, sig: {}, N, R, uniforms };
   }
-  const poly = (k, pts, flip, flipU = false) => {
-    const { ctx } = cv[k];
-    ctx.beginPath();
-    pts.forEach(([u, v], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, flipU ? -u : u, flip ? -v : v));
-    ctx.closePath(); ctx.fill('evenodd');
-    cv[k].used = true;
-  };
+  // What each view's texture holds; a texture is drawn and uploaded again only when that changed.
+  const ops = Object.fromEntries(PAINT_OV_KEYS.map(k => [k, []]));
   for (const r of regs) {
     if (r.pts.length < 3) continue;
     const mir = r.mirror !== false;
-    for (const k of keys) cv[k].ctx.fillStyle = r.color;
     if (r.view === 'side') {
-      if (mir) { poly('side+', r.pts, false); poly('side-', r.pts, false); }
-      else poly((r.x_side || 1) > 0 ? 'side+' : 'side-', r.pts, false);
+      if (mir) { ops['side+'].push([r.color, r.pts, 0]); ops['side-'].push([r.color, r.pts, 0]); }
+      else ops[(r.x_side || 1) > 0 ? 'side+' : 'side-'].push([r.color, r.pts, 0]);
     } else if (r.view === 'front' || r.view === 'rear') {
-      poly(r.view, r.pts, false);
-      if (mir) poly(r.view, r.pts, false, true);
-    } else {
-      poly(r.view, r.pts, false);
-      if (mir) poly(r.view, r.pts, true);
+      ops[r.view].push([r.color, r.pts, 0]);
+      if (mir) ops[r.view].push([r.color, r.pts, 2]);
+    } else if (ops[r.view]) {
+      ops[r.view].push([r.color, r.pts, 0]);
+      if (mir) ops[r.view].push([r.color, r.pts, 1]);
     }
   }
-  const tex = {};
-  for (const k of keys) {
-    const t = new THREE.CanvasTexture(cv[k].c);
-    t.flipY = false; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.colorSpace = THREE.SRGBColorSpace;
-    tex[k] = t; PT.overlayTex.push(t);
+  const O = PT.ov;
+  // Mirrored side shapes only (the usual case): the far side reads the near side's texture, so a
+  // stroke there uploads one texture, not two.
+  const sideSame = JSON.stringify(ops['side+']) === JSON.stringify(ops['side-']);
+  O.uniforms.tSN.value = sideSame ? O.tex['side+'] : O.tex['side-'];
+  for (const k of PAINT_OV_KEYS) {
+    if (k === 'side-' && sideSame) continue;
+    const sig = JSON.stringify(ops[k]);
+    if (O.sig[k] === sig) continue;
+    O.sig[k] = sig;
+    const ctx = O.cv[k];
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, O.N, O.N);
+    ctx.setTransform(O.N / (2 * O.R), 0, 0, O.N / (2 * O.R), O.N / 2, O.N / 2);
+    for (const [color, pts, flip] of ops[k]) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      pts.forEach(([u, v], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, flip === 2 ? -u : u, flip === 1 ? -v : v));
+      ctx.closePath(); ctx.fill('evenodd');
+    }
+    O.tex[k].needsUpdate = true;
   }
-  // The hull's own lit material (same light and flat facets), its colour taken from the shapes.
-  const uniforms = { tSP: { value: tex['side+'] }, tSN: { value: tex['side-'] }, tTop: { value: tex.top }, tBot: { value: tex.bottom },
-                     tFr: { value: tex.front }, tRe: { value: tex.rear },
-                     uS: { value: new THREE.Vector3(...s) }, uR: { value: R } };
-  const makeMat = () => {
-    const mat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1, depthWrite: false,
-                                                 polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    mat.customProgramCacheKey = () => 'paintOverlay';
-    mat.onBeforeCompile = sh => {
-      Object.assign(sh.uniforms, uniforms);
-      sh.vertexShader = 'varying vec3 vPW; varying vec3 vPN;\n' + sh.vertexShader.replace('#include <begin_vertex>',
-        '#include <begin_vertex>\n  vPW = (modelMatrix * vec4(transformed, 1.0)).xyz; vPN = mat3(modelMatrix) * objectNormal;');
-      sh.fragmentShader = `uniform sampler2D tSP, tSN, tTop, tBot, tFr, tRe; uniform vec3 uS; uniform float uR;
-        varying vec3 vPW; varying vec3 vPN;
-        vec4 paintAt(sampler2D t, vec2 uv) { vec2 c = uv / (2.0 * uR) + 0.5;
-          if (c.x < 0.0 || c.y < 0.0 || c.x > 1.0 || c.y > 1.0) return vec4(0.0); return texture2D(t, c); }
-        ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
-        {
-          vec3 pn = normalize(vPN); vec4 col = vec4(0.0), c;
-          vec2 side = vec2(vPW.z - uS.z, vPW.y - uS.y), top = vec2(vPW.z - uS.z, vPW.x - uS.x), fr = vec2(vPW.x - uS.x, vPW.y - uS.y);
-          // same rule as lpa/paint.py: a face takes a view's shapes when it is turned towards it
-          if (pn.x > 0.02) { c = paintAt(tSP, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (pn.x < -0.02) { c = paintAt(tSN, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (pn.y < -0.02) { c = paintAt(tBot, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (pn.y > 0.02) { c = paintAt(tTop, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (pn.z > 0.02) { c = paintAt(tFr, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (pn.z < -0.02) { c = paintAt(tRe, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
-          if (col.a < 0.5) discard;
-          diffuseColor.rgb = col.rgb;
-        }`);
-    };
-    return mat;
-  };
-  objs.forEach(o => {
-    if (!o.geometry || !o.geometry.attributes.normal) return;
-    const ov = new THREE.Mesh(o.geometry, makeMat());
-    ov.name = 'paint_overlay'; ov.renderOrder = 18; ov.raycast = () => {};
-    ov.userData.reference = true;
-    o.add(ov); PT.overlays.push(ov);
-  });
 }
 // Free view: the selected shape's outline laid on the model (both sides when mirrored), points of the
 // selected shape and the shape being drawn as handles.
-function paintDrawFree() {
-  const g = new THREE.Group();
-  const outline = (view, pts, xs, mirror, color, sel, closed, fillColor = color) => {
-    const sides = view === 'side' ? (mirror ? [false, true] : [false]) : (mirror ? [false, true] : [false]);
+// Points on the hull along a segment of a drawing-view line: ray casts kept per segment, so a line
+// being drawn only casts for its new segment (the cache is dropped when another body is shown).
+function paintSurfSeg(view, a, b, xs, m) {
+  const owner = current && current.root.children[0] ? current.root.children[0].uuid + PT.shift.join() : '';
+  if (PT.segOwner !== owner || !PT.segCache || PT.segCache.size > 20000) { PT.segCache = new Map(); PT.segOwner = owner; }
+  const key = `${view}|${xs}|${m ? 1 : 0}|${a[0]},${a[1]}|${b[0]},${b[1]}`;
+  let seg = PT.segCache.get(key);
+  if (!seg) {
+    seg = [];
+    const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.12));
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      seg.push(paintSurf(view, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, xs, m));
+    }
+    PT.segCache.set(key, seg);
+  }
+  return seg;
+}
+function paintDrawFree(lines) {
+  const outline = (g, view, pts, xs, mirror, color, sel, closed) => {
+    const sides = mirror ? [false, true] : [false];
     for (const m of sides) {
       const seg = [];
       const n = closed ? pts.length : pts.length - 1;
-      for (let i = 0; i < n; i++) {
-        const a = pts[i], b = pts[(i + 1) % pts.length];
-        const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.12));
-        for (let k = 0; k <= steps; k++) {
-          const t = k / steps, p = paintSurf(view, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, xs, m);
-          seg.push(p);
-        }
-      }
+      for (let i = 0; i < n; i++) seg.push(...paintSurfSeg(view, pts[i], pts[(i + 1) % pts.length], xs, m));
       // Break the line where it leaves the model.
       let run = [];
       const flush = () => {
@@ -3253,7 +3310,7 @@ function paintDrawFree() {
       for (const p of seg) { if (p) run.push(p); else flush(); }
       flush();
       if (sel && !m) {
-        const hp = pts.map(([u, v]) => paintSurf(view, u, v, xs, false)).filter(Boolean);
+        const hp = pts.map(p => paintSurfSeg(view, p, p, xs, false)[0]).filter(Boolean);
         if (hp.length) {
           const pts3 = new THREE.Points(new THREE.BufferGeometry().setFromPoints(hp), new THREE.PointsMaterial({ color: 0xff8a00, size: 8, sizeAttenuation: false, depthTest: false, transparent: true }));
           pts3.renderOrder = 20; g.add(pts3);
@@ -3261,12 +3318,16 @@ function paintDrawFree() {
       }
     }
   };
-  for (const r of paintRegions()) if (PT.sel === r.id) outline(r.view, r.pts, paintRegionXs(r), r.mirror !== false, new THREE.Color(r.color).multiplyScalar(0.6), PT.sel === r.id, true, r.color);
-  if (PT.draft) outline(PT.draft.view, PT.draft.pts, PT.draft.xs || 1, false, 0xff8a00, true, false);
-  paintOverlay();
-  g.traverse(o => { o.userData.reference = true; });
-  scene.add(g);
-  PT.group = g;
+  const done = (key, g) => { g.traverse(o => { o.userData.reference = true; }); scene.add(g); PT[key] = g; };
+  // The selected shape's outline: rebuilt only when it (or the body) changed.
+  const selR = lines && paintRegions().find(r => PT.sel === r.id);
+  const key = selR ? 'free' + paintRegSig(selR) + PT.segOwner : null;
+  if (key !== PT.groupKey || (key && !PT.group)) {
+    paintGroupDrop('group'); PT.groupKey = key;
+    if (selR) { const g = new THREE.Group(); outline(g, selR.view, selR.pts, paintRegionXs(selR), selR.mirror !== false, 0, true, true); done('group', g); }
+  }
+  paintGroupDrop('draftGroup');
+  if (lines && PT.draft) { const g = new THREE.Group(); outline(g, PT.draft.view, PT.draft.pts, PT.draft.xs || 1, false, 0xff8a00, true, false); done('draftGroup', g); }
 }
 function paintUi() {
   const regs = paintRegions(), list = $('paintList');
@@ -3346,6 +3407,12 @@ function numPolys(text, h) {
   return out;
 }
 function paintNumber() {
+  // Unchanged number, colour and body: nothing to do (this runs on every drawn frame).
+  const nk = current && PT.file ? JSON.stringify([current.root.children[0] && current.root.children[0].uuid, PT.bodyFile, PT.skin, PT.file.decals,
+    document.activeElement === $('skinNumber') ? $('skinNumber').value : null, PT.numColLive ? $('skinNumberColor').value : null,
+    (skinCur() || {}).number, (skinCur() || {}).number_color, meshOnly]) : null;
+  if (nk && nk === PT.numKey) return;
+  PT.numKey = nk;
   if (PT.numGroup) {
     PT.numGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
     PT.numGroup.removeFromParent(); PT.numGroup = null;
@@ -3660,7 +3727,7 @@ renderer.domElement.addEventListener('pointermove', e => {
   if (!pk) return;   // off the model (free view): skip until the pointer is back on it
   S.x = mx; S.y = my; S.moved = true;
   PT.draft.pts.push(pk.uv);
-  paintUi(); paintDraw();
+  paintDrawSoon();   // the list (paintUi) is brought up to date on release
 });
 renderer.domElement.addEventListener('pointerup', () => {
   const S = PT.stroke;
@@ -3679,7 +3746,7 @@ renderer.domElement.addEventListener('pointermove', e => {
   if (!pk) return;
   PT.drag.pts[PT.drag.k] = pk.uv;
   PT.docs[PT.drag.id].pts = PT.drag.pts.map(p => p.slice());
-  paintDraw();
+  paintDrawSoon();
 });
 renderer.domElement.addEventListener('pointerup', () => {
   if (!PT.drag) return;
