@@ -431,19 +431,18 @@ def main():
         # back towards the pilots (its sloping upper face carries the instruments), clear of the
         # shins (lower edge 0.95 at d 0.64), a taller centre section running down to the centre
         # console, a black hood on top, and a sloping console against each nose wall.
-        # Owner (2026-11-20): front panel (side wings, centre, hood) 5 cm lower, and its back (the
-        # side facing the nose and windscreen) black: each slab is a black box with a thin
-        # turquoise layer (3 cm) on the pilots' face.
+        # Owner (2026-11-20): front panel 5 cm lower with a black back, then 20 cm further back
+        # (d 0.70-0.84) and flat on top: upright blocks with a level black top, the pilots' face a
+        # thin (3 cm) turquoise layer; the side blocks end above the shins (1.07 at d 0.85), the
+        # taller centre block stands on the floor. The separate hood went with the flat top.
         {'name': 'PanelSideBack', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': PANEL_BACK,
-         'stations': loft_m([(0.5, 0.33, 1.27, 1.34, 8), (0.64, 0.33, 0.90, 0.97, 8)], 0.6)},
+         'stations': loft_m([(0.70, 0.33, 1.12, 1.37, 8), (0.81, 0.33, 1.12, 1.37, 8)], 0.6)},
         {'name': 'PanelSide', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
-         'stations': loft_m([(0.5, 0.33, 1.34, 1.37, 8), (0.64, 0.33, 0.97, 1.0, 8)], 0.6)},
+         'stations': loft_m([(0.81, 0.33, 1.12, 1.365, 8), (0.84, 0.33, 1.12, 1.365, 8)], 0.6)},
         {'name': 'PanelCentreBack', 'type': 'loft', 'box': True, 'join': 'separate', 'material': PANEL_BACK,
-         'stations': loft_m([(0.48, 0.27, 1.33, 1.44, 8), (0.66, 0.27, 0.57, 0.92, 8)])},
+         'stations': loft_m([(0.70, 0.27, 0.62, 1.45, 8), (0.81, 0.27, 0.62, 1.45, 8)])},
         {'name': 'PanelCentre', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
-         'stations': loft_m([(0.48, 0.27, 1.44, 1.47, 8), (0.66, 0.27, 0.92, 0.95, 8)])},
-        {'name': 'GlareShield', 'type': 'loft', 'box': True, 'join': 'separate', 'material': PANEL_BACK,
-         'stations': loft_m([(0.42, 0.23, 1.45, 1.55, 8), (0.55, 0.23, 1.43, 1.51, 8)])},
+         'stations': loft_m([(0.81, 0.27, 0.62, 1.445, 8), (0.84, 0.27, 0.62, 1.445, 8)])},
         {'name': 'NoseConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
          'stations': loft_m([(0.48, 0.05, 0.62, 1.1, 8), (0.66, 0.05, 0.62, 0.95, 8)], 0.88)},
         {'name': 'Pedestal', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
