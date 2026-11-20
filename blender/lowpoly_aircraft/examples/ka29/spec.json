@@ -4622,8 +4622,8 @@
    ],
    "radius": 0.26,
    "radius_b": 0.27,
-   "inner": 0.2,
-   "inner_b": 0.215
+   "inner": 0.259,
+   "inner_b": 0.269
   },
   {
    "name": "ExhaustLip",
@@ -4642,10 +4642,10 @@
     2.494,
     0.274
    ],
-   "radius": 0.285,
+   "radius": 0.27,
    "radius_b": 0.29,
-   "inner": 0.215,
-   "inner_b": 0.225
+   "inner": 0.269,
+   "inner_b": 0.289
   },
   {
    "name": "ExhaustInside",
@@ -4663,7 +4663,7 @@
     2.507,
     0.309
    ],
-   "radius": 0.205,
+   "radius": 0.255,
    "sides": 10
   },
   {
