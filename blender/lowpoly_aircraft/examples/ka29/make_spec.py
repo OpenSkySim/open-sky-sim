@@ -344,9 +344,7 @@ def main():
         # Sensor fairing under the nose (side x 375..410).
         {'name': 'ChinPod', 'type': 'loft', 'segments': 10, 'stations': loft_px(
             [(374, 0, 233, 233, 2), (380, 7, 246, 222, 2.2), (402, 8, 247, 222, 2.2), (411, 0, 232, 232, 2)])},
-        # Round dome on top of the deck, aft of the rotor (top view circle at x 400).
-        {'name': 'TopDome', 'type': 'loft', 'segments': 10, 'stations': loft_px(
-            [(640, 0, 111, 104, 2), (641, 7, 112, 102, 2), (657, 7, 112, 102, 2), (658, 0, 111, 104, 2)])},
+        # (The round TopDome aft of the rotor was removed: owner, it floated above the lowered deck.)
         # Engine intakes (second sheet front view, owner's photos): black hollow rings standing
         # 0.15 m proud of the deck's front face (d 1.95; centres x +-0.43, y 2.52): a thick lip, an
         # open duct, the engine face at its back and a centre bullet.
