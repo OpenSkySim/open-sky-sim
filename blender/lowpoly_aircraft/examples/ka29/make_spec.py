@@ -44,7 +44,7 @@ def z_(d):
 SEAT_X = 0.62
 COCKPIT_DY = 0.05    # owner: cockpit 30 cm up, 15 cm back down, then 10 cm more
 PANEL_UP = ('Pedestal',)   # owner: centre console 20 cm higher
-COCKPIT_PARTS = ('PanelSide', 'NoseConsole', 'PanelCentre', 'GlareShield', 'Pedestal',
+COCKPIT_PARTS = ('PanelSide', 'PanelSideBack', 'NoseConsole', 'PanelCentre', 'PanelCentreBack', 'GlareShield', 'Pedestal',
                  'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack', 'SeatBeltIn', 'SeatBeltOut')
 BULK_D = 1.78          # bulkhead right behind the seat backs (second photo)
 WALL = '#121314'       # owner (2026-11-20): black interior walls, floor, bulkhead, console sides (light grey #a3abb2 before)
@@ -54,6 +54,7 @@ BELT = '#8c949a'       # grey belts
 TURQ = '#1f5c5a'      # cockpit: dark turquoise (owner)
 TURQ_DARK = '#163f3e' # floor, coaming, sticks
 GAUGE = '#14171a'     # instrument faces
+PANEL_BACK = '#101113'  # front panel back + hood (owner: black)
 
 
 def P(x, y, d):
@@ -189,9 +190,8 @@ def windows_and_doors():
         {'name': 'DoorWindow', 'view': 'side', 'mirror': True, 'see_through': True, 'depth_m': [0.6, 1.3],
          # Owner's marked form: front edge parallel to the quarter pane's rear edge (4 cm post),
          # sharp top corners, rear edge straight down then slanting forward to the sill.
-         # Owner (2026-11-20): 5 cm lower; the front edge slides down its own line (pillar post stays 4 cm).
-         'polygon_m': [[z_(0.865), 1.31], [z_(1.055), 1.95], [z_(1.72), 1.95], [z_(1.72), 1.61],
-                       [z_(1.62), 1.31]]},
+         'polygon_m': [[z_(0.88), 1.36], [z_(1.07), 2.0], [z_(1.72), 2.0], [z_(1.72), 1.66],
+                       [z_(1.62), 1.36]]},
         {'name': 'CabinWindowFront', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
          'polygon_m': side_m(rounded_rect(456, 472, 160, 181, 3))},
         {'name': 'CabinWindowRear', 'view': 'side', 'mirror': True, 'depth_m': side_skin,
@@ -431,12 +431,19 @@ def main():
         # back towards the pilots (its sloping upper face carries the instruments), clear of the
         # shins (lower edge 0.95 at d 0.64), a taller centre section running down to the centre
         # console, a black hood on top, and a sloping console against each nose wall.
+        # Owner (2026-11-20): front panel (side wings, centre, hood) 5 cm lower, and its back (the
+        # side facing the nose and windscreen) black: each slab is a black box with a thin
+        # turquoise layer (3 cm) on the pilots' face.
+        {'name': 'PanelSideBack', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': PANEL_BACK,
+         'stations': loft_m([(0.5, 0.33, 1.27, 1.34, 8), (0.64, 0.33, 0.90, 0.97, 8)], 0.6)},
         {'name': 'PanelSide', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
-         'stations': loft_m([(0.5, 0.33, 1.32, 1.42, 8), (0.64, 0.33, 0.95, 1.05, 8)], 0.6)},
+         'stations': loft_m([(0.5, 0.33, 1.34, 1.37, 8), (0.64, 0.33, 0.97, 1.0, 8)], 0.6)},
+        {'name': 'PanelCentreBack', 'type': 'loft', 'box': True, 'join': 'separate', 'material': PANEL_BACK,
+         'stations': loft_m([(0.48, 0.27, 1.33, 1.44, 8), (0.66, 0.27, 0.57, 0.92, 8)])},
         {'name': 'PanelCentre', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
-         'stations': loft_m([(0.48, 0.27, 1.38, 1.52, 8), (0.66, 0.27, 0.62, 1.0, 8)])},
-        {'name': 'GlareShield', 'type': 'loft', 'box': True, 'join': 'separate', 'material': '#101113',
-         'stations': loft_m([(0.42, 0.23, 1.5, 1.6, 8), (0.55, 0.23, 1.48, 1.56, 8)])},
+         'stations': loft_m([(0.48, 0.27, 1.44, 1.47, 8), (0.66, 0.27, 0.92, 0.95, 8)])},
+        {'name': 'GlareShield', 'type': 'loft', 'box': True, 'join': 'separate', 'material': PANEL_BACK,
+         'stations': loft_m([(0.42, 0.23, 1.45, 1.55, 8), (0.55, 0.23, 1.43, 1.51, 8)])},
         {'name': 'NoseConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
          'stations': loft_m([(0.48, 0.05, 0.62, 1.1, 8), (0.66, 0.05, 0.62, 0.95, 8)], 0.88)},
         {'name': 'Pedestal', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
