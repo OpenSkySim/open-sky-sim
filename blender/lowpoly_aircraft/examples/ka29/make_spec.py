@@ -360,12 +360,11 @@ def main():
         # Owner: connect it into the fuselage mesh: a loft from the round intake (behind the lip) to
         # a rounded square that sits just inside the deck's section (top y 2.9, side x 0.84), so the
         # union with the hull leaves one skin with no collar sticking out above or beside the deck.
-        {'name': 'IntakeFairing', 'type': 'loft', 'mirror': True, 'join': 'body', 'segments': 20,
+        {'name': 'IntakeFairing', 'type': 'loft', 'mirror': True, 'join': 'body', 'segments': 16,   # owner: fewer polys
          'material': 'VEHICLE_PLANE_GREY', 'stations': [
              [z_(1.875), 0.43, 2.52, 0.302, 0.302, 0.302, 2.0, 2.0],
              [z_(1.95), 0.43, 2.52, 0.37, 0.31, 0.45, 2.6, 2.2],   # owner: lower side fills the flat
              [z_(2.08), 0.43, 2.51, 0.415, 0.33, 0.5, 3.5, 2.2],   # shelf under the intake down to the deck side
-             [z_(2.25), 0.43, 2.5, 0.405, 0.34, 0.45, 3.0, 2.2],   # owner: smaller bulge on top (round upper half)
              [z_(2.5), 0.43, 2.48, 0.35, 0.32, 0.34, 2.8, 2.2]]},   # owner: smooth the side step (x 0.85 = deck side)
         # Owner: deeper intakes, pure black: a 10-sided pocket sunk 0.65 m into the hull behind the
         # lip (its walls and back face are the well lining), instead of a face just behind the lip.
@@ -591,7 +590,7 @@ def main():
                          {'min': [0.38, 1.98, z_(1.9)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 30},
                          {'min': [-1.3, 1.98, z_(1.9)], 'max': [-0.38, 2.4, z_(0.6)], 'deg': 30},
                          {'min': [-0.38, 1.9, z_(1.9)], 'max': [0.38, 2.4, z_(0.6)], 'deg': 20},   # bulge: as before
-                         {'min': [-1.0, 2.05, z_(2.6)], 'max': [1.0, 3.0, z_(1.9)], 'deg': 15},   # owner: intake fairing into the deck, merged polygons
+                         {'min': [-1.0, 2.05, z_(2.6)], 'max': [1.0, 3.0, z_(1.9)], 'deg': 30},   # owner: intake fairing into the deck, merged polygons
                          {'min': [-1.3, -1, z_(7.9)], 'max': [1.3, 4, z_(2.6)], 'deg': 3, 'relax': 2}],   # 4th: cabin (owner: smoothen)
         'sections': fuse_secs,
         'parts': parts,
