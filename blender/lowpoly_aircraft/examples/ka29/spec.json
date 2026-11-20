@@ -4562,16 +4562,17 @@
    "type": "loft",
    "mirror": true,
    "join": "body",
-   "segments": 16,
+   "segments": 10,
+   "phase": 0.5,
    "material": "VEHICLE_PLANE_GREY",
    "stations": [
     [
-     2.345,
+     2.348,
      0.43,
      2.52,
-     0.302,
-     0.302,
-     0.302,
+     0.306,
+     0.306,
+     0.306,
      2.0,
      2.0
     ],

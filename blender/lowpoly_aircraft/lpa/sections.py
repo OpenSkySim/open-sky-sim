@@ -68,8 +68,10 @@ def mirror_t(t: float) -> float:
     return norm_t(math.pi - t)
 
 
-def base_ts(segments: int) -> list[float]:
-    return [TWO_PI * k / segments for k in range(segments)]
+def base_ts(segments: int, phase: float = 0.0) -> list[float]:
+    """Even ring parameters; *phase* shifts them by that fraction of a step (0.5: half a step,
+    e.g. to put a vertex at the top like a round duct's ring)."""
+    return [TWO_PI * (k + phase) / segments for k in range(segments)]
 
 
 def superellipse_at(row, ts) -> np.ndarray:
@@ -86,9 +88,9 @@ def superellipse_at(row, ts) -> np.ndarray:
     return out
 
 
-def ring_ts(segments: int, sections=()) -> list[float]:
+def ring_ts(segments: int, sections=(), phase: float = 0.0) -> list[float]:
     """The loft's ring parameters: the even ones, plus every point the refined sections added."""
-    ts = sorted(set(base_ts(segments)) | {norm_t(p[2]) for s in sections for p in s['pts']})
+    ts = sorted(set(base_ts(segments, phase)) | {norm_t(p[2]) for s in sections for p in s['pts']})
     out: list[float] = []
     for t in ts:
         if not out or t - out[-1] > T_EPS:
@@ -142,7 +144,7 @@ def _is_point(row) -> bool:
     return row[3] < 1e-3 or row[4] + row[5] < 1e-3
 
 
-def loft_rings(stations, segments: int = 24, resample: int = 0, sections=(), name: str = 'loft'):
+def loft_rings(stations, segments: int = 24, resample: int = 0, sections=(), name: str = 'loft', phase: float = 0.0):
     """The loft's rings, nose first: [(z, points (m, 2))], with a single point where the tube closes.
 
     Without refined sections this is exactly the superellipse ring of every (resampled) station.
@@ -166,7 +168,7 @@ def loft_rings(stations, segments: int = 24, resample: int = 0, sections=(), nam
             print(f'[lpa] section {name} at z {z:.3f}: fewer than 3 points, skipped')
             continue
         used.append((z, r, sec))
-    ts = ring_ts(segments, [s for _, _, s in used])
+    ts = ring_ts(segments, [s for _, _, s in used], phase)
     # A ring exactly at every refined station.
     for z, r, _ in used:
         if not np.any(np.abs(rows[:, 0] - z) < Z_EPS):

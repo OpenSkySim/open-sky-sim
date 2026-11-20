@@ -35,17 +35,19 @@ catmull_rom = sections.catmull_rom   # kept here for older imports
 
 def loft(name: str, stations, segments: int = 24, resample: int = 0, material: str = 'VEHICLE_PLANE_GREY',
          collection: str = 'Construction', refined=(), log: dict | None = None,
-         coarse_z: float | None = None, coarse_step: int = 1) -> bpy.types.Object:
+         coarse_z: float | None = None, coarse_step: int = 1, phase: float = 0.0) -> bpy.types.Object:
     """Closed tube through superellipse sections.
 
     stations: rows of (z, cx, cy, half_width, above, below, n[, n_top]), nose first. The optional n_top
     gives the upper half its own squareness (lower = sides leaning in more towards the top).
     A station with half_width or height ~0 closes the tube to a point. ``refined``: cross-sections
     drawn in the Hangar (see sections.py) that replace the ring at their station.
+    ``phase``: shifts the ring points by that fraction of a segment (0.5 lines a 10-segment loft up
+    with a 10-sided duct or strut, whose ring has a vertex at the top).
     ``coarse_z``/``coarse_step``: rings aft of z (smaller z) keep only every coarse_step-th point, so a
     thin tail boom gets fewer, larger quads; the first coarse ring joins the full one with a zigzag.
     """
-    rings, ts, _ = sections.loft_rings(stations, segments, resample, refined, name)
+    rings, ts, _ = sections.loft_rings(stations, segments, resample, refined, name, phase)
     if log is not None:
         sections.log_loft(log['part'], log['instance'], log['mirrored'], rings, ts)
     if coarse_z is not None and coarse_step > 1 and segments % coarse_step == 0:
@@ -452,7 +454,8 @@ def build_part(spec_part: dict, mirrored: bool = False) -> bpy.types.Object:
         side = '' if not spec_part.get('mirror') else ('Right' if mirrored else 'Left')
         return loft(name, rows, int(spec_part.get('segments', 24)), int(spec_part.get('resample', 0)), material,
                     refined=refined, log={'part': spec_part, 'instance': name + side, 'mirrored': mirrored},
-                    coarse_z=spec_part.get('coarse_z'), coarse_step=int(spec_part.get('coarse_step', 1)))
+                    coarse_z=spec_part.get('coarse_z'), coarse_step=int(spec_part.get('coarse_step', 1)),
+                    phase=float(spec_part.get('phase', 0.0)))
     if kind == 'panel':
         normal = spec_part.get('normal')
         if normal is not None and mirrored:
