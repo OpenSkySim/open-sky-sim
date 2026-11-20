@@ -562,9 +562,11 @@ def main():
         # Nose and cockpit roof zones only merge near-flat faces (owner 2026-11-20: the sections
         # А-Г must keep their shape; the old 25/70 deg zones flattened the roof's centre strip).
         'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 6},
-                         {'min': [-1.3, 1.9, z_(1.9)], 'max': [1.3, 2.4, z_(1.2)], 'deg': 20},   # 2nd: cockpit roof
-                         # Roof just behind the windscreen (owner 2026-11-20: smooth it, -60 % polygons).
-                         {'min': [-1.3, 1.98, z_(1.2)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 36},
+                         # Cockpit roof (owner 2026-11-20: smooth, flat beside the bulge, fewer polygons): one zone, so
+                         # the flat roof merges into one panel per side; the bulge sides and bevels are steeper.
+                         {'min': [0.38, 1.98, z_(1.9)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 30},
+                         {'min': [-1.3, 1.98, z_(1.9)], 'max': [-0.38, 2.4, z_(0.6)], 'deg': 30},
+                         {'min': [-0.38, 1.9, z_(1.9)], 'max': [0.38, 2.4, z_(0.6)], 'deg': 20},   # bulge: as before
                          {'min': [-1.3, -1, z_(7.9)], 'max': [1.3, 4, z_(2.6)], 'deg': 3, 'relax': 2}],   # 4th: cabin (owner: smoothen)
         'sections': fuse_secs,
         'parts': parts,

@@ -113,6 +113,7 @@ QUARTER_2 = (0.95, 2.04, 1.042)
 ROOF_BLEND_END = 1.9
 # Owner (2026-11-20): the whole roof is flat at the windscreen top, except the bulge in the middle.
 ROOF_FLAT = 2.12   # owner: a little higher than the windscreen top (section В's sides)
+ROOF_EDGE_X = 0.80   # the flat roof's outer edge: one straight line (fewer polygons)
 ROOF_CHAMFER = 0.12   # owner: edges bevelled: flat roof ends this far inboard, the bevel drops as much
 # Deck fairing roof profile (x, height) at the first roof ring behind the glazing (d ROOF_RING_D).
 # Section В's top (sheet, on the side view's bottom 0.289): raised centre strip, rounded shoulders.
@@ -172,7 +173,7 @@ def windscreen(d, H, y0):
             return i, (float(a[0] + (b[0] - a[0]) * f), y)
         _, sh = cross(ROOF_FLAT)
         i, bev = cross(ROOF_FLAT - ROOF_CHAMFER)
-        top = [(0.0, hc), (ROOF_X[1], hc), (ROOF_X[2], ROOF_FLAT), (sh[0] - ROOF_CHAMFER, ROOF_FLAT)]
+        top = [(0.0, hc), (ROOF_X[1], hc), (ROOF_X[2], ROOF_FLAT), (ROOF_EDGE_X, ROOF_FLAT)]
         rest = resample(np.vstack([[bev], up[i:]]), m + 1 - len(top) - 1)
         return np.vstack([top, rest, P[m + 1:]]) - np.array([0.0, y0])
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
@@ -182,7 +183,11 @@ def windscreen(d, H, y0):
     # Every glazing ring has the same frame structure (top, roof points, frame points), so the
     # loft joins like points to like points and the roof behind the panes stays smooth.
     if d < PANE_C[2] - 1e-6:
-        fixed = [j0, (ROOF_X[1], j1[1]), j1, j2] + ([j3] if j3 else [])
+        # Stands in for the roof's flat edge (ROOF_EDGE_X) of the rings behind: 2 mm off the pane
+        # corner, so the frame ahead of C stays as few triangles as before.
+        u = np.subtract(j1, j2) / max(1e-9, float(np.linalg.norm(np.subtract(j1, j2))))
+        mid = (float(j2[0] + 0.002 * u[0]), float(j2[1] + 0.002 * u[1]))
+        fixed = [j0, (ROOF_X[1], j1[1]), j1, mid, j2] + ([j3] if j3 else [])
     else:
         # Behind the side panes the roof follows the outline (no lower than the pane tops).
         k_ = max(2, int(np.argmax(P[:HALF_N // 2, 0])))
@@ -190,8 +195,14 @@ def windscreen(d, H, y0):
         # The roof eases from the flat pane tops (C) up into the deck fairing's profile (the first
         # roof ring behind the glazing), with the same point layout, so it stays smooth.
         t = min(1.0, max(0.0, (d - PANE_C[2]) / (ROOF_RING_D - PANE_C[2])))
-        roof = lambda x: PANE_C[1] + t * ((ROOF_PROFILE[0][1] if x < ROOF_X[2] - 1e-6 else ROOF_FLAT) - PANE_C[1])
-        fixed = [(x, roof(x)) for x in ROOF_X] + [j2] + ([j3] if j3 else [])
+        # Owner (2026-11-20, -50 % roof polygons): the roof beside the bulge is flat at ROOF_FLAT
+        # from the side panes' top (C) back (one plane), bevelled down to the pane tops.
+        hc = ROOF_FLAT + t * (ROOF_PROFILE[0][1] - ROOF_FLAT)   # the bulge rises out of the flat roof
+        # The bulge's front is one straight ramp (owner: -50 % roof polygons): its top edge runs in a
+        # straight line from the flat roof's level at C (x 0.40) to section В's top (x 0.30), so its
+        # top and side faces are flat planes and the frames in between add no corners.
+        xs = ROOF_X[2] + t * (ROOF_X[1] - ROOF_X[2])
+        fixed = [(0.0, hc), (xs, hc), (ROOF_X[2], ROOF_FLAT), (ROOF_EDGE_X, ROOF_FLAT), j2] + ([j3] if j3 else [])
     foot = fixed[-1]
     # The outline continues below the last frame point on the outside: skip outline points that
     # lie inboard of it (the roof or nose top dipping under it), or the ring folds back. From the
