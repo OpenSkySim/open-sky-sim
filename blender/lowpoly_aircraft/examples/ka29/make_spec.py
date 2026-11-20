@@ -69,8 +69,14 @@ def Q(name, material, face, mirror, *pts):
     a, b, c = (np.array(q, float) for q in pts[:3])
     if -np.dot(np.cross(b - a, c - b), face) < 0:
         pts = pts[::-1]
-    return {'name': name, 'type': 'quad', 'join': 'separate', 'mirror': mirror, 'material': material,
+    part = {'name': name, 'type': 'quad', 'join': 'separate', 'mirror': mirror, 'material': material,
             'points': [list(q) for q in pts]}
+    # The builder's tidy() re-orients a lone face (recalc_face_normals); for these quads it
+    # always ends up facing up / forward / outboard, so panes meant to face down or aft are
+    # flipped back afterwards (checked on the exported normals).
+    if face[1] < 0 or face[2] < 0:
+        part['inside_out'] = True
+    return part
 
 
 def side_m(pts):

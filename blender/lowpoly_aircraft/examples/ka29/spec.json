@@ -4973,7 +4973,8 @@
      1.42,
      3.38
     ]
-   ]
+   ],
+   "inside_out": true
   },
   {
    "name": "PanelSideTop",
@@ -5089,7 +5090,8 @@
      1.17,
      3.38
     ]
-   ]
+   ],
+   "inside_out": true
   },
   {
    "name": "PanelCentreFront",
@@ -5147,7 +5149,8 @@
      1.5,
      3.38
     ]
-   ]
+   ],
+   "inside_out": true
   },
   {
    "name": "PanelCentreTop",
