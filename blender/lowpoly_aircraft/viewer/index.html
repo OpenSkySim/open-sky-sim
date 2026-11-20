@@ -360,7 +360,7 @@ button.ok { color: var(--ok); }
         <label title="In the 3-D view, paint exactly the surface under the brush as you see it. Off: project from the side, top or front view the surface faces most."><input type="checkbox" id="paintExact" checked> 3-D view: paint exactly what is under the brush</label></div>
       <div class="xs-list" id="paintList" aria-label="Painted shapes"></div>
       <div class="row"><button type="button" id="paintFinish" disabled>Finish shape</button><button type="button" id="paintDel" class="danger" disabled>Delete shape</button><button type="button" id="paintExport">Copy paint.json</button></div>
-      <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b>, <b>Bottom</b> or <b>Front</b> view. Hold the mouse button and drag to draw an outline freehand, like a brush: letting go closes it. Or click to place points one by one, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). A shape belongs to the view its first point faces (side, top, bottom, front or rear) and paints the skin inside the outline that is turned towards that view. In the 3/4 view with <b>paint exactly what is under the brush</b> ticked, a shape is seen along your line of sight instead: it paints exactly the surface you see inside it (and the same on the other side when mirrored), where nothing lies in front of it. <b>Brush</b> paints with a round brush of the size set (metres across; [ and ] change it): each stroke becomes an outline shape, joined with the shapes of the same colour it touches. <b>Eraser</b> cuts the stroke out of the shapes it touches. Ctrl+Z undoes the last brush or eraser stroke.</p>
+      <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b>, <b>Bottom</b> or <b>Front</b> view. Hold the mouse button and drag to draw an outline freehand, like a brush: letting go closes it. Or click to place points one by one, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). A shape belongs to the view its first point faces (side, top, bottom, front or rear) and paints the skin inside the outline that is turned towards that view. In the 3/4 view with <b>paint exactly what is under the brush</b> ticked, a shape is seen along your line of sight instead: it paints exactly the surface you see inside it (and the same on the other side when mirrored), where nothing lies in front of it. <b>Brush</b> paints with a round brush of the size set (metres across; [ and ] change it): each stroke becomes an outline shape, joined with the shapes of the same colour it touches. <b>Eraser</b> cuts the stroke out of the shapes it touches; in the 3/4 view it takes out whatever paint is under it, whichever view the shape was drawn in. Ctrl+Z undoes the last brush or eraser stroke.</p>
       <p class="note" id="paintState"></p>
       <textarea id="paintExportText" readonly aria-label="paint.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
     </div>
@@ -3957,6 +3957,8 @@ stage.addEventListener('pointerdown', e => {
     PT.draft = null; PT.sel = null;
     PB.stroke = { view: pk.view, xs: pk.xs, mirror: $('paintMirror').checked, erase: PB.tool === 'erase', color: $('paintColor').value,
                   r: brushR(), segs: [[pk.uv]], x: mx, y: my };
+    // The eraser in the 3-D view: the points themselves (see brushResult3d).
+    if (PB.tool === 'erase' && paintFree()) { PB.stroke.pts3 = [[]]; brushErasePoint(PB.stroke, pk); }
     renderer.domElement.setPointerCapture(e.pointerId);
     paintUi(); brushPreview();
     return;
@@ -4145,7 +4147,53 @@ function brushPolys(loops, minArea) {
 }
 // What a stroke does: { remove: [shapes], add: [shape docs] }. maxCells: the grid's size cap (coarse
 // while dragging, fine on release).
-function brushResult(S, maxCells) {
+// The 3-D view's eraser: every view a point under it is seen from (its face turned towards the
+// view, nothing in front along it), as 'view|x side'. A stroke there erases in all of them, so it
+// takes out whatever paint is under the brush, whichever view a shape was drawn in.
+function brushSeenViews(p, n) {
+  const V = (x, y, z) => new THREE.Vector3(x, y, z), objs = paintObjs(), ray = new THREE.Raycaster(), out = [];
+  const cand = [['side', 1, V(1, 0, 0)], ['side', -1, V(-1, 0, 0)], ['top', 0, V(0, 1, 0)], ['bottom', 0, V(0, -1, 0)],
+                ['front', 0, V(0, 0, 1)], ['rear', 0, V(0, 0, -1)]]
+    .concat(paintDirViews().map(v => [v, 0, paintBasis(v).d.clone().negate()]));
+  const shown = o => { for (let a = o; a; a = a.parent) if (!a.visible) return false; return true; };
+  for (const [v, xs, t] of cand) {
+    if (n.dot(t) <= 0.02) continue;
+    ray.set(p.clone().addScaledVector(t, 0.03), t);
+    if (ray.intersectObjects(objs, false).some(h => shown(h.object))) continue;
+    out.push(v + '|' + xs);
+  }
+  return out;
+}
+function brushErasePoint(S, pk) {
+  const seg = S.pts3[S.pts3.length - 1];
+  seg.push({ p: pk.p.clone(), views: pk.n ? brushSeenViews(pk.p, pk.n) : [] });
+}
+// An eraser stroke of the 3-D view: erased in each view its points are seen from, one after the
+// other (a shape cut in one view is the one the next view cuts again).
+function brushResult3d(S, maxCells) {
+  const orig = paintRegions();
+  let regs = orig.slice();
+  const keys = [...new Set(S.pts3.flat().flatMap(q => q.views))];
+  for (const key of keys) {
+    const i = key.lastIndexOf('|'), v = key.slice(0, i), xs = +key.slice(i + 1);
+    const segs = [];
+    for (const seg of S.pts3) {
+      let cur = [];
+      for (const q of seg) {
+        if (q.views.includes(key)) cur.push(paintFromWorld(v, q.p));
+        else if (cur.length) { segs.push(cur); cur = []; }
+      }
+      if (cur.length) segs.push(cur);
+    }
+    if (!segs.length) continue;
+    const res = brushResult({ ...S, pts3: null, view: v, xs: xs || S.xs, segs }, maxCells, regs);
+    if (!res || !res.remove.length) continue;
+    regs = regs.filter(x => !res.remove.includes(x)).concat(res.add);
+  }
+  return { remove: orig.filter(x => !regs.includes(x)), add: regs.filter(x => !orig.includes(x)) };
+}
+function brushResult(S, maxCells, regsIn = null) {
+  if (S.pts3) return brushResult3d(S, maxCells);
   const r = S.r, segs = S.segs.filter(s => s.length), view = S.view;
   if (!segs.length) return null;
   // A camera view's mirror is another camera view, whose [u, v] are this one's with u negated.
@@ -4158,7 +4206,7 @@ function brushResult(S, maxCells) {
   const SB = grow(bbox(segs.flat()), r), SBf = grow(bbox(segs.flat().map(flipP)), r);
   const flipErase = x => S.erase && mir(x) && view !== 'side' && (!isDir || x.view === mview);
   const direct = x => x.view === view;
-  const cands = paintRegions().filter(x => {
+  const cands = (regsIn || paintRegions()).filter(x => {
     if (x.view !== view && !(isDir && S.erase && mir(x) && x.view === mview)) return false;
     if (view === 'side' && !mir(x) && (x.x_side || 1) !== S.xs) return false;   // the other side
     if (!S.erase && (lc(x.color) !== lc(S.color) || mir(x) !== S.mirror)) return false;
@@ -4317,11 +4365,16 @@ renderer.domElement.addEventListener('pointermove', e => {
   brushCursor(pk);
   if (!S || !(e.buttons & 1)) return;
   const segs = S.segs;
-  if (!pk) { if (segs[segs.length - 1].length) segs.push([]); return; }   // off the model: the stroke breaks
+  if (!pk) {   // off the model: the stroke breaks
+    if (segs[segs.length - 1].length) segs.push([]);
+    if (S.pts3 && S.pts3[S.pts3.length - 1].length) S.pts3.push([]);
+    return;
+  }
   const r = renderer.domElement.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
   if (Math.hypot(mx - S.x, my - S.y) < 3) return;
   S.x = mx; S.y = my;
   segs[segs.length - 1].push(pk.uv);
+  if (S.pts3) brushErasePoint(S, pk);
   brushPreview();
 });
 renderer.domElement.addEventListener('pointerleave', () => { if (!PB.stroke) brushCursor(null); });
