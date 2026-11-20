@@ -113,7 +113,7 @@ QUARTER_2 = (0.95, 2.04, 1.042)
 ROOF_BLEND_END = 1.9
 # Owner (2026-11-20): the whole roof is flat at the windscreen top, except the bulge in the middle.
 ROOF_FLAT = 2.12   # owner: a little higher than the windscreen top (section В's sides)
-ROOF_CHAMFER = 0.10   # owner: edges bevelled: flat roof ends this far inboard, the bevel drops as much
+ROOF_CHAMFER = 0.12   # owner: edges bevelled: flat roof ends this far inboard, the bevel drops as much
 # Deck fairing roof profile (x, height) at the first roof ring behind the glazing (d ROOF_RING_D).
 # Section В's top (sheet, on the side view's bottom 0.289): raised centre strip, rounded shoulders.
 ROOF_PROFILE = ((0.0, 2.289), (0.30, 2.289), (0.333, 2.234), (0.361, 2.197), (0.379, 2.161),
