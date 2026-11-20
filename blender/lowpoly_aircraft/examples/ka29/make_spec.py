@@ -364,9 +364,9 @@ def main():
         {'name': 'IntakeFairing', 'type': 'loft', 'mirror': True, 'join': 'body', 'segments': 20,
          'material': 'VEHICLE_PLANE_GREY', 'stations': [
              [z_(1.875), 0.43, 2.52, 0.336, 0.336, 0.336, 2.0],
-             [z_(1.95), 0.43, 2.52, 0.36, 0.35, 0.36, 2.2],
-             [z_(2.08), 0.43, 2.51, 0.4, 0.37, 0.38, 2.6],
-             [z_(2.25), 0.43, 2.5, 0.4, 0.365, 0.38, 2.8],
+             [z_(1.95), 0.43, 2.52, 0.4, 0.35, 0.48, 2.8],   # owner: lower side fills the flat
+             [z_(2.08), 0.43, 2.51, 0.415, 0.37, 0.5, 3.5],   # shelf under the intake down to the deck side
+             [z_(2.25), 0.43, 2.5, 0.405, 0.365, 0.45, 3.0],
              [z_(2.5), 0.43, 2.48, 0.35, 0.32, 0.34, 2.8]]},   # owner: smooth the side step (x 0.85 = deck side)
         {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
          'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
