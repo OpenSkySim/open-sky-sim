@@ -43,9 +43,10 @@ def z_(d):
 # Cockpit (owner 2026-11-19): seats 20 cm out from the first 0.52 m, then 10 cm back in.
 SEAT_X = 0.62
 COCKPIT_DY = 0.05    # owner: cockpit 30 cm up, 15 cm back down, then 10 cm more
-PANEL_UP = ('Pedestal',)   # owner: centre console 20 cm higher
-COCKPIT_PARTS = ('PanelSide', 'PanelSideBack', 'NoseConsole', 'PanelCentre', 'PanelCentreBack', 'Coaming', 'Footwell', 'Pedestal',
-                 'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack', 'SeatBeltIn', 'SeatBeltOut')
+PANEL_UP = ()   # (centre console 20 cm higher: now built in at y 1.0)
+COCKPIT_PARTS = ('PanelSide', 'PanelSideTop', 'PanelCentre', 'PanelCentreTop', 'PanelCentreSide', 'Coaming', 'CoamingRear',
+                 'CoamingCheek', 'Pedestal', 'PedestalSide', 'SideConsoleTop', 'Cyclic', 'Seat', 'SeatSide', 'SeatBack',
+                 'SeatBackSide', 'SeatBeltIn', 'SeatBeltOut')
 BULK_D = 1.78          # bulkhead right behind the seat backs (second photo)
 WALL = '#121314'       # owner (2026-11-20): black interior walls, floor, bulkhead, console sides (light grey #a3abb2 before)
 TURQ_LIGHT = '#2f8f8b' # console tops
@@ -59,6 +60,17 @@ PANEL_BACK = '#101113'  # front panel back + hood (owner: black)
 
 def P(x, y, d):
     return [round(x, 3), round(y, 3), z_(d)]
+
+
+def Q(name, material, face, mirror, *pts):
+    """One single-sided pane (2 triangles) of the cockpit, its corners ordered so it faces `face`
+    (x out to the left, y up, z forward to the nose). The builder's quad faces along minus the
+    cross product of its first two edges in this frame."""
+    a, b, c = (np.array(q, float) for q in pts[:3])
+    if -np.dot(np.cross(b - a, c - b), face) < 0:
+        pts = pts[::-1]
+    return {'name': name, 'type': 'quad', 'join': 'separate', 'mirror': mirror, 'material': material,
+            'points': [list(q) for q in pts]}
 
 
 def side_m(pts):
@@ -435,52 +447,34 @@ def main():
         # (d 0.70-0.84) and flat on top: upright blocks with a level black top, the pilots' face a
         # thin (3 cm) turquoise layer; the side blocks end above the shins (1.07 at d 0.85), the
         # taller centre block stands on the floor. The separate hood went with the flat top.
-        {'name': 'PanelSideBack', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': PANEL_BACK,
-         'stations': [r[:1] + [c] + r[2:] for r, c in zip(loft_m([(0.70, 0.36, 1.12, 1.37, 8), (0.81, 0.38, 1.12, 1.37, 8)]), (0.63, 0.65))]},
-        {'name': 'PanelSide', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
-         'stations': [r[:1] + [c] + r[2:] for r, c in zip(loft_m([(0.81, 0.38, 1.12, 1.365, 8), (0.84, 0.385, 1.12, 1.365, 8)]), (0.65, 0.655))]},
-        {'name': 'PanelCentreBack', 'type': 'loft', 'box': True, 'join': 'separate', 'material': PANEL_BACK,
-         'stations': loft_m([(0.70, 0.27, 0.62, 1.45, 8), (0.81, 0.27, 0.62, 1.45, 8)])},
-        {'name': 'PanelCentre', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
-         'stations': loft_m([(0.81, 0.27, 0.62, 1.445, 8), (0.84, 0.27, 0.62, 1.445, 8)])},
-        # Owner (2026-11-20): the panel top joined to the hull in front of it: a black deck
-        # sloping from the panel's top edge (d 0.70) down to just under the windscreen sill,
-        # trimmed to the nose skin. Panel ends run out to the side wall / quarter pane
-        # (x 0.99 at d 0.70 to 1.04 at d 0.84; owner: no gaps at the panel sides), the deck to x 0.98.
-        # Owner (2026-11-20, 'this must not be open'): a solid block under the deck, down to the floor ahead of
-        # the boots (d 0.44) and above the feet and shins behind that (bottom 0.80 -> 0.97), kept inside
-        # the narrowing nose (half widths measured off the hull), so no open footwell shows.
-        {'name': 'Coaming', 'type': 'loft', 'box': True, 'join': 'separate', 'clip_hull': True, 'material': PANEL_BACK,
-         'stations': loft_m([(0.18, 0.98, 1.19, 1.22, 8), (0.70, 0.98, 1.34, 1.37, 8)])},
-        {'name': 'Footwell', 'type': 'loft', 'box': True, 'join': 'separate', 'clip_hull': True, 'material': PANEL_BACK,
-         'stations': loft_m([(0.26, 0.85, 0.62, 1.0, 8), (0.35, 0.88, 0.62, 1.05, 8), (0.44, 0.9, 0.62, 1.12, 8),
-                             (0.46, 0.92, 0.80, 1.15, 8), (0.70, 0.98, 0.97, 1.30, 8)])},
-        {'name': 'NoseConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
-         'stations': loft_m([(0.48, 0.05, 0.62, 1.1, 8), (0.66, 0.05, 0.62, 0.95, 8)], 0.88)},
-        {'name': 'Pedestal', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
-         'stations': loft_m([(0.66, 0.18, 0.6, 0.8, 8), (1.75, 0.14, 0.6, 0.8, 8)])},
-        {'name': 'SideConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': WALL,
-         'stations': [[z_(0.6), 0.9, 0.775, 0.04, 0.145, 0.145, 8], [z_(BULK_D), 1.0, 0.775, 0.07, 0.145, 0.145, 8]]},
-        {'name': 'SideConsoleTop', 'type': 'quad', 'join': 'separate', 'mirror': True, 'material': TURQ_LIGHT,
-         'points': [P(0.87, 0.925, 0.65), P(0.93, 0.925, BULK_D - 0.02), P(1.06, 0.925, BULK_D - 0.02), P(0.94, 0.925, 0.65)]},
+        # Owner (2026-11-20): cockpit triangles cut by 70%+: single panes instead of boxes, and only
+        # the faces that can be seen from outside through the glazing (everything is single-sided,
+        # facing the windows). Floor, bulkhead, side console sides, nose consoles and the footwell
+        # block went: they were black against the black inside skin anyway.
+        # Front panel (d 0.70-0.84): turquoise faces towards the pilots, black flat top.
+        Q('PanelSide', TURQ, (0, 0, -1), True, P(0.27, 1.12, 0.84), P(1.04, 1.12, 0.84), P(1.04, 1.37, 0.84), P(0.27, 1.37, 0.84)),
+        Q('PanelSideTop', PANEL_BACK, (0, 1, 0), True, P(0.27, 1.37, 0.70), P(0.99, 1.37, 0.70), P(1.04, 1.37, 0.84), P(0.27, 1.37, 0.84)),
+        Q('PanelCentre', TURQ, (0, 0, -1), False, P(-0.27, 0.62, 0.84), P(0.27, 0.62, 0.84), P(0.27, 1.45, 0.84), P(-0.27, 1.45, 0.84)),
+        Q('PanelCentreTop', PANEL_BACK, (0, 1, 0), False, P(-0.27, 1.45, 0.70), P(0.27, 1.45, 0.70), P(0.27, 1.45, 0.84), P(-0.27, 1.45, 0.84)),
+        Q('PanelCentreSide', TURQ, (1, 0, 0), True, P(0.27, 0.62, 0.70), P(0.27, 0.62, 0.84), P(0.27, 1.45, 0.84), P(0.27, 1.45, 0.70)),
+        # Black deck from the panel top down to the windscreen sill (two panes following the side
+        # panes' sill), and a cheek under its edge on each side so nothing shows below it.
+        Q('Coaming', PANEL_BACK, (0, 1, 0), False, P(-0.36, 1.17, 0.27), P(0.36, 1.17, 0.27), P(0.85, 1.22, 0.45), P(-0.85, 1.22, 0.45)),
+        Q('CoamingRear', PANEL_BACK, (0, 1, 0), False, P(-0.85, 1.22, 0.45), P(0.85, 1.22, 0.45), P(0.99, 1.37, 0.70), P(-0.99, 1.37, 0.70)),
+        Q('CoamingCheek', PANEL_BACK, (1, 0, 0), True, P(0.85, 1.0, 0.45), P(0.98, 1.0, 0.70), P(0.99, 1.37, 0.70), P(0.85, 1.22, 0.45)),
+        # Centre console between the seats: top and sides.
+        Q('Pedestal', TURQ, (0, 1, 0), False, P(-0.18, 1.0, 0.84), P(0.18, 1.0, 0.84), P(0.14, 1.0, 1.75), P(-0.14, 1.0, 1.75)),
+        Q('PedestalSide', TURQ, (1, 0, 0), True, P(0.18, 0.6, 0.84), P(0.14, 0.6, 1.75), P(0.14, 1.0, 1.75), P(0.18, 1.0, 0.84)),
+        Q('SideConsoleTop', TURQ_LIGHT, (0, 1, 0), True, P(0.87, 0.925, 0.65), P(0.93, 0.925, BULK_D - 0.02), P(1.06, 0.925, BULK_D - 0.02), P(0.94, 0.925, 0.65)),
         {'name': 'Cyclic', 'type': 'strut', 'mirror': True, 'a': P(SEAT_X, 0.62, 0.92), 'b': P(SEAT_X, 1.05, 0.87),
          'radius': 0.025, 'sides': 3, 'join': 'separate', 'material': GAUGE},
-        {'name': 'CockpitFloor', 'type': 'loft', 'join': 'separate', 'fill_hull': 'floor', 'fill_inset': 0.95, 'material': WALL,
-         'segments': 6, 'stations': loft_m([(0.42, 2.0, 0.605, 0.62, 8), (BULK_D, 2.0, 0.605, 0.62, 8)])},
-        {'name': 'Seat', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': SEAT,
-         'stations': loft_m([(1.2, 0.22, 0.77, 1.15, 6), (1.6, 0.22, 0.77, 1.15, 6)], SEAT_X)},
-        {'name': 'SeatBack', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': SEAT,
-         'stations': loft_m([(1.6, 0.22, 0.77, 1.85, 6), (1.75, 0.22, 0.77, 1.85, 6)], SEAT_X)},
-        {'name': 'SeatBeltIn', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': BELT,
-         'stations': loft_m([(1.585, 0.025, 1.15, 1.8, 6), (1.6, 0.025, 1.15, 1.8, 6)], SEAT_X - 0.08)},
-        {'name': 'SeatBeltOut', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'material': BELT,
-         'stations': loft_m([(1.585, 0.025, 1.15, 1.8, 6), (1.6, 0.025, 1.15, 1.8, 6)], SEAT_X + 0.08)},
-        # Bulkhead right behind the seats, light grey, with a doorway (0.7 m wide) to the cabin:
-        # two side pieces and a lintel, each cut to the fuselage section.
-        {'name': 'Bulkhead', 'type': 'loft', 'join': 'separate', 'mirror': True, 'fill_hull': 'section', 'material': WALL,
-         'segments': 6, 'stations': loft_m([(BULK_D, 1.075, -1.0, 2.6, 8), (BULK_D + 0.06, 1.075, -1.0, 2.6, 8)], 1.425)},
-        {'name': 'BulkheadLintel', 'type': 'loft', 'join': 'separate', 'fill_hull': 'section', 'material': WALL,
-         'segments': 6, 'stations': loft_m([(BULK_D, 0.4, 1.95 + COCKPIT_DY, 2.6, 8), (BULK_D + 0.06, 0.4, 1.95 + COCKPIT_DY, 2.6, 8)])},
+        # Seats: cushion front and outer side, back front and outer side; belts as flat strips.
+        Q('Seat', SEAT, (0, 0, 1), True, P(SEAT_X - 0.22, 0.77, 1.2), P(SEAT_X + 0.22, 0.77, 1.2), P(SEAT_X + 0.22, 1.15, 1.2), P(SEAT_X - 0.22, 1.15, 1.2)),
+        Q('SeatSide', SEAT, (1, 0, 0), True, P(SEAT_X + 0.22, 0.77, 1.2), P(SEAT_X + 0.22, 0.77, 1.75), P(SEAT_X + 0.22, 1.15, 1.75), P(SEAT_X + 0.22, 1.15, 1.2)),
+        Q('SeatBack', SEAT, (0, 0, 1), True, P(SEAT_X - 0.22, 1.15, 1.6), P(SEAT_X + 0.22, 1.15, 1.6), P(SEAT_X + 0.22, 1.85, 1.6), P(SEAT_X - 0.22, 1.85, 1.6)),
+        Q('SeatBackSide', SEAT, (1, 0, 0), True, P(SEAT_X + 0.22, 1.15, 1.6), P(SEAT_X + 0.22, 1.15, 1.75), P(SEAT_X + 0.22, 1.85, 1.75), P(SEAT_X + 0.22, 1.85, 1.6)),
+        Q('SeatBeltIn', BELT, (0, 0, 1), True, P(SEAT_X - 0.105, 1.15, 1.59), P(SEAT_X - 0.055, 1.15, 1.59), P(SEAT_X - 0.055, 1.8, 1.59), P(SEAT_X - 0.105, 1.8, 1.59)),
+        Q('SeatBeltOut', BELT, (0, 0, 1), True, P(SEAT_X + 0.055, 1.15, 1.59), P(SEAT_X + 0.105, 1.15, 1.59), P(SEAT_X + 0.105, 1.8, 1.59), P(SEAT_X + 0.055, 1.8, 1.59)),
     ]
     # Owner (2026-11-19): the whole cockpit (floor, panel, consoles, seats, sticks) COCKPIT_DY higher;
     # the pilots' eye points go up with it below.
