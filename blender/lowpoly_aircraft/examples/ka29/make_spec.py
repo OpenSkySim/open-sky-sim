@@ -351,11 +351,11 @@ def main():
         # open duct, the engine face at its back and a centre bullet.
         # Owner (2026-11-20): 10-sided, dark black, rounded lip (a flared mouth ring + the lip).
         {'name': 'IntakeMouth', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
-         'a': P(0.43, 2.52, 1.775), 'b': P(0.43, 2.52, 1.8), 'radius': 0.29, 'radius_b': 0.33,
-         'inner': 0.245, 'inner_b': 0.215},   # owner: wider black rim
+         'a': P(0.43, 2.52, 1.775), 'b': P(0.43, 2.52, 1.8), 'radius': 0.261, 'radius_b': 0.297,
+         'inner': 0.221, 'inner_b': 0.194},   # owner: wider black rim
         {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
-         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.87), 'radius': 0.33, 'radius_b': 0.34,
-         'inner': 0.215, 'inner_b': 0.23},
+         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.87), 'radius': 0.297, 'radius_b': 0.306,
+         'inner': 0.194, 'inner_b': 0.207},
         # Owner: the hull runs smoothly into the intake: a skin-coloured collar from behind the lip,
         # flaring back into the deck's front face.
         # Owner: connect it into the fuselage mesh: a loft from the round intake (behind the lip) to
@@ -363,18 +363,18 @@ def main():
         # union with the hull leaves one skin with no collar sticking out above or beside the deck.
         {'name': 'IntakeFairing', 'type': 'loft', 'mirror': True, 'join': 'body', 'segments': 20,
          'material': 'VEHICLE_PLANE_GREY', 'stations': [
-             [z_(1.875), 0.43, 2.52, 0.336, 0.336, 0.336, 2.0],
-             [z_(1.95), 0.43, 2.52, 0.4, 0.35, 0.48, 2.8],   # owner: lower side fills the flat
+             [z_(1.875), 0.43, 2.52, 0.302, 0.302, 0.302, 2.0],
+             [z_(1.95), 0.43, 2.52, 0.37, 0.33, 0.45, 2.6],   # owner: lower side fills the flat
              [z_(2.08), 0.43, 2.51, 0.415, 0.37, 0.5, 3.5],   # shelf under the intake down to the deck side
              [z_(2.25), 0.43, 2.5, 0.405, 0.365, 0.45, 3.0],
              [z_(2.5), 0.43, 2.48, 0.35, 0.32, 0.34, 2.8]]},   # owner: smooth the side step (x 0.85 = deck side)
         {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
-         'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
-         'inner': 0.23, 'inner_b': 0.23},
+         'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.275, 'radius_b': 0.27,
+         'inner': 0.207, 'inner_b': 0.207},
         {'name': 'IntakeFace', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': EXHAUST_BLACK,
-         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.235, 'sides': 10},
+         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.211, 'sides': 10},
         {'name': 'IntakeCone', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.02, 'radius_b': 0.09, 'sides': 8},
+         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.018, 'radius_b': 0.081, 'sides': 8},
         # Engine exhausts (second sheet side view d 3.54-4.15): owner 2026-11-20, a plain solid black
         # 10-sided pipe standing out of the deck side, angled a little aft and down.
         {'name': 'ExhaustPipe', 'type': 'strut', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
