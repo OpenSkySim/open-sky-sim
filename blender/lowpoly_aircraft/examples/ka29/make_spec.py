@@ -358,9 +358,15 @@ def main():
          'inner': 0.215, 'inner_b': 0.23},
         # Owner: the hull runs smoothly into the intake: a skin-coloured collar from behind the lip,
         # flaring back into the deck's front face.
-        {'name': 'IntakeFairing', 'type': 'duct', 'mirror': True, 'join': 'body', 'sides': 10,
-         'material': 'VEHICLE_PLANE_GREY', 'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.2),
-         'radius': 0.338, 'radius_b': 0.47, 'inner': 0.24, 'inner_b': 0.24},   # joined into the hull: one skin
+        # Owner: connect it into the fuselage mesh: a loft from the round intake (behind the lip) to
+        # a rounded square that sits just inside the deck's section (top y 2.9, side x 0.84), so the
+        # union with the hull leaves one skin with no collar sticking out above or beside the deck.
+        {'name': 'IntakeFairing', 'type': 'loft', 'mirror': True, 'join': 'body', 'segments': 20,
+         'material': 'VEHICLE_PLANE_GREY', 'stations': [
+             [z_(1.875), 0.43, 2.52, 0.336, 0.336, 0.336, 2.0],
+             [z_(1.95), 0.43, 2.52, 0.36, 0.35, 0.36, 2.2],
+             [z_(2.08), 0.43, 2.51, 0.385, 0.37, 0.38, 2.6],
+             [z_(2.3), 0.43, 2.5, 0.39, 0.37, 0.38, 2.8]]},
         {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
          'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
          'inner': 0.23, 'inner_b': 0.23},
