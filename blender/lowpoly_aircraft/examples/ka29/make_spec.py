@@ -48,14 +48,14 @@ COCKPIT_PARTS = ('PanelSide', 'PanelSideTop', 'PanelSideFront', 'PanelSideEnd', 
                  'CoamingCheek', 'Pedestal', 'PedestalSide', 'SideConsoleTop', 'Cyclic', 'Seat', 'SeatSide', 'SeatBack',
                  'SeatBackSide', 'SeatBeltIn', 'SeatBeltOut')
 BULK_D = 1.78          # bulkhead right behind the seat backs (second photo)
-WALL = '#121314'       # owner (2026-11-20): black interior walls, floor, bulkhead, console sides (light grey #a3abb2 before)
+WALL = '#363637'       # owner (2026-11-20): black interior walls, floor, bulkhead, console sides (light grey #a3abb2 before)
 TURQ_LIGHT = '#2f8f8b' # console tops
 SEAT = '#4a2c20'       # dark brown seat cushions
 BELT = '#8c949a'       # grey belts
 TURQ = '#1f5c5a'      # cockpit: dark turquoise (owner)
 TURQ_DARK = '#163f3e' # floor, coaming, sticks
-GAUGE = '#14171a'     # instrument faces
-PANEL_BACK = '#101113'  # front panel back + hood (owner: black)
+GAUGE = '#373a3c'     # instrument faces
+PANEL_BACK = '#343536'  # front panel back + hood (owner: black)
 
 
 def P(x, y, d):
@@ -132,8 +132,8 @@ def circle_px(x, y, r, n=10):
 
 
 DARK = 'VEHICLE_PLANE_ENGINE'
-EXHAUST_BLACK = '#0a0b0c'   # owner: exhaust pipes dark black
-INTAKE_BLACK = '#000000'   # owner: intakes dark black
+EXHAUST_BLACK = '#2f3030'   # owner: exhaust pipes dark black
+INTAKE_BLACK = '#262626'   # owner: intakes dark black
 DOOR = 'VEHICLE_PLANE_GREY'   # owner: the door takes the paint like the skin around it (outline still cut)
 
 
