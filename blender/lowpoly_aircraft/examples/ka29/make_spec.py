@@ -349,14 +349,18 @@ def main():
         # Engine intakes (second sheet front view, owner's photos): black hollow rings standing
         # 0.15 m proud of the deck's front face (d 1.95; centres x +-0.43, y 2.52): a thick lip, an
         # open duct, the engine face at its back and a centre bullet.
-        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6, 'material': DARK,
-         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.85), 'radius': 0.29, 'radius_b': 0.305,
-         'inner': 0.215, 'inner_b': 0.23},
-        {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 6, 'material': DARK,
+        # Owner (2026-11-20): 10-sided, dark black, rounded lip (a flared mouth ring + the lip).
+        {'name': 'IntakeMouth', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
+         'a': P(0.43, 2.52, 1.775), 'b': P(0.43, 2.52, 1.8), 'radius': 0.262, 'radius_b': 0.293,
+         'inner': 0.248, 'inner_b': 0.222},
+        {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
+         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.85), 'radius': 0.293, 'radius_b': 0.305,
+         'inner': 0.222, 'inner_b': 0.23},
+        {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
          'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
          'inner': 0.23, 'inner_b': 0.23},
-        {'name': 'IntakeFace', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
-         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.235, 'sides': 6},
+        {'name': 'IntakeFace', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': EXHAUST_BLACK,
+         'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.1), 'radius': 0.235, 'sides': 10},
         {'name': 'IntakeCone', 'type': 'strut', 'mirror': True, 'join': 'separate', 'material': DARK,
          'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.86), 'radius': 0.02, 'radius_b': 0.09, 'sides': 8},
         # Engine exhausts (second sheet side view d 3.54-4.15): owner 2026-11-20, a plain solid black

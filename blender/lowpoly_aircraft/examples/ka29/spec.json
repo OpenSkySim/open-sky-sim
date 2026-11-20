@@ -4544,12 +4544,34 @@
    ]
   },
   {
+   "name": "IntakeMouth",
+   "type": "duct",
+   "mirror": true,
+   "join": "separate",
+   "sides": 10,
+   "material": "#0a0b0c",
+   "a": [
+    0.43,
+    2.52,
+    2.445
+   ],
+   "b": [
+    0.43,
+    2.52,
+    2.42
+   ],
+   "radius": 0.262,
+   "radius_b": 0.293,
+   "inner": 0.248,
+   "inner_b": 0.222
+  },
+  {
    "name": "IntakeLip",
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 6,
-   "material": "VEHICLE_PLANE_ENGINE",
+   "sides": 10,
+   "material": "#0a0b0c",
    "a": [
     0.43,
     2.52,
@@ -4560,9 +4582,9 @@
     2.52,
     2.37
    ],
-   "radius": 0.29,
+   "radius": 0.293,
    "radius_b": 0.305,
-   "inner": 0.215,
+   "inner": 0.222,
    "inner_b": 0.23
   },
   {
@@ -4570,8 +4592,8 @@
    "type": "duct",
    "mirror": true,
    "join": "separate",
-   "sides": 6,
-   "material": "VEHICLE_PLANE_ENGINE",
+   "sides": 10,
+   "material": "#0a0b0c",
    "a": [
     0.43,
     2.52,
@@ -4592,7 +4614,7 @@
    "type": "strut",
    "mirror": true,
    "join": "separate",
-   "material": "VEHICLE_PLANE_ENGINE",
+   "material": "#0a0b0c",
    "a": [
     0.43,
     2.52,
@@ -4604,7 +4626,7 @@
     2.12
    ],
    "radius": 0.235,
-   "sides": 6
+   "sides": 10
   },
   {
    "name": "ExhaustPipe",
