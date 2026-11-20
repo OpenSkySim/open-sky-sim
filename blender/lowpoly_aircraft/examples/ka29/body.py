@@ -111,6 +111,8 @@ QUARTER_0 = (1.07, 1.24, 0.636)   # quarter pane sill at section Б (its width t
 QUARTER_1 = (1.10, 1.24, 0.85)
 QUARTER_2 = (0.95, 2.04, 1.042)
 ROOF_BLEND_END = 1.9
+NOSE_ARC_DEPTH = 0.10   # how far the rounded nose face bulges ahead of the tip ring
+NOSE_ARC_D = tuple(round(-0.022 - NOSE_ARC_DEPTH * math.sin(math.radians(a)), 4) for a in (30, 55, 75))
 # Owner (2026-11-20): the whole roof is flat at the windscreen top, except the bulge in the middle.
 ROOF_FLAT = 2.12   # owner: a little higher than the windscreen top (section В's sides)
 ROOF_EDGE_X = 0.80   # the flat roof's outer edge: one straight line (fewer polygons)
@@ -204,16 +206,12 @@ def windscreen(d, H, y0):
         return _even_lower(np.vstack([top, rest, P[m + 1:]]), y0) - np.array([0.0, y0])
     if d < PANE_STATIONS[0] - 1e-6:
         Q = _even_lower(P, y0)
-        if d < -0.04:
-            # Owner (2026-11-20): the flat nose face bulges forward (rounded in side view): a ring
-            # 5 cm ahead of the tip ring, shrunk about its middle.
+        if d < -0.03:
+            # Owner (2026-11-20, red arc on the side view): the nose face is one round arc. The rings
+            # ahead of the tip shrink about its middle as a quarter ellipse: depth NOSE_ARC_DEPTH.
+            f = math.sqrt(max(0.0, 1.0 - ((-0.022 - d) / NOSE_ARC_DEPTH) ** 2))
             cy = 0.5 * (Q[:, 1].max() + Q[:, 1].min())
-            Q = np.stack([Q[:, 0] * 0.72, cy + (Q[:, 1] - cy) * 0.7], axis=1)
-        if d > 0.0:
-            # The rounding ring just behind the tip (owner: round the nose in side view) stays within
-            # the plan outline between the tip and section А, so it adds no bulge in top view.
-            w = 0.886 + (0.994 - 0.886) * (d + 0.022) / (PANE_STATIONS[0] + 0.022)
-            Q[:, 0] *= w / Q[:, 0].max()
+            Q = np.stack([Q[:, 0] * (0.8 + 0.2 * f), cy + (Q[:, 1] - cy) * f], axis=1)
         return Q - np.array([0.0, y0])   # nose cap: same lower shape as the rings behind
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
         return H
