@@ -204,6 +204,11 @@ def windscreen(d, H, y0):
         return _even_lower(np.vstack([top, rest, P[m + 1:]]), y0) - np.array([0.0, y0])
     if d < PANE_STATIONS[0] - 1e-6:
         Q = _even_lower(P, y0)
+        if d < -0.04:
+            # Owner (2026-11-20): the flat nose face bulges forward (rounded in side view): a ring
+            # 5 cm ahead of the tip ring, shrunk about its middle.
+            cy = 0.5 * (Q[:, 1].max() + Q[:, 1].min())
+            Q = np.stack([Q[:, 0] * 0.72, cy + (Q[:, 1] - cy) * 0.7], axis=1)
         if d > 0.0:
             # The rounding ring just behind the tip (owner: round the nose in side view) stays within
             # the plan outline between the tip and section А, so it adds no bulge in top view.
