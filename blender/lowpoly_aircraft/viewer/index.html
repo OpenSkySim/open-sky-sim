@@ -352,7 +352,7 @@ button.ok { color: var(--ok); }
         <label class="paint-col">Colour <input type="color" id="paintColor" value="#7f888f"></label>
         <label class="paint-col">Base <input type="color" id="paintBase" value="#aeb2b4"></label></div>
       <div class="xs-opts"><label><input type="checkbox" id="paintMirror" checked> mirror left / right</label>
-        <label><input type="checkbox" id="paintShow" checked> show the outlines</label></div>
+        <label><input type="checkbox" id="paintShow" checked> show the outlines while painting</label></div>
       <div class="xs-list" id="paintList" aria-label="Painted shapes"></div>
       <div class="row"><button type="button" id="paintFinish" disabled>Finish shape</button><button type="button" id="paintDel" class="danger" disabled>Delete shape</button><button type="button" id="paintExport">Copy paint.json</button></div>
       <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b>, <b>Bottom</b> or <b>Front</b> view. Hold the mouse button and drag to draw an outline freehand, like a brush: letting go closes it. Or click to place points one by one, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). A shape belongs to the view its first point faces (side, top, bottom, front or rear) and paints the skin inside the outline that is turned towards that view.</p>
@@ -3055,8 +3055,8 @@ function paintDraw() {
   }
   if (!current) return;
   paintBaseApply();
-  // "Show the outlines" off: the fill stays, only the lines and point handles go.
-  const lines = $('paintShow').checked;
+  // Lines and point handles only while Paint is on (and "show the outlines" is ticked); the fill stays.
+  const lines = PT.on && $('paintShow').checked;
   const view = paintView();
   if (!view) { if (lines) paintDrawFree(); else paintOverlay(); return; }
   const g = new THREE.Group(), plane = paintPlane(view);
