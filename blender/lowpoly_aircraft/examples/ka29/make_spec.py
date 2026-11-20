@@ -47,7 +47,7 @@ PANEL_UP = ('Pedestal',)   # owner: centre console 20 cm higher
 COCKPIT_PARTS = ('PanelSide', 'NoseConsole', 'PanelCentre', 'GlareShield', 'Pedestal',
                  'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack', 'SeatBeltIn', 'SeatBeltOut')
 BULK_D = 1.78          # bulkhead right behind the seat backs (second photo)
-WALL = '#a3abb2'       # light grey walls, floor, console sides (second photo)
+WALL = '#121314'       # owner (2026-11-20): black interior walls, floor, bulkhead, console sides (light grey #a3abb2 before)
 TURQ_LIGHT = '#2f8f8b' # console tops
 SEAT = '#4a2c20'       # dark brown seat cushions
 BELT = '#8c949a'       # grey belts
@@ -508,7 +508,7 @@ def main():
         # Nose front under the windscreen: fewer, larger faces (owner: halve the triangles there).
         'planar_deg_final': 2.5,
         # Dark inside skin: no look through the windows or intakes out the far side of the hull.
-        'lining': WALL,   # owner: light grey walls (dark #1d2024 before)
+        'lining': WALL,   # owner: black interior (light grey, dark #1d2024 before)
         # Navy scheme from the owner's deck photo: light grey with blue-grey and pale blotches (paint.json),
         # red stars with a white rim on the outer fins, yellow side number 21 on the engine cowling.
         # Camo outlines: paint.json next to the spec (cut into the skin by the builder).

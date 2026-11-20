@@ -7,7 +7,7 @@
  "smooth_deg": 0,
  "symmetrize": true,
  "planar_deg_final": 2.5,
- "lining": "#a3abb2",
+ "lining": "#121314",
  "decals": [
   {
    "shape": "star",
@@ -5091,7 +5091,7 @@
    "box": true,
    "join": "separate",
    "mirror": true,
-   "material": "#a3abb2",
+   "material": "#121314",
    "stations": [
     [
      3.62,
@@ -5167,7 +5167,7 @@
    "join": "separate",
    "fill_hull": "floor",
    "fill_inset": 0.95,
-   "material": "#a3abb2",
+   "material": "#121314",
    "segments": 6,
    "stations": [
     [
@@ -5308,7 +5308,7 @@
    "join": "separate",
    "mirror": true,
    "fill_hull": "section",
-   "material": "#a3abb2",
+   "material": "#121314",
    "segments": 6,
    "stations": [
     [
@@ -5336,7 +5336,7 @@
    "type": "loft",
    "join": "separate",
    "fill_hull": "section",
-   "material": "#a3abb2",
+   "material": "#121314",
    "segments": 6,
    "stations": [
     [
