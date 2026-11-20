@@ -112,7 +112,8 @@ QUARTER_1 = (1.10, 1.24, 0.85)
 QUARTER_2 = (0.95, 2.04, 1.042)
 ROOF_BLEND_END = 1.9
 # Owner (2026-11-20): the whole roof is flat at the windscreen top, except the bulge in the middle.
-ROOF_FLAT = 2.04
+ROOF_FLAT = 2.12   # owner: a little higher than the windscreen top (section В's sides)
+ROOF_CHAMFER = 0.10   # owner: edges bevelled: flat roof ends this far inboard, the bevel drops as much
 # Deck fairing roof profile (x, height) at the first roof ring behind the glazing (d ROOF_RING_D).
 # Section В's top (sheet, on the side view's bottom 0.289): raised centre strip, rounded shoulders.
 ROOF_PROFILE = ((0.0, 2.289), (0.30, 2.289), (0.333, 2.234), (0.361, 2.197), (0.379, 2.161),
@@ -164,12 +165,15 @@ def windscreen(d, H, y0):
         # Flat roof at ROOF_FLAT out to where the section's shoulder drops below it, the bulge's
         # top flat across 0..0.30 at the section's centre height.
         hc = float(up[0, 1])
-        top = [(0.0, hc), (ROOF_X[1], hc), (ROOF_X[2], ROOF_FLAT)]
-        i = next(i for i in range(1, m + 1) if up[i, 1] < ROOF_FLAT and up[i, 0] > ROOF_X[2])
-        a, b = up[i - 1], up[i]
-        f = (a[1] - ROOF_FLAT) / (a[1] - b[1]) if a[1] > ROOF_FLAT else 0.0
-        sh = (float(a[0] + (b[0] - a[0]) * f), ROOF_FLAT) if a[1] > ROOF_FLAT else (float(a[0]), ROOF_FLAT)
-        rest = resample(np.vstack([[sh], up[i:]]), m + 1 - len(top) - 1)
+        def cross(y):   # outer outline point at height y
+            i = next(i for i in range(1, m + 1) if up[i, 1] < y and up[i, 0] > ROOF_X[2])
+            a, b = up[i - 1], up[i]
+            f = (a[1] - y) / (a[1] - b[1]) if a[1] > y else 0.0
+            return i, (float(a[0] + (b[0] - a[0]) * f), y)
+        _, sh = cross(ROOF_FLAT)
+        i, bev = cross(ROOF_FLAT - ROOF_CHAMFER)
+        top = [(0.0, hc), (ROOF_X[1], hc), (ROOF_X[2], ROOF_FLAT), (sh[0] - ROOF_CHAMFER, ROOF_FLAT)]
+        rest = resample(np.vstack([[bev], up[i:]]), m + 1 - len(top) - 1)
         return np.vstack([top, rest, P[m + 1:]]) - np.array([0.0, y0])
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
         return H
@@ -186,7 +190,7 @@ def windscreen(d, H, y0):
         # The roof eases from the flat pane tops (C) up into the deck fairing's profile (the first
         # roof ring behind the glazing), with the same point layout, so it stays smooth.
         t = min(1.0, max(0.0, (d - PANE_C[2]) / (ROOF_RING_D - PANE_C[2])))
-        roof = lambda x: (PANE_C[1] + t * (ROOF_PROFILE[0][1] - PANE_C[1])) if x < ROOF_X[2] - 1e-6 else ROOF_FLAT
+        roof = lambda x: PANE_C[1] + t * ((ROOF_PROFILE[0][1] if x < ROOF_X[2] - 1e-6 else ROOF_FLAT) - PANE_C[1])
         fixed = [(x, roof(x)) for x in ROOF_X] + [j2] + ([j3] if j3 else [])
     foot = fixed[-1]
     # The outline continues below the last frame point on the outside: skip outline points that
