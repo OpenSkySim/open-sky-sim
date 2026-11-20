@@ -5059,6 +5059,34 @@
    ]
   },
   {
+   "name": "Coaming",
+   "type": "loft",
+   "box": true,
+   "join": "separate",
+   "clip_hull": true,
+   "material": "#101113",
+   "stations": [
+    [
+     4.04,
+     0.0,
+     1.255,
+     0.95,
+     0.015,
+     0.015,
+     8
+    ],
+    [
+     3.52,
+     0.0,
+     1.405,
+     0.95,
+     0.015,
+     0.015,
+     8
+    ]
+   ]
+  },
+  {
    "name": "NoseConsole",
    "type": "loft",
    "box": true,

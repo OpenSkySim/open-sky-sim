@@ -44,7 +44,7 @@ def z_(d):
 SEAT_X = 0.62
 COCKPIT_DY = 0.05    # owner: cockpit 30 cm up, 15 cm back down, then 10 cm more
 PANEL_UP = ('Pedestal',)   # owner: centre console 20 cm higher
-COCKPIT_PARTS = ('PanelSide', 'PanelSideBack', 'NoseConsole', 'PanelCentre', 'PanelCentreBack', 'GlareShield', 'Pedestal',
+COCKPIT_PARTS = ('PanelSide', 'PanelSideBack', 'NoseConsole', 'PanelCentre', 'PanelCentreBack', 'Coaming', 'Pedestal',
                  'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack', 'SeatBeltIn', 'SeatBeltOut')
 BULK_D = 1.78          # bulkhead right behind the seat backs (second photo)
 WALL = '#121314'       # owner (2026-11-20): black interior walls, floor, bulkhead, console sides (light grey #a3abb2 before)
@@ -443,6 +443,11 @@ def main():
          'stations': loft_m([(0.70, 0.27, 0.62, 1.45, 8), (0.81, 0.27, 0.62, 1.45, 8)])},
         {'name': 'PanelCentre', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
          'stations': loft_m([(0.81, 0.27, 0.62, 1.445, 8), (0.84, 0.27, 0.62, 1.445, 8)])},
+        # Owner (2026-11-20): the panel top joined to the hull in front of it: a black deck
+        # sloping from the panel's top edge (d 0.70) down to just under the windscreen sill,
+        # trimmed to the nose skin.
+        {'name': 'Coaming', 'type': 'loft', 'box': True, 'join': 'separate', 'clip_hull': True, 'material': PANEL_BACK,
+         'stations': loft_m([(0.18, 0.95, 1.19, 1.22, 8), (0.70, 0.95, 1.34, 1.37, 8)])},
         {'name': 'NoseConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
          'stations': loft_m([(0.48, 0.05, 0.62, 1.1, 8), (0.66, 0.05, 0.62, 0.95, 8)], 0.88)},
         {'name': 'Pedestal', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
