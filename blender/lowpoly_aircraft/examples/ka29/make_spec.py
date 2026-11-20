@@ -44,7 +44,7 @@ def z_(d):
 SEAT_X = 0.62
 COCKPIT_DY = 0.05    # owner: cockpit 30 cm up, 15 cm back down, then 10 cm more
 PANEL_UP = ('Pedestal',)   # owner: centre console 20 cm higher
-COCKPIT_PARTS = ('PanelSide', 'PanelSideBack', 'NoseConsole', 'PanelCentre', 'PanelCentreBack', 'Coaming', 'Pedestal',
+COCKPIT_PARTS = ('PanelSide', 'PanelSideBack', 'NoseConsole', 'PanelCentre', 'PanelCentreBack', 'Coaming', 'Footwell', 'Pedestal',
                  'SideConsole', 'SideConsoleTop', 'Cyclic', 'CockpitFloor', 'Seat', 'SeatBack', 'SeatBeltIn', 'SeatBeltOut')
 BULK_D = 1.78          # bulkhead right behind the seat backs (second photo)
 WALL = '#121314'       # owner (2026-11-20): black interior walls, floor, bulkhead, console sides (light grey #a3abb2 before)
@@ -447,8 +447,14 @@ def main():
         # sloping from the panel's top edge (d 0.70) down to just under the windscreen sill,
         # trimmed to the nose skin. Panel ends run out to the side wall / quarter pane
         # (x 0.99 at d 0.70 to 1.04 at d 0.84; owner: no gaps at the panel sides), the deck to x 0.98.
+        # Owner (2026-11-20, 'this must not be open'): a solid block under the deck, down to the floor ahead of
+        # the boots (d 0.44) and above the feet and shins behind that (bottom 0.80 -> 0.97), kept inside
+        # the narrowing nose (half widths measured off the hull), so no open footwell shows.
         {'name': 'Coaming', 'type': 'loft', 'box': True, 'join': 'separate', 'clip_hull': True, 'material': PANEL_BACK,
          'stations': loft_m([(0.18, 0.98, 1.19, 1.22, 8), (0.70, 0.98, 1.34, 1.37, 8)])},
+        {'name': 'Footwell', 'type': 'loft', 'box': True, 'join': 'separate', 'clip_hull': True, 'material': PANEL_BACK,
+         'stations': loft_m([(0.26, 0.85, 0.62, 1.0, 8), (0.35, 0.88, 0.62, 1.05, 8), (0.44, 0.9, 0.62, 1.12, 8),
+                             (0.46, 0.92, 0.80, 1.15, 8), (0.70, 0.98, 0.97, 1.30, 8)])},
         {'name': 'NoseConsole', 'type': 'loft', 'box': True, 'join': 'separate', 'mirror': True, 'clip_hull': True, 'material': TURQ,
          'stations': loft_m([(0.48, 0.05, 0.62, 1.1, 8), (0.66, 0.05, 0.62, 0.95, 8)], 0.88)},
         {'name': 'Pedestal', 'type': 'loft', 'box': True, 'join': 'separate', 'material': TURQ,
