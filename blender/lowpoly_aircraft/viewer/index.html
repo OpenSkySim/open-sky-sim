@@ -308,7 +308,7 @@ button.ok { color: var(--ok); }
       <div class="ctl"><label for="gear">Gear</label><input id="gear" type="range" min="0" max="1" step="0.01" value="1"><output for="gear">down</output></div>
       <div class="ctl"><label for="hook">Tailhook</label><input id="hook" type="range" min="0" max="1" step="0.01" value="0"><output for="hook">0</output></div>
       <div class="ctl"><label for="fold">Park / fold</label><input id="fold" type="range" min="0" max="1" step="0.01" value="0"><output for="fold">0</output></div>
-      <div class="ctl" id="spinRow" hidden title="Turn the propellers / rotors by hand; Reset or Play all lets them spin again"><label for="spin">Prop / rotor</label><input id="spin" type="range" min="0" max="360" step="1" value="0"><output for="spin">spin</output></div>
+      <div class="ctl" id="spinRow" hidden title="Turn the propellers / rotors by hand; they spin only while Play all runs"><label for="spin">Prop / rotor</label><input id="spin" type="range" min="0" max="360" step="1" value="0"><output for="spin">0°</output></div>
       <div class="row"><button id="demo" type="button" aria-pressed="false">Play all</button><button id="reset" type="button">Reset</button></div>
     </div>
     <div class="card">
@@ -715,32 +715,44 @@ function poseSurfaces(onSpin) {
   }
 }
 inputs.forEach(i => i.addEventListener('input', () => { setDemo(false); applyControls(); }));
-// Propellers and rotors ('spin'): they turn on their own until the slider sets an angle by hand
-// (each part by its own turning direction, so contra-rotating props still turn against each other).
-let spinManual = false;
+// Propellers and rotors ('spin'): they stand still at the slider's angle (0 at first) and turn only
+// while the user runs Play all (each part by its own turning direction, so contra-rotating props
+// still turn against each other). The automatic demo on load leaves them still.
+let spinManual = true, spinPlay = false;
 const spinEl = document.getElementById('spin');
 function setSpinManual(on) {
   spinManual = on;
   document.querySelector('output[for="spin"]').textContent = on ? `${spinEl.value}°` : 'spin';
+  if (on) spinPlay = false;
 }
 spinEl.addEventListener('input', () => { setDemo(false); setSpinManual(true); });
 
 document.getElementById('reset').addEventListener('click', () => {
   setDemo(false);
   inputs.forEach(i => { i.value = i.id === 'gear' ? 1 : 0; });
-  spinEl.value = 0; setSpinManual(false);
+  spinEl.value = 0; setSpinManual(true);
   applyControls();
 });
 let demo = false, t0 = 0;
 // The button shows what a click does: "Play all" while still, "Pause" while the demo runs.
 function setDemo(on) {
   demo = on;
-  if (on) { t0 = performance.now(); if (spinManual) setSpinManual(false); }
+  if (on) t0 = performance.now();
+  else if (spinPlay) {
+    // Pause: the rotors stop where they are.
+    const s = current && current.surfaces.find(x => x.cfg.control === 'spin');
+    if (s) spinEl.value = Math.round(((s.defl * Math.sign(s.cfg.sign || 1) * 180 / Math.PI) % 360 + 360) % 360);
+    setSpinManual(true);
+  }
   const b = document.getElementById('demo');
   b.textContent = on ? 'Pause' : 'Play all';
   b.setAttribute('aria-pressed', on);
 }
-document.getElementById('demo').addEventListener('click', () => setDemo(!demo));
+document.getElementById('demo').addEventListener('click', () => {
+  const on = !demo;
+  setDemo(on);
+  if (on) { setSpinManual(false); spinPlay = true; }
+});
 
 let viewName = 'persp';
 function setView(name) {
