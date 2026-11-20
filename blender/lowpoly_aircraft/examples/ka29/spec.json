@@ -4560,10 +4560,10 @@
     2.52,
     2.42
    ],
-   "radius": 0.262,
-   "radius_b": 0.293,
-   "inner": 0.248,
-   "inner_b": 0.222
+   "radius": 0.29,
+   "radius_b": 0.33,
+   "inner": 0.245,
+   "inner_b": 0.215
   },
   {
    "name": "IntakeLip",
@@ -4580,32 +4580,32 @@
    "b": [
     0.43,
     2.52,
-    2.37
+    2.35
    ],
-   "radius": 0.293,
-   "radius_b": 0.305,
-   "inner": 0.222,
+   "radius": 0.33,
+   "radius_b": 0.34,
+   "inner": 0.215,
    "inner_b": 0.23
   },
   {
    "name": "IntakeFairing",
    "type": "duct",
    "mirror": true,
-   "join": "separate",
+   "join": "body",
    "sides": 10,
    "material": "VEHICLE_PLANE_GREY",
    "a": [
     0.43,
     2.52,
-    2.38
+    2.36
    ],
    "b": [
     0.43,
     2.52,
-    2.1
+    2.02
    ],
-   "radius": 0.302,
-   "radius_b": 0.42,
+   "radius": 0.338,
+   "radius_b": 0.47,
    "inner": 0.24,
    "inner_b": 0.24
   },

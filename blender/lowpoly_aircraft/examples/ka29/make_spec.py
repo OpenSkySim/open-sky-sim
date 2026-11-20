@@ -351,16 +351,16 @@ def main():
         # open duct, the engine face at its back and a centre bullet.
         # Owner (2026-11-20): 10-sided, dark black, rounded lip (a flared mouth ring + the lip).
         {'name': 'IntakeMouth', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
-         'a': P(0.43, 2.52, 1.775), 'b': P(0.43, 2.52, 1.8), 'radius': 0.262, 'radius_b': 0.293,
-         'inner': 0.248, 'inner_b': 0.222},
+         'a': P(0.43, 2.52, 1.775), 'b': P(0.43, 2.52, 1.8), 'radius': 0.29, 'radius_b': 0.33,
+         'inner': 0.245, 'inner_b': 0.215},   # owner: wider black rim
         {'name': 'IntakeLip', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
-         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.85), 'radius': 0.293, 'radius_b': 0.305,
-         'inner': 0.222, 'inner_b': 0.23},
+         'a': P(0.43, 2.52, 1.8), 'b': P(0.43, 2.52, 1.87), 'radius': 0.33, 'radius_b': 0.34,
+         'inner': 0.215, 'inner_b': 0.23},
         # Owner: the hull runs smoothly into the intake: a skin-coloured collar from behind the lip,
         # flaring back into the deck's front face.
-        {'name': 'IntakeFairing', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10,
-         'material': 'VEHICLE_PLANE_GREY', 'a': P(0.43, 2.52, 1.84), 'b': P(0.43, 2.52, 2.12),
-         'radius': 0.302, 'radius_b': 0.42, 'inner': 0.24, 'inner_b': 0.24},
+        {'name': 'IntakeFairing', 'type': 'duct', 'mirror': True, 'join': 'body', 'sides': 10,
+         'material': 'VEHICLE_PLANE_GREY', 'a': P(0.43, 2.52, 1.86), 'b': P(0.43, 2.52, 2.2),
+         'radius': 0.338, 'radius_b': 0.47, 'inner': 0.24, 'inner_b': 0.24},   # joined into the hull: one skin
         {'name': 'IntakeDuct', 'type': 'duct', 'mirror': True, 'join': 'separate', 'sides': 10, 'material': EXHAUST_BLACK,
          'a': P(0.43, 2.52, 1.85), 'b': P(0.43, 2.52, 2.15), 'radius': 0.305, 'radius_b': 0.3,
          'inner': 0.23, 'inner_b': 0.23},
