@@ -113,7 +113,7 @@ QUARTER_2 = (0.95, 2.04, 1.042)
 ROOF_BLEND_END = 1.9
 NOSE_ARC_DEPTH = 0.15   # how far the rounded nose face bulges ahead of the tip ring
 NOSE_ARC_CY, NOSE_ARC_HALF = 0.955, 0.265   # side view: the arc is symmetric about the middle of the nose face (owner's red arc)
-NOSE_ARC_TOP_P = 4.0   # owner: flat top, steep front on the arc's upper half (2 = round)
+NOSE_ARC_TOP_P = 8.0   # owner: flat top, steep front on the arc's upper half (2 = round)
 NOSE_ARC_START = -0.022 + NOSE_ARC_DEPTH   # owner: shorter nose: the arc ends where the flat face was (sheet tip -0.022)
 NOSE_BASE = 0.078   # last ring behind the arc rings (further aft it leaves a hole at the windscreen sill corner)
 NOSE_ARC_D = tuple(round(NOSE_ARC_START - NOSE_ARC_DEPTH * math.sin(math.radians(a)), 4) for a in (42, 62, 78))
