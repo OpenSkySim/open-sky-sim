@@ -224,9 +224,36 @@ def _variants(region):
     return out
 
 
-def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
+def occluder_tree(objs) -> BVHTree:
+    """All the given meshes in one BVH tree, world frame (what can hide a face from a view)."""
+    bm = bmesh.new()
+    for o in objs:
+        part = bmesh.new()
+        part.from_mesh(o.data)
+        part.transform(o.matrix_world)
+        me = bpy.data.meshes.new('_occ')
+        part.to_mesh(me)
+        part.free()
+        bm.from_mesh(me)
+        bpy.data.meshes.remove(me)
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+    return tree
+
+
+def _hidden(tree: BVHTree | None, p: Vector, look: Vector) -> bool:
+    """Something in front of point p, seen from the view looking back along *look*?"""
+    if tree is None:
+        return False
+    hit = tree.ray_cast(p + look * 0.03, look, 200.0)
+    return hit[0] is not None
+
+
+def apply_pattern(hull: bpy.types.Object, cfg: dict, others=(), occluder: BVHTree | None = None) -> int:
     """Cut the paint.json outlines into *hull* and colour them; returns the painted face count.
-    *others* (separate body meshes) only get the base colour."""
+    *others* (separate body meshes) only get the base colour. With *occluder* (every painted part,
+    world frame; see occluder_tree) a face takes a view's shape only where nothing lies in front
+    of it seen from that view (a nacelle under the wing keeps its colour under a top-view shape)."""
     base_mat = cfg.get('material', 'VEHICLE_PLANE_GREY')
     base = cfg.get('base', '#aeb2b4')
     for obj in list(others) + [hull]:
@@ -306,9 +333,12 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
                 # The mesh is cut in its own frame (a surface or door sits at its hinge, not the origin).
                 bmesh.ops.bisect_plane(bm, geom=geom, plane_co=mwi @ p0,
                                        plane_no=(mwi_n @ nrm).normalized(), dist=1e-4)
+            toward = {'side': (sign, 0.0, 0.0), 'top': (0.0, 1.0, 0.0), 'bottom': (0.0, -1.0, 0.0),
+                      'front': (0.0, 0.0, 1.0), 'rear': (0.0, 0.0, -1.0)}[view]
+            look = (geo.to_bl(toward) - geo.to_bl((0.0, 0.0, 0.0))).normalized()
             for f in faces_here():
                 c = f.calc_center_median()
-                if _inside(_uv(geo.from_bl(mw @ c), view), pts):
+                if _inside(_uv(geo.from_bl(mw @ c), view), pts) and not _hidden(occluder, mw @ c, look):
                     f.material_index = ci
                     painted += 1
             paintable.add(ci)

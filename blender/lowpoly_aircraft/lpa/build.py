@@ -731,20 +731,20 @@ def _paint_parts(hull, base_mat: str) -> list:
     return out
 
 
-def _paint_part(obj, skin: dict | None) -> None:
+def _paint_part(obj, skin: dict | None, occ=None) -> None:
     """The skin's shapes on one part where it sits at rest (gear up and doors shut, surfaces
-    centred: the build frame), as on the hull."""
+    centred: the build frame), as on the hull; *occ*: what can hide it from a view."""
     if skin:
-        paint.apply_pattern(obj, skin)
+        paint.apply_pattern(obj, skin, occluder=occ)
 
 
-def _paint_hull(hull, skin: dict | None, spec: dict, others: list) -> None:
+def _paint_hull(hull, skin: dict | None, spec: dict, others: list, occ=None) -> None:
     """One skin on the hull's mesh: paint outlines (paint.json), decals with the skin's side
     number, camo, then the dark inside skin. *others*: separate body meshes (base colour, camo)."""
     from . import skins
     if skin:
         # Real camo outlines cut into the skin (paint.json next to the spec, or spec "paint").
-        paint.apply_pattern(hull, skin, others)
+        paint.apply_pattern(hull, skin, others, occluder=occ)
     if spec.get('decals'):
         paint.add_decals(hull, spec['decals'], skins.text_override(skin or {}))
     if spec.get('camo'):
@@ -936,6 +936,8 @@ def build_parts(spec: dict) -> None:
     frame0 = scene.frame_current
     scene.frame_set(GEAR_FRAMES[0])
     parts_ = _paint_parts(hull, (skin_list[0] or {}).get('material', 'VEHICLE_PLANE_GREY')) if skin_list[0] else []
+    # A shape paints only what is seen from its view: every painted part can hide another.
+    occ = paint.occluder_tree([hull] + parts_) if skin_list[0] else None
     variants = []
     if len(skin_list) > 1:
         # Every skin after the first (the default) is painted on its own copy of the finished,
@@ -948,11 +950,11 @@ def build_parts(spec: dict) -> None:
             meshes = {}
             for o, _, r in raws:
                 o.data = r.copy()
-                _paint_part(o, skin)
+                _paint_part(o, skin, occ)
                 o.data.name = f'{o.name}~{skin["id"]}'
                 o.data.use_fake_user = True
                 meshes[o.name] = o.data.name
-            _paint_hull(hull, skin, spec, [])
+            _paint_hull(hull, skin, spec, [], occ)
             hull.data.name = f'0_Body~{skin["id"]}'
             hull.data.use_fake_user = True
             variants.append({'id': skin['id'], 'name': skin.get('name') or skin['id'],
@@ -966,9 +968,9 @@ def build_parts(spec: dict) -> None:
         bpy.context.scene['lpa_skin_default'] = json.dumps(
             {'name': skin_list[0].get('name') or 'Default', 'base': skin_list[0].get('base', '#aeb2b4')})
     for o in parts_:
-        _paint_part(o, skin_list[0])
+        _paint_part(o, skin_list[0], occ)
     scene.frame_set(frame0)
-    _paint_hull(hull, skin_list[0], spec, body_objs)
+    _paint_hull(hull, skin_list[0], spec, body_objs, occ)
     hull.name = hull.data.name = '0_Body'
     bpy.data.collections['Construction'].objects.unlink(hull)
     geo._link(hull, 'Body')
