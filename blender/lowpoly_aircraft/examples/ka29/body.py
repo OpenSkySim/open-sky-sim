@@ -113,9 +113,9 @@ QUARTER_2 = (0.95, 2.03, 1.042)
 ROOF_BLEND_END = 1.75
 # Deck fairing roof profile (x, height) at the first roof ring behind the glazing (d ROOF_RING_D).
 # Section В's top (sheet, on the side view's bottom 0.289): raised centre strip, rounded shoulders.
-ROOF_PROFILE = ((0.0, 2.289), (0.281, 2.271), (0.333, 2.234), (0.361, 2.197), (0.379, 2.161),
+ROOF_PROFILE = ((0.0, 2.289), (0.30, 2.289), (0.333, 2.234), (0.361, 2.197), (0.379, 2.161),
                 (0.783, 2.124), (0.865, 2.087), (0.914, 2.05), (0.969, 1.977), (1.028, 1.904))
-ROOF_X = (0.0, 0.30, 0.42)        # roof points of the glazing rings behind the side panes
+ROOF_X = (0.0, 0.30, 0.40)        # roof points (strip top flat to 0.30) of the glazing rings behind the side panes
 ROOF_RING_D = 1.141
 PANE_STATIONS = (0.235, 0.45, 0.636, 0.71, 0.85, 1.042)   # pane corners (+ one between A and B)
 
@@ -154,7 +154,17 @@ def windscreen(d, H, y0):
     """Replace the top of a nose station's half outline (relative heights) by the glazing's frame."""
     P = H + np.array([0.0, y0])
     if PANE_STATIONS[-1] + 1e-6 < d <= ROOF_BLEND_END:
-        return H      # behind the glazing: the section itself (В and its blend to the deck front)
+        # Behind the glazing: the section itself (В and its blend to the deck front), with its roof
+        # points at the glazing rings' x (ROOF_X), so the roof panels run straight from ring to ring
+        # (owner 2026-11-20: smooth roof, fewer polygons).
+        m = HALF_N // 2
+        up = P[:m + 1]
+        k = int(np.argmax(up[:, 0] > ROOF_X[-1] + 0.03))
+        yk = float(np.interp(ROOF_X[-1], up[:k + 1, 0], up[:k + 1, 1]))
+        top = [(x, float(np.interp(x, up[:k + 1, 0], up[:k + 1, 1]))) for x in ROOF_X]
+        top[1] = (top[1][0], top[0][1])   # the centre strip's top is flat across (one plane, 2 tris)
+        rest = resample(np.vstack([[(ROOF_X[-1], yk)], up[k:]]), m + 1 - len(ROOF_X))[1:]
+        return np.vstack([top, rest, P[m + 1:]]) - np.array([0.0, y0])
     if not (PANE_STATIONS[0] - 1e-6 <= d <= PANE_STATIONS[-1] + 1e-6):
         return H
     j0, j1, j2, j3 = _pane_points(d, P[0, 1])
@@ -162,7 +172,7 @@ def windscreen(d, H, y0):
     # Every glazing ring has the same frame structure (top, roof points, frame points), so the
     # loft joins like points to like points and the roof behind the panes stays smooth.
     if d < PANE_C[2] - 1e-6:
-        fixed = [j0, (0.5 * j1[0], j1[1]), j1, j2] + ([j3] if j3 else [])
+        fixed = [j0, (ROOF_X[1], j1[1]), j1, j2] + ([j3] if j3 else [])
     else:
         # Behind the side panes the roof follows the outline (no lower than the pane tops).
         k_ = max(2, int(np.argmax(P[:HALF_N // 2, 0])))

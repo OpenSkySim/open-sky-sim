@@ -301,7 +301,7 @@ def fuselage_sections(cabin, deck):
             keys.append((1.86, H2))
     keys += [se_key(r) for r in cabin if d_(r[0]) > 9.5 and r[1] > 0]
     keys.sort(key=lambda k: k[0])
-    stations = {round(k[0], 3) for k in keys} | {1.45, 1.7, 2.5, 7.05}   # fewer in-between rings (owner: simplify)
+    stations = {round(k[0], 3) for k in keys} | {2.5, 7.05}   # fewer in-between rings (owner: simplify)
     # Nose: the flat front panes need rings exactly at their corners (body.PANE_STATIONS).
     stations = sorted({d for d in stations if not 0.0 < d < 1.1} | set(body.PANE_STATIONS))   # nose tip: cap + pane rings only
     rows, sections = [], []
@@ -321,7 +321,9 @@ def main():
     fuse_rows, fuse_secs = fuselage_sections(cabin, deck)
     # The engine deck loft keeps only its front (cockpit fairing and the face with the intakes);
     # from section Г back the deck is part of the fuselage's sections.
-    deck_front = [r for r in deck if r[0] <= 432] + [(437, 0, 136, 136, 2.0)]
+    # The fairing strip over the cockpit roof is now part of the fuselage (section В's raised centre),
+    # so the deck loft starts just behind it, at its front face (owner: smooth roof, fewer polygons).
+    deck_front = [(423, 0, 160, 137, 4)] + [r for r in deck if 422 <= r[0] <= 432] + [(437, 0, 136, 136, 2.0)]
     mast_d = d_(532)
     y_low, y_up = y_(90), y_(22)
     wheel_ground = y_(263) - 0.11   # second sheet: the fuselage stands 0.11 m higher than on the first
@@ -560,7 +562,9 @@ def main():
         # Nose and cockpit roof zones only merge near-flat faces (owner 2026-11-20: the sections
         # А-Г must keep their shape; the old 25/70 deg zones flattened the roof's centre strip).
         'planar_zones': [{'min': [-1.3, -5, z_(0.95)], 'max': [1.3, 1.22, z_(-0.1)], 'deg': 6},
-                         {'min': [-1.3, 1.96, z_(2.3)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 6},   # 2nd: cockpit roof
+                         {'min': [-1.3, 1.9, z_(1.9)], 'max': [1.3, 2.4, z_(1.2)], 'deg': 20},   # 2nd: cockpit roof
+                         # Roof just behind the windscreen (owner 2026-11-20: smooth it, -60 % polygons).
+                         {'min': [-1.3, 1.98, z_(1.2)], 'max': [1.3, 2.4, z_(0.6)], 'deg': 36},
                          {'min': [-1.3, -1, z_(7.9)], 'max': [1.3, 4, z_(2.6)], 'deg': 3, 'relax': 2}],   # 4th: cabin (owner: smoothen)
         'sections': fuse_secs,
         'parts': parts,
