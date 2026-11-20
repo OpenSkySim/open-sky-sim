@@ -7,7 +7,6 @@
  "smooth_deg": 0,
  "symmetrize": true,
  "planar_deg_final": 2.5,
- "lining": "#121314",
  "decals": [
   {
    "shape": "star",
