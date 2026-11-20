@@ -355,7 +355,7 @@ button.ok { color: var(--ok); }
         <label><input type="checkbox" id="paintShow" checked> show the outlines</label></div>
       <div class="xs-list" id="paintList" aria-label="Painted shapes"></div>
       <div class="row"><button type="button" id="paintFinish" disabled>Finish shape</button><button type="button" id="paintDel" class="danger" disabled>Delete shape</button><button type="button" id="paintExport">Copy paint.json</button></div>
-      <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b> or <b>Bottom</b> view. Hold the mouse button and drag to draw an outline freehand, like a brush: letting go closes it. Or click to place points one by one, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). Side shapes paint all skin inside the outline that is turned towards that side, top and bottom shapes the skin turned up or down.</p>
+      <p class="note" id="paintNote">Each skin (livery) has its own base colour, shapes and side number; the game offers every skin of an aircraft in the spawn menu's Livery list. New skin starts blank, Duplicate copies the one shown. Camo outlines, cut into the skin by the next build. Turn Paint on and click on the model in the free (3/4) view, or in the <b>Side</b>, <b>Top</b>, <b>Bottom</b> or <b>Front</b> view. Hold the mouse button and drag to draw an outline freehand, like a brush: letting go closes it. Or click to place points one by one, then click the first point (or Finish shape, or Enter) to close the shape. Esc drops the shape you are drawing. Shift-click a shape (or pick it in the list) to select it, then drag its points, change its colour, or delete it (Delete key). A shape belongs to the view its first point faces (side, top, bottom, front or rear) and paints the skin inside the outline that is turned towards that view.</p>
       <p class="note" id="paintState"></p>
       <textarea id="paintExportText" readonly aria-label="paint.json" hidden style="width:100%;box-sizing:border-box;height:120px;font:11px var(--font-mono);margin-top:8px"></textarea>
     </div>
@@ -2947,7 +2947,7 @@ function skinList() {
   return out.concat(extra).filter(s => s.id === SKIN0 || !s.removed);
 }
 const skinCur = () => skinList().find(s => s.id === PT.skin) || skinList()[0];
-const PAINT_VIEWS = ['side', 'top', 'bottom'];
+const PAINT_VIEWS = ['side', 'top', 'bottom', 'front'];
 const paintView = () => PAINT_VIEWS.includes(viewName) ? viewName : null;
 const paintRound = v => Math.round(v * 1000) / 1000;
 function paintRegions() {
@@ -2960,15 +2960,18 @@ const paintBase = () => (PT.docs.base && PT.docs.base.base) || (PT.built && PT.b
 // Drawing coordinates <-> the shown (pack) frame, on the plane the outlines are drawn on.
 function paintPlane(view) {
   const b = current.box;
-  return view === 'side' ? b.min.x - 0.05 : view === 'top' ? b.max.y + 0.05 : b.min.y - 0.05;
+  return view === 'side' ? b.min.x - 0.05 : view === 'top' ? b.max.y + 0.05 : view === 'front' ? b.max.z + 0.05 : view === 'rear' ? b.min.z - 0.05 : b.min.y - 0.05;
 }
 function paintToWorld(view, u, v, plane, mirror = false) {
   const s = PT.shift;
   if (view === 'side') return new THREE.Vector3(mirror ? -plane : plane, v + s[1], u + s[2]);
+  // Front / rear: [x, y] seen along the length, mirrored across x = 0.
+  if (view === 'front' || view === 'rear') return new THREE.Vector3((mirror ? -u : u) + s[0], v + s[1], plane);
   return new THREE.Vector3((mirror ? -v : v) + s[0], plane, u + s[2]);
 }
 function paintFromWorld(view, p) {
   const s = PT.shift;
+  if (view === 'front' || view === 'rear') return [paintRound(p.x - s[0]), paintRound(p.y - s[1])];
   return view === 'side' ? [paintRound(p.z - s[2]), paintRound(p.y - s[1])] : [paintRound(p.z - s[2]), paintRound(p.x - s[0])];
 }
 // Free view: shapes are drawn on the model itself. A shape still belongs to one drawing view
@@ -2989,13 +2992,15 @@ function paintRay(e) {
 // The side of a mirrored side shape that faces the camera (handles and point picking there).
 const paintCamXs = () => (cam.position.x >= 0 ? 1 : -1);
 const paintRegionXs = r => (r.view === 'side' && r.mirror !== false ? paintCamXs() : (r.x_side || 1));
-const paintViewOfNormal = n => Math.abs(n.x) >= Math.abs(n.y) ? 'side' : n.y > 0 ? 'top' : 'bottom';
+// The drawing view a face belongs to: the axis its normal points along most (as lpa/paint.py).
+const paintViewOfNormal = n => Math.abs(n.z) > Math.abs(n.x) && Math.abs(n.z) > Math.abs(n.y) ? (n.z > 0 ? 'front' : 'rear')
+  : Math.abs(n.x) >= Math.abs(n.y) ? 'side' : n.y > 0 ? 'top' : 'bottom';
 // { uv, view, xs } under the pointer; *want* forces the drawing view (a shape being drawn or dragged).
 function paintPick(e, want = null) {
   if (!current) return null;
   const ray = paintRay(e), view = paintView();
   if (view) {
-    const n = view === 'side' ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    const n = view === 'side' ? new THREE.Vector3(1, 0, 0) : view === 'front' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
     const w = new THREE.Vector3();
     if (!ray.ray.intersectPlane(new THREE.Plane(n, 0), w)) return null;
     return { uv: paintFromWorld(view, w), view, xs: -1 };
@@ -3011,6 +3016,7 @@ function paintSurf(view, u, v, xs = 1, mirror = false) {
   const s = PT.shift, far = 60;
   let o, d;
   if (view === 'side') { const sx = mirror ? -xs : xs; o = new THREE.Vector3(sx * far, v + s[1], u + s[2]); d = new THREE.Vector3(-sx, 0, 0); }
+  else if (view === 'front' || view === 'rear') { const sz = view === 'front' ? 1 : -1; o = new THREE.Vector3((mirror ? -u : u) + s[0], v + s[1], sz * far); d = new THREE.Vector3(0, 0, -sz); }
   else { const x = (mirror ? -v : v) + s[0], sy = view === 'top' ? 1 : -1; o = new THREE.Vector3(x, sy * far, u + s[2]); d = new THREE.Vector3(0, -sy, 0); }
   // The first face the build would paint for this view (facing it, like lpa/paint.py), so a
   // wing or a part in front with other facing does not catch the shape.
@@ -3121,17 +3127,17 @@ function paintOverlay() {
   for (const o of objs) box.expandByObject(o);
   const s = PT.shift, N = 2048;
   const R = Math.max(...box.min.toArray().map(Math.abs), ...box.max.toArray().map(Math.abs)) + Math.max(...s.map(Math.abs)) + 1;
-  const keys = ['side+', 'side-', 'top', 'bottom'], cv = {};
+  const keys = ['side+', 'side-', 'top', 'bottom', 'front', 'rear'], cv = {};
   for (const k of keys) {
     const c = document.createElement('canvas'); c.width = c.height = N;
     const ctx = c.getContext('2d');
     ctx.setTransform(N / (2 * R), 0, 0, N / (2 * R), N / 2, N / 2);
     cv[k] = { c, ctx, used: false };
   }
-  const poly = (k, pts, flip) => {
+  const poly = (k, pts, flip, flipU = false) => {
     const { ctx } = cv[k];
     ctx.beginPath();
-    pts.forEach(([u, v], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, u, flip ? -v : v));
+    pts.forEach(([u, v], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, flipU ? -u : u, flip ? -v : v));
     ctx.closePath(); ctx.fill();
     cv[k].used = true;
   };
@@ -3142,6 +3148,9 @@ function paintOverlay() {
     if (r.view === 'side') {
       if (mir) { poly('side+', r.pts, false); poly('side-', r.pts, false); }
       else poly((r.x_side || 1) > 0 ? 'side+' : 'side-', r.pts, false);
+    } else if (r.view === 'front' || r.view === 'rear') {
+      poly(r.view, r.pts, false);
+      if (mir) poly(r.view, r.pts, false, true);
     } else {
       poly(r.view, r.pts, false);
       if (mir) poly(r.view, r.pts, true);
@@ -3155,6 +3164,7 @@ function paintOverlay() {
   }
   // The hull's own lit material (same light and flat facets), its colour taken from the shapes.
   const uniforms = { tSP: { value: tex['side+'] }, tSN: { value: tex['side-'] }, tTop: { value: tex.top }, tBot: { value: tex.bottom },
+                     tFr: { value: tex.front }, tRe: { value: tex.rear },
                      uS: { value: new THREE.Vector3(...s) }, uR: { value: R } };
   const makeMat = () => {
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.1, depthWrite: false,
@@ -3164,19 +3174,21 @@ function paintOverlay() {
       Object.assign(sh.uniforms, uniforms);
       sh.vertexShader = 'varying vec3 vPW; varying vec3 vPN;\n' + sh.vertexShader.replace('#include <begin_vertex>',
         '#include <begin_vertex>\n  vPW = (modelMatrix * vec4(transformed, 1.0)).xyz; vPN = mat3(modelMatrix) * objectNormal;');
-      sh.fragmentShader = `uniform sampler2D tSP, tSN, tTop, tBot; uniform vec3 uS; uniform float uR;
+      sh.fragmentShader = `uniform sampler2D tSP, tSN, tTop, tBot, tFr, tRe; uniform vec3 uS; uniform float uR;
         varying vec3 vPW; varying vec3 vPN;
         vec4 paintAt(sampler2D t, vec2 uv) { vec2 c = uv / (2.0 * uR) + 0.5;
           if (c.x < 0.0 || c.y < 0.0 || c.x > 1.0 || c.y > 1.0) return vec4(0.0); return texture2D(t, c); }
         ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
         {
           vec3 pn = normalize(vPN); vec4 col = vec4(0.0), c;
-          vec2 side = vec2(vPW.z - uS.z, vPW.y - uS.y), top = vec2(vPW.z - uS.z, vPW.x - uS.x);
+          vec2 side = vec2(vPW.z - uS.z, vPW.y - uS.y), top = vec2(vPW.z - uS.z, vPW.x - uS.x), fr = vec2(vPW.x - uS.x, vPW.y - uS.y);
           // same rule as lpa/paint.py: a face takes a view's shapes when it is turned towards it
           if (pn.x > 0.02) { c = paintAt(tSP, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
           if (pn.x < -0.02) { c = paintAt(tSN, side); col = mix(col, vec4(c.rgb, 1.0), c.a); }
           if (pn.y < -0.02) { c = paintAt(tBot, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
           if (pn.y > 0.02) { c = paintAt(tTop, top); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+          if (pn.z > 0.02) { c = paintAt(tFr, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
+          if (pn.z < -0.02) { c = paintAt(tRe, fr); col = mix(col, vec4(c.rgb, 1.0), c.a); }
           if (col.a < 0.5) discard;
           diffuseColor.rgb = col.rgb;
         }`);

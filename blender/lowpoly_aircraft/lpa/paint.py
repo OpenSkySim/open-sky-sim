@@ -156,12 +156,13 @@ def add_decals(hull: bpy.types.Object, decals: list, override: dict | None = Non
 # Painted pattern: outlines cut into the skin (paint.json)
 #
 # {"base": "#aeb2b4", "material": "VEHICLE_PLANE_GREY",
-#  "regions": [{"view": "side" | "top" | "bottom", "color": "#7f888f", "mirror": true,
+#  "regions": [{"view": "side" | "top" | "bottom" | "front" | "rear", "color": "#7f888f", "mirror": true,
 #               "x_side": 1, "pts": [[z, h], ...]}]}
 # Body frame (x left wing, y up, z nose), before the shift onto the wheels. A side outline is
 # [z, y] seen along x and paints the skin facing sideways (both sides when mirrored, else +x);
 # a top/bottom outline is [z, x] seen along y and paints the skin turned up/down (mirrored
-# across x = 0 by default). Every outline edge is cut into the faces it crosses, so the colour
+# across x = 0 by default); a front/rear outline is [x, y] seen along z and paints the skin
+# turned forward/aft (a nose, a radome, intakes; mirrored across x = 0). Every outline edge is cut into the faces it crosses, so the colour
 # boundary follows the drawn shape, not the existing triangles. Later regions paint over
 # earlier ones.
 
@@ -193,11 +194,16 @@ def _inside(pt, poly) -> bool:
 
 def _view_of(n) -> str:
     """Which drawing view a face (body-frame normal n) is painted from."""
-    return 'side' if abs(n[0]) >= abs(n[1]) else ('top' if n[1] > 0 else 'bottom')
+    a = [abs(c) for c in n[:3]]
+    if a[2] > a[0] and a[2] > a[1]:
+        return 'front' if n[2] > 0 else 'rear'
+    return 'side' if a[0] >= a[1] else ('top' if n[1] > 0 else 'bottom')
 
 
 def _uv(p, view):
-    """2-D drawing coordinates of a body-frame point: side [z, y], top/bottom [z, x]."""
+    """2-D drawing coordinates of a body-frame point: side [z, y], top/bottom [z, x], front/rear [x, y]."""
+    if view in ('front', 'rear'):
+        return (p[0], p[1])
     return (p[2], p[1]) if view == 'side' else (p[2], p[0])
 
 
@@ -211,7 +217,9 @@ def _variants(region):
         side = int(region.get('x_side', 1))   # one-sided: +1 the left-wing side, -1 the right
         return [('side', side, pts)] + ([('side', -side, pts)] if mirror else [])
     out = [(view, 0, pts)]
-    if mirror:
+    if mirror and view in ('front', 'rear'):
+        out.append((view, 0, [(-x, y) for x, y in pts]))
+    elif mirror:
         out.append((view, 0, [(z, -x) for z, x in pts]))
     return out
 
@@ -256,7 +264,8 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
                     n = geo.from_bl(mw.to_3x3() @ f.normal)
                     # Every face turned towards the view at all, so a shape across a
                     # rounded nose fills completely, not only the faces facing mostly sideways.
-                    facing = n[0] * sign if view == 'side' else (n[1] if view == 'top' else -n[1])
+                    facing = {'side': n[0] * sign, 'top': n[1], 'bottom': -n[1],
+                              'front': n[2], 'rear': -n[2]}[view]
                     if facing <= 0.02:
                         continue
                     out.append(f)
@@ -281,6 +290,10 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=()) -> int:
                     p0 = geo.to_bl((0.0, a1, a0))
                     e = geo.to_bl((0.0, b1, b0)) - p0
                     nrm = e.cross(xax)
+                elif view in ('front', 'rear'):
+                    p0 = geo.to_bl((a0, a1, 0.0))
+                    e = geo.to_bl((b0, b1, 0.0)) - p0
+                    nrm = e.cross(geo.to_bl((0, 0, 1)) - geo.to_bl((0, 0, 0)))
                 else:
                     p0 = geo.to_bl((a1, 0.0, a0))
                     e = geo.to_bl((b1, 0.0, b0)) - p0
