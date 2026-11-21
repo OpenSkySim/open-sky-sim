@@ -92,6 +92,9 @@ export function modelHasAnim(obj: THREE.Object3D, type: ModelAnimation): boolean
     return modelAnim !== undefined && modelAnim === type;
 }
 
+/** Inside of a lowpoly aircraft hull (drawn from the hull's back faces): near black. */
+const LOWPOLY_INTERIOR_COLOR = '#262626';
+
 export class ModelManager {
 
     private libBuilders: Map<string, ModelLibBuilder> = new Map();
@@ -334,6 +337,26 @@ export class ModelManager {
                             mesh.geometry = ModelManager.withSmoothNormals(mesh.geometry);
                             ModelManager.applyShading(mesh, this.smoothShading);
                         }
+                        if (isAircraftModel && !isFlat && rawColor && ModelManager.isLowpolyHull(obj)) {
+                            // A lowpoly hull has no inner skin: seen through the glazing, its
+                            // inside is the same faces drawn from behind, in a dark interior colour.
+                            (obj.material as THREE.ShaderMaterial).side = THREE.FrontSide;
+                            const mesh = obj as THREE.Mesh;
+                            const inside = new THREE.Mesh(mesh.geometry, this.materials.build({
+                                type: SceneMaterialPrimitiveType.MESH,
+                                category: PaletteCategory.VEHICLE_PLANE_GREY,
+                                rawColor: LOWPOLY_INTERIOR_COLOR,
+                                shaded: false,
+                                depthWrite: shouldDepthWrite(false, PaletteCategory.VEHICLE_PLANE_GREY),
+                            }));
+                            (inside.material as THREE.ShaderMaterial).side = THREE.BackSide;
+                            inside.name = `${mesh.name}_Inside`;
+                            inside.position.copy(mesh.position);
+                            inside.quaternion.copy(mesh.quaternion);
+                            inside.scale.copy(mesh.scale);
+                            inside.onBeforeRender = updateUniforms;
+                            level.volumes.push(inside);
+                        }
                     }
                 } else if ('isLineSegments' in child) {
                     const lineCategory = isShadowModel
@@ -456,6 +479,11 @@ export class ModelManager {
      * bring their own per-polygon palette, e.g. an imported mod) rather than a
      * PaletteCategory. Returns the CSS colour, or undefined for category names.
      */
+    /** The lowpoly builder's hull: its body mesh ('0_Body…') and the cabin door panel. */
+    private static isLowpolyHull(obj: THREE.Object3D): boolean {
+        return /^0_Body|_CabinDoor/.test(obj.name || obj.parent?.name || '');
+    }
+
     private static rawColorFor(name: string): string | undefined {
         return /^#[0-9a-fA-F]{6}$/.test(name) ? name : undefined;
     }

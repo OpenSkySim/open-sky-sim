@@ -326,6 +326,54 @@ interface AircraftManifest {
     groundOffsetY?: number;
     groundRestHeightM?: number;
     flight?: Fm2AircraftConfig | null;
+    /**
+     * Skins of a lowpoly-builder pack: the first is the pack's own body, every
+     * other one names a body model of its own (same airframe, other paint).
+     */
+    liveries?: {
+        id: string; name: string; body?: string;
+        /** Surface models painted in this livery, by role (the pack's own ones otherwise). */
+        surfaces?: Record<string, string>;
+        /** Gear model painted in this livery (its gear doors). */
+        gear?: string;
+    }[] | null;
+}
+
+/** Spawn-menu id of a pack's extra livery (the first livery keeps the pack id). */
+export function liveryAircraftId(packId: string, liveryId: string): string {
+    return `${packId}~${liveryId}`;
+}
+
+/**
+ * One manifest per livery: the pack's own manifest first (named after its first
+ * livery), then a copy per other livery with that livery's body model. All
+ * share the canonical name, so the spawn menu offers them as liveries of one
+ * aircraft. A pack without liveries yields its manifest unchanged.
+ */
+export function expandLiveries(id: string, manifest: AircraftManifest): { id: string; manifest: AircraftManifest }[] {
+    const liveries = manifest.liveries ?? [];
+    if (liveries.length < 2) {
+        return [{ id, manifest }];
+    }
+    const model = manifest.canonicalName ?? manifest.displayName ?? manifest.name ?? id;
+    const base = modelDisplayName(manifest) || model;
+    return liveries
+        .filter((livery, i) => i === 0 || !!livery.body)
+        .map((livery, i) => ({
+            id: i === 0 ? id : liveryAircraftId(id, livery.id),
+            manifest: {
+                ...manifest,
+                id: i === 0 ? (manifest.id ?? id) : liveryAircraftId(manifest.id ?? id, livery.id),
+                canonicalName: model,
+                displayName: `${base} (${livery.name})`,
+                name: `${base} (${livery.name})`,
+                sourceMaterial: livery.name,
+                body: i === 0 ? manifest.body : livery.body!,
+                surfaces: i === 0 || !livery.surfaces ? manifest.surfaces
+                    : manifest.surfaces.map(s => (livery.surfaces![s.role] ? { ...s, path: livery.surfaces![s.role] } : s)),
+                gear: i > 0 && livery.gear ? livery.gear : manifest.gear,
+            },
+        }));
 }
 
 function rewriteManifestForPack(id: string, manifest: AircraftManifest): AircraftManifest {
@@ -471,7 +519,10 @@ export class AircraftRegistry {
         try {
             const pack = await aircraftPackStore.loadFromUrl(id, url);
             const manifest = JSON.parse(pack.getText('manifest.json')) as AircraftManifest;
-            this.register(manifestToDef(id, rewriteManifestForPack(id, manifest)));
+            // Every livery's body comes from this pack, so URLs keep the pack id.
+            for (const each of expandLiveries(id, manifest)) {
+                this.register(manifestToDef(each.id, rewriteManifestForPack(id, each.manifest)));
+            }
             return id;
         } catch (err) {
             console.warn(`[aircraftRegistry] failed to load ${url}`, err);

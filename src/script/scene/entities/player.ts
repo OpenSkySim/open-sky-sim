@@ -985,8 +985,14 @@ export class PlayerEntity implements Entity {
         return this.modelBody;
     }
 
+    /**
+     * Not drawn at all: the hangar spawn shows a stand-in coming up from the
+     * hangar while this one waits, held, where it will take over.
+     */
+    hiddenForSequence = false;
+
     render3D(targetWidth: number, targetHeight: number, camera: THREE.Camera, lists: Map<string, THREE.Scene>, palette: Palette): void {
-        if (!drawsEntityLayers(lists)) {
+        if (!drawsEntityLayers(lists) || this.hiddenForSequence) {
             return;
         }
 

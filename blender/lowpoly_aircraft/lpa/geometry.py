@@ -119,7 +119,7 @@ def tidy(obj: bpy.types.Object, material: str, smooth_deg: float | None = None) 
     bmesh.ops.dissolve_degenerate(bm, edges=bm.edges, dist=1e-4)
     bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(0.5 if smooth_deg else 1.0),
                              verts=bm.verts, edges=bm.edges)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
+    bmesh.ops.triangulate(bm, faces=bm.faces, ngon_method='BEAUTY')
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     if smooth_deg:
         limit = math.radians(smooth_deg)
@@ -206,9 +206,29 @@ def drop_off_skin(obj: bpy.types.Object, skin: BVHTree, cutter: BVHTree, tol: fl
     bm.free()
 
 
-def decimate(obj: bpy.types.Object, ratio: float = 1.0, planar_deg: float = 0.0) -> None:
+def symmetrize(obj: bpy.types.Object) -> None:
+    """Make a mesh exactly symmetric about the body's X: its left half (+X) mirrored onto the right."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.symmetrize(bm, input=bm.verts[:] + bm.edges[:] + bm.faces[:], direction='-X', dist=1e-4)
+    bm.to_mesh(obj.data)
+    bm.free()
+
+
+def decimate(obj: bpy.types.Object, ratio: float = 1.0, planar_deg: float = 0.0, keep_boxes=()) -> None:
     """Decimate a mesh in place: merge near-flat faces (within *planar_deg*), else collapse to
-    *ratio* of its faces symmetric about the body's X."""
+    *ratio* of its faces symmetric about the body's X. Edges with both ends inside one of
+    *keep_boxes* ((min, max) body-frame corners) are kept, so the loft's quads stay there."""
+    if planar_deg > 0 and keep_boxes:
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        boxes = [(np.asarray(lo, float), np.asarray(hi, float)) for lo, hi in keep_boxes]
+        inside = lambda v: any(np.all(np.asarray(from_bl(v.co)) >= lo) and np.all(np.asarray(from_bl(v.co)) <= hi)
+                               for lo, hi in boxes)
+        for e in bm.edges:
+            e.smooth = not all(inside(v) for v in e.verts)
+        bm.to_mesh(obj.data)
+        bm.free()
     if planar_deg <= 0:
         # The collapse only stays symmetric on a mesh whose two halves match vertex for vertex;
         # a boolean-joined hull does not, so mirror its left half (+X) onto the right first.
@@ -221,6 +241,8 @@ def decimate(obj: bpy.types.Object, ratio: float = 1.0, planar_deg: float = 0.0)
     if planar_deg > 0:
         mod.decimate_type = 'DISSOLVE'
         mod.angle_limit = math.radians(planar_deg)
+        if keep_boxes:
+            mod.delimit = {'SHARP'}
     else:
         mod.decimate_type = 'COLLAPSE'
         mod.ratio = ratio
@@ -484,6 +506,29 @@ def gear_leg(name: str, top, wheel_bottom, wheel_radius: float, wheel_width: flo
     return parts
 
 
+def leg_door(name: str, top, offset: float, width: float, length: float, collection: str,
+             thickness: float = 0.03) -> bpy.types.Object:
+    """A door plate carried by a gear leg, standing *offset* ahead (+) or behind (-) the strut.
+
+    It hangs from just below the pivot down *length* metres and is *width* wide, so when the
+    leg swings 90 deg fore or aft the plate lies flat under the well and closes it. Its origin
+    is the strut's top, like the leg's own parts, so it takes the leg's animation unchanged.
+    """
+    x, y_top, z = top
+    zc = z + offset
+    bm = bmesh.new()
+    box(bm, (x - width / 2, y_top - length, zc - thickness / 2), (x + width / 2, y_top - 0.05, zc + thickness / 2))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(f'{name}_Door')
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.append(get_material('VEHICLE_PLANE_GREY'))
+    obj = bpy.data.objects.new(f'{name}_Door', me)
+    _link(obj, collection)
+    set_origin(obj, top)
+    return obj
+
+
 def gear_door(name: str, hinge_x: float, hinge_y: float, z0: float, z1: float, height: float,
               collection: str, thickness: float = 0.03, chamfer: float = 0.12) -> bpy.types.Object:
     """A thin gear door hanging straight down from a fore-and-aft hinge line (its open pose).
@@ -544,3 +589,95 @@ def disc(name: str, center, radius: float, normal_axis: str, material: str, coll
     me.materials.append(get_material(material))
     obj = bpy.data.objects.new(name, me)
     return _link(obj, collection)
+
+
+def flatten_panes(obj: bpy.types.Object, angle_deg: float = 1.0, panes: int = 0) -> None:
+    """Merge coplanar faces and drop vertices on straight edges, then triangulate (BEAUTY).
+
+    With *panes* > 0 only that many of the largest merged faces are kept (stray bits of glass
+    on frame steps go) and each is cut back to its four sharpest corners, so every pane is
+    exactly two triangles."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-4)
+    if panes <= 0:
+        bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(angle_deg), use_dissolve_boundaries=True,
+                                 verts=bm.verts[:], edges=bm.edges[:])
+    else:
+        # An open sheet (the skin-only pane): no boundary dissolve, faces are grouped instead.
+        # Group connected faces of one pane (normals within 30 deg; frame posts split the panes),
+        # largest groups first, and rebuild each as the quad of its four sharpest outline corners.
+        bm.normal_update()
+        cos_lim = math.cos(math.radians(max(angle_deg, 30.0)))   # panes are split by their frames
+        groups, seen = [], set()
+        for f0 in bm.faces:
+            if f0 in seen:
+                continue
+            grp, stack = [], [f0]
+            seen.add(f0)
+            while stack:
+                f = stack.pop()
+                grp.append(f)
+                for e in f.edges:
+                    for g in e.link_faces:
+                        if g not in seen and g.normal.dot(f0.normal) > cos_lim:
+                            seen.add(g)
+                            stack.append(g)
+            groups.append(grp)
+        groups.sort(key=lambda g: sum(f.calc_area() for f in g), reverse=True)
+        quads = []
+        for g in groups[:panes]:
+            gs = set(g)
+            # The group's outline: edges with one face in the group, walked into a loop.
+            nxt = {}
+            for f in g:
+                for l in f.loops:
+                    e = l.edge
+                    if sum(1 for h in e.link_faces if h in gs) == 1:
+                        nxt[l.vert] = l.link_loop_next.vert
+            if not nxt:
+                continue
+            start = next(iter(nxt))
+            loop, v = [start], nxt[start]
+            while v is not start and v in nxt and len(loop) <= len(nxt):
+                loop.append(v)
+                v = nxt[v]
+            n = sum((f.normal * f.calc_area() for f in g), Vector()).normalized()
+            pts = [w.co.copy() for w in loop]
+            turn = []
+            for k, p in enumerate(pts):
+                e1 = (p - pts[k - 1]).normalized()
+                e2 = (pts[(k + 1) % len(pts)] - p).normalized()
+                turn.append(abs(e1.cross(e2).dot(n)))
+            keep = sorted(sorted(range(len(pts)), key=lambda k: -turn[k])[:4])
+            quads.append([pts[k] for k in keep])
+        bm.clear()
+        for q in quads:
+            bm.faces.new([bm.verts.new(p) for p in q])
+    bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method='BEAUTY', ngon_method='BEAUTY')
+    bm.to_mesh(obj.data)
+    bm.free()
+
+
+def merge_flat_in_box(obj: bpy.types.Object, lo, hi, angle_deg: float = 10.0, relax: int = 0) -> None:
+    """Dissolve near-flat edges whose both ends lie in the body-frame box [lo, hi], then
+    triangulate the merged faces evenly (BEAUTY). With *relax*, the box's inner vertices are
+    first smoothed that many times (Taubin, volume-keeping) to even out bumpy facets."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    lo, hi = np.asarray(lo, float), np.asarray(hi, float)
+    inside = lambda v: bool(np.all(np.asarray(from_bl(v.co)) >= lo) and np.all(np.asarray(from_bl(v.co)) <= hi))
+    if relax:
+        inner = [v for v in bm.verts if not v.is_boundary and all(inside(w) for e in v.link_edges for w in e.verts)]
+        # Taubin smoothing: a shrink step and an inflate step, so the surface does not cave in.
+        for _ in range(int(relax)):
+            for fac in (0.5, -0.53):
+                bmesh.ops.smooth_vert(bm, verts=inner, factor=fac, use_axis_x=True, use_axis_y=True, use_axis_z=True)
+    verts = [v for v in bm.verts if inside(v) and not v.is_boundary]
+    edges = [e for e in bm.edges if all(inside(v) for v in e.verts) and not e.is_boundary]
+    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(angle_deg), use_dissolve_boundaries=False,
+                             verts=verts, edges=edges)
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 3],
+                          quad_method='BEAUTY', ngon_method='BEAUTY')
+    bm.to_mesh(obj.data)
+    bm.free()

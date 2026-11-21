@@ -1,0 +1,178 @@
+{
+ "aircraft": "lp_ka29",
+ "length_m": 11.3,
+ "span_m": 15.9,
+ "ground_y": -2.0,
+ "images": [
+  {
+   "id": "ka29-sheet",
+   "file": "ka29_sheet.jpg",
+   "kind": "sheet",
+   "title": "Ka-29 side and top view with sections 1-11",
+   "source": "Owner's Drive folder Ka-29 ('0 (1).jpg'), Aviatsiya i Vremya 2012",
+   "repo_ok": false,
+   "priority": 2,
+   "size": [
+    900,
+    638
+   ],
+   "notes": "Base drawing. Both views 46.2 px/m (3 m bar). The nose wheels stand 0.24 m lower than the mains (nose-up on deck); the model keeps the fuselage level. Sections 7-11 are drawn at their own scale.",
+   "views": [
+    {
+     "view": "side",
+     "crop": [
+      250,
+      0,
+      900,
+      280
+     ],
+     "cal": {
+      "nose": [
+       337,
+       201
+      ],
+      "nose_dir": "left",
+      "px_per_m": 46.2,
+      "ground": [
+       575,
+       263
+      ]
+     }
+    },
+    {
+     "view": "top",
+     "crop": [
+      0,
+      225,
+      620,
+      478
+     ],
+     "cal": {
+      "nose": [
+       88,
+       350.5
+      ],
+      "nose_dir": "left",
+      "px_per_m": 46.2
+     }
+    }
+   ]
+  },
+  {
+   "id": "ka29-sheet2",
+   "file": "ka29_sheet2.jpg",
+   "kind": "sheet",
+   "title": "Ka-29 side, top, bottom and front view with sections А-Л",
+   "source": "Owner's upload in the project thread (2026-11-18), the-blueprints.com sheet",
+   "repo_ok": false,
+   "priority": 1,
+   "size": [
+    2000,
+    1231
+   ],
+   "notes": "Second base drawing: 163.5 px/m on the full 4731 px sheet (from the 3.5 m main track, 3.0 m wheelbase, 7.95 m blade). Sections А-Л at d 0.25/0.64/1.14/2.10/3.00/4.17/5.28/6.60/7.46/7.87/9.06 (ticks under the lower side view), traced to ka29_sections.json. Stands level (nose and main wheels on one ground line).",
+   "views": [
+    {
+     "view": "side",
+     "crop": [
+      1014.6,
+      0.0,
+      2000.0,
+      414.3
+     ],
+     "cal": {
+      "nose": [
+       1129.6,
+       312.8
+      ],
+      "nose_dir": "left",
+      "px_per_m": 69.12,
+      "ground": [
+       1486.8,
+       399.5
+      ]
+     }
+    },
+    {
+     "view": "top",
+     "crop": [
+      0.0,
+      0.0,
+      951.2,
+      401.6
+     ],
+     "cal": {
+      "nose": [
+       141.2,
+       206.7
+      ],
+      "nose_dir": "left",
+      "px_per_m": 69.12
+     }
+    },
+    {
+     "view": "front",
+     "crop": [
+      498.8,
+      380.5,
+      908.9,
+      828.6
+     ],
+     "cal": {
+      "nose": [
+       689.9,
+       693.3
+      ],
+      "px_per_m": 69.12,
+      "ground": [
+       689.9,
+       805.7
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "ka29-side-1",
+   "file": "ka29_side_1.png",
+   "kind": "view",
+   "title": "Ka-29 side view (clean line drawing)",
+   "source": "Owner's Drive folder Ka-29 ('0 (1).png')",
+   "repo_ok": false,
+   "priority": 2,
+   "size": [
+    704,
+    204
+   ],
+   "views": []
+  },
+  {
+   "id": "ka29-deck-hover",
+   "file": "ka29_photo_hover.jpg",
+   "kind": "photo",
+   "title": "Ka-29 hovering over a carrier deck",
+   "source": "Owner's Drive folder Ka-29",
+   "repo_ok": false,
+   "priority": 3,
+   "size": [
+    1024,
+    712
+   ],
+   "views": []
+  },
+  {
+   "id": "ka29-deck-parked",
+   "file": "ka29_photo_deck.jpg",
+   "kind": "photo",
+   "title": "Ka-29 parked on deck (intakes, rotor head, rocket pod)",
+   "source": "Owner's Drive folder Ka-29",
+   "repo_ok": false,
+   "priority": 3,
+   "size": [
+    1024,
+    753
+   ],
+   "views": []
+  }
+ ]
+}

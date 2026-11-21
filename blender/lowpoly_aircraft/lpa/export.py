@@ -4,6 +4,8 @@ Reads the collections the builder creates (and that you may have edited by
 hand in Blender) and writes what the sim loads:
 
     <id>.glb            body (collection "Body")
+    <id>_skin_<s>.glb   body in another skin (paint.json "skins"; manifest "liveries")
+    <id>_skin_<s>_<role>.glb, <id>_skin_<s>_gear.glb   its painted surfaces and gear
     <id>_shadow.glb     flat ground silhouette (collection "Shadow")
     <id>_gear.glb       animated landing gear (collection "Gear")
     <id>_<role>.glb     one hinge-pivoted model per control surface ("Surfaces")
@@ -61,6 +63,91 @@ def _export_glb(path: str, objects: list[bpy.types.Object], animations: bool) ->
     bpy.ops.export_scene.gltf(**kwargs)
 
 
+def _export_skins(out_dir: str, aid: str, body: list, files: list) -> list[dict]:
+    """The other skins (build.py: hull meshes '0_Body~<skin id>') as body models of their own.
+
+    Returns the manifest's 'liveries': the default skin first (the pack's body), then one entry
+    per skin with its body file. Separate body meshes take the skin's base colour.
+    """
+    from .geometry import get_material
+    scene = bpy.context.scene
+    variants = json.loads(scene.get('lpa_skins') or '[]')
+    if not variants:
+        return []
+    default = json.loads(scene.get('lpa_skin_default') or '{}')
+    hull = next((o for o in body if o.name == '0_Body'), None)
+    if hull is None:
+        raise RuntimeError('skins need the hull object 0_Body')
+    orig = hull.data
+    liveries = [{'id': 'default', 'name': default.get('name', 'Default')}]
+    for v in variants:
+        me = bpy.data.meshes[v['mesh']]
+        fname = f'{aid}_skin_{v["id"]}.glb'
+        swapped, datas = [], []
+        orig_name, me_name = orig.name, me.name
+        livery = {'id': v['id'], 'name': v['name'], 'body': fname}
+        try:
+            orig.name = '0_Body~default'
+            me.name = '0_Body'
+            hull.data = me
+            # The parts painted in this skin (build.py: '<object>~<skin id>' meshes).
+            for oname, mname in (v.get('parts') or {}).items():
+                o = bpy.data.objects.get(oname)
+                if o is not None and mname in bpy.data.meshes:
+                    datas.append((o, o.data))
+                    o.data = bpy.data.meshes[mname]
+            for o in body:
+                if o is hull:
+                    continue
+                for i, m in enumerate(o.data.materials):
+                    if m is not None and m.name == default.get('base'):
+                        swapped.append((o, i, m))
+                        o.data.materials[i] = get_material(v['base'])
+            bpy.context.view_layer.update()
+            _export_glb(os.path.join(out_dir, fname), body, False)
+            painted = {o.name for o, _ in datas}
+            surfs = {}
+            for obj in _objects('Surfaces'):
+                if obj.name in painted:
+                    role = obj.get('lpa_role') or obj.name
+                    sname = f'{aid}_skin_{v["id"]}_{role}.glb'
+                    _export_surface(os.path.join(out_dir, sname), obj)
+                    files.append(sname)
+                    surfs[role] = sname
+            if surfs:
+                livery['surfaces'] = surfs
+            gear = _objects('Gear')
+            if any(o.name in painted for o in gear):
+                gname = f'{aid}_skin_{v["id"]}_gear.glb'
+                _export_glb(os.path.join(out_dir, gname), gear, True)
+                files.append(gname)
+                livery['gear'] = gname
+        finally:
+            for o, i, m in swapped:
+                o.data.materials[i] = m
+            for o, d in datas:
+                o.data = d
+            hull.data = orig
+            me.name = me_name
+            orig.name = orig_name
+            bpy.context.view_layer.update()
+        files.append(fname)
+        liveries.append(livery)
+    return liveries
+
+
+def _export_surface(path: str, obj) -> None:
+    """A surface model is drawn about its pivot: export it at the origin."""
+    loc = obj.location.copy()
+    obj.location = (0, 0, 0)
+    bpy.context.view_layer.update()
+    try:
+        _export_glb(path, [obj], False)
+    finally:
+        obj.location = loc
+        bpy.context.view_layer.update()
+
+
 def _vec(v) -> list[float]:
     return [round(float(c), 4) for c in v]
 
@@ -79,6 +166,7 @@ def export_pack(out_dir: str, pack: bool = True) -> dict:
         raise RuntimeError('nothing in the "Body" collection to export')
     _export_glb(os.path.join(out_dir, f'{aid}.glb'), body, False)
     files.append(f'{aid}.glb')
+    liveries = _export_skins(out_dir, aid, body, files)
 
     shadow = _objects('Shadow')
     if shadow:
@@ -94,15 +182,7 @@ def export_pack(out_dir: str, pack: bool = True) -> dict:
     for obj in _objects('Surfaces'):
         role = obj.get('lpa_role') or obj.name
         fname = f'{aid}_{role}.glb'
-        # A surface model is drawn about its pivot: export it at the origin.
-        loc = obj.location.copy()
-        obj.location = (0, 0, 0)
-        bpy.context.view_layer.update()
-        try:
-            _export_glb(os.path.join(out_dir, fname), [obj], False)
-        finally:
-            obj.location = loc
-            bpy.context.view_layer.update()
+        _export_surface(os.path.join(out_dir, fname), obj)
         files.append(fname)
         surface = {
             'role': role,
@@ -146,6 +226,8 @@ def export_pack(out_dir: str, pack: bool = True) -> dict:
         manifest['pilotSeats'] = [_vec(s) for s in json.loads(scene['lpa_pilot_seats'])]
     if tailhook:
         manifest['tailhook'] = tailhook
+    if liveries:
+        manifest['liveries'] = liveries
     with open(os.path.join(out_dir, 'manifest.json'), 'w') as f:
         json.dump(manifest, f, indent=2)
     files.append('manifest.json')
