@@ -256,6 +256,14 @@ export class ModelManager {
                     obj.geometry = ModelManager.withFaceNormals(obj.geometry);
                 }
 
+                // A glTF node with several materials loads as a Group of one mesh per primitive;
+                // the meshes are flattened out of it here, so keep the node's name for the
+                // animation clips that target it (LODHelper.createActions).
+                const parent = obj.parent;
+                if (parent && parent !== scene && 'isGroup' in parent && parent.name && parent.name !== obj.name
+                    && parent.children.every(c => 'isMesh' in c)) {
+                    obj.userData.animNode = parent.name;
+                }
                 obj.matrix.copy(obj.matrixWorld);
                 obj.matrix.decompose(obj.position, obj.quaternion, obj.scale);
                 obj.matrixAutoUpdate = true;

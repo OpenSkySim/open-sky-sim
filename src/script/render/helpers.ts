@@ -50,6 +50,22 @@ function countObjectTriangles(root: THREE.Object3D): number {
     return total;
 }
 
+/** The glTF node an animation clip addresses this mesh by (its own name, or its multi-material node's). */
+function animTargetName(obj: THREE.Object3D): string {
+    return (obj.userData.animNode as string | undefined) ?? obj.name;
+}
+
+/** `clip` with its tracks bound to `to` instead of node `from`. */
+function retargetClip(clip: THREE.AnimationClip, from: string, to: string): THREE.AnimationClip {
+    const out = clip.clone();
+    for (const track of out.tracks) {
+        if (track.name.startsWith(from + '.')) {
+            track.name = to + track.name.slice(from.length);
+        }
+    }
+    return out;
+}
+
 export class LODHelper {
 
     private elapsed: number = 0;
@@ -83,17 +99,28 @@ export class LODHelper {
 
     private createActions() {
         //! Just volumes at LOD 0
-        const map = new Map(this.model.lod[0].volumes.map(model => ([model.name, model])));
+        // A multi-material node is several meshes (models.ts tags them with userData.animNode);
+        // each gets its own mixer, with the clip's tracks renamed to that mesh.
+        const targets = new Map<string, THREE.Object3D[]>();
+        for (const obj of this.model.lod[0].volumes) {
+            const key = animTargetName(obj);
+            const list = targets.get(key);
+            if (list) list.push(obj); else targets.set(key, [obj]);
+        }
         this.model.animations.forEach(clip => {
             this.originalPlaybackDuration = Math.max(this.originalPlaybackDuration, clip.duration);
-            const root = map.get(clip.name.replace('Action', ''));
-            assertIsDefined(root, clip.name);
-            const mixer = new THREE.AnimationMixer(root);
-            this.animMixers.push(mixer);
-            const action = mixer.clipAction(clip);
-            action.loop = THREE.LoopOnce;
-            action.clampWhenFinished = true;
-            this.animActions.push(action);
+            const node = clip.name.replace('Action', '');
+            const roots = targets.get(node);
+            assertIsDefined(roots, clip.name);
+            for (const root of roots) {
+                const rootClip = root.name === node ? clip : retargetClip(clip, node, root.name);
+                const mixer = new THREE.AnimationMixer(root);
+                this.animMixers.push(mixer);
+                const action = mixer.clipAction(rootClip);
+                action.loop = THREE.LoopOnce;
+                action.clampWhenFinished = true;
+                this.animActions.push(action);
+            }
         });
     }
 
@@ -112,7 +139,7 @@ export class LODHelper {
         }
         const animated = new Set(this.model.animations.map(clip => clip.name.replace('Action', '')));
         const level = this.model.lod[0];
-        this.staticMeshes = level === undefined ? [] : [...level.flats, ...level.volumes].filter(m => !animated.has(m.name));
+        this.staticMeshes = level === undefined ? [] : [...level.flats, ...level.volumes].filter(m => !animated.has(animTargetName(m)));
         this.applyStaticVisibility();
     }
 
