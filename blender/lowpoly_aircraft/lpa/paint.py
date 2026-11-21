@@ -383,6 +383,11 @@ def apply_pattern(hull: bpy.types.Object, cfg: dict, others=(), occluder: BVHTre
                     f.material_index = ci
                     painted += 1
             paintable.add(ci)
+    # Each outline edge cuts its plane right across every face it touches, so most of the new
+    # edges split a flat facet into pieces of the same colour. Merge those pieces back (same
+    # material, within 0.5 deg) so the paint costs only the edges that bound a colour.
+    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(0.5), use_dissolve_boundaries=False,
+                             verts=list(bm.verts), edges=list(bm.edges), delimit={'MATERIAL'})
     bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 3])
     bm.to_mesh(me)
     bm.free()
