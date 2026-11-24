@@ -262,9 +262,13 @@ ${EARTH_MAP_PARS_FRAGMENT}
     return best;
   }
 
-  // 1 where a fill pixel is low enough to be the fill's own ground.
-  float fillGround(vec3 hit, vec2 ll) {
-    float top = 60.0 + uRampTopM * (1.0 - smoothstep(0.0, uRampM, areaDistanceM(ll)));
+  // 1 where a fill pixel is low enough to be the fill's own ground. The
+  // fill's chords only sag below the ellipsoid, so the slack above it is
+  // small: a flat 60 m took in anything standing on the sea out there - a
+  // ship steaming past an area's edge was painted over in the map's water.
+  // It grows with distance for the hit's own error far out.
+  float fillGround(vec3 hit, vec2 ll, float dist) {
+    float top = 2.0 + 0.002 * dist + uRampTopM * (1.0 - smoothstep(0.0, uRampM, areaDistanceM(ll)));
     return step(length(hit) - A, top);
   }
 
@@ -409,7 +413,7 @@ ${EARTH_MAP_PARS_FRAGMENT}
     // ancestors out to whole quadrants: real only where the map says sea.
     float fill = terrain ? 1.0 - bakedAreaDepth(hitLatLon) : 0.0;
     if (uLowFill > 0.5 && fill > 0.0) {
-      fill *= fillGround(o + d * tEnd, hitLatLon);
+      fill *= fillGround(o + d * tEnd, hitLatLon, tEnd);
     }
     // How much of the globe map is drawn: over baked terrain as the camera
     // climbs, on the bare ellipsoid as the shell itself fades in, never on
