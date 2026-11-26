@@ -153,7 +153,10 @@ const SU33_WING_FOLD_RAD = 126 * Math.PI / 180;
 /**
  * The Su-33 (Flanker-D): an original model built in Blender by
  * tools/build_su33_blender.py (data/su33d.blend; pivots and axes below are the
- * ones it prints). All-moving canards and tailerons, split flaps and
+ * ones it prints), then reshaped vertex by vertex to a high-detail Su-33 used as a
+ * shape reference (same triangles and parts; average gap 7.7 -> 4.5 cm); nacelles
+ * refitted closer, nozzles 0.47 m longer, canards moved aft to the reference
+ * planform with their spindle at z 0.958 m. All-moving canards and tailerons, split flaps and
  * flaperons, leading-edge flaps, twin rudders, dorsal airbrake; the outer wings
  * fold at x 3.55 m and the stabilator tips at x 3.29 m (R key), with the
  * flaperons and outer leading-edge flaps riding the folding panels. It flies
@@ -173,7 +176,7 @@ export function buildSu33Def(): FlyableAircraftDef {
         cockpitOffset: [0, 1.38, 5.1],
         fx: {
             wingtips: [[7.15, 0.224, -6.3], [-7.15, 0.224, -6.3]],
-            nozzles: [[1.16, -0.13, -9.5], [-1.16, -0.13, -9.5]],
+            nozzles: [[1.16, -0.13, -10.0], [-1.16, -0.13, -10.0]],
             nozzleRadius: 0.42,
         },
         flight: { ...defaultFm2Config, gear: { ...defaultFm2Config.gear, points: gearPoints } },
@@ -181,104 +184,104 @@ export function buildSu33Def(): FlyableAircraftDef {
             // Folding outer wings first: the flaperons and LE flaps below ride them.
             {
                 role: 'wingFoldLeft', model: 'assets/su33d_wing_fold_left.glb',
-                pivot: [3.55, 0.3628, -3.4], axis: [0, 0, -1],
+                pivot: [3.5473, 0.3628, -3.9716], axis: [0, 0, -1],
                 control: 'fold', sign: -1, rangeRad: SU33_WING_FOLD_RAD,
             },
             {
                 role: 'wingFoldRight', model: 'assets/su33d_wing_fold_right.glb',
-                pivot: [-3.55, 0.3628, -3.4], axis: [0, 0, 1],
+                pivot: [-3.5473, 0.3628, -3.9716], axis: [0, 0, 1],
                 control: 'fold', sign: -1, rangeRad: SU33_WING_FOLD_RAD,
             },
             {
                 role: 'flapInnerLeft', model: 'assets/su33d_flap_inner_left.glb',
-                pivot: [2.2, 0.356, -4.5812], axis: [0.9479, -0.0157, -0.3181],
+                pivot: [2.2, 0.356, -5.2549], axis: [0.9536, -0.0158, -0.3007],
                 control: 'flaps', sign: -1, rangeRad: 0.6,
             },
             {
                 role: 'flapInnerRight', model: 'assets/su33d_flap_inner_right.glb',
-                pivot: [-2.2, 0.356, -4.5812], axis: [0.9479, 0.0157, 0.3181],
+                pivot: [-2.2, 0.356, -5.2549], axis: [0.9536, 0.0158, 0.3007],
                 control: 'flaps', sign: -1, rangeRad: 0.6,
             },
             {
                 role: 'flapLeft', model: 'assets/su33d_flap_left.glb',
-                pivot: [3.575, 0.3331, -5.0426], axis: [0.9479, -0.0173, -0.3181],
+                pivot: [3.5723, 0.3331, -5.6874], axis: [0.9558, -0.0175, -0.2937],
                 control: 'flaps', sign: -1, rangeRad: 0.5, sweepParent: 'wingFoldLeft',
             },
             {
                 role: 'flapRight', model: 'assets/su33d_flap_right.glb',
-                pivot: [-3.575, 0.3331, -5.0426], axis: [0.9479, 0.0173, 0.3181],
+                pivot: [-3.5723, 0.3331, -5.6874], axis: [0.9558, 0.0175, 0.2937],
                 control: 'flaps', sign: -1, rangeRad: 0.5, sweepParent: 'wingFoldRight',
             },
             {
                 role: 'aileronLeft', model: 'assets/su33d_aileron_left.glb',
                 // Right roll (+) lowers the left trailing edge, as the taileron does.
-                pivot: [5.1, 0.3053, -5.5544], axis: [0.9479, -0.0198, -0.3181],
+                pivot: [5.0943, 0.3053, -6.1574], axis: [0.9595, -0.0201, -0.2811],
                 control: 'roll', sign: -1, rangeRad: 0.35, sweepParent: 'wingFoldLeft',
             },
             {
                 role: 'aileronRight', model: 'assets/su33d_aileron_right.glb',
-                pivot: [-5.1, 0.3053, -5.5544], axis: [0.9479, 0.0198, 0.3181],
+                pivot: [-5.0943, 0.3053, -6.1574], axis: [0.9595, 0.0201, 0.2811],
                 control: 'roll', sign: 1, rangeRad: 0.35, sweepParent: 'wingFoldRight',
             },
             {
                 role: 'slatInnerLeft', model: 'assets/su33d_slat_inner_left.glb',
-                pivot: [2.15, 0.4658, -0.6991], axis: [0.76, -0.0228, -0.6496],
+                pivot: [2.1501, 0.4658, -1.2026], axis: [0.7782, -0.0234, -0.6276],
                 control: 'slats', sign: 1, rangeRad: 0.52,
             },
             {
                 role: 'slatInnerRight', model: 'assets/su33d_slat_inner_right.glb',
-                pivot: [-2.15, 0.4658, -0.6991], axis: [0.76, 0.0228, 0.6496],
+                pivot: [-2.1501, 0.4658, -1.2026], axis: [0.7782, 0.0234, 0.6276],
                 control: 'slats', sign: 1, rangeRad: 0.52,
             },
             {
                 role: 'slatLeft', model: 'assets/su33d_slat_left.glb',
-                pivot: [3.575, 0.423, -1.9171], axis: [0.7599, -0.0246, -0.6496],
+                pivot: [3.5723, 0.423, -2.3766], axis: [0.7637, -0.0248, -0.6452],
                 control: 'slats', sign: 1, rangeRad: 0.52, sweepParent: 'wingFoldLeft',
             },
             {
                 role: 'slatRight', model: 'assets/su33d_slat_right.glb',
-                pivot: [-3.575, 0.423, -1.9171], axis: [0.7599, 0.0246, 0.6496],
+                pivot: [-3.5723, 0.423, -2.3766], axis: [0.7637, 0.0248, 0.6452],
                 control: 'slats', sign: 1, rangeRad: 0.52, sweepParent: 'wingFoldRight',
             },
             {
                 // Nose up: canard leading edge up, against the tail.
                 role: 'canardLeft', model: 'assets/su33d_canard_left.glb',
-                pivot: [1.5, 0.45, 1.4], axis: [1, 0, 0],
+                pivot: [1.8544, 0.3449, 0.958], axis: [1, 0, 0],
                 control: 'pitch', sign: -1, rangeRad: 0.35,
             },
             {
                 role: 'canardRight', model: 'assets/su33d_canard_right.glb',
-                pivot: [-1.5, 0.45, 1.4], axis: [1, 0, 0],
+                pivot: [-1.8544, 0.3449, 0.958], axis: [1, 0, 0],
                 control: 'pitch', sign: -1, rangeRad: 0.35,
             },
             {
                 role: 'elevatorLeft', model: 'assets/su33d_stab_left.glb',
-                pivot: [0, -0.08, -7.75], axis: [1, 0, 0],
+                pivot: [0, -0.08, -8.3195], axis: [1, 0, 0],
                 control: 'stabilatorLeft', sign: 1, rangeRad: HINGE_RANGE,
             },
             {
                 role: 'elevatorRight', model: 'assets/su33d_stab_right.glb',
-                pivot: [0, -0.08, -7.75], axis: [1, 0, 0],
+                pivot: [0, -0.08, -8.3195], axis: [1, 0, 0],
                 control: 'stabilatorRight', sign: 1, rangeRad: HINGE_RANGE,
             },
             {
                 role: 'stabFoldLeft', model: 'assets/su33d_stab_fold_left.glb',
-                pivot: [2.71, -0.08, -8.0], axis: [0, 0, -1],
+                pivot: [2.7707, -0.08, -8.6249], axis: [0, 0, -1],
                 control: 'fold', sign: -1, rangeRad: Math.PI / 2, sweepParent: 'elevatorLeft',
             },
             {
                 role: 'stabFoldRight', model: 'assets/su33d_stab_fold_right.glb',
-                pivot: [-2.71, -0.08, -8.0], axis: [0, 0, 1],
+                pivot: [-2.7707, -0.08, -8.6249], axis: [0, 0, 1],
                 control: 'fold', sign: -1, rangeRad: Math.PI / 2, sweepParent: 'elevatorRight',
             },
             {
                 role: 'rudderLeft', model: 'assets/su33d_rudder_left.glb',
-                pivot: [2.0124, 0.95, -7.136], axis: [0.0019, 0.996, -0.0896],
+                pivot: [2.0124, 0.949, -7.65], axis: [0.0019, 0.9955, -0.0946],
                 control: 'yaw', sign: 1, rangeRad: HINGE_RANGE,
             },
             {
                 role: 'rudderRight', model: 'assets/su33d_rudder_right.glb',
-                pivot: [-2.0124, 0.95, -7.136], axis: [-0.0019, 0.996, -0.0896],
+                pivot: [-2.0124, 0.949, -7.65], axis: [-0.0019, 0.9955, -0.0946],
                 control: 'yaw', sign: 1, rangeRad: HINGE_RANGE,
             },
             {
