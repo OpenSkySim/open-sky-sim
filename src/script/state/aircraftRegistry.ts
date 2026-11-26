@@ -154,7 +154,9 @@ const SU33_WING_FOLD_RAD = 126 * Math.PI / 180;
  * The Su-33 (Flanker-D): an original model built in Blender by
  * tools/build_su33_blender.py (data/su33d.blend; pivots and axes below are the
  * ones it prints), then reshaped vertex by vertex to a high-detail Su-33 used as a
- * shape reference (same triangles and parts; average gap 7.7 -> 4.5 cm). All-moving canards and tailerons, split flaps and
+ * shape reference (same triangles and parts; average gap 7.7 -> 4.5 cm); nacelles
+ * refitted closer, nozzles 0.47 m longer, canards moved aft to the reference
+ * planform with their spindle at z 0.958 m. All-moving canards and tailerons, split flaps and
  * flaperons, leading-edge flaps, twin rudders, dorsal airbrake; the outer wings
  * fold at x 3.55 m and the stabilator tips at x 3.29 m (R key), with the
  * flaperons and outer leading-edge flaps riding the folding panels. It flies
@@ -174,7 +176,7 @@ export function buildSu33Def(): FlyableAircraftDef {
         cockpitOffset: [0, 1.38, 5.1],
         fx: {
             wingtips: [[7.15, 0.224, -6.3], [-7.15, 0.224, -6.3]],
-            nozzles: [[1.16, -0.13, -9.5], [-1.16, -0.13, -9.5]],
+            nozzles: [[1.16, -0.13, -10.0], [-1.16, -0.13, -10.0]],
             nozzleRadius: 0.42,
         },
         flight: { ...defaultFm2Config, gear: { ...defaultFm2Config.gear, points: gearPoints } },
@@ -244,12 +246,12 @@ export function buildSu33Def(): FlyableAircraftDef {
             {
                 // Nose up: canard leading edge up, against the tail.
                 role: 'canardLeft', model: 'assets/su33d_canard_left.glb',
-                pivot: [1.5, 0.45, 1.4], axis: [1, 0, 0],
+                pivot: [1.8544, 0.3449, 0.958], axis: [1, 0, 0],
                 control: 'pitch', sign: -1, rangeRad: 0.35,
             },
             {
                 role: 'canardRight', model: 'assets/su33d_canard_right.glb',
-                pivot: [-1.5, 0.45, 1.4], axis: [1, 0, 0],
+                pivot: [-1.8544, 0.3449, 0.958], axis: [1, 0, 0],
                 control: 'pitch', sign: -1, rangeRad: 0.35,
             },
             {
