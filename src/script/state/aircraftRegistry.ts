@@ -153,7 +153,8 @@ const SU33_WING_FOLD_RAD = 126 * Math.PI / 180;
 /**
  * The Su-33 (Flanker-D): an original model built in Blender by
  * tools/build_su33_blender.py (data/su33d.blend; pivots and axes below are the
- * ones it prints). All-moving canards and tailerons, split flaps and
+ * ones it prints), then reshaped vertex by vertex to a high-detail Su-33 used as a
+ * shape reference (same triangles and parts; average gap 7.7 -> 4.5 cm). All-moving canards and tailerons, split flaps and
  * flaperons, leading-edge flaps, twin rudders, dorsal airbrake; the outer wings
  * fold at x 3.55 m and the stabilator tips at x 3.29 m (R key), with the
  * flaperons and outer leading-edge flaps riding the folding panels. It flies
